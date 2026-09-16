@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# OS
+.DS_Store
+
+# Playwright browsers are installed globally, not vendored
+ms-playwright/
+
+# Local flow recipes are runtime artifacts (keep the example, ignore the rest)
+flows/*.json
+!flows/calc_12x34.json
