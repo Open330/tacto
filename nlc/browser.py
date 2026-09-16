@@ -160,11 +160,12 @@ class BrowserDriver:
 
     def act(self, obs_id, target, action, risk_class="none", intent_text="",
             approved=False):
-        # D6 gate parity
+        # D6 gate parity with the native driver: preapproved gates too (the
+        # driver has no view of the original request, so it fails closed).
         if risk_class == "handoff":
             return {"type": "handoff_request", "reason": intent_text}
-        if risk_class == "confirm" and not approved:
-            return {"type": "confirm_request", "what": intent_text}
+        if risk_class in ("confirm", "preapproved") and not approved:
+            return {"type": "confirm_request", "what": intent_text, "risk_class": risk_class}
         cur = self._latest.get(self._target)
         if cur is None or cur["obs_id"] != obs_id:
             return {"type": "error", "error": "stale_observation"}

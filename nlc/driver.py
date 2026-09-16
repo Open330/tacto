@@ -313,13 +313,20 @@ class Driver:
     # CGEvent input is delivered to the TARGET pid via CGEventPostToPid, not the
     # global HID tap — otherwise a background target would receive keystrokes
     # into whatever app currently holds focus (a correctness + safety bug caught
-    # in review). We still take _INPUT_LOCK because posting to a pid activates it.
+    # in review). NOTE: posting to a pid routes to the process, not necessarily
+    # to a specific window/first-responder; it does not guarantee activation.
+    # Callers should verify the effect with a postcondition rather than assume it.
 
     def _post(self, ev, pid):
-        if pid is not None and hasattr(Quartz, "CGEventPostToPid"):
+        if pid is None:
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+        elif hasattr(Quartz, "CGEventPostToPid"):
             Quartz.CGEventPostToPid(pid, ev)
         else:
-            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+            # Fail closed: do NOT silently fall back to the global tap, which is
+            # exactly the wrong-app delivery bug this method exists to prevent.
+            raise RuntimeError("CGEventPostToPid unavailable; refusing global "
+                               "input post to avoid wrong-app delivery")
 
     def _mouse_click(self, x, y, pid=None):
         with _INPUT_LOCK:
@@ -401,10 +408,14 @@ class Driver:
             target = msg["target"]
             base = self._latest.get(target.lower())
             base_lines = list(base.lines) if base else None
-            for action in msg["actions"]:
-                r = self.act(obs_id, target, action, msg.get("risk_class", "none"))
+            approvals = msg.get("approvals", {})   # {action_index: True}
+            for i, action in enumerate(msg["actions"]):
+                r = self.act(obs_id, target, action, msg.get("risk_class", "none"),
+                             approved=bool(approvals.get(i) or approvals.get(str(i))))
                 results.append(r)
-                if r["type"] == "error":
+                # Stop on an error OR a safety gate — never keep clicking past a
+                # confirm/handoff that wasn't approved (review finding).
+                if r["type"] in ("error", "confirm_request", "handoff_request"):
                     break
                 # Settle before re-checking: a UI that updates asynchronously
                 # (100-500ms later) would otherwise still show the old tree and
@@ -420,7 +431,7 @@ class Driver:
                         break
             out = {"type": "acted_batch", "results": results}
             then = msg.get("then_observe")
-            if then and results and results[-1]["type"] != "error":
+            if then and results and results[-1]["type"] == "acted":
                 out["observation"] = self.observe(target, then)
             return out
         return {"type": "error", "error": "unknown_message", "detail": str(mtype)}
