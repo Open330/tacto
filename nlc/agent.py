@@ -122,9 +122,31 @@ class Agent:
         err = next((e for e in res.log if e.get("status") == "error"), last)
         step_i = err.get("step")
         where = flow.steps[step_i].intent_text if isinstance(step_i, int) else "시작"
-        return Turn("failed",
-                    f"'{where}' 단계에서 막혔어요 ({err.get('error','오류')}). "
-                    f"화면 상태를 다시 확인해 주세요.", flow.name, err)
+        return Turn("failed", f"'{where}' 단계에서 막혔어요. {self._why(err)}",
+                    flow.name, err)
+
+    # Plain-language cause, so the user knows what to DO. The raw error can be
+    # nested under `detail` (e.g. the initial observe), so dig for it.
+    _CAUSE = {
+        "target_not_found": "그 앱이 실행되어 있지 않아요. 앱을 먼저 열어 주세요.",
+        "no_window_content": "앱 창이 보이지 않아요. 화면 잠금을 풀고 창을 띄워 주세요.",
+        "empty_tree": "앱 화면을 읽을 수 없어요. 창을 한 번 클릭해 주세요.",
+        "target_missing": "화면에서 눌러야 할 항목을 찾지 못했어요. 화면이 예상과 다른 것 같아요.",
+        "target_ambiguous": "같은 이름의 항목이 여러 개라 무엇을 눌러야 할지 모르겠어요.",
+        "precondition_failed": "눌러야 할 항목이 지금은 비활성 상태예요.",
+        "postcondition_timeout": "동작은 했는데 결과가 화면에 나타나지 않았어요.",
+        "expect_not_met": "결과가 예상과 달라요.",
+        "stale_observation": "화면이 도중에 바뀌었어요. 다시 시도해 주세요.",
+        "action_failed": "그 동작을 수행하지 못했어요.",
+    }
+
+    def _why(self, err: dict) -> str:
+        code = err.get("error")
+        if code is None:
+            d = err.get("detail")
+            if isinstance(d, dict):
+                code = d.get("error")
+        return self._CAUSE.get(code, "화면 상태를 다시 확인해 주세요.")
 
 
 if __name__ == "__main__":
