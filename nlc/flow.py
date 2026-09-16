@@ -21,6 +21,8 @@ import time
 from dataclasses import dataclass, field, asdict
 
 from . import safety
+from .contract import (SafetyContract, ContextBinding, policy,
+                       validate, describe, ApprovalToken)
 from .driver import Driver
 
 
@@ -223,8 +225,13 @@ class Step:
     expect: str | None = None         # P0 substring postcondition (kept for simple flows)
     postcondition: Postcondition | None = None   # P1 structured postcondition
     require_enabled: bool = True       # precondition: target must not be [disabled]
-    is_submit: bool = False            # context for the safety classifier
-    into_sensitive_field: bool = False # context for the safety classifier
+    is_submit: bool = False            # legacy classifier context
+    into_sensitive_field: bool = False # legacy classifier context
+    # Authored-once semantics (the model states meaning, not risk) and the facts
+    # that judgment rested on. When present these supersede `risk_class` and the
+    # legacy keyword classifier entirely.
+    safety: "SafetyContract | None" = None
+    binding: "ContextBinding | None" = None
 
 
 @dataclass
@@ -252,6 +259,23 @@ class Flow:
                 post = Postcondition(field=pf, equals=pc.get("equals"),
                                      contains=pc.get("contains"),
                                      attribute=pc.get("attribute"))
+            contract = None
+            if s.get("safety"):
+                from .contract import Resource, Destination, Evidence
+                sf = s["safety"]
+                r, dd = sf.get("resource") or {}, sf.get("destination") or {}
+                contract = SafetyContract(
+                    effects=sf.get("effects", []),
+                    data_classes=sf.get("data_classes", ["none"]),
+                    resource=Resource(**r) if r else Resource(),
+                    destination=Destination(**dd) if dd else Destination(),
+                    reversibility=sf.get("reversibility", "unknown"),
+                    commit_point=sf.get("commit_point"),
+                    evidence=[Evidence(**e) for e in sf.get("evidence", [])],
+                    unknowns=sf.get("unknowns", []))
+            binding = None
+            if s.get("binding"):
+                binding = ContextBinding(**s["binding"])
             steps.append(Step(action=s["action"], selector=sel,
                               params=s.get("params", {}),
                               risk_class=s.get("risk_class", "none"),
@@ -259,8 +283,56 @@ class Flow:
                               expect=s.get("expect"), postcondition=post,
                               require_enabled=s.get("require_enabled", True),
                               is_submit=s.get("is_submit", False),
-                              into_sensitive_field=s.get("into_sensitive_field", False)))
+                              into_sensitive_field=s.get("into_sensitive_field", False),
+                              safety=contract, binding=binding))
         return Flow(name=d["name"], target=d["target"], steps=steps)
+
+
+def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
+    """Re-derive, from the live screen, the facts the contract was judged on."""
+    import hashlib, json as _json
+    rec = step.binding
+    payload = {k: v for k, v in action.items() if k != "element_index"}
+    return ContextBinding(
+        bundle_id=flow.target if rec.bundle_id else None,
+        team_id=rec.team_id,          # signer re-check is driver work (P2)
+        role=(step.selector.role if step.selector else None) if rec.role else None,
+        identifier=(_first_id(step.selector) if step.selector else None) if rec.identifier else None,
+        ancestor=(step.selector.ancestor if step.selector else None) if rec.ancestor else None,
+        operation=step.action if rec.operation else None,
+        params_digest=(hashlib.sha256(
+            _json.dumps(payload, sort_keys=True, default=str).encode()
+        ).hexdigest()[:32]) if rec.params_digest else None,
+        resource_identity=rec.resource_identity,
+        selection_count=rec.selection_count,
+        destination_identity=rec.destination_identity,
+        label_fingerprint=(hashlib.sha256(target_line.encode()).hexdigest()[:16]
+                           if rec.label_fingerprint else None),
+        policy_version=rec.policy_version,
+    )
+
+
+def _first_id(sel) -> str | None:
+    i = getattr(sel, "identifier", None)
+    return i[0] if isinstance(i, list) and i else i
+
+
+def _approved(approvals, i, step, action) -> bool:
+    """Accept either a bound ApprovalToken (preferred) or a legacy {index: True}.
+
+    A token is checked against the step's binding and contract, so consent given
+    for one described action cannot silently authorize a different one."""
+    if not approvals:
+        return False
+    tok = approvals.get(i, approvals.get(str(i)))
+    if isinstance(tok, ApprovalToken):
+        if step.safety is None or step.binding is None:
+            return False
+        ok, _why = tok.authorizes(step.binding, step.safety)
+        if ok:
+            tok.spend()
+        return ok
+    return bool(tok)
 
 
 class ReplayResult:
@@ -318,16 +390,41 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                            detail=f"target disabled: {target_line.strip()}")
                 return res
 
-        # D6 on every replay: classify live and take the stricter of recipe vs
-        # detected risk. The classifier never lowers a recipe's declared risk.
-        detected, reason = safety.classify(
-            action, target_line, is_submit=step.is_submit,
-            into_sensitive_field=step.into_sensitive_field)
-        risk = safety.merge(step.risk_class, detected)
+        # Authorization. When the step carries an authored SafetyContract, the
+        # decision comes from the deterministic policy over that contract, and
+        # replay only re-validates the facts the judgment rested on — it never
+        # re-infers meaning, and no keyword is consulted. Steps without a
+        # contract fall back to the legacy label classifier.
+        gate_desc = step.intent_text
+        if step.safety is not None:
+            if step.binding is not None:
+                live = _live_binding(driver, flow, step, action, target_line)
+                v = validate(step.binding, live)
+                if not v.ok:
+                    # The recorded meaning no longer applies. This is NOT a
+                    # confirm — the user cannot consent to something whose
+                    # description has gone stale; it needs re-authoring.
+                    res.record(status="error", step=i, action=step.action,
+                               error="contract_invalidated", detail="; ".join(v.hard))
+                    return res
+                if v.drift:
+                    res.record(status="drift", step=i, detail="; ".join(v.drift))
+            decision = policy(step.safety)
+            risk, reason = decision.risk, decision.reason
+            gate_desc = describe(step.safety, decision)
+            if risk == "blocked":
+                res.record(status="error", step=i, action=step.action,
+                           error="unverifiable_action", detail=reason)
+                return res
+        else:
+            detected, reason = safety.classify(
+                action, target_line, is_submit=step.is_submit,
+                into_sensitive_field=step.into_sensitive_field)
+            risk = safety.merge(step.risk_class, detected)
 
         r = driver.act(obs["obs_id"], flow.target, action,
-                       risk_class=risk, intent_text=step.intent_text,
-                       approved=approvals.get(i, False))
+                       risk_class=risk, intent_text=gate_desc,
+                       approved=_approved(approvals, i, step, action))
 
         if r["type"] in ("confirm_request", "handoff_request"):
             res.record(status="gated", step=i, gate=r["type"], risk=risk,
@@ -370,16 +467,30 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
 
 def calculator_12x34() -> Flow:
     """Hand-authored flow — the codex demo as a deterministic, tokenless replay."""
+    from .contract import Resource
     KP = "CalculatorKeypadView"   # ancestor scope: keeps repeated labels unambiguous
+    # Contracts state MEANING; the deterministic policy derives authorization.
+    # No keyword is consulted anywhere on this path.
+    ENTRY = Resource(object_type="계산기 입력", scope="entry")
+    keypad = SafetyContract(effects=["write_ephemeral"], resource=ENTRY,
+                            reversibility="reversible")
+    ac = SafetyContract(effects=["delete"], resource=ENTRY,
+                        reversibility="reversible")   # clears the ENTRY -> none
+    def bind(ident):
+        return ContextBinding(bundle_id="com.apple.calculator", role="Button",
+                              identifier=ident, ancestor=KP, operation="click")
     def digit(name, d):
         return Step("click", Selector(role="Button", identifier=name, ancestor=KP),
-                    intent_text=f"{d} 버튼")
+                    intent_text=f"{d} 버튼", safety=keypad, binding=bind(name))
     return Flow(name="calc_12x34", target="com.apple.calculator", steps=[
-        Step("click", Selector(role="Button", identifier=["AllClear", "Clear"], ancestor=KP), intent_text="초기화"),
+        Step("click", Selector(role="Button", identifier=["AllClear", "Clear"], ancestor=KP),
+             intent_text="초기화", safety=ac, binding=bind("AllClear")),
         digit("One", "1"), digit("Two", "2"),
-        Step("click", Selector(role="Button", identifier="Multiply", ancestor=KP), intent_text="곱하기"),
+        Step("click", Selector(role="Button", identifier="Multiply", ancestor=KP),
+             intent_text="곱하기", safety=keypad, binding=bind("Multiply")),
         digit("Three", "3"), digit("Four", "4"),
-        Step("click", Selector(role="Button", identifier="Equals", ancestor=KP), intent_text="계산",
+        Step("click", Selector(role="Button", identifier="Equals", ancestor=KP),
+             intent_text="계산", safety=keypad, binding=bind("Equals"),
              # P1 structured postcondition: read the result field, poll until 408.
              postcondition=Postcondition(
                  field=Selector(role="ScrollArea", identifier="StandardInputView"),

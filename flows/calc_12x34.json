@@ -22,7 +22,44 @@
       "postcondition": null,
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "delete"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "AllClear",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     },
     {
       "action": "click",
@@ -41,7 +78,44 @@
       "postcondition": null,
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "One",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     },
     {
       "action": "click",
@@ -60,7 +134,44 @@
       "postcondition": null,
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "Two",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     },
     {
       "action": "click",
@@ -79,7 +190,44 @@
       "postcondition": null,
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "Multiply",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     },
     {
       "action": "click",
@@ -98,7 +246,44 @@
       "postcondition": null,
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "Three",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     },
     {
       "action": "click",
@@ -117,7 +302,44 @@
       "postcondition": null,
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "Four",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     },
     {
       "action": "click",
@@ -143,11 +365,49 @@
           "allow_nth": null
         },
         "equals": "408",
-        "contains": null
+        "contains": null,
+        "attribute": "Value"
       },
       "require_enabled": true,
       "is_submit": false,
-      "into_sensitive_field": false
+      "into_sensitive_field": false,
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "계산기 입력",
+          "object_identity": null,
+          "selection_count": null,
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none",
+          "identity": null,
+          "account": null
+        },
+        "reversibility": "reversible",
+        "commit_point": null,
+        "evidence": [],
+        "unknowns": []
+      },
+      "binding": {
+        "bundle_id": "com.apple.calculator",
+        "team_id": null,
+        "role": "Button",
+        "identifier": "Equals",
+        "ancestor": "CalculatorKeypadView",
+        "operation": "click",
+        "params_digest": null,
+        "resource_identity": null,
+        "selection_count": null,
+        "destination_identity": null,
+        "label_fingerprint": null,
+        "policy_version": 1
+      }
     }
   ]
 }

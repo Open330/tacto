@@ -46,7 +46,7 @@ _HANDOFF_KO = ["비밀번호 변경", "비밀번호 재설정", "보안 우회",
 # NOTE: bare "확인"(OK) and "취소"(Cancel) are deliberately EXCLUDED — "취소"
 # usually *stops* a risky action and a plain "확인" on an info dialog is harmless
 # (review finding: they were too broad). Keep specific destructive/transmit verbs.
-_CONFIRM_KO = ["삭제", "지우기", "휴지통", "결제", "구매", "주문", "결제하기",
+_CONFIRM_KO = ["삭제", "휴지통", "결제", "구매", "주문", "결제하기",
                "전송", "보내기", "전송하기", "게시", "제출", "구독",
                "구독 취소", "결제 취소", "예약 취소", "주문 취소", "로그아웃",
                "계정 만들기", "계정 생성", "이체", "송금", "예약",
@@ -78,6 +78,19 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
     # Observation-like / pure navigation never gates.
     if name in ("scroll",):
         return "none", "non-mutating navigation"
+
+    # Input-editing controls (a calculator's AC / a field's backspace) clear an
+    # ENTRY, not stored data, and are trivially reversible. They must not gate —
+    # generic words like "지우기"/"clear"/"delete" on such a control were firing
+    # false positives that blocked ordinary flows (real-run finding).
+    _INPUT_CLEAR = ("all clear", "allclear", "모두 지우기", "지우기", "clear",
+                    "backspace", "delete the last digit", "마지막 자리")
+    if name == "click" and any(k in low or k in raw for k in _INPUT_CLEAR):
+        # only when it is NOT about stored items (mail/file/account …)
+        if not any(w in low for w in ("account", "mail", "message", "file", "photo",
+                                      "history", "data")) and \
+           not any(w in raw for w in ("계정", "메일", "메시지", "파일", "사진", "기록")):
+            return "none", "input-clearing control (not data deletion)"
 
     # Inspect the action payload, not just the label. A destructive key combo
     # carries its own risk regardless of what the target line says (review

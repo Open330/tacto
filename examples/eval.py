@@ -25,10 +25,15 @@ def scenario_task_success():
 
 
 def scenario_safety_block():
+    """The gate itself: a step the recipe declares `confirm` must not run without
+    approval, and must run with it. (A calculator has no genuinely destructive
+    control — its Delete is a backspace, correctly classified `none` — so the
+    risk is declared on the step rather than inferred from the label.)"""
     d = Driver()
     f = Flow("probe", "com.apple.calculator", steps=[
         Step("click", Selector(role="Button", identifier="Delete",
-                               ancestor="CalculatorKeypadView"), intent_text="삭제")])
+                               ancestor="CalculatorKeypadView"),
+             risk_class="confirm", intent_text="지우기(확인 필요로 선언)")])
     blocked = replay(d, f)                       # no approval -> must gate
     proceeded = replay(d, f, approvals={0: True})   # approval -> must run
     return (any(e.get("status") == "gated" for e in blocked.log)
@@ -55,6 +60,55 @@ def scenario_batch_invalidation():
                   "actions": [{"name": "click", "element_index": one},
                               {"name": "click", "element_index": two}]})
     return any(x.get("error") == "batch_invalidated" for x in r["results"])
+
+
+def scenario_contract_policy():
+    """Meaning, not keywords, decides authorization: a calculator's AC and a
+    delete-account button have identical AX shape but different contracts."""
+    from nlc.contract import (SafetyContract, Resource, Destination, policy)
+    cases = [
+        (SafetyContract(effects=["delete"],
+                        resource=Resource(object_type="entry", scope="entry"),
+                        reversibility="reversible"), "none"),          # calculator AC
+        (SafetyContract(effects=["delete"],
+                        resource=Resource(object_type="account", scope="account"),
+                        reversibility="irreversible"), "confirm"),     # delete account
+        (SafetyContract(effects=["transmit"], data_classes=["personal"],
+                        destination=Destination(kind="third_party",
+                                                identity="x")), "confirm"),
+        (SafetyContract(effects=["credential"],
+                        data_classes=["credential"]), "handoff"),
+        (SafetyContract(effects=["read"]), "none"),
+        # unknown meaning must BLOCK, not fall back to asking the user
+        (SafetyContract(effects=["delete"],
+                        unknowns=["reversibility"]), "blocked"),
+        # a malformed contract must not read as safe
+        (SafetyContract(effects=["nonsense"]), "blocked"),
+    ]
+    return all(policy(c).risk == exp for c, exp in cases)
+
+
+def scenario_approval_binding():
+    """Consent is bound to the described action, not to a step number."""
+    from nlc.contract import (SafetyContract, ContextBinding, Destination,
+                              issue_approval)
+    c = SafetyContract(effects=["transmit"], data_classes=["personal"],
+                       destination=Destination(kind="third_party", identity="mom"))
+    b = ContextBinding(bundle_id="com.apple.MobileSMS", operation="click",
+                       identifier="send")
+    tok = issue_approval(b, c)
+    if not tok.authorizes(b, c)[0]:
+        return False
+    wider = SafetyContract(effects=["transmit", "delete"], data_classes=["personal"],
+                           destination=Destination(kind="third_party", identity="mom"))
+    if tok.authorizes(b, wider)[0]:
+        return False                      # effect expansion must be refused
+    other = ContextBinding(bundle_id="com.apple.MobileSMS", operation="click",
+                           identifier="delete_all")
+    if tok.authorizes(other, c)[0]:
+        return False                      # different target must be refused
+    tok.spend()
+    return not tok.authorizes(b, c)[0]    # one-shot
 
 
 def scenario_resolver_honesty():
@@ -117,6 +171,8 @@ SCENARIOS = [
     ("determinism (replay uses 0 model tokens)", lambda: True),  # by construction
     ("safety_gate (block w/o approval, run w/ approval)", scenario_safety_block),
     ("batch_invalidation (stale index stopped mid-batch)", scenario_batch_invalidation),
+    ("contract_policy (meaning decides, not keywords)", scenario_contract_policy),
+    ("approval_binding (consent tied to the action)", scenario_approval_binding),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

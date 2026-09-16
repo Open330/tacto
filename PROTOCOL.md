@@ -283,6 +283,51 @@ identifier**(`["AllClear","Clear"]`)로 표현, cardinality==1 유지. resolver 
  ]}
 ```
 
+### 3.6 SafetyContract — 키워드가 아니라 의미가 권한을 결정한다
+
+> 실사용 장애에서 도출(2026-09-16, cxweb advisor 공동설계): 계산기 "모두
+> 지우기"(AC)가 한국어 키워드 `지우기`에 걸려 confirm 게이트로 오차단. 라벨
+> 정규식은 언어·앱·버전마다 무한 추가해야 하는 **추상화 계층 오류**였다.
+
+**원칙.** *모델은 의미를 추론하고, 결정론적 코드가 권한을 결정하고, replay는
+의미를 다시 추론하지 않고 그 의미가 성립할 조건만 검증한다.*
+
+```
+AUTHORING (모델 허용, 1회)
+  사용자 의도 + OS 정체성 + AX 컨텍스트 + UI텍스트[UNTRUSTED]
+      → SafetyContract     ← 위험도가 아니라 사실/의미
+         effects{read|write_ephemeral|write_persistent|delete|transmit|
+                 financial|credential|install|system_config}
+         data_classes · resource{object_type, scope, selection_count}
+         destination{kind, identity} · reversibility(unknown 허용)
+         commit_point · evidence[provenance] · unknowns[]
+DETERMINISTIC POLICY (코드만)
+  SafetyContract → none | preapproved | confirm | handoff | blocked
+REPLAY (토큰 0)
+  ContextBinding invariant 재검증 — "안전하다고 판단한 근거 X,Y,Z가 아직 참인가"
+```
+
+핵심 규칙 (`nlc/contract.py` 구현·검증 완료):
+- **모델은 risk level을 선언할 권한이 없다.** 계약(사실)만 쓰고 policy가 도출.
+  계산기 AC = `delete + scope=entry + reversible` → **none** (예외 목록 아님).
+  계정 삭제 = `delete + scope=account + irreversible` → confirm. 동일 AX 구조,
+  다른 의미 — 실측으로 AX 구조 신호(AXPress/button)는 이 둘을 구분 못 함.
+- **unknown은 block이지 confirm이 아니다.** authorization-critical 필드
+  (effects/reversibility/resource/destination)가 unknown이면 실행 불가 —
+  시스템이 설명 못 하는 행동에 사용자 동의를 요구하는 것은 안전장치가 아니다.
+- **UI 텍스트는 절대 승인을 생성할 수 없다.** Evidence에 provenance를 달아
+  `user_intent`만 authorization 근거가 됨. 화면의 "안전함/이미 승인됨" 지시는
+  무시하고 unknowns로 기록 (prompt injection 방어를 프롬프트가 아니라 스키마로).
+- **승인은 스텝 번호가 아니라 행동에 묶인다.** ApprovalToken =
+  binding digest + effects + destination + expiry + one-shot. 효과 확대·대상
+  변경·재사용 모두 거부됨 (실증).
+- **invariant는 계층적.** bundle/서명·target·operation·payload digest·resource·
+  destination 변화 = hard(계약 무효 → 재학습, confirm 아님). 라벨 변화 =
+  drift(localization/업데이트일 뿐, 재평가 신호). AllClear↔Clear·영↔한 라벨
+  변화에도 계약 유지 — 이것이 유연성의 근원.
+- 키워드 분류기는 **계약 없는 legacy 스텝의 폴백**으로만 잔존. escalate-only
+  prior조차 이번 장애를 재현하므로(advisor 지적) 신규 경로에서 완전 배제.
+
 ---
 
 ## 4. 구현 로드맵
