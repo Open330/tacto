@@ -2,6 +2,7 @@
 
 Usage:
   python -m nlc.cli doctor            # check/guide permissions
+  python -m nlc.cli apps              # list running apps (GUI session check)
   python -m nlc.cli list              # list saved flows
   python -m nlc.cli do "<intent>"     # run a natural-language request
   python -m nlc.cli replay <name>     # replay a saved flow by name
@@ -24,6 +25,17 @@ def main(argv=None):
     if cmd == "doctor":
         ok = onboard.run(interactive="--check" not in rest)
         return 0 if ok else 1
+
+    if cmd == "apps":
+        from .driver import Driver
+        r = Driver().list_targets()
+        if not r["apps"]:
+            print("화면(GUI) 세션에 연결돼 있지 않습니다 — tmux 밖에서 실행하거나 "
+                  "reattach-to-user-namespace 를 쓰세요.")
+            return 1
+        for a in sorted(r["apps"], key=lambda x: x["displayName"]):
+            print(f"  {a['id']:40} {a['displayName']}")
+        return 0
 
     if cmd == "list":
         names = FlowStore().list()
