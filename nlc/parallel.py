@@ -34,9 +34,14 @@ def run_parallel(flows: list[Flow], approvals: dict[str, dict] | None = None,
     approvals = approvals or {}
     # Two flows on the SAME app would each hold their own observation registry
     # and could not see the other's mutations, so a stale index would slip past
-    # each guard (review finding). Distinct targets only.
-    targets = [f.target.lower() for f in flows]
-    dupes = {t for t in targets if targets.count(t) > 1}
+    # each guard (review finding). Compare by RESOLVED PID, not the target string
+    # — "Calculator" and "com.apple.calculator" are the same app.
+    probe = Driver()
+    pids = []
+    for f in flows:
+        pid = probe._resolve(f.target, launch=False)
+        pids.append(pid if pid is not None else f.target.lower())
+    dupes = {p for p in pids if pids.count(p) > 1}
     if dupes:
         raise ValueError(f"parallel flows must target distinct apps; shared: {dupes}")
     outcomes: list[ParallelOutcome] = []

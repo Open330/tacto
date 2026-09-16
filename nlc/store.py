@@ -1,9 +1,11 @@
 """Flow store — the recipe library that makes replay token-efficient.
 
-A flow is authored once (by a model, or by hand) and saved here as JSON. Every
-later run loads it and replays with zero model tokens. This is the concrete
-payoff of the determinism design: the library grows, the token cost per task
-trends to zero.
+A flow is authored once (by a model, or by hand) and saved here as JSON. When a
+request resolves to a stored flow, that flow's replay runs model-free (zero
+tokens). Resolving a natural-language request to the right flow is a separate
+step (see Agent.resolve) and is not guaranteed for every phrasing — a miss falls
+back to the token-spending authoring path. So the accurate claim is "a resolved
+flow's replay is model-free", not "every later run is free".
 """
 
 from __future__ import annotations

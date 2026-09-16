@@ -43,10 +43,14 @@ _P = [re.compile(p) for p in _PREAPPROVED]
 # plain substrings (the product is Korean-first — English-only regexes would
 # silently pass 결제/삭제/전송 as risk-free, a critical false negative).
 _HANDOFF_KO = ["비밀번호 변경", "비밀번호 재설정", "보안 우회", "안전하지 않"]
+# NOTE: bare "확인"(OK) and "취소"(Cancel) are deliberately EXCLUDED — "취소"
+# usually *stops* a risky action and a plain "확인" on an info dialog is harmless
+# (review finding: they were too broad). Keep specific destructive/transmit verbs.
 _CONFIRM_KO = ["삭제", "지우기", "휴지통", "결제", "구매", "주문", "결제하기",
-               "전송", "보내기", "전송하기", "게시", "제출", "확인", "구독",
-               "구독 취소", "로그아웃", "계정 만들기", "계정 생성", "이체",
-               "송금", "예약", "취소", "설치", "확장 프로그램"]
+               "전송", "보내기", "전송하기", "게시", "제출", "구독",
+               "구독 취소", "결제 취소", "예약 취소", "주문 취소", "로그아웃",
+               "계정 만들기", "계정 생성", "이체", "송금", "예약",
+               "설치", "확장 프로그램"]
 _PREAPPROVED_KO = ["로그인", "로그인하기", "업로드", "파일 선택", "이동",
                    "이름 변경", "이름변경", "허용", "나이 확인"]
 
@@ -124,10 +128,13 @@ def merge(recorded: str, classified: str) -> str:
     and the live classifier wins. A recipe can raise risk but never lower what
     the classifier detects at run time."""
     order = {"none": 0, "preapproved": 1, "confirm": 2, "handoff": 3}
-    # Unknown/garbage risk strings fail closed to the strictest level rather
-    # than raising KeyError (review finding).
-    r, c = order.get(recorded, 3), order.get(classified, 3)
-    return recorded if r >= c else classified
+    # Unknown/garbage risk strings canonicalize to the strictest KNOWN value
+    # ("handoff"), never pass through as-is — otherwise act() (which only checks
+    # the three known gated levels) would run them (review finding: returning the
+    # original string was still fail-open).
+    rc = recorded if recorded in order else "handoff"
+    cc = classified if classified in order else "handoff"
+    return rc if order[rc] >= order[cc] else cc
 
 
 # ---- richer authorization model (codex browser-safety guidance) -------------

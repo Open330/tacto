@@ -24,6 +24,15 @@ from . import safety
 from .driver import Driver
 
 
+def _norm(s: str) -> str:
+    """Normalize a string for comparison: drop Unicode format chars (Cf: bidi
+    marks etc.) and apply NFC. Applied to BOTH observed and expected values so
+    they compare symmetrically (review finding: normalization was one-sided)."""
+    import unicodedata
+    stripped = "".join(c for c in s if unicodedata.category(c) != "Cf")
+    return unicodedata.normalize("NFC", stripped)
+
+
 def _element_block(tree: str, idx: int) -> str:
     """Return the line for element `idx` plus its subtree (more-indented lines)."""
     lines = tree.splitlines()
@@ -86,12 +95,7 @@ class Selector:
         digits in) are stripped so '\\u200e408' compares equal to '408'."""
         others = "|".join(k for k in cls._ATTR_KEYS if k != key)
         m = re.search(rf"{key}:\s*(.+?)(?:,\s*(?:{others}):|\s*\[disabled\]|$)", line)
-        if not m:
-            return None
-        # drop Unicode format chars (category Cf: bidi marks, embeddings, …)
-        import unicodedata
-        return "".join(c for c in m.group(1).strip()
-                       if unicodedata.category(c) != "Cf")
+        return _norm(m.group(1).strip()) if m else None
 
     def matches(self, line: str) -> bool:
         if self.role:
@@ -101,16 +105,16 @@ class Selector:
                 return False
         if self.identifier:
             ids = [self.identifier] if isinstance(self.identifier, str) else self.identifier
-            val = self._attr(line, "Identifier")
-            if val is None or val.lower() not in [i.lower() for i in ids]:
+            val = self._attr(line, "Identifier")   # already normalized
+            if val is None or val.lower() not in [_norm(i).lower() for i in ids]:
                 return False
         if self.title:
             val = self._attr(line, "Title")
-            if val is None or val.lower() != self.title.lower():
+            if val is None or val.lower() != _norm(self.title).lower():
                 return False
         if self.desc:
             val = self._attr(line, "Description")
-            if val is None or val.lower() != self.desc.lower():
+            if val is None or val.lower() != _norm(self.desc).lower():
                 return False
         # at least one positive key required — role alone is not a selector
         return any([self.identifier, self.title, self.desc])
@@ -122,7 +126,7 @@ class Selector:
         settings' (review finding)."""
         if not self.ancestor:
             return True
-        want = self.ancestor.lower()
+        want = _norm(self.ancestor).lower()
         indent = len(lines[line_no]) - len(lines[line_no].lstrip())
         for j in range(line_no - 1, -1, -1):
             prev = lines[j]
@@ -169,12 +173,23 @@ class Postcondition:
     `contains` is an explicit substring test. A postcondition with neither is
     unverifiable and checks False rather than silently passing (review finding)."""
     field: Selector | None = None     # None = assert against the whole tree
-    equals: str | None = None         # exact attribute-value match on the field
+    equals: str | None = None         # exact attribute-value match
     contains: str | None = None       # explicit substring (field block, or tree)
+    attribute: str | None = None      # narrow `equals` to one attribute (e.g.
+                                      # "Value"); None = any of _ATTR_KEYS
+
+    def _attr_values(self, block: str):
+        keys = [self.attribute] if self.attribute else Selector._ATTR_KEYS
+        for ln in block.splitlines():
+            for k in keys:
+                v = Selector._attr(ln, k)
+                if v is not None:
+                    yield v
 
     def check(self, tree: str) -> bool:
         if self.equals is None and self.contains is None:
             return False   # nothing to verify -> not satisfied
+        want = _norm(self.equals) if self.equals is not None else None
         if self.field is not None:
             try:
                 idx, _ = self.field.resolve(tree)
@@ -183,21 +198,15 @@ class Postcondition:
             # Read the field's own line plus its subtree (deeper indent): AX
             # values commonly live on a child StaticText, not the container line.
             block = _element_block(tree, idx)
-            if self.equals is not None:
-                # exact: some attribute value in the block equals `equals`
-                vals = []
-                for ln in block.splitlines():
-                    for k in Selector._ATTR_KEYS:
-                        v = Selector._attr(ln, k)
-                        if v is not None:
-                            vals.append(v)
-                if not any(v == self.equals for v in vals):
-                    return False
+            if want is not None and not any(v == want for v in self._attr_values(block)):
+                return False
             if self.contains is not None and self.contains not in block:
                 return False
             return True
-        # whole-tree assertion
-        if self.equals is not None and self.equals not in tree:
+        # whole-tree assertion. `equals` is still EXACT: some element's attribute
+        # value equals it (not a substring of the raw tree — '408' must not match
+        # '1408' just because the digits appear somewhere; review finding).
+        if want is not None and not any(v == want for v in self._attr_values(tree)):
             return False
         if self.contains is not None and self.contains not in tree:
             return False
@@ -373,7 +382,7 @@ def calculator_12x34() -> Flow:
              # P1 structured postcondition: read the result field, poll until 408.
              postcondition=Postcondition(
                  field=Selector(role="ScrollArea", identifier="StandardInputView"),
-                 equals="408")),
+                 equals="408", attribute="Value")),
     ])
 
 
