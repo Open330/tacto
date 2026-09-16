@@ -156,21 +156,45 @@ class Driver:
             })
         return {"type": "targets", "apps": apps}
 
-    def _resolve(self, target: str, launch=True):
+    @staticmethod
+    def _pump(seconds: float = 0.25):
+        """Let NSWorkspace refresh its app list.
+
+        `runningApplications()` is a cached snapshot updated by notifications
+        delivered on the run loop. A plain script never runs one, so an app
+        launched a moment ago stays invisible forever — which looked exactly
+        like "the app isn't running" even while `pgrep` could see it (real user
+        report). Draining the run loop briefly is what makes the list current.
+        """
+        try:
+            from Foundation import NSRunLoop, NSDate
+            NSRunLoop.currentRunLoop().runUntilDate_(
+                NSDate.dateWithTimeIntervalSinceNow_(seconds))
+        except Exception:
+            pass
+
+    def _resolve(self, target: str, launch=True, _pumped=False):
         want = target.lower()
         for app in NSWorkspace.sharedWorkspace().runningApplications():
             bid = (app.bundleIdentifier() or "").lower()
             name = (app.localizedName() or "").lower()
             if want in (bid, name):
                 return int(app.processIdentifier())
+        if not _pumped:
+            # The snapshot may simply be stale — refresh before concluding the
+            # app is absent, and before paying to launch it.
+            self._pump()
+            pid = self._resolve(target, launch=False, _pumped=True)
+            if pid is not None:
+                return pid
         if launch:
             # Like Codex's get_app_state: launch in background transparently.
             flag = "-b" if "." in target else "-a"
             subprocess.run(["open", "-g", flag, target], check=True)
             deadline = time.time() + 10
             while time.time() < deadline:
-                time.sleep(0.3)
-                pid = self._resolve(target, launch=False)
+                self._pump(0.3)        # pump, don't just sleep, or we never see it
+                pid = self._resolve(target, launch=False, _pumped=True)
                 if pid is not None:
                     time.sleep(0.7)   # let the UI build before first capture
                     return pid

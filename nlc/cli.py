@@ -123,11 +123,15 @@ def main(argv=None):
         # STAGE 1 only: natural language -> Flow IR. Spends model tokens;
         # writes the recipe and stops. Nothing on screen is touched.
         if not rest:
-            print('usage: compile "<intent>" [-o <flow.json>] [--provider cxweb]')
+            from .authoring import PROVIDER_ORDER
+            print('usage: compile "<intent>" [-o <flow.json>] '
+                  '[--compile-engine claude|codex|gemini|cxweb]')
+            print('  기본 auto — 시도 순서: ' + ' -> '.join(PROVIDER_ORDER))
             return 2
         out = provider = None
         words = list(rest)
-        for flag, setter in (("-o", "out"), ("--provider", "provider")):
+        for flag, setter in (("-o", "out"), ("--provider", "provider"),
+                             ("--compile-engine", "provider"), ("--engine", "provider")):
             if flag in words:
                 k = words.index(flag)
                 val = words[k + 1] if k + 1 < len(words) else None
@@ -140,7 +144,7 @@ def main(argv=None):
         from .driver import Driver as _D
         from .authoring import author as _author
         from .store import FlowStore as _FS
-        print(f"  🧠 '{intent}' 를 배우는 중… (모델 사용)")
+        print(f"  🧠 '{intent}' 를 배우는 중… (엔진: {provider or 'auto'})")
         flow = _author(intent, _D(), provider=provider or "auto")
         if out:
             with open(out, "w", encoding="utf-8") as fh:
@@ -229,6 +233,12 @@ def main(argv=None):
         return 0 if r.ok else 1
 
     if cmd == "do":
+        # A path where an intent was expected is a recipe, not a sentence —
+        # run it rather than failing to resolve it as natural language.
+        import os as _os
+        if rest and _os.path.exists(rest[0]) and rest[0].endswith(".json"):
+            print("  (" + rest[0] + " 은 IR 파일이라 바로 실행합니다)")
+            return main(["run"] + rest)
         intent = " ".join(rest)
         # gate on permissions first — the beginner path
         if not onboard.run(interactive=False, narrate=lambda s: None):
