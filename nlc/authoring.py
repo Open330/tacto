@@ -47,6 +47,15 @@ Output ONLY JSON of this shape, no prose:
                    "attribute": "Value"}}
 The postcondition's `attribute` names WHICH attribute holds the answer — almost
 always "Value" (Description/Help are labels for the field, not its content).
+
+Every `type_text` / `press_key` step MUST carry its own verification, because
+delivering a keystroke proves nothing about the app accepting it. Give such a
+step either:
+  "expect": "<text that must then appear on screen>"
+or, when the effect genuinely cannot be observed:
+  "unverified_ok": true
+Prefer clicking a specific control over typing when the app offers one — a
+button press is verifiable through the control itself.
 You state what each action MEANS — never a risk level. A deterministic policy
 derives authorization from your contract; you do not decide it.
 Rules: prefer identifier over title. Use ancestor to disambiguate repeated labels.
@@ -163,6 +172,9 @@ def _to_flow(spec: dict) -> Flow:
                           params=s.get("params", {}),
                           intent_text=s.get("intent_text", ""),
                           risk_class=s.get("risk_class", "none"),
+                          expect=s.get("expect"),
+                          unverified_ok=bool(s.get("unverified_ok")),
+                          for_each=s.get("for_each"),
                           safety=contract))
     if steps and spec.get("postcondition"):
         pc = spec["postcondition"]
@@ -209,6 +221,18 @@ def author(intent: str, driver: Driver, target: str | None = None,
               f"# 대상 앱 bundle id\n{target}\n\n# 접근성 트리\n{obs['tree']}")
     spec = _extract_json(_ask_model(prompt, provider))
     flow = _to_flow(spec)
+    # A recipe that cannot verify its own typing would be refused at run time,
+    # which is a confusing way to learn the model forgot something. Give such a
+    # step the obvious check — the typed text should appear — at compile time.
+    for st in flow.steps:
+        if st.action in ("type_text", "press_key") and \
+                st.postcondition is None and st.expect is None and not st.unverified_ok:
+            typed = st.params.get("text")
+            if st.action == "type_text" and isinstance(typed, str) and typed.strip():
+                st.expect = typed
+            else:
+                st.unverified_ok = True
+
     # sanity: every selector must resolve uniquely against the tree we showed
     from .flow import TargetMissing, TargetAmbiguous
     for i, st in enumerate(flow.steps):
