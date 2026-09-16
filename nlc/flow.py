@@ -406,6 +406,10 @@ class Step:
     # oscillate is not deterministic in any useful sense, so a step may state the
     # condition it exists to bring about and stand down when it already holds.
     skip_if: "Postcondition | None" = None
+    # Is the value this step verifies the ANSWER to the request, or just proof
+    # that the step landed? A calculator's 408 is an answer; the bold checkbox's
+    # "1" is not, and reporting it made "굵게 해줘" reply "결과는 1 입니다".
+    answers: bool = False
 
 
 @dataclass
@@ -503,7 +507,7 @@ class Flow:
                                   attribute=s["capture"].get("attribute", "Value"),
                                   sensitive=bool(s["capture"].get("sensitive")))
                                   if s.get("capture") else None),
-                              skip_if=skip_if))
+                              skip_if=skip_if, answers=s.get("answers", False)))
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=d.get("schema", 1),   # older files predate contracts
                     params=d.get("params", {}), tables=d.get("tables", {}),
@@ -593,7 +597,7 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 into_sensitive_field=st.into_sensitive_field,
                 safety=safety, binding=binding,
                 unverified_ok=st.unverified_ok, capture=st.capture,
-                skip_if=render_post(st.skip_if))
+                skip_if=render_post(st.skip_if), answers=st.answers)
 
 
 def _live_binding(driver, flow, step, action, target_line,
@@ -895,8 +899,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # tell the user the ANSWER — not just that something finished. A
         # calculator run that reports "done" without saying 408 has not really
         # answered the question that was asked.
+        # Only a step that says it answers publishes a value. Everything is
+        # still verified either way; this decides what gets said out loud.
         result_value = None
-        if post is not None and post.field is not None and obs.get("tree"):
+        if step.answers and post is not None and post.field is not None \
+                and obs.get("tree"):
             try:
                 fidx, _ = post.field.resolve(obs["tree"])
                 block = _element_block(obs["tree"], fidx)
@@ -980,7 +987,7 @@ def calculator_multiply() -> Flow:
                  intent_text="곱하기", safety=keypad),
             digits_of("b", "둘째 수"),
             Step("click", Selector(role="Button", identifier="Equals", ancestor=KP),
-                 intent_text="계산", safety=keypad,
+                 intent_text="계산", safety=keypad, answers=True,
                  postcondition=Postcondition(
                      field=Selector(role="ScrollArea", identifier="StandardInputView"),
                      equals="{{result}}", attribute="Value")),
@@ -1013,6 +1020,7 @@ def calculator_12x34() -> Flow:
         digit("Three", "3"), digit("Four", "4"),
         Step("click", Selector(role="Button", identifier="Equals", ancestor=KP),
              intent_text="계산", safety=keypad, binding=bind("Equals"),
+             answers=True,
              # P1 structured postcondition: read the result field, poll until 408.
              postcondition=Postcondition(
                  field=Selector(role="ScrollArea", identifier="StandardInputView"),

@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-29%2F29_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-30%2F30_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -281,10 +281,10 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `29/29 PASS`
+## 검증 상태 — `30/30 PASS`
 
 ```bash
-./launcher/nlc eval      # 권한 경계까지 포함해 전부 (29/29)
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (30/30)
 uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
 ```
 
@@ -300,6 +300,7 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
   PASS  consent_is_about_the_file   A를 승인했는데 B를 적으면 거부
   PASS  helper_menu             메뉴 명령이 권한 경계를 넘어감
   PASS  answers_a_question      조작 대신 화면을 읽어 대답
+  PASS  builtin_is_not_frozen   함께 배포되는 레시피는 저장본이 아니라 코드에서
   PASS  intent_parameters       값은 요청에서 뽑아냄 (폴더마다 레시피 X)
   …  그리고 결정론·계약·트레이스·경계 등 기존 19개
 ```
@@ -334,7 +335,9 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
       "selector": { "role": "Button", "identifier": "Equals",
                     "ancestor": "CalculatorKeypadView" },
       "intent_text": "계산",
-      "postcondition": { "field_identifier": "StandardInputView",
+      "answers": true,                                  // 이 값이 사용자가 물은 답
+      "postcondition": { "field": { "role": "ScrollArea",
+                                    "identifier": "StandardInputView" },
                          "equals": "{{result}}",           // 결과 검증 (D7)
                          "attribute": "Value" } }
   ]

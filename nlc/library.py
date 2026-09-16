@@ -82,7 +82,7 @@ def calc_arith() -> Flow:
                  intent_text="{{op}} 를 누릅니다", safety=keypad),
             digits_of("b", "두 번째 수"),
             Step("click", Selector(role="Button", identifier="Equals", ancestor=KP),
-                 intent_text="계산합니다", safety=keypad,
+                 intent_text="계산합니다", safety=keypad, answers=True,
                  postcondition=Postcondition(
                      field=Selector(role="ScrollArea",
                                     identifier="StandardInputView"),
@@ -175,6 +175,7 @@ def textedit_write_note() -> Flow:
                                         operation="set_value",
                                         params_digest=pin_params(
                                             {"value": "{{text}}"})),
+                 answers=True,
                  postcondition=Postcondition(field=TEXT_AREA, equals="{{text}}",
                                              attribute="Value")),
         ])
@@ -304,6 +305,7 @@ def textedit_save_as() -> Flow:
                                         resource_identity_from={
                                             **asdict(name_field),
                                             "attribute": "Value"}),
+                 answers=True,
                  postcondition=Postcondition(equals="{{filename}}",
                                              attribute="Title")),
         ])

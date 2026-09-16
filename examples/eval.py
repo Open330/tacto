@@ -513,6 +513,24 @@ def scenario_menu_path_pinned():
                               for e in r.log)
 
 
+def scenario_builtin_is_not_frozen():
+    """A recipe that ships with NLC comes from the code, not from a cached copy.
+
+    The store used to win once a name had been saved, so every built-in froze at
+    whatever it looked like the first time it ran — fixes shipped in the library
+    never reached the command people type."""
+    from nlc.agent import Agent
+    from nlc.library import builders
+    from nlc.store import FlowStore
+    store = FlowStore()
+    stale = builders()["finder_open_folder"]()
+    stale.steps[0].intent_text = "낡은 사본"
+    store.save(stale)
+    agent = Agent(store=store)
+    agent.handle("문서 폴더 열어줘")
+    return store.load("finder_open_folder").steps[0].intent_text != "낡은 사본"
+
+
 def scenario_answers_a_question():
     """Some requests want an answer, not an action.
 
@@ -718,6 +736,8 @@ SCENARIOS = [
      scenario_menu_path_pinned),
     ("answers_a_question (reads the screen back instead of acting)",
      scenario_answers_a_question),
+    ("builtin_is_not_frozen (shipped recipes come from the code)",
+     scenario_builtin_is_not_frozen),
     ("consent_required (a save does not run on its own authority)",
      scenario_consent_required),
     ("save_file (menu → sheet → field → consequential click)", scenario_save_file),
