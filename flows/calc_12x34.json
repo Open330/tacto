@@ -1,6 +1,7 @@
 {
   "name": "calc_12x34",
   "target": "com.apple.calculator",
+  "schema": 2,
   "steps": [
     {
       "action": "click",
@@ -109,7 +110,7 @@
         "bundle_id": "com.apple.calculator",
         "team_id": null,
         "role": "Button",
-        "identifier": null,
+        "identifier": "{{digit[item]}}",
         "ancestor": "CalculatorKeypadView",
         "operation": "click",
         "params_digest": null,
@@ -227,7 +228,7 @@
         "bundle_id": "com.apple.calculator",
         "team_id": null,
         "role": "Button",
-        "identifier": null,
+        "identifier": "{{digit[item]}}",
         "ancestor": "CalculatorKeypadView",
         "operation": "click",
         "params_digest": null,

@@ -68,7 +68,12 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String], elements: inout [A
 
 // MARK: - Session state
 
-var observations: [String: [AXUIElement]] = [:]   // obs_id -> elements
+// Only the newest observation is actionable. Keeping every obs_id valid forever
+// would let a caller act on a tree captured before the UI changed — the same
+// staleness rule the Python driver enforces has to hold here too, or routing
+// through the helper would weaken it (advisor finding).
+var latestObsID: String = ""
+var latestElements: [AXUIElement] = []
 
 func pid(forBundle bundle: String) -> pid_t? {
     for app in NSWorkspace.shared.runningApplications {
@@ -98,7 +103,8 @@ func observe(_ target: String) -> [String: Any] {
     var elements: [AXUIElement] = []
     for w in windows { walk(w, depth: 0, out: &lines, elements: &elements) }
     let obsID = "s" + UUID().uuidString.prefix(8)
-    observations[obsID] = elements
+    latestObsID = obsID
+    latestElements = elements
     return ["type": "observation", "obs_id": obsID, "target": target,
             "tree": lines.joined(separator: "\n"), "element_count": elements.count]
 }
@@ -115,9 +121,11 @@ let eventSource: CGEventSource? = {
 }()
 
 func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String: Any] {
-    guard let elements = observations[obsID] else {
-        return ["type": "error", "error": "stale_observation"]
+    guard obsID == latestObsID else {
+        return ["type": "error", "error": "stale_observation",
+                "detail": "observe again and re-derive element_index"]
     }
+    let elements = latestElements
     guard let p = pid(forBundle: target) else {
         return ["type": "error", "error": "target_not_found"]
     }
@@ -197,6 +205,18 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                    msg["action"] as? [String: Any] ?? [:])
     default:
         return ["type": "error", "error": "unknown_message"]
+    }
+}
+
+// The helper holds the permissions, so it must not be a general-purpose remote:
+// it serves exactly one client — the process that spawned it — and exits when
+// that process goes away. It speaks only over the stdio pair it was launched
+// with, never a socket, so there is no channel for another process to reach.
+let parentPID = getppid()
+DispatchQueue.global().async {
+    while true {
+        Thread.sleep(forTimeInterval: 1.0)
+        if getppid() != parentPID || parentPID <= 1 { exit(0) }
     }
 }
 

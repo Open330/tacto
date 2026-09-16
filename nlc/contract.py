@@ -141,6 +141,24 @@ class Decision:
     # safety control — there is nothing meaningful to consent to.
 
 
+def _covers(scope: list[Evidence], contract: "SafetyContract") -> bool:
+    """Does the user's own stated intent actually cover this action?
+
+    Pre-approval means the request named the thing. Evidence read off the screen
+    can describe what a control does, but it can never be the reason we are
+    allowed to press it — so only `user_intent` evidence counts, and it has to
+    mention the effect and, when data leaves, the destination."""
+    if not scope:
+        return False
+    said = " ".join(e.value.lower() for e in scope)
+    if not any(eff in said for eff in contract.effects):
+        return False
+    dest = contract.destination.identity
+    if contract.destination.kind == "third_party" and dest:
+        return dest.lower() in said
+    return True
+
+
 def policy(c: SafetyContract) -> Decision:
     """SafetyContract -> authorization level. Deterministic; no model, no tokens."""
     problems = c.problems()
@@ -166,6 +184,9 @@ def policy(c: SafetyContract) -> Decision:
                         "financial effect")
     if "transmit" in eff and c.destination.kind == "third_party":
         return Decision("confirm", f"sends {sorted(data)} to {c.destination.identity or 'a third party'}")
+    # Everything below may reach `preapproved`; that level exists only when the
+    # user's own words cover the action, so check the evidence rather than
+    # trusting the label (advisor finding: provenance was decorative).
     if "install" in eff:
         return Decision("confirm", "installs or runs new software")
 
@@ -184,7 +205,9 @@ def policy(c: SafetyContract) -> Decision:
 
     if "write_persistent" in eff:
         if c.destination.kind in ("none", "same_app") and data <= {"none"}:
-            return Decision("preapproved", "stores non-sensitive data in the same app")
+            if _covers(c.authorization_scope(), c):
+                return Decision("preapproved", "user's request covers this write")
+            return Decision("confirm", "stores data — the request did not name it")
         return Decision("confirm", "persists data beyond the session")
 
     if eff <= {"read"}:
@@ -232,10 +255,14 @@ class ContextBinding:
 class Validation:
     hard: list[str] = field(default_factory=list)   # meaning no longer applies
     drift: list[str] = field(default_factory=list)  # re-evaluation advisable
+    unverifiable: list[str] = field(default_factory=list)  # pinned but unobservable
 
     @property
     def ok(self) -> bool:
-        return not self.hard
+        # An invariant we pinned but cannot re-observe is not a pass. Treating
+        # it as one is how a recorded resource/destination silently "stayed the
+        # same" forever (advisor finding): fail closed and say which field.
+        return not self.hard and not self.unverifiable
 
 
 def validate(recorded: ContextBinding, live: ContextBinding) -> Validation:
@@ -246,6 +273,9 @@ def validate(recorded: ContextBinding, live: ContextBinding) -> Validation:
     for f in ContextBinding.HARD_FIELDS:
         want, got = getattr(recorded, f), getattr(live, f)
         if want is None:            # not pinned at authoring time
+            continue
+        if got is None:             # pinned, but nothing re-observed it
+            v.unverifiable.append(f)
             continue
         if got != want:
             v.hard.append(f"{f}: {want!r} -> {got!r}")

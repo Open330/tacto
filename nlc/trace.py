@@ -21,8 +21,44 @@ verbatim on another machine, and a fixed flow can be regression-tested in CI.
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 from dataclasses import dataclass, field
+
+# A trace records what was on screen, which is the point — and also the risk: an
+# accessibility tree can contain messages, account numbers, names and anything
+# typed into a form. Traces are written redacted and owner-only by default, and
+# a caller that genuinely needs the raw values has to ask for them.
+_SECRETY = re.compile(
+    r"(비밀번호|비번|카드\s*번호|주민등록번호|주민번호|인증번호|계좌|"
+    r"password|passcode|otp|cvv|ssn|account\s*number|token|secret|api[_ ]?key)",
+    re.IGNORECASE)
+_LONG_DIGITS = re.compile(r"\b\d[\d ,\-]{7,}\b")      # card/account-like runs
+
+
+def _redact_text(text: str) -> str:
+    out = []
+    for line in text.splitlines():
+        if _SECRETY.search(line):
+            # keep the structure (role, identifier) so selectors stay debuggable,
+            # drop the value
+            out.append(re.sub(r"(Value|Title|Description):\s*[^,]*",
+                              r"\1: [redacted]", line))
+        else:
+            out.append(_LONG_DIGITS.sub("[redacted]", line))
+    return "\n".join(out)
+
+
+def _redact(obj):
+    if isinstance(obj, dict):
+        return {k: ("[redacted]" if k in ("text", "value") and isinstance(v, str)
+                    else _redact(v)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    if isinstance(obj, str):
+        return _redact_text(obj)
+    return obj
 
 
 @dataclass
@@ -49,9 +85,18 @@ class Trace:
         t.events = d.get("events", [])
         return t
 
-    def save(self, path: str) -> str:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(self.to_json())
+    def save(self, path: str, redact: bool = True) -> str:
+        """Write the trace. Redacted and owner-only unless told otherwise —
+        sharing a trace to debug a failure should not mean sharing a mailbox."""
+        payload = self.to_json()
+        if redact:
+            d = json.loads(payload)
+            d["events"] = _redact(d["events"])
+            d["redacted"] = True
+            payload = json.dumps(d, ensure_ascii=False, indent=2)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(payload)
         return path
 
 
