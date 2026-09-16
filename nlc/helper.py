@@ -33,61 +33,49 @@ class HelperUnavailable(RuntimeError):
     pass
 
 
-BROKER = os.path.join(_ROOT, "broker", "nlc-broker")
+class InheritedHelperDriver:
+    """Speak L2 over the socket the signed launcher handed us.
 
+    Python never connects to the helper itself — a shared interpreter cannot be
+    authenticated, since it looks the same whoever runs it — and it never learns
+    the helper's address. The launcher is the peer the helper authenticates, it
+    vets every message, and it passes this end of a socketpair as fd 3. There is
+    no way to obtain this channel other than being the launcher's child."""
 
-class BrokeredHelperDriver:
-    """Talk to the helper through the signed broker.
+    FD_ENV = "NLC_HELPER_FD"
 
-    Python is not a peer the OS can distinguish — a shared interpreter looks the
-    same whoever runs it — so it does not connect to the helper at all. The
-    broker does, and the helper authenticates the broker's audit token. The
-    broker in turn accepts only well-formed L2 messages, so being signed is not
-    a licence to relay anything (which would just move the deputy problem)."""
+    @classmethod
+    def available(cls) -> bool:
+        return os.environ.get(cls.FD_ENV) is not None
 
-    def __init__(self, socket_path: str = "/tmp/nlc-helper.sock",
-                 helper: str = HELPER, broker: str = BROKER):
-        if not os.path.exists(broker):
-            raise HelperUnavailable(f"{broker} 이 없습니다. broker/build.sh 로 빌드하세요.")
-        self._helper_proc = None
-        if not os.path.exists(socket_path):
-            self._helper_proc = subprocess.Popen(
-                [helper, "--listen", socket_path],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            for _ in range(50):
-                if os.path.exists(socket_path):
-                    break
-                time.sleep(0.1)
-        if not os.path.exists(socket_path):
-            raise HelperUnavailable("도우미 소켓이 열리지 않았습니다")
-        self._proc = subprocess.Popen(
-            [broker, "--helper-socket", socket_path],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, bufsize=1)
+    def __init__(self):
+        fd = os.environ.get(self.FD_ENV)
+        if fd is None:
+            raise HelperUnavailable(
+                "권한 채널이 없습니다 — 서명된 런처로 실행하세요:  ./launcher/nlc <명령>")
+        import socket as _s
+        self._sock = _s.socket(fileno=int(fd))
+        self._f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
         self._last_action_at = 0.0
         pong = self._send({"type": "ping"})
-        if pong.get("error") == "peer_not_authorized":
-            raise HelperUnavailable(f"도우미가 broker를 거부했습니다: {pong.get('detail','')}")
         if pong.get("type") != "pong":
             raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
         if not pong.get("trusted"):
-            raise HelperUnavailable("도우미에 접근성 권한이 없습니다")
+            raise HelperUnavailable(
+                "도우미에 접근성 권한이 없습니다 — 시스템 설정에서 'NLC Helper' 를 켜주세요")
 
     def close(self):
         try:
-            self._proc.stdin.close(); self._proc.wait(timeout=2)
+            self._f.flush()
         except Exception:
-            self._proc.kill()
-        if self._helper_proc is not None:
-            self._helper_proc.terminate()
+            pass
 
     def _send(self, msg: dict) -> dict:
-        self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
-        self._proc.stdin.flush()
-        line = self._proc.stdout.readline()
+        self._f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        self._f.flush()
+        line = self._f.readline()
         if not line:
-            err = (self._proc.stderr.read() if self._proc.stderr else "") or ""
-            raise HelperUnavailable(f"broker 연결이 끊어졌습니다: {err.strip()[:200]}")
+            raise HelperUnavailable("권한 채널이 닫혔습니다")
         return json.loads(line)
 
 
@@ -248,4 +236,4 @@ class HelperDriver:
 for _name in ("identity", "list_targets", "observe", "act", "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(SocketHelperDriver, _name, impl)
-    setattr(BrokeredHelperDriver, _name, impl)
+    setattr(InheritedHelperDriver, _name, impl)

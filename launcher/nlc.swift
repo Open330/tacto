@@ -1,34 +1,35 @@
-// nlc — the signed entry point, and the only client the helper will talk to.
+// nlc — the signed entry point, the trust anchor, and the only thing that talks
+// to the privileged helper.
 //
-// A signed binary is not automatically a security principal. If it simply
-// relayed whatever it was handed to a privileged helper, an attacker would run
-// IT instead and the deputy problem would come straight back (advisor).
+// Three properties, each of which was missing at some point and put back after
+// review:
 //
-// So this launcher deliberately does ONE thing: it runs the NLC command line on
-// a fixed interpreter and a fixed package directory, both baked in at build
-// time. It does not take a script path, an interpreter override, an eval flag,
-// or environment that could redirect what executes. What a caller can express
-// through it is the NLC command surface — flows, which are declarative data
-// evaluated against a safety policy and shown on screen while they run — not
-// arbitrary code with the accessibility grant behind it.
+// 1. It is a PRINCIPAL, not a relay someone else can drive. An earlier design
+//    had a separate signed broker; any process could run that broker and feed
+//    it well-formed JSON, and the helper — which only asks "is this the broker
+//    binary?" — accepted. So the privileged channel lives here, in the process
+//    that is already the trust anchor, and the child receives it as an
+//    INHERITED socket it cannot obtain any other way.
 //
-// What this closes: another process can no longer drive the helper directly,
-// because the helper requires its client to satisfy a code requirement that
-// only this binary meets.
+// 2. It is NARROW. Being signed is not a licence to forward anything: only the
+//    L2 vocabulary passes, every field is checked by name and type, and the AX
+//    action names that reach AXUIElementPerformAction are enumerated. Nothing
+//    that crosses can carry a path, a command or a URL.
 //
-// What it does not close, stated plainly: someone who can run this launcher can
-// still run flows. Flows are constrained (policy-gated, visible, interruptible),
-// but they are not nothing. A flow's own contract is written by whoever wrote
-// the flow, so policy protects a user from a mistaken recipe — not from a local
-// attacker writing a dishonest one. The defence there is that the helper makes
-// every read and every action visible and stoppable.
+// 3. It cannot be redirected. The interpreter and module are fixed, resolved
+//    from the real executable path (not argv[0], which the caller chooses), run
+//    isolated so the caller's directory is not on sys.path, with an allowlisted
+//    environment and a fixed PATH.
+//
+// What running this still buys a caller is the NLC command surface — flows,
+// which are declarative, policy-checked, shown on screen and interruptible —
+// not raw control of the accessibility API.
 
 import Foundation
+import Darwin
 
-// The REAL path of this binary, from the kernel — not `CommandLine.arguments[0]`,
-// which is whatever argv[0] the caller chose to pass. Trusting argv[0] let a
-// caller point the launcher at their own .venv, which would have made the signed
-// launcher the ancestor of their Python (advisor finding: a direct bypass).
+// MARK: - Where we are
+
 func executablePath() -> String {
     var size = UInt32(4096)
     var buf = [CChar](repeating: 0, count: Int(size))
@@ -41,11 +42,11 @@ guard !exe.path.isEmpty else {
     FileHandle.standardError.write(Data("nlc: 실행 경로를 확인하지 못했습니다\n".utf8))
     exit(2)
 }
-let root = exe
-    .deletingLastPathComponent()      // launcher/
-    .deletingLastPathComponent()      // repo root
+let root = exe.deletingLastPathComponent().deletingLastPathComponent()
 let python = root.appendingPathComponent(".venv/bin/python")
-let module = "nlc.cli"
+let helperBin = root.appendingPathComponent(
+    "helper/NLC Helper.app/Contents/MacOS/NLCHelper")
+let helperBare = root.appendingPathComponent("helper/nlc-helper")
 
 guard FileManager.default.isExecutableFile(atPath: python.path) else {
     FileHandle.standardError.write(Data(
@@ -53,35 +54,220 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
     exit(2)
 }
 
-let proc = Process()
-proc.executableURL = python
-// `-I` (isolated): without it `python -m` puts the CALLER's working directory
-// first on sys.path, so "a fixed module" would not mean fixed code — a file
-// named nlc.py beside the caller would win. -I also drops PYTHON* environment
-// and the user site directory.
-proc.arguments = ["-I", "-m", module] + Array(CommandLine.arguments.dropFirst())
-proc.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+// MARK: - Message vetting
 
-// Allowlist, not denylist. Chasing individual dangerous variables means missing
-// one; starting empty and adding what is needed cannot (advisor finding).
-// Absolute paths are used for the few tools NLC shells out to, so an inherited
-// PATH cannot shadow them.
-let allowed = ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
-               "SSL_CERT_FILE", "TERM"]
+let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act"]
+let allowedActions: Set<String> = ["click", "set_value", "type_text",
+                                   "press_key", "scroll", "secondary_action"]
+// An AX action name goes straight to AXUIElementPerformAction, so it is an
+// escape hatch unless enumerated.
+let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
+                                     "AXDecrement", "AXConfirm", "AXCancel"]
+let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode"]
+
+func isInt(_ v: Any) -> Bool {
+    // CFBoolean bridges to NSNumber, so a bare NSNumber test would let `true`
+    // through where an index is expected.
+    guard let n = v as? NSNumber else { return false }
+    return CFGetTypeID(n) != CFBooleanGetTypeID()
+}
+
+func vetted(_ msg: [String: Any]) -> String? {
+    guard let type = msg["type"] as? String else { return "type 없음" }
+    guard allowedTypes.contains(type) else { return "허용되지 않은 type: \(type)" }
+    for key in msg.keys where !topLevelKeys.contains(key) {
+        return "허용되지 않은 최상위 필드: \(key)"
+    }
+    if type == "observe" {
+        guard msg["target"] is String else { return "observe 에 target 없음" }
+    }
+    if type == "act" {
+        guard msg["obs_id"] is String, msg["target"] is String,
+              let action = msg["action"] as? [String: Any],
+              let name = action["name"] as? String else { return "act 형식 오류" }
+        guard allowedActions.contains(name) else { return "허용되지 않은 action: \(name)" }
+        for (k, v) in action {
+            switch k {
+            case "name", "direction": if !(v is String) { return "\(k) 형식 오류" }
+            case "text", "value", "key": if !(v is String) { return "\(k) 형식 오류" }
+            case "action":
+                guard let a = v as? String, allowedAXActions.contains(a) else {
+                    return "허용되지 않은 AX action"
+                }
+            case "element_index", "pages": if !isInt(v) { return "\(k) 형식 오류" }
+            default: return "허용되지 않은 필드: \(k)"
+            }
+        }
+    }
+    return nil
+}
+
+// MARK: - Socket plumbing
+
+func fillAddr(_ path: String) -> sockaddr_un? {
+    var addr = sockaddr_un()
+    addr.sun_family = sa_family_t(AF_UNIX)
+    let maxPath = MemoryLayout.size(ofValue: addr.sun_path) - 1
+    guard path.utf8.count <= maxPath else { return nil }   // never truncate silently
+    let bytes = Array(path.utf8) + [0]
+    withUnsafeMutableBytes(of: &addr.sun_path) { dst in
+        bytes.withUnsafeBytes { src in
+            dst.copyMemory(from: UnsafeRawBufferPointer(
+                start: src.baseAddress, count: min(src.count, dst.count)))
+        }
+    }
+    return addr
+}
+
+func connectSocket(_ path: String) -> Int32? {
+    guard var addr = fillAddr(path) else { return nil }
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+    let ok = withUnsafePointer(to: &addr) { p in
+        p.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, size) }
+    }
+    if ok != 0 { close(fd); return nil }
+    return fd
+}
+
+func readJSONLine(_ fd: Int32, _ buffer: inout Data) -> [String: Any]? {
+    while true {
+        if let nl = buffer.firstIndex(of: 0x0A) {
+            let line = buffer[buffer.startIndex..<nl]
+            buffer = buffer[buffer.index(after: nl)...]
+            return (try? JSONSerialization.jsonObject(with: line)) as? [String: Any]
+        }
+        if buffer.count > 8 * 1024 * 1024 { return nil }     // frame size limit
+        var chunk = [UInt8](repeating: 0, count: 65536)
+        let n = read(fd, &chunk, chunk.count)
+        if n <= 0 { return nil }
+        buffer.append(contentsOf: chunk[0..<n])
+    }
+}
+
+func writeJSONLine(_ fd: Int32, _ obj: [String: Any]) {
+    guard var d = try? JSONSerialization.data(withJSONObject: obj) else { return }
+    d.append(0x0A)
+    _ = d.withUnsafeBytes { write(fd, $0.baseAddress, d.count) }
+}
+
+// MARK: - Environment
+
+let allowedEnv = ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+                  "SSL_CERT_FILE", "TERM"]
 var env: [String: String] = [:]
 let inherited = ProcessInfo.processInfo.environment
-for key in allowed {
-    if let v = inherited[key] { env[key] = v }
-}
+for key in allowedEnv { if let v = inherited[key] { env[key] = v } }
 env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
 env["NLC_LAUNCHER"] = "1"
-proc.environment = env
 
-do {
-    try proc.run()
-} catch {
-    FileHandle.standardError.write(Data("nlc: 실행 실패 \(error)\n".utf8))
-    exit(1)
+// A private per-run socket inside a 0700 directory we just created: an attacker
+// cannot pre-bind a path they cannot predict or enter, which closes the
+// fake-server substitution a fixed /tmp name allowed.
+var template = Array("/tmp/nlc.XXXXXXXX".utf8CString)
+guard let dirC = mkdtemp(&template) else {
+    FileHandle.standardError.write(Data("nlc: 임시 디렉터리 생성 실패\n".utf8)); exit(1)
 }
-proc.waitUntilExit()
-exit(proc.terminationStatus)
+let runDir = String(cString: dirC)
+let helperSocket = runDir + "/helper.sock"
+defer { unlink(helperSocket); rmdir(runDir) }
+
+// MARK: - Helper
+
+let helperPath = FileManager.default.isExecutableFile(atPath: helperBin.path)
+    ? helperBin.path : helperBare.path
+var helperPID: pid_t = 0
+func startHelper() -> Bool {
+    var fileActions: posix_spawn_file_actions_t?
+    posix_spawn_file_actions_init(&fileActions)
+    defer { posix_spawn_file_actions_destroy(&fileActions) }
+    let argv: [String] = [helperPath, "--listen", helperSocket]
+    var cArgs = argv.map { strdup($0) } + [nil]
+    var cEnv = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+    defer { cArgs.forEach { free($0) }; cEnv.forEach { free($0) } }
+    let rc = posix_spawn(&helperPID, helperPath, &fileActions, nil, &cArgs, &cEnv)
+    if rc != 0 { return false }
+    for _ in 0..<60 {
+        if access(helperSocket, F_OK) == 0 { return true }
+        usleep(100_000)
+    }
+    return false
+}
+
+// MARK: - Child on an inherited socket
+
+var pair: [Int32] = [0, 0]
+guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else {
+    FileHandle.standardError.write(Data("nlc: 채널 생성 실패\n".utf8)); exit(1)
+}
+let relayEnd = pair[0], childEnd = pair[1]
+
+env["NLC_HELPER_FD"] = "3"
+
+var actions: posix_spawn_file_actions_t?
+posix_spawn_file_actions_init(&actions)
+// Order matters: file actions run in sequence. Closing the relay end AFTER the
+// dup2 closed the descriptor we had just created, because socketpair often
+// hands back 3 and 4 — so the relay end IS fd 3 until we close it.
+posix_spawn_file_actions_addclose(&actions, relayEnd)
+posix_spawn_file_actions_adddup2(&actions, childEnd, 3)
+
+// -I (isolated): without it `python -m` puts the CALLER's working directory
+// first on sys.path, so a fixed module would not be fixed code.
+let childArgs = [python.path, "-I", "-m", "nlc.cli"] + Array(CommandLine.arguments.dropFirst())
+var cArgs = childArgs.map { strdup($0) } + [nil]
+var cEnv = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
+var childPID: pid_t = 0
+let spawned = posix_spawn(&childPID, python.path, &actions, nil, &cArgs, &cEnv)
+posix_spawn_file_actions_destroy(&actions)
+cArgs.forEach { free($0) }; cEnv.forEach { free($0) }
+close(childEnd)
+guard spawned == 0 else {
+    FileHandle.standardError.write(Data("nlc: 실행 실패\n".utf8)); exit(1)
+}
+
+// MARK: - Relay
+//
+// Runs only while the child asks for it. The helper is started lazily, so a
+// command that never touches the screen never starts a privileged process.
+
+let relayQueue = DispatchQueue(label: "nlc.relay")
+relayQueue.async {
+    var fromChild = Data(), fromHelper = Data()
+    var helperFD: Int32 = -1
+    while let msg = readJSONLine(relayEnd, &fromChild) {
+        if let why = vetted(msg) {
+            writeJSONLine(relayEnd, ["type": "error", "error": "rejected_by_launcher",
+                                     "detail": why])
+            continue
+        }
+        if helperFD < 0 {
+            if access(helperSocket, F_OK) != 0, !startHelper() {
+                writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                         "detail": "도우미를 시작하지 못했습니다"])
+                continue
+            }
+            guard let fd = connectSocket(helperSocket) else {
+                writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                         "detail": "도우미에 연결하지 못했습니다"])
+                continue
+            }
+            helperFD = fd
+        }
+        writeJSONLine(helperFD, msg)
+        guard let reply = readJSONLine(helperFD, &fromHelper) else {
+            writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                     "detail": "도우미 연결이 끊어졌습니다"])
+            helperFD = -1
+            continue
+        }
+        writeJSONLine(relayEnd, reply)
+    }
+    if helperFD >= 0 { close(helperFD) }
+}
+
+var status: Int32 = 0
+waitpid(childPID, &status, 0)
+if helperPID > 0 { kill(helperPID, SIGTERM) }
+exit((status & 0x7F) == 0 ? (status >> 8) & 0xFF : 1)

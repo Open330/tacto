@@ -329,48 +329,47 @@ def scenario_permission_boundary():
 
 
 def scenario_peer_authentication():
-    """The helper authenticates the process that connects, not its ancestry —
-    so unsigned Python is refused and only the signed broker gets through. And
-    being signed is not a licence to relay: the broker rejects anything outside
-    the L2 vocabulary."""
+    """The privileged channel is only reachable as the signed launcher's child,
+    and even then only the L2 vocabulary crosses it."""
     import os, pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
-    if not (root / "broker" / "nlc-broker").exists():
+    if not (root / "launcher" / "nlc").exists():
         return None                        # boundary not built here
-    from nlc.helper import SocketHelperDriver, BrokeredHelperDriver, HelperUnavailable
+    from nlc.helper import InheritedHelperDriver, HelperUnavailable
 
-    sock = "/tmp/nlc-eval-peer.sock"
-    if os.path.exists(sock):
-        os.unlink(sock)
-    # 1. This interpreter must not be able to connect directly.
-    try:
-        d = SocketHelperDriver(sock)
-        d.close()
-        return False
-    except HelperUnavailable:
-        pass
-    finally:
-        if os.path.exists(sock):
-            os.unlink(sock)
+    if not InheritedHelperDriver.available():
+        # Not running under the launcher: the channel must simply not exist.
+        try:
+            InheritedHelperDriver()
+            return False
+        except HelperUnavailable:
+            return True
 
-    # 2. Through the signed broker it works, and the broker vets messages.
-    d = BrokeredHelperDriver(socket_path=sock)
+    d = InheritedHelperDriver()
     try:
         if d._send({"type": "list_targets"}).get("type") != "targets":
             return False
-        for bad in ({"type": "exec", "cmd": "id"},
+        # The launcher vets what crosses: unknown types, actions outside the
+        # set, undefined fields (top level and inside action), an AX action
+        # that is not enumerated, and a boolean where an index belongs.
+        for bad in ({"type": "exec"},
                     {"type": "act", "obs_id": "x", "target": "y",
-                     "action": {"name": "run_shell", "cmd": "id"}},
+                     "action": {"name": "run_shell"}},
+                    {"type": "act", "obs_id": "x", "target": "y", "path": "/etc/passwd",
+                     "action": {"name": "click", "element_index": 1}},
                     {"type": "act", "obs_id": "x", "target": "y",
                      "action": {"name": "click", "element_index": 1,
-                                "path": "/etc/passwd"}}):
-            if d._send(bad).get("error") != "rejected_by_broker":
+                                "path": "/etc/passwd"}},
+                    {"type": "act", "obs_id": "x", "target": "y",
+                     "action": {"name": "secondary_action", "element_index": 1,
+                                "action": "AXRaise"}},
+                    {"type": "act", "obs_id": "x", "target": "y",
+                     "action": {"name": "click", "element_index": True}}):
+            if d._send(bad).get("error") != "rejected_by_launcher":
                 return False
         return True
     finally:
         d.close()
-        if os.path.exists(sock):
-            os.unlink(sock)
 
 
 def scenario_resolver_honesty():

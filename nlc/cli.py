@@ -29,11 +29,11 @@ def _make_driver(argv):
     """--helper uses the signed Swift helper (which holds the permissions);
     otherwise the in-process Python driver. Same L2 protocol either way."""
     if "--helper" in argv:
-        # Fail closed: --helper is a request to run with the permission boundary
-        # in place. Quietly falling back to the in-process driver would run the
-        # task with exactly the privileges the flag was meant to avoid.
-        from .helper import HelperDriver
-        return HelperDriver()
+        # Fail closed: --helper asks to run with the permission boundary in
+        # place, so falling back to the in-process driver would run the task
+        # with exactly the privileges the flag exists to avoid.
+        from .helper import InheritedHelperDriver
+        return InheritedHelperDriver()
     from .driver import Driver
     return Driver()
 

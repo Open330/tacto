@@ -4,11 +4,19 @@
 // act", so any attacker-controlled link in that chain qualified. What we want
 // instead is to authenticate the PEER ITSELF: the process that connected.
 //
-// `LOCAL_PEERTOKEN` yields the connecting process's audit token — the kernel's
-// answer, bound to this connection, without the PID-reuse race a pid lookup has.
-// `kSecGuestAttributeAudit` turns that token into a code object, and the
-// requirement decides whether it may proceed. This is the property XPC is
-// usually reached for, without launchd registration.
+// `LOCAL_PEERTOKEN` yields the connecting process's audit token and
+// `kSecGuestAttributeAudit` turns it into a code object the requirement can be
+// applied to.
+//
+// Two honest limits, both from review:
+//  * This is NOT free of PID reuse. XNU's LOCAL_PEERTOKEN takes the socket's
+//    last_pid and does proc_find(), so a pid lookup happens inside the kernel
+//    rather than in our code.
+//  * It authenticates at accept() time only. XPC's peer requirements are
+//    applied by the OS on every message; a byte stream authenticated once can
+//    outlive the checked process if the descriptor is passed on or survives an
+//    exec. We keep the window small — one connection per run, from a socket in
+//    a directory only we can enter — but it is a window.
 
 import Foundation
 import Security
