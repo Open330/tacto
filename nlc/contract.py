@@ -150,12 +150,25 @@ def _covers(scope: list[Evidence], contract: "SafetyContract") -> bool:
     mention the effect and, when data leaves, the destination."""
     if not scope:
         return False
+    import re as _re
     said = " ".join(e.value.lower() for e in scope)
-    if not any(eff in said for eff in contract.effects):
+
+    def mentioned(term: str) -> bool:
+        # Word-ish boundary so "bob" does not match "bobby"; Hangul has no \b,
+        # so fall back to a plain containment test for non-ASCII terms.
+        t = term.lower()
+        if t.isascii():
+            return _re.search(rf"(?<![\w@.]){_re.escape(t)}(?![\w@.])", said) is not None
+        return t in said
+
+    # EVERY effect must be covered — approving "save" should not also license
+    # the "transmit" the same contract declares (advisor finding: any() let one
+    # match cover the rest).
+    if not all(mentioned(eff) for eff in contract.effects):
         return False
     dest = contract.destination.identity
     if contract.destination.kind == "third_party" and dest:
-        return dest.lower() in said
+        return mentioned(dest)
     return True
 
 

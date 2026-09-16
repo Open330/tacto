@@ -515,3 +515,23 @@ OSWorld subset 벤치마크.
   - `.../@oai/cua/docs/tinysky-alt-confirmations.md` (확인 정책)
   - `.../@oai/browser-desktop/docs/` (브라우저 안전·가시성·업로드)
 - 서베이 아티팩트: The Click Layer — https://claude.ai/artifact/TNhrhxEVTdGehisvsJWGYy
+
+### 3.10 도우미의 한계 — 지금 있는 것과 아직 없는 것
+
+`--helper` 경로는 **권한의 위치**를 옮겼지만, 아직 **호출자 인증**은 없다.
+외부 검증에서 지적된 그대로 정직하게 적는다.
+
+**현재 강제되는 것**
+- 최신 관찰만 유효(`stale_observation`), 그리고 **관찰과 액션의 앱이 일치해야 함**
+  (`target_mismatch`) — 이게 없으면 A 앱을 관찰한 obs_id로 B 앱에 타이핑할 수 있다
+  (`type_text`는 요소 목록조차 쓰지 않으므로).
+- 부모 프로세스가 사라지면 종료, stdio 전용(소켓 없음), 실행 토큰 필수.
+- `--helper` 실패 시 일반 드라이버로 **폴백하지 않음**(fail closed).
+
+**아직 없는 것 (중요).** 실행 토큰은 **인증이 아니다.** 이 바이너리를 실행할 수 있는
+로컬 프로세스는 자기 자식에게 같은 환경변수를 줄 수 있다. 부모 PID 생존 검사도
+인증이 아니며 PID 재사용 경합이 있다. 따라서 **로컬 공격자에 대한 경계는 아직
+아니다.** 진짜 경계는 OS가 호출자를 알려주는 것 —
+**XPC 서비스 + 클라이언트 audit token + 코드서명 requirement 검증** — 이며 이것이
+다음 단계다. 그때까지 `--helper`의 이득은 "공유 파이썬 인터프리터에 TCC 권한을
+직접 주지 않는다"는 운영상 개선으로 한정해 이해해야 한다.
