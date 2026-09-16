@@ -33,11 +33,58 @@ class Turn:
     detail: dict | None = None
 
 
-# Intent resolution: map a natural-language request to a stored flow name.
-# Deterministic and tokenless. A real deployment extends this with the model
-# only when nothing matches (the `author` path below).
-_INTENT_RULES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"12\s*(곱하기|[x×*])\s*34|12.*(곱|multiply).*34"), "calc_12x34"),
+@dataclass
+class Match:
+    """Which recipe a request resolved to, and the values it supplied.
+
+    The values matter as much as the name: a recipe is a template, so "다운로드
+    폴더 열어줘" and "문서 폴더 열어줘" are the same procedure with different
+    inputs. Returning only a name would force one stored recipe per folder.
+    """
+    name: str
+    params: dict
+
+
+# Folders addressed by their Korean name map to the menu item's own title,
+# because the menu bar is the thing being driven and it speaks the system's
+# language, not the user's.
+_FOLDERS = {
+    "다운로드": "Downloads", "내려받기": "Downloads", "downloads": "Downloads",
+    "문서": "Documents", "도큐먼트": "Documents", "documents": "Documents",
+    "데스크탑": "Desktop", "데스크톱": "Desktop", "바탕화면": "Desktop",
+    "desktop": "Desktop",
+    "홈": "Home", "홈폴더": "Home", "home": "Home",
+    "응용프로그램": "Applications", "앱": "Applications",
+    "applications": "Applications",
+    "최근": "Recents", "최근항목": "Recents", "recents": "Recents",
+}
+
+_OPS = {"+": "+", "-": "-", "*": "*", "x": "*", "×": "*", "/": "/", "÷": "/",
+        "더하기": "+", "빼기": "-", "곱하기": "*", "나누기": "/"}
+
+
+def _calc(m: re.Match) -> dict:
+    return {"a": m.group(1), "b": m.group(3), "op": _OPS[m.group(2).lower()]}
+
+
+def _folder(m: re.Match) -> dict:
+    return {"folder": _FOLDERS[m.group(1).lower()]}
+
+
+# Intent resolution: map a natural-language request to a stored recipe AND the
+# values it needs. Deterministic and tokenless. A real deployment extends this
+# with the model only when nothing matches (the `author` path below).
+_INTENT_RULES: list[tuple[re.Pattern, str, object]] = [
+    (re.compile(r"(\d+)\s*(곱하기|더하기|빼기|나누기|[-+x×*/÷])\s*(\d+)"),
+     "calc_arith", _calc),
+    (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
+                r")\s*(폴더|디렉터리|folder)?\s*(을|를|로)?\s*(열어|열기|보여|open)",
+                re.I), "finder_open_folder", _folder),
+    # An explicitly quoted string is a stronger signal than a stray "굵게", so
+    # the write rule is tried first.
+    (re.compile(r"[\"'“](.+?)[\"'”]\s*(라고|이라고)?\s*(써|적어|입력|write)",
+                re.S), "textedit_write_note", lambda m: {"text": m.group(1)}),
+    (re.compile(r"(굵게|볼드|bold)"), "textedit_emphasize", lambda m: {}),
 ]
 
 
@@ -52,21 +99,30 @@ class Agent:
 
     # ------------------------------------------------------------ intent
 
-    def resolve(self, intent: str) -> str | None:
-        for rx, name in _INTENT_RULES:
-            if rx.search(intent):
-                return name
+    def resolve(self, intent: str) -> Match | None:
+        for rx, name, extract in _INTENT_RULES:
+            m = rx.search(intent)
+            if m is None:
+                continue
+            try:
+                return Match(name, extract(m))
+            except KeyError:
+                # The shape matched but a value did not (a folder we have no
+                # menu item for). Keep looking rather than resolving to a recipe
+                # we cannot supply.
+                continue
         # a request may also name a stored flow directly
         for name in self.store.list():
             if name.lower() in intent.lower():
-                return name
+                return Match(name, {})
         return None
 
     # ------------------------------------------------------------ run
 
     def handle(self, intent: str, approvals: dict[int, bool] | None = None) -> Turn:
-        name = self.resolve(intent)
-        if name is None:
+        match = self.resolve(intent)
+        values: dict = {}
+        if match is None:
             if self.author is None:
                 return Turn("unknown_task",
                             "그 작업은 아직 방법을 몰라요. 한 번만 알려주시면 다음부터는 제가 알아서 할게요.")
@@ -76,24 +132,26 @@ class Agent:
                 return Turn("unknown_task",
                             f"그 작업을 배우는 데 실패했어요. 조금 더 구체적으로 말씀해 주시겠어요? ({e})")
             self.store.save(flow)                          # learn once
-            name = flow.name
-        elif self.store.has(name):
-            flow = self.store.load(name)
         else:
-            from .flow import calculator_12x34        # built-in example flows
-            builtins = {"calc_12x34": calculator_12x34}
-            builder = builtins.get(name)
-            if builder is None:
-                return Turn("unknown_task", "그 작업 레시피를 찾지 못했어요.")
-            flow = builder()
-            self.store.save(flow)                     # cache it for next time
+            name, values = match.name, match.params
+            if self.store.has(name):
+                flow = self.store.load(name)
+            else:
+                from .library import builders
+                builder = builders().get(name)
+                if builder is None:
+                    return Turn("unknown_task", "그 작업 레시피를 찾지 못했어요.")
+                flow = builder()
+                self.store.save(flow)                 # cache it for next time
 
         # A stored recipe may be a template. Running it unbound sends
         # "{{digit[item]}}" to the screen as if it were a selector, which is how
         # `nlc do` broke while the suite — which binds explicitly — stayed green.
+        # The values come from the request itself, so "문서 폴더 열어줘" and
+        # "다운로드 폴더 열어줘" are one recipe, not two.
         if flow.params or flow.tables or flow.derived:
             try:
-                flow = flow.bind()
+                flow = flow.bind(**values)
             except Exception as e:
                 return Turn("failed",
                             f"'{flow.name}' 에 필요한 값이 없어요: {e}", flow.name)

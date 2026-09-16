@@ -66,13 +66,21 @@ let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act"]
 // generic key primitive is how "type into a field" becomes "run a command" —
 // Return commits, and a modifier combination invokes. When it returns it should
 // return split into a navigation capability and an explicit submit/shortcut one,
-// so a recipe can fill a form without also being able to execute.
+// so a recipe can fill a form without also being able to execute. Most of what
+// people reached for it to do — save, copy, open — is a named menu command, and
+// `menu` expresses those without a keystroke primitive at all.
 let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     "click":            (["name", "element_index"], []),
     "set_value":        (["name", "element_index", "value"], []),
     "type_text":        (["name", "element_index", "text"], []),
     "scroll":           (["name", "element_index", "direction"], ["pages"]),
     "secondary_action": (["name", "element_index", "action"], []),
+    // `menu` carries a title path instead of an element index: menu items are
+    // not in the observation, because an app's whole menu bar is thousands of
+    // items and paying for it on every observe would make the cheap path
+    // expensive. The path is what distinguishes File > Save from File > Move to
+    // Trash, so it is vetted as strictly as an element index would be.
+    "menu":             (["name", "path"], []),
 ]
 
 /// Text that is inserted must stay text. A newline or carriage return is what
@@ -80,6 +88,23 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 /// something a person types into a form.
 func isPlainText(_ s: String) -> Bool {
     !s.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+}
+
+/// A menu path: up to six levels, each one title or a few localized
+/// alternatives. Bounded because the path is the whole address of the command —
+/// it is to `menu` what element_index is to `click`.
+func isMenuPath(_ v: Any) -> Bool {
+    guard let path = v as? [Any], !path.isEmpty, path.count <= 6 else { return false }
+    func title(_ t: Any) -> Bool {
+        guard let s = t as? String else { return false }
+        return !s.isEmpty && s.count <= 200 && isPlainText(s)
+    }
+    for element in path {
+        if title(element) { continue }
+        guard let alts = element as? [Any], !alts.isEmpty, alts.count <= 8,
+              alts.allSatisfy(title) else { return false }
+    }
+    return true
 }
 // An AX action name goes straight to AXUIElementPerformAction, so it is an
 // escape hatch unless enumerated.
@@ -131,6 +156,7 @@ func vetted(_ msg: [String: Any]) -> String? {
                     return "허용되지 않은 AX action"
                 }
             case "element_index", "pages": if !isInt(v) { return "\(k) 형식 오류" }
+            case "path": if !isMenuPath(v) { return "menu path 형식 오류" }
             default: return "허용되지 않은 필드: \(k)"
             }
         }

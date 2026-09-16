@@ -342,9 +342,9 @@ class Capture:
 
 @dataclass
 class Step:
-    action: str                       # click | set_value | type_text | press_key | scroll | secondary_action
-    selector: Selector | None = None  # None for target-less actions (type_text, press_key)
-    params: dict = field(default_factory=dict)   # value/text/key/direction/pages/action
+    action: str                       # click | set_value | type_text | press_key | scroll | secondary_action | menu
+    selector: Selector | None = None  # None for target-less actions (type_text, press_key, menu)
+    params: dict = field(default_factory=dict)   # value/text/key/direction/pages/action/path
     risk_class: str = "none"
     intent_text: str = ""
     expect: str | None = None         # P0 substring postcondition (kept for simple flows)
@@ -371,6 +371,12 @@ class Step:
     # this a recipe can only push data in, never carry it forward — which is
     # most real interactions, not just a calculator.
     capture: "Capture | None" = None
+    # Skip this step when the world already satisfies it. Many real commands are
+    # toggles, not settings — "make it bold" runs Format > Font > Bold, and
+    # running that twice UN-bolds the document. A replay engine whose reruns
+    # oscillate is not deterministic in any useful sense, so a step may state the
+    # condition it exists to bring about and stand down when it already holds.
+    skip_if: "Postcondition | None" = None
 
 
 @dataclass
@@ -422,13 +428,17 @@ class Flow:
         steps = []
         for s in d["steps"]:
             sel = Selector(**s["selector"]) if s.get("selector") else None
-            post = None
-            if s.get("postcondition"):
-                pc = s["postcondition"]
+
+            def _post(pc):
+                if not pc:
+                    return None
                 pf = Selector(**pc["field"]) if pc.get("field") else None
-                post = Postcondition(field=pf, equals=pc.get("equals"),
+                return Postcondition(field=pf, equals=pc.get("equals"),
                                      contains=pc.get("contains"),
                                      attribute=pc.get("attribute"))
+
+            post = _post(s.get("postcondition"))
+            skip_if = _post(s.get("skip_if"))
             contract = None
             if s.get("safety"):
                 from .contract import Resource, Destination, Evidence
@@ -463,7 +473,8 @@ class Flow:
                                          if s["capture"].get("field") else None),
                                   attribute=s["capture"].get("attribute", "Value"),
                                   sensitive=bool(s["capture"].get("sensitive")))
-                                  if s.get("capture") else None)))
+                                  if s.get("capture") else None),
+                              skip_if=skip_if))
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=d.get("schema", 1),   # older files predate contracts
                     params=d.get("params", {}), tables=d.get("tables", {}),
@@ -477,6 +488,18 @@ def _payload_digest(params: dict) -> str:
         _json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:32]
 
 
+def pin_params(params: dict) -> str:
+    """Pin a step's parameters into its ContextBinding while authoring it.
+
+    Use this when the step carries arguments whose change would change what the
+    action MEANS — a menu path most of all, since "File > Save" and
+    "File > Move to Trash" are the same `menu` operation on the same app. A
+    parameterized step's pin is recomputed per run against the rendered values,
+    so this records the template; an unparameterized one keeps exactly this.
+    """
+    return _payload_digest(params)
+
+
 def _render_step(st: "Step", ctx: dict) -> "Step":
     """A copy of `st` with every template in its selector/params/verification
     resolved against `ctx`."""
@@ -486,16 +509,19 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                        identifier=_render(sel.identifier, ctx),
                        title=_render(sel.title, ctx), desc=_render(sel.desc, ctx),
                        ancestor=_render(sel.ancestor, ctx), allow_nth=sel.allow_nth)
-    post = st.postcondition
-    if post is not None:
-        pf = post.field
+    def render_post(p):
+        if p is None:
+            return None
+        pf = p.field
         if pf is not None:
             pf = Selector(role=pf.role, identifier=_render(pf.identifier, ctx),
                           title=_render(pf.title, ctx), desc=_render(pf.desc, ctx),
                           ancestor=_render(pf.ancestor, ctx), allow_nth=pf.allow_nth)
-        post = Postcondition(field=pf, equals=_render(post.equals, ctx),
-                             contains=_render(post.contains, ctx),
-                             attribute=post.attribute)
+        return Postcondition(field=pf, equals=_render(p.equals, ctx),
+                             contains=_render(p.contains, ctx),
+                             attribute=p.attribute)
+
+    post = render_post(st.postcondition)
     # The contract and its binding describe THIS concrete action, so they are
     # rendered too. Leaving them templated would let a confirmation and an
     # ApprovalToken bind to "{{recipient}}" while the action goes to a real
@@ -540,7 +566,8 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 require_enabled=st.require_enabled, is_submit=st.is_submit,
                 into_sensitive_field=st.into_sensitive_field,
                 safety=safety, binding=binding,
-                unverified_ok=st.unverified_ok, capture=st.capture)
+                unverified_ok=st.unverified_ok, capture=st.capture,
+                skip_if=render_post(st.skip_if))
 
 
 def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
@@ -554,7 +581,13 @@ def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
     """
     import hashlib, json as _json
     rec = step.binding
-    payload = {k: v for k, v in action.items() if k != "element_index"}
+    # Same payload the recorded digest was taken over (_payload_digest): the
+    # step's parameters, without the resolved index and without the action name.
+    # The name is pinned separately as `operation`; counting it here too made
+    # every params_digest mismatch on principle — invisible while no recipe used
+    # the field, and an instant contract_invalidated for the first one that did.
+    payload = {k: v for k, v in action.items()
+               if k not in ("element_index", "name")}
     live = ContextBinding(policy_version=rec.policy_version)
 
     if rec.bundle_id is not None:
@@ -640,6 +673,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     captures: dict = {}      # values read off the screen during this run
 
     obs = driver.observe(flow.target, "tree_full")
+    if obs.get("error") == "no_window_content" and flow.steps \
+            and flow.steps[0].action == "menu":
+        # "Finder 열어줘" starts from an app with no window at all. Menus are
+        # app-scoped, so such a recipe can legitimately begin here; anything
+        # needing window content still fails honestly on its own step.
+        obs = driver.observe(flow.target, "tree_full", require_window=False)
     if obs["type"] != "observation":
         res.record(status="error", stage="initial_observe", detail=obs)
         return res
@@ -658,11 +697,14 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                               "(schema 2는 모든 실행 스텝에 계약을 요구합니다)")
             return res
 
-    # Synthesized-input steps must be verifiable: delivery of a keyboard event
-    # is not evidence the app accepted it, so an unverified type/key step could
-    # report success while nothing happened (or worse, happened elsewhere).
+    # Steps whose success is not self-evident must be verifiable: delivery of a
+    # keyboard event is not evidence the app accepted it, so an unverified
+    # type/key step could report success while nothing happened (or worse,
+    # happened elsewhere). `menu` belongs to the same family for a reason we
+    # measured rather than assumed: on this machine, pressing Format > Font >
+    # Bold with no selection returns success and changes nothing at all.
     for i, step in enumerate(flow.steps):
-        if step.action in ("type_text", "press_key") and \
+        if step.action in ("type_text", "press_key", "menu") and \
                 step.postcondition is None and step.expect is None and \
                 not step.unverified_ok:
             res.record(status="error", step=i, action=step.action,
@@ -672,9 +714,6 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             return res
 
     for i, step in enumerate(flow.steps):
-        if narrate and step.intent_text:
-            narrate(step.intent_text)
-
         # Values captured earlier in THIS run are only known now, so a step is
         # rendered against them just before it executes. Flow.bind() resolves
         # parameters ahead of time; this resolves what the screen told us since
@@ -682,9 +721,29 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # promise the skill documents).
         if captures:
             step = _render_step(step, {**captures, "__tables__": flow.tables})
+        # Idempotency, decided before anything is narrated, authorized or
+        # performed: a step that exists to reach a state has nothing to do once
+        # that state holds, and pressing a toggle anyway would undo it.
+        if step.skip_if is not None and step.skip_if.check(obs["tree"]):
+            if narrate:
+                narrate(f"이미 되어 있어서 건너뜁니다: {step.intent_text}")
+            res.record(status="skipped", step=i, action=step.action,
+                       reason="skip_if already satisfied")
+            continue
+        if narrate and step.intent_text:
+            narrate(step.intent_text)
+
         action = {"name": step.action, **step.params}
         trace = None
         target_line = ""
+        if step.action == "menu":
+            # A menu step has no element in the tree, so give the contract
+            # something real to fingerprint: the command's own title path. Left
+            # empty, every menu step would fingerprint "" and the label
+            # invariant would be incapable of ever noticing a change.
+            target_line = "menu: " + " > ".join(
+                p if isinstance(p, str) else "|".join(p)
+                for p in step.params.get("path", []))
         if step.selector is not None:
             try:
                 action["element_index"], trace = step.selector.resolve(obs["tree"])
