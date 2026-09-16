@@ -164,6 +164,10 @@ class Driver:
             obs.walk(w)
         return bool(windows)
 
+    def identity(self, target: str) -> str:
+        """Stable identity namespace for contract bindings: the bundle id."""
+        return target
+
     def observe(self, target: str, mode: str = "tree_diff"):
         if mode not in ("tree_diff", "tree_full"):
             return {"type": "error", "error": "not_implemented_p0",

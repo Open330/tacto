@@ -232,6 +232,11 @@ class Step:
     # legacy keyword classifier entirely.
     safety: "SafetyContract | None" = None
     binding: "ContextBinding | None" = None
+    # Synthesized input (type_text/press_key) can be silently ignored by the
+    # target app — the event posting "succeeding" proves nothing (advisor
+    # finding). Such steps must therefore verify their effect; this flag is the
+    # explicit, auditable opt-out for genuinely unverifiable cases.
+    unverified_ok: bool = False
 
 
 @dataclass
@@ -284,7 +289,8 @@ class Flow:
                               require_enabled=s.get("require_enabled", True),
                               is_submit=s.get("is_submit", False),
                               into_sensitive_field=s.get("into_sensitive_field", False),
-                              safety=contract, binding=binding))
+                              safety=contract, binding=binding,
+                              unverified_ok=s.get("unverified_ok", False)))
         return Flow(name=d["name"], target=d["target"], steps=steps)
 
 
@@ -293,8 +299,9 @@ def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
     import hashlib, json as _json
     rec = step.binding
     payload = {k: v for k, v in action.items() if k != "element_index"}
+    ident = driver.identity(flow.target) if hasattr(driver, "identity") else flow.target
     return ContextBinding(
-        bundle_id=flow.target if rec.bundle_id else None,
+        bundle_id=ident if rec.bundle_id else None,
         team_id=rec.team_id,          # signer re-check is driver work (P2)
         role=(step.selector.role if step.selector else None) if rec.role else None,
         identifier=(_first_id(step.selector) if step.selector else None) if rec.identifier else None,
@@ -360,6 +367,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     if obs["type"] != "observation":
         res.record(status="error", stage="initial_observe", detail=obs)
         return res
+
+    # Synthesized-input steps must be verifiable: delivery of a keyboard event
+    # is not evidence the app accepted it, so an unverified type/key step could
+    # report success while nothing happened (or worse, happened elsewhere).
+    for i, step in enumerate(flow.steps):
+        if step.action in ("type_text", "press_key") and \
+                step.postcondition is None and step.expect is None and \
+                not step.unverified_ok:
+            res.record(status="error", step=i, action=step.action,
+                       error="unverifiable_input_step",
+                       detail=f"step {i} ({step.action}) has no postcondition/"
+                              "expect; add one or set unverified_ok=True explicitly")
+            return res
 
     for i, step in enumerate(flow.steps):
         if narrate and step.intent_text:

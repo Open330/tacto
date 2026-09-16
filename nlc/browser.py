@@ -63,6 +63,14 @@ class BrowserDriver:
 
     # ------------------------------------------------------------ navigation
 
+    def identity(self, target: str = "page") -> str:
+        """Contract-binding identity for the web is the page ORIGIN, not the
+        opaque 'page' target — a recorded judgment about example.com must not
+        validate against evil.com (advisor: destination/origin drift is hard)."""
+        from urllib.parse import urlparse
+        u = urlparse(self._page.url)
+        return f"{u.scheme}://{u.netloc}" if u.netloc else f"{u.scheme}:"
+
     def goto(self, url: str):
         self._page.goto(url, wait_until="domcontentloaded")
         # Navigation changes the document/handle space: invalidate observations
