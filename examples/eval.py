@@ -163,6 +163,21 @@ def scenario_trace_reproducibility():
     return again.ok and again.log[-1]["status"] == "done"
 
 
+def scenario_parameterized_flow():
+    """One recipe, many inputs: the digits of a calculation are parameters, not
+    part of the procedure — and the run still verifies its own answer."""
+    from nlc.flow import calculator_multiply, replay
+    f = calculator_multiply()
+    bound = f.bind(a="7", b="9")
+    if bound.steps[-1].postcondition.equals != "63":     # derived, not hardcoded
+        return False
+    if len(f.bind(a="123", b="45").steps) <= len(bound.steps):
+        return False                                     # for_each expanded
+    d = Driver()
+    r = replay(d, f.bind(a="6", b="7"))
+    return r.ok and str(r.log[-1].get("result")) in ("42", "42.0")
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -228,6 +243,7 @@ SCENARIOS = [
     ("input_verification (typed input must verify effect)", scenario_input_verification),
     ("volatile_identifier (state-carrying AXIdentifier resolves)", scenario_volatile_identifier),
     ("trace_reproducibility (replay a run off-machine)", scenario_trace_reproducibility),
+    ("parameterized_flow (one IR, many inputs)", scenario_parameterized_flow),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

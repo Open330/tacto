@@ -21,6 +21,21 @@ from .store import FlowStore
 
 
 
+
+def _params_from(argv):
+    """Collect -p key=value pairs into a dict (and return the rest)."""
+    out, rest = {}, []
+    i = 0
+    while i < len(argv):
+        if argv[i] in ("-p", "--param") and i + 1 < len(argv):
+            k, _, v = argv[i + 1].partition("=")
+            out[k] = v
+            i += 2
+        else:
+            rest.append(argv[i]); i += 1
+    return out, rest
+
+
 def _indicator_for(target, argv):
     """Show a 'being controlled' outline on the target window during a run,
     unless the caller opted out. Never blocks the task if it can't draw."""
@@ -124,13 +139,16 @@ def main(argv=None):
     if cmd == "run":
         # Execute a Flow IR straight from a file — skips intent resolution
         # entirely, which is what you want for scripting/CI.
+        params, rest = _params_from(rest)
         if not rest:
-            print("usage: run <flow.json>")
+            print('usage: run <flow.json> [-p a=12 -p b=34]')
             return 2
         from .driver import Driver as _D
         from .flow import Flow as _F, replay as _replay
         with open(rest[0], encoding="utf-8") as fh:
             flow = _F.from_json(fh.read())
+        if flow.params or params:
+            flow = flow.bind(**params)          # parameterized recipe
         with _indicator_for(flow.target, rest):
             r = _replay(_D(), flow, narrate=lambda s: print(f"  … {s}"))
         last = r.log[-1]
@@ -146,7 +164,12 @@ def main(argv=None):
             print("usage: replay <name>"); return 2
         from .driver import Driver
         from .flow import replay
+        params, rest = _params_from(rest)
+        if not rest:
+            print("usage: replay <name> [-p a=12 -p b=34]"); return 2
         flow = FlowStore().load(rest[0])
+        if flow.params or params:
+            flow = flow.bind(**params)
         with _indicator_for(flow.target, rest):
             r = replay(Driver(), flow, narrate=lambda s: print(f"  … {s}"))
         if r.ok:
