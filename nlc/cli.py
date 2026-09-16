@@ -3,9 +3,11 @@
 Usage:
   python -m nlc.cli doctor            # check/guide permissions
   python -m nlc.cli apps              # list running apps (GUI session check)
-  python -m nlc.cli list              # list saved flows
+  python -m nlc.cli list              # list saved flows (+ where the IR lives)
+  python -m nlc.cli show <name>       # print a flow's IR (JSON)
   python -m nlc.cli do "<intent>"     # run a natural-language request
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
+  python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
   python -m nlc.cli replay <name>     # replay a saved flow by name
 """
 
@@ -50,10 +52,43 @@ def main(argv=None):
         print(o["tree"])
         return 0
 
-    if cmd == "list":
-        names = FlowStore().list()
-        print("\n".join(f"  {n}" for n in names) if names else "  (no saved flows)")
+    if cmd == "show":
+        if not rest:
+            print("usage: show <flow-name>")
+            return 2
+        print(FlowStore().load(rest[0]).to_json())
         return 0
+
+    if cmd == "list":
+        store = FlowStore()
+        names = store.list()
+        if not names:
+            print("  (no saved flows)")
+            return 0
+        print(f"  저장 위치(Flow IR): {store.path}")
+        for n in names:
+            print(f"  {n}")
+        print("  전체 IR 보기:  nlc show <이름>")
+        return 0
+
+    if cmd == "run":
+        # Execute a Flow IR straight from a file — skips intent resolution
+        # entirely, which is what you want for scripting/CI.
+        if not rest:
+            print("usage: run <flow.json>")
+            return 2
+        from .driver import Driver as _D
+        from .flow import Flow as _F, replay as _replay
+        with open(rest[0], encoding="utf-8") as fh:
+            flow = _F.from_json(fh.read())
+        r = _replay(_D(), flow, narrate=lambda s: print(f"  … {s}"))
+        last = r.log[-1]
+        if r.ok:
+            v = last.get("result")
+            print(f"done" + (f" — 결과: {v}" if v else ""))
+        else:
+            print(f"failed: {last}")
+        return 0 if r.ok else 1
 
     if cmd == "replay":
         if not rest:
@@ -62,7 +97,11 @@ def main(argv=None):
         from .flow import replay
         flow = FlowStore().load(rest[0])
         r = replay(Driver(), flow, narrate=lambda s: print(f"  … {s}"))
-        print("done" if r.ok else f"failed: {r.log[-1]}")
+        if r.ok:
+            v = r.log[-1].get("result")
+            print("done" + (f" — 결과: {v}" if v else ""))
+        else:
+            print(f"failed: {r.log[-1]}")
         return 0 if r.ok else 1
 
     if cmd == "do":
@@ -83,6 +122,28 @@ def main(argv=None):
             trace_path = rest[k + 1] if k + 1 < len(rest) else "nlc-trace.json"
             intent = " ".join(r for j, r in enumerate(rest)
                               if j not in (k, k + 1))
+        # Guard: a trace and a flow are different IRs. Writing a trace over a
+        # saved flow destroys the recipe (a real user hit this), so refuse.
+        if trace_path:
+            import os
+            from .store import FlowStore as _FS
+            flows_dir = os.path.abspath(_FS().path)
+            tp = os.path.abspath(trace_path)
+            clashes = os.path.dirname(tp) == flows_dir
+            if not clashes and os.path.exists(tp):
+                try:
+                    import json as _j
+                    with open(tp, encoding="utf-8") as fh:
+                        clashes = "steps" in _j.load(fh)      # looks like a Flow IR
+                except Exception:
+                    clashes = False
+            if clashes:
+                print(f"'{trace_path}' 은(는) 실행 레시피(Flow IR)입니다. "
+                      f"트레이스는 다른 경로에 저장해 주세요 (예: --trace run.json).\n"
+                      f"  Flow IR  = 무엇을 할지 (nlc show <이름>)\n"
+                      f"  Trace IR = 실행 중 무엇이 보였는지 (--trace)")
+                return 2
+
         driver = Driver()
         tracer = None
         if trace_path:
