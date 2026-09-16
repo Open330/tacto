@@ -52,6 +52,62 @@ def _element_block(tree: str, idx: int) -> str:
     return "\n".join(out)
 
 
+_TEMPLATE = re.compile(r"\{\{\s*([A-Za-z_][\w]*)\s*(?:\[\s*([A-Za-z_][\w]*)\s*\])?\s*\}\}")
+
+
+def _render(value, ctx: dict):
+    """Substitute {{name}} and {{table[key]}} inside a string (or, recursively,
+    inside a dict/list). Non-strings pass through untouched."""
+    if isinstance(value, dict):
+        return {k: _render(v, ctx) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_render(v, ctx) for v in value]
+    if not isinstance(value, str):
+        return value
+
+    def sub(m):
+        name, key = m.group(1), m.group(2)
+        if key is None:
+            if name not in ctx:
+                raise KeyError(f"파라미터 {name!r} 가 없습니다")
+            return str(ctx[name])
+        table = ctx.get("__tables__", {}).get(name)
+        if table is None:
+            raise KeyError(f"테이블 {name!r} 가 없습니다")
+        k = str(ctx.get(key, key))
+        if k not in table:
+            raise KeyError(f"테이블 {name!r} 에 {k!r} 항목이 없습니다")
+        return str(table[k])
+
+    return _TEMPLATE.sub(sub, value)
+
+
+def _arith(expr: str):
+    """Evaluate a derived parameter: numbers and + - * / // % ** only.
+
+    Recipes sometimes need a value computed from their inputs (a calculator's
+    expected result from its operands). Parsing an AST and walking only the
+    arithmetic nodes keeps that declarative — no eval, no names, no calls."""
+    import ast
+    ops = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
+           ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b,
+           ast.FloorDiv: lambda a, b: a // b, ast.Mod: lambda a, b: a % b,
+           ast.Pow: lambda a, b: a ** b}
+
+    def walk(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, (ast.UAdd, ast.USub)):
+            v = walk(n.operand)
+            return v if isinstance(n.op, ast.UAdd) else -v
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](walk(n.left), walk(n.right))
+        raise ValueError(f"허용되지 않은 식: {ast.dump(n)[:60]}")
+
+    v = walk(ast.parse(expr, mode="eval").body)
+    return int(v) if isinstance(v, float) and v.is_integer() else v
+
+
 class TargetMissing(LookupError):
     """Zero elements matched the selector."""
 
@@ -181,6 +237,25 @@ class Selector:
         return hits[0], strat
 
 
+_GROUPING = ",_ \u00a0\u202f\u2009\u2019"    # digit-grouping marks, NOT the decimal point
+
+
+def _same_number(expected: str, observed: str) -> bool:
+    """Compare two numbers ignoring digit grouping: a calculator shows 5,535 for
+    5535. Only grouping marks are stripped — '.' stays a decimal point, so 1.5
+    still differs from 15."""
+    def canon(v):
+        t = "".join(c for c in str(v) if c not in _GROUPING).strip()
+        return t
+    a, b = canon(expected), canon(observed)
+    if a == b:
+        return True
+    try:
+        return float(a) == float(b)
+    except ValueError:
+        return False
+
+
 @dataclass
 class Postcondition:
     """Structured verification that the action landed (D7).
@@ -215,7 +290,9 @@ class Postcondition:
             # Read the field's own line plus its subtree (deeper indent): AX
             # values commonly live on a child StaticText, not the container line.
             block = _element_block(tree, idx)
-            if want is not None and not any(v == want for v in self._attr_values(block)):
+            if want is not None and not any(
+                    v == want or _same_number(want, v)
+                    for v in self._attr_values(block)):
                 return False
             if self.contains is not None and self.contains not in block:
                 return False
@@ -223,7 +300,9 @@ class Postcondition:
         # whole-tree assertion. `equals` is still EXACT: some element's attribute
         # value equals it (not a substring of the raw tree — '408' must not match
         # '1408' just because the digits appear somewhere; review finding).
-        if want is not None and not any(v == want for v in self._attr_values(tree)):
+        if want is not None and not any(
+                v == want or _same_number(want, v)
+                for v in self._attr_values(tree)):
             return False
         if self.contains is not None and self.contains not in tree:
             return False
@@ -252,19 +331,52 @@ class Step:
     # finding). Such steps must therefore verify their effect; this flag is the
     # explicit, auditable opt-out for genuinely unverifiable cases.
     unverified_ok: bool = False
+    # Repeat this step once per character of the rendered value, binding
+    # {{item}} each time — "click each digit of 12" without unrolling the
+    # recipe for one specific number.
+    for_each: str | None = None
 
 
 @dataclass
 class Flow:
+    """A recipe. `params` make it reusable: the digits of a calculation are
+    inputs, not part of the procedure, so one `calc_multiply` serves every pair
+    of numbers instead of a separate recipe per number."""
     name: str
     target: str
     steps: list[Step] = field(default_factory=list)
+    params: dict = field(default_factory=dict)    # name -> default value
+    tables: dict = field(default_factory=dict)    # name -> {key: value} lookups
+    derived: dict = field(default_factory=dict)   # name -> arithmetic over params
+
+    def bind(self, **values) -> "Flow":
+        """Return a concrete, runnable Flow with parameters substituted and
+        `for_each` steps expanded. The original stays a template."""
+        ctx = {**self.params, **{k: v for k, v in values.items() if v is not None}}
+        missing = [k for k, v in ctx.items() if v is None]
+        if missing:
+            raise ValueError(f"파라미터가 필요합니다: {', '.join(missing)}")
+        for name, expr in self.derived.items():
+            ctx[name] = _arith(_render(expr, {**ctx, "__tables__": self.tables}))
+        ctx["__tables__"] = self.tables
+
+        out: list[Step] = []
+        for st in self.steps:
+            items = [None]
+            if st.for_each:
+                items = list(_render(st.for_each, ctx))
+            for it in items:
+                c = dict(ctx) if it is None else {**ctx, "item": it}
+                out.append(_render_step(st, c))
+        return Flow(name=self.name, target=self.target, steps=out)
 
     def to_json(self) -> str:
-        return json.dumps({
-            "name": self.name, "target": self.target,
-            "steps": [{**asdict(s)} for s in self.steps],
-        }, ensure_ascii=False, indent=2)
+        d = {"name": self.name, "target": self.target,
+             "steps": [{**asdict(s)} for s in self.steps]}
+        for k in ("params", "tables", "derived"):
+            if getattr(self, k):
+                d[k] = getattr(self, k)
+        return json.dumps(d, ensure_ascii=False, indent=2)
 
     @staticmethod
     def from_json(text: str) -> "Flow":
@@ -305,8 +417,39 @@ class Flow:
                               is_submit=s.get("is_submit", False),
                               into_sensitive_field=s.get("into_sensitive_field", False),
                               safety=contract, binding=binding,
-                              unverified_ok=s.get("unverified_ok", False)))
-        return Flow(name=d["name"], target=d["target"], steps=steps)
+                              unverified_ok=s.get("unverified_ok", False),
+                              for_each=s.get("for_each")))
+        return Flow(name=d["name"], target=d["target"], steps=steps,
+                    params=d.get("params", {}), tables=d.get("tables", {}),
+                    derived=d.get("derived", {}))
+
+
+def _render_step(st: "Step", ctx: dict) -> "Step":
+    """A copy of `st` with every template in its selector/params/verification
+    resolved against `ctx`."""
+    sel = st.selector
+    if sel is not None:
+        sel = Selector(role=sel.role,
+                       identifier=_render(sel.identifier, ctx),
+                       title=_render(sel.title, ctx), desc=_render(sel.desc, ctx),
+                       ancestor=_render(sel.ancestor, ctx), allow_nth=sel.allow_nth)
+    post = st.postcondition
+    if post is not None:
+        pf = post.field
+        if pf is not None:
+            pf = Selector(role=pf.role, identifier=_render(pf.identifier, ctx),
+                          title=_render(pf.title, ctx), desc=_render(pf.desc, ctx),
+                          ancestor=_render(pf.ancestor, ctx), allow_nth=pf.allow_nth)
+        post = Postcondition(field=pf, equals=_render(post.equals, ctx),
+                             contains=_render(post.contains, ctx),
+                             attribute=post.attribute)
+    return Step(action=st.action, selector=sel, params=_render(st.params, ctx),
+                risk_class=st.risk_class, intent_text=_render(st.intent_text, ctx),
+                expect=_render(st.expect, ctx), postcondition=post,
+                require_enabled=st.require_enabled, is_submit=st.is_submit,
+                into_sensitive_field=st.into_sensitive_field,
+                safety=st.safety, binding=st.binding,
+                unverified_ok=st.unverified_ok)
 
 
 def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
@@ -531,6 +674,49 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
 
 
 # ------------------------------------------------------------ example flow
+
+DIGITS = {"0": "Zero", "1": "One", "2": "Two", "3": "Three", "4": "Four",
+          "5": "Five", "6": "Six", "7": "Seven", "8": "Eight", "9": "Nine"}
+
+
+def calculator_multiply() -> Flow:
+    """A parameterized recipe: the numbers are inputs, not part of the procedure.
+
+    `for_each` walks the digits of each operand, `tables` maps a digit to the
+    button that types it, and `derived` computes the answer so the run can still
+    verify its own result (D7) for operands nobody hard-coded."""
+    from .contract import Resource
+    KP = "CalculatorKeypadView"
+    ENTRY = Resource(object_type="계산기 입력", scope="entry")
+    keypad = SafetyContract(effects=["write_ephemeral"], resource=ENTRY,
+                            reversibility="reversible")
+    ac = SafetyContract(effects=["delete"], resource=ENTRY, reversibility="reversible")
+
+    def digits_of(param, label):
+        return Step("click",
+                    Selector(role="Button", identifier="{{digit[item]}}", ancestor=KP),
+                    intent_text=f"{label} {{{{item}}}} 입력", safety=keypad,
+                    for_each=f"{{{{{param}}}}}")
+
+    return Flow(
+        name="calc_multiply", target="com.apple.calculator",
+        params={"a": "12", "b": "34"},
+        tables={"digit": DIGITS},
+        derived={"result": "{{a}} * {{b}}"},
+        steps=[
+            Step("click", Selector(role="Button", identifier=["AllClear", "Clear"],
+                                   ancestor=KP), intent_text="초기화", safety=ac),
+            digits_of("a", "첫째 수"),
+            Step("click", Selector(role="Button", identifier="Multiply", ancestor=KP),
+                 intent_text="곱하기", safety=keypad),
+            digits_of("b", "둘째 수"),
+            Step("click", Selector(role="Button", identifier="Equals", ancestor=KP),
+                 intent_text="계산", safety=keypad,
+                 postcondition=Postcondition(
+                     field=Selector(role="ScrollArea", identifier="StandardInputView"),
+                     equals="{{result}}", attribute="Value")),
+        ])
+
 
 def calculator_12x34() -> Flow:
     """Hand-authored flow — the codex demo as a deterministic, tokenless replay."""
