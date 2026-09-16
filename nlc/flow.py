@@ -88,6 +88,16 @@ class Selector:
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
                   "Placeholder")
 
+    @staticmethod
+    def _stable_id(v: str) -> str:
+        """AXIdentifier can carry volatile state appended after ';' — a real
+        device showed 'StandardInputView;value:408', where the identifier
+        changes with every keystroke. The part before the first ';' is the
+        stable identity; the rest is state. Splitting on this structured
+        separator does NOT reintroduce prefix matching ('Save' still never
+        matches 'SaveAs'), so exactness is preserved where it matters."""
+        return v.split(";", 1)[0].strip()
+
     @classmethod
     def _attr(cls, line: str, key: str) -> str | None:
         """Extract one attribute's EXACT value from a tree line (not substring).
@@ -108,7 +118,11 @@ class Selector:
         if self.identifier:
             ids = [self.identifier] if isinstance(self.identifier, str) else self.identifier
             val = self._attr(line, "Identifier")   # already normalized
-            if val is None or val.lower() not in [_norm(i).lower() for i in ids]:
+            if val is None:
+                return False
+            want = {_norm(i).lower() for i in ids}
+            want |= {self._stable_id(w) for w in want}
+            if val.lower() not in want and self._stable_id(val.lower()) not in want:
                 return False
         if self.title:
             val = self._attr(line, "Title")
@@ -138,7 +152,8 @@ class Selector:
             if pind < indent:
                 for key in ("Identifier", "Title"):
                     v = self._attr(prev, key)
-                    if v is not None and v.lower() == want:
+                    if v is not None and (v.lower() == want
+                                          or self._stable_id(v.lower()) == want):
                         return True
                 indent = pind   # climb to the next shallower ancestor
         return False

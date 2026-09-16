@@ -5,6 +5,7 @@ Usage:
   python -m nlc.cli apps              # list running apps (GUI session check)
   python -m nlc.cli list              # list saved flows
   python -m nlc.cli do "<intent>"     # run a natural-language request
+  python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli replay <name>     # replay a saved flow by name
 """
 
@@ -70,14 +71,31 @@ def main(argv=None):
         if not onboard.run(interactive=False, narrate=lambda s: None):
             print("먼저 권한이 필요해요:  python -m nlc.cli doctor")
             return 1
+        from .driver import Driver
         from .session import preflight, KeepAwake
         pf = preflight()
         if pf["verdict"] == "session_locked":
             print("화면이 잠겨 있어요. 잠금을 풀어주시면 바로 이어서 할게요.")
             return 1
-        agent = Agent(narrate=lambda s: print(f"  🗣  {s}"))
+        trace_path = None
+        if "--trace" in rest:
+            k = rest.index("--trace")
+            trace_path = rest[k + 1] if k + 1 < len(rest) else "nlc-trace.json"
+            intent = " ".join(r for j, r in enumerate(rest)
+                              if j not in (k, k + 1))
+        driver = Driver()
+        tracer = None
+        if trace_path:
+            from .trace import TracingDriver, Trace
+            tracer = TracingDriver(driver, Trace(intent=intent))
+            driver = tracer
+        agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"))
         with KeepAwake():   # option A: hold off idle-lock while the task runs
             turn = agent.handle(intent)
+        if tracer is not None:
+            tracer.trace.flow = turn.flow or "(unresolved)"
+            print(f"\n트레이스 저장: {tracer.trace.save(trace_path)}"
+                  f"  (이 파일만 있으면 다른 컴퓨터에서 그대로 재현됩니다)")
         print(f"\n[{turn.status}] {turn.say}")
         return 0 if turn.status == "done" else 1
 
