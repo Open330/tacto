@@ -142,6 +142,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
                 "detail": "obs_id was taken on \(latestTargetName)"]
     }
     let elements = latestElements
+    if aborted {
+        return ["type": "error", "error": "aborted_by_user",
+                "detail": "사용자가 Esc로 중단했습니다"]
+    }
+    showOverlay(forPID: p)
     let name = action["name"] as? String ?? ""
 
     func element() -> AXUIElement? {
@@ -194,6 +199,75 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
 
 // MARK: - L2 loop
 
+// MARK: - The user is the authority
+//
+// Caller identity cannot protect this interface while the client is a shared
+// Python interpreter: any script using that interpreter looks identical to NLC,
+// which is the very problem the helper exists to fix. What DOES hold regardless
+// of who is calling is that the person can see what is happening and stop it.
+// So the indicator and the abort key belong HERE, in the process that performs
+// the actions — a caller cannot skip them by not drawing an overlay.
+
+var aborted = false
+var overlay: NSWindow?
+
+func showOverlay(forPID pid: pid_t) {
+    guard overlay == nil else { return }
+    let app = AXUIElementCreateApplication(pid)
+    guard let win = attr(app, kAXFocusedWindowAttribute as String)
+            ?? (attr(app, kAXWindowsAttribute as String) as? [AXUIElement])?.first
+    else { return }
+    let winEl = win as! AXUIElement
+    guard let posV = attr(winEl, kAXPositionAttribute as String),
+          let sizeV = attr(winEl, kAXSizeAttribute as String) else { return }
+    var pt = CGPoint.zero, sz = CGSize.zero
+    AXValueGetValue(posV as! AXValue, .cgPoint, &pt)
+    AXValueGetValue(sizeV as! AXValue, .cgSize, &sz)
+    guard let screen = NSScreen.screens.first else { return }
+    let frame = NSRect(x: pt.x, y: screen.frame.height - pt.y - sz.height,
+                       width: sz.width, height: sz.height)
+
+    let panel = NSPanel(contentRect: frame,
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.ignoresMouseEvents = true
+    panel.level = .floating
+    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+    panel.hasShadow = false
+
+    let view = NSView(frame: NSRect(origin: .zero, size: frame.size))
+    view.wantsLayer = true
+    view.layer?.borderWidth = 4
+    view.layer?.cornerRadius = 8
+    view.layer?.borderColor = NSColor(srgbRed: 0.05, green: 0.62, blue: 0.55, alpha: 1).cgColor
+    let label = NSTextField(labelWithString: "NLC가 이 창을 조작 중입니다 · Esc로 중단")
+    label.font = .boldSystemFont(ofSize: 13)
+    label.textColor = .white
+    label.backgroundColor = NSColor(srgbRed: 0.05, green: 0.62, blue: 0.55, alpha: 1)
+    label.drawsBackground = true
+    label.sizeToFit()
+    label.frame.origin = CGPoint(x: 14, y: frame.size.height - label.frame.height - 14)
+    view.addSubview(label)
+    panel.contentView = view
+    panel.orderFrontRegardless()
+    overlay = panel
+}
+
+func hideOverlay() {
+    overlay?.orderOut(nil)
+    overlay = nil
+}
+
+func watchForAbort() {
+    // Esc anywhere stops the run. The helper watches for it itself, so a caller
+    // cannot leave the user without a way out.
+    NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { ev in
+        if ev.keyCode == 53 { aborted = true }          // Esc
+    }
+}
+
 func respond(_ obj: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: obj),
           let line = String(data: data, encoding: .utf8) else { return }
@@ -245,15 +319,39 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // deliberate. A real boundary requires the OS to tell us who the caller is —
 // an XPC service checking the client's audit token and code-signing
 // requirement — which is the documented next step (PROTOCOL.md §3.8).
-guard let expectedToken = ProcessInfo.processInfo.environment["NLC_HELPER_TOKEN"],
-      !expectedToken.isEmpty else {
-    FileHandle.standardError.write(Data(
-        "NLC_HELPER_TOKEN is required; launch this helper through nlc\n".utf8))
-    exit(2)
-}
+let expectedToken: String = {
+    guard let t = ProcessInfo.processInfo.environment["NLC_HELPER_TOKEN"],
+          !t.isEmpty else {
+        FileHandle.standardError.write(Data(
+            "NLC_HELPER_TOKEN is required; launch this helper through nlc\n".utf8))
+        exit(2)
+    }
+    return t
+}()
 var authenticated = false
 
+/// The OS's view of who launched us. A PID can be reused, so this is checked
+/// once at startup and the parent is then pinned — it is a real identity check
+/// (SecCode), not a name comparison, but it is not a substitute for XPC audit
+/// tokens. See `clientIdentityNote` below for why that distinction matters
+/// less than it looks for our current client.
+func parentCodeIdentity(_ pid: pid_t) -> String? {
+    var code: SecCode?
+    let attrs = [kSecGuestAttributePid: NSNumber(value: Int32(pid))] as CFDictionary
+    guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &code) == errSecSuccess,
+          let code else { return nil }
+    var staticCode: SecStaticCode?
+    guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
+          let staticCode else { return nil }
+    var info: CFDictionary?
+    guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation),
+                                        &info) == errSecSuccess,
+          let dict = info as? [String: Any] else { return nil }
+    return (dict["identifier"] as? String) ?? "unsigned"
+}
+
 let parentPID = getppid()
+let parentIdentity = parentCodeIdentity(parentPID) ?? "unknown"
 DispatchQueue.global().async {
     while true {
         Thread.sleep(forTimeInterval: 1.0)
@@ -266,6 +364,18 @@ if !AXIsProcessTrusted() {
              "detail": "System Settings > Privacy & Security > Accessibility 에서 NLCHelper 를 켜주세요"])
 }
 
+// A panel and a key monitor need an app object and a run loop; the helper is an
+// accessory (no Dock icon, never takes focus).
+let nsApp = NSApplication.shared
+nsApp.setActivationPolicy(.accessory)
+watchForAbort()
+
+DispatchQueue.global().async {
+    readLoop()
+}
+nsApp.run()
+
+func readLoop() {
 while let line = readLine(strippingNewline: true) {
     if line.isEmpty { continue }
     guard let data = line.data(using: .utf8),
@@ -273,5 +383,8 @@ while let line = readLine(strippingNewline: true) {
         respond(["type": "error", "error": "bad_message"])
         continue
     }
-    respond(handle(msg))
+    let reply = DispatchQueue.main.sync { handle(msg) }
+    respond(reply)
+}
+DispatchQueue.main.async { hideOverlay(); exit(0) }
 }

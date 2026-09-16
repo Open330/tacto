@@ -249,6 +249,35 @@ def scenario_swift_helper():
         d.close()
 
 
+def scenario_helper_user_authority():
+    """The helper refuses to act after the user presses Esc, and refuses an
+    obs_id taken on a different app — neither depends on trusting the caller."""
+    try:
+        from nlc.helper import HelperDriver
+        d = HelperDriver()
+    except Exception:
+        return None
+    try:
+        o = d.observe("com.apple.calculator")
+        if o.get("type") != "observation":
+            return None
+        cross = d.act(o["obs_id"], "com.apple.finder",
+                      {"name": "type_text", "text": "x"})
+        if cross.get("error") != "target_mismatch":
+            return False
+        import Quartz, time
+        for down in (True, False):                      # Esc
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                               Quartz.CGEventCreateKeyboardEvent(None, 53, down))
+        time.sleep(0.8)
+        o2 = d.observe("com.apple.calculator")
+        after = d.act(o2["obs_id"], "com.apple.calculator",
+                      {"name": "click", "element_index": 0})
+        return after.get("error") == "aborted_by_user"
+    finally:
+        d.close()
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -318,6 +347,7 @@ SCENARIOS = [
     ("reparameterize (concrete IR -> template, no model)", scenario_reparameterize),
     ("capture (read a value off the screen)", scenario_capture),
     ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
+    ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
