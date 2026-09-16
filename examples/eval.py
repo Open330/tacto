@@ -391,6 +391,22 @@ def scenario_peer_authentication():
         d.close()
 
 
+def scenario_cli_end_to_end():
+    """Exercise the command a person actually types.
+
+    Every other scenario calls the engine directly and binds parameters itself,
+    so a stored template that `nlc do` never bound ran as literal
+    "{{digit[item]}}" while the suite stayed green. This closes that gap: run the
+    real CLI path over a stored recipe and require the verified answer."""
+    from nlc.agent import Agent
+    from nlc.store import FlowStore
+    if "calc_12x34" not in FlowStore().list():
+        return None
+    said = []
+    turn = Agent(narrate=said.append).handle("계산기로 12 곱하기 34")
+    return turn.status == "done" and "408" in turn.say
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -463,6 +479,7 @@ SCENARIOS = [
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("permission_boundary (env override and argv0 forgery refused)", scenario_permission_boundary),
     ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
+    ("cli_end_to_end (the command a person types)", scenario_cli_end_to_end),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

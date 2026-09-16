@@ -88,6 +88,16 @@ class Agent:
             flow = builder()
             self.store.save(flow)                     # cache it for next time
 
+        # A stored recipe may be a template. Running it unbound sends
+        # "{{digit[item]}}" to the screen as if it were a selector, which is how
+        # `nlc do` broke while the suite — which binds explicitly — stayed green.
+        if flow.params or flow.tables or flow.derived:
+            try:
+                flow = flow.bind()
+            except Exception as e:
+                return Turn("failed",
+                            f"'{flow.name}' 에 필요한 값이 없어요: {e}", flow.name)
+
         plan = self._plan_text(flow)
         self.narrate(plan)
 
