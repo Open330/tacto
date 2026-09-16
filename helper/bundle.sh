@@ -39,6 +39,12 @@ cp nlc-helper "$APP/Contents/MacOS/NLCHelper"
 IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
   | grep -v CSSMERR | head -1 | sed -E 's/.*"(.*)"/\1/')}
 [ -n "$IDENTITY" ] || { echo "no signing identity"; exit 1; }
-codesign --force --deep --sign "$IDENTITY" --options runtime --timestamp=none "$APP"
+# Sign inner code first, then the bundle — Apple's guidance; --deep is for
+# verification, not a signing strategy. Hardened runtime stays on: a process
+# holding an accessibility grant should not accept library injection.
+codesign --force --sign "$IDENTITY" --options runtime --timestamp=none \
+         "$APP/Contents/MacOS/NLCHelper"
+codesign --force --sign "$IDENTITY" --options runtime --timestamp=none "$APP"
+codesign --verify --deep --strict "$APP" && echo "verified: hardened runtime, inner-first"
 codesign -dv "$APP" 2>&1 | grep -E 'Identifier|TeamIdentifier'
 echo "bundled: $(pwd)/$APP"

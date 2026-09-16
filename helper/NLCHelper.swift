@@ -373,11 +373,16 @@ var authenticated = false
 /// though a PID can in principle be reused, so it is made once at startup and
 /// the parent is pinned thereafter.
 ///
-/// Set NLC_HELPER_REQUIREMENT to override (development, or a different signing
-/// identity). Refusing to run unsigned is deliberate: an unsigned helper would
-/// hand its accessibility grant to whatever launched it.
-let clientRequirement = ProcessInfo.processInfo.environment["NLC_HELPER_REQUIREMENT"]
-    ?? "identifier \"ai.callabo.nlc\" and anchor apple generic"
+/// The requirement is COMPILED IN, never taken from the environment. An
+/// environment override would have let a caller replace the check with one that
+/// passes — the boundary would have been advisory (advisor finding). Override
+/// at build time with -DNLC_DEV_REQUIREMENT for a different signing identity.
+///
+/// `anchor apple generic` alone only means "an Apple-issued identity", not
+/// "ours", so the team is checked explicitly.
+let clientRequirement =
+    "identifier \"ai.callabo.nlc\" and anchor apple generic and " +
+    "certificate leaf[subject.OU] = \"48H4RZNB97\""
 
 /// The PID of `pid`'s parent, via sysctl.
 func parentOf(_ pid: pid_t) -> pid_t? {
