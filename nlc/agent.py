@@ -33,6 +33,23 @@ class Turn:
     detail: dict | None = None
 
 
+def _readable(value) -> str:
+    """A captured value as a person would read it, not as Python prints it.
+
+    A day's calendar entries carry their whole summary, so running several of
+    them together with commas produces a paragraph nobody can scan. Short lists
+    stay on one line; longer ones get a line each.
+    """
+    if not isinstance(value, list):
+        return str(value)
+    if not value:
+        return "(없음)"
+    inline = ", ".join(str(v) for v in value)
+    if len(value) > 1 and len(inline) > 60:
+        return "\n" + "\n".join(f"  · {v}" for v in value)
+    return inline
+
+
 @dataclass
 class Match:
     """Which recipe a request resolved to, and the values it supplied.
@@ -71,18 +88,56 @@ def _folder(m: re.Match) -> dict:
     return {"folder": _FOLDERS[m.group(1).lower()]}
 
 
+def _frontmost() -> str:
+    """The app the person is looking at.
+
+    "대화상자 닫아줘" means the dialog in front of them; naming a fixed app
+    would be right only by accident.
+    """
+    from AppKit import NSWorkspace
+    app = NSWorkspace.sharedWorkspace().frontmostApplication()
+    return str(app.bundleIdentifier() or app.localizedName()) if app else ""
+
+
+_WEEKDAY_KO = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+
+
+def _today(_m: re.Match) -> dict:
+    """Today's weekday, in both the app's language and the user's.
+
+    Calendar labels its day columns in the system's language while this process
+    computes in its own, so the recipe is given both spellings and matches
+    whichever the screen actually shows.
+    """
+    import datetime
+    t = datetime.date.today()
+    return {"weekday_en": t.strftime("%A"), "weekday_ko": _WEEKDAY_KO[t.weekday()]}
+
+
 # Intent resolution: map a natural-language request to a stored recipe AND the
 # values it needs. Deterministic and tokenless. A real deployment extends this
 # with the model only when nothing matches (the `author` path below).
 _INTENT_RULES: list[tuple[re.Pattern, str, object]] = [
     (re.compile(r"(\d+)\s*(곱하기|더하기|빼기|나누기|[-+x×*/÷])\s*(\d+)"),
      "calc_arith", _calc),
+    # Checked early: it is the way out of a stuck run, so it must not be
+    # shadowed by a rule that matches the app's name inside the same sentence.
+    (re.compile(r"(대화상자|다이얼로그|팝업|창).{0,6}(닫아|닫기|취소|없애)"
+                r"|(dialog|sheet).{0,6}(close|cancel)"),
+     "close_dialog", lambda _m: {"app": _frontmost()}),
+    (re.compile(r"(메일|이메일|mail|inbox|받은\s*편지)"), "mail_inbox", lambda m: {}),
+    (re.compile(r"(오늘|today).{0,6}(일정|스케줄|약속|schedule)"
+                r"|(일정|스케줄).{0,4}(뭐|뭔가|있어|알려)"), "calendar_today", _today),
     # A question about a folder is answered, not acted on; it is checked first
     # because "다운로드 폴더 보여줘" and "다운로드 폴더에 뭐 있어?" overlap.
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(에|안에)?\s*"
-                r"(뭐|무엇|몇\s*개|몇개|얼마나)", re.I),
+                r"(몇\s*개|몇개|얼마나)", re.I),
      "finder_count_items", _folder),
+    (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
+                r")\s*(폴더|디렉터리|folder)?\s*(에|안에)?\s*"
+                r"(뭐|무엇|무슨)", re.I),
+     "finder_list_items", _folder),
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(을|를|로)?\s*(열어|열기|보여|open)",
                 re.I), "finder_open_folder", _folder),
@@ -257,10 +312,12 @@ class Agent:
             if value:
                 say = f"다 됐어요. 결과는 {value} 입니다."
             elif len(captured) == 1:
-                say = "확인했어요. " + str(next(iter(captured.values())))
+                say = "확인했어요. " + _readable(next(iter(captured.values())))
             elif captured:
-                say = "확인했어요. " + ", ".join(f"{k}: {v}"
-                                               for k, v in captured.items())
+                # One line each: a folder listing and its summary run together
+                # into something nobody can read at a glance.
+                say = "확인했어요.\n" + "\n".join(
+                    f"  {k}: {_readable(v)}" for k, v in captured.items())
             else:
                 say = "다 됐어요. 결과를 확인했습니다."
             return Turn("done", say, flow.name, last)
@@ -303,6 +360,10 @@ class Agent:
         "action_failed": "그 동작을 수행하지 못했어요.",
     }
 
+    # A dialog left open by an earlier run blocks everything that follows, and
+    # the fix is one sentence — but only if the person is told what it is.
+    _DIALOG_HINT = "  (\"대화상자 닫아줘\" 라고 말씀하시면 제가 닫아드릴게요.)"
+
     def _why(self, err: dict) -> str:
         code = err.get("error")
         detail = err.get("detail")
@@ -310,6 +371,8 @@ class Agent:
             code = detail.get("error")
             detail = detail.get("detail")
         base = self._CAUSE.get(code, "화면 상태를 다시 확인해 주세요.")
+        if isinstance(detail, str) and "대화상자" in detail:
+            return detail + self._DIALOG_HINT
         # A driver-supplied Korean detail (candidate app list, session hint) is
         # more actionable than the generic line — prefer it when present.
         if isinstance(detail, str) and detail and detail != base:

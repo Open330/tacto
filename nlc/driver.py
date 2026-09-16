@@ -65,6 +65,20 @@ AX_INTERACTABLE_ROLES = {
 
 AUTO_WAIT_BASE_S = 1.0     # D5: settle time after an action before capture
 MAX_TREE_DEPTH = 25
+# Every attribute read is an interprocess round trip, so the cost of observing
+# scales with the size of the app's tree — and some apps are enormous. Mail was
+# still walking after 40 seconds and 11,000 elements, which is not "slow", it is
+# a hang: the app people most want help with was the one that never answered.
+# A node budget makes the worst case bounded and, unlike a timeout, identical on
+# every machine — so a recorded trace still replays the same way.
+MAX_TREE_NODES = 2500
+# One enormous, homogeneous list is what actually makes an app expensive: a
+# mailbox holds thousands of rows that all look alike, and walking them all buys
+# nothing a person asked for. Capping children per container keeps the SHAPE of
+# the window — sidebar, toolbar, the first rows — where a global budget alone
+# would spend everything inside the first big list and never reach the rest.
+MAX_CHILDREN_PER_NODE = 60
+TRUNCATION_MARK = "… (트리가 커서 여기서 잘렸습니다 — 더 좁은 창/앱을 대상으로 하세요)"
 
 
 def _attr(el, name):
@@ -72,17 +86,38 @@ def _attr(el, name):
     return value if err == 0 else None
 
 
+_LABEL_ATTRS = ("AXTitle", "AXDescription", "AXValue", "AXHelp",
+                "AXIdentifier", "AXPlaceholderValue")
+
+
 def _elem_label(el):
-    """Compact one-line description of an AX element."""
+    """Compact one-line description of an AX element.
+
+    Fetched in ONE round trip rather than six. Some apps compute these lazily
+    per element — a Mail message row costs 20ms read one attribute at a time and
+    3ms read together, and Mail has thousands of rows, which is the difference
+    between "slow" and an observation that never returns.
+
+    An attribute the element does not have comes back as an AXValue carrying an
+    error rather than nil, so only real strings and numbers are kept.
+    """
     parts = []
-    for name in ("AXTitle", "AXDescription", "AXValue", "AXHelp",
-                 "AXIdentifier", "AXPlaceholderValue"):
-        v = _attr(el, name)
-        if v is None or v == "":
+    values = None
+    try:
+        from ApplicationServices import AXUIElementCopyMultipleAttributeValues
+        err, values = AXUIElementCopyMultipleAttributeValues(
+            el, _LABEL_ATTRS, 0, None)
+        if err != 0:
+            values = None
+    except Exception:
+        values = None
+    if values is None:                     # older bindings: one call each
+        values = [_attr(el, name) for name in _LABEL_ATTRS]
+    for name, v in zip(_LABEL_ATTRS, values):
+        if not isinstance(v, (str, int, float)) or v == "":
             continue
-        key = name[2:]  # strip AX
-        parts.append(f"{key}: {v}")
-    return ", ".join(str(p) for p in parts)
+        parts.append(f"{name[2:]}: {v}")   # strip the AX prefix
+    return ", ".join(parts)
 
 
 def _elem_frame(el):
@@ -110,10 +145,16 @@ class Observation:
         self.elements: list = []   # index -> AXUIElement
         self.lines: list[str] = []
         self.created_at = time.time()
+        self.visited = 0           # nodes touched, emitted or not
+        self.truncated = False
 
     def walk(self, el, depth=0):
         if depth > MAX_TREE_DEPTH:
             return
+        if self.visited >= MAX_TREE_NODES:
+            self.truncated = True
+            return
+        self.visited += 1
         role = _attr(el, "AXRole") or "?"
         label = _elem_label(el)
         if role in AX_INTERACTABLE_ROLES or label:
@@ -126,8 +167,12 @@ class Observation:
             self.lines.append(f"{indent}{idx} {role[2:] if role.startswith('AX') else role}"
                               + (f"  {label}" if label else "") + disabled)
         children = _attr(el, "AXChildren") or []
-        for child in children:
+        for child in children[:MAX_CHILDREN_PER_NODE]:
             self.walk(child, depth + 1)
+        if len(children) > MAX_CHILDREN_PER_NODE:
+            self.truncated = True
+            self.lines.append("  " * (depth + 1)
+                              + f"… ({len(children) - MAX_CHILDREN_PER_NODE}개 더 있음)")
 
 
 class Driver:
@@ -175,10 +220,22 @@ class Driver:
 
     def _resolve(self, target: str, launch=True, _pumped=False):
         want = target.lower()
+        # An app's everyday name is not unique: "Messages" also names
+        # com.apple.messages.AssistantExtension, a background agent with no
+        # windows and no menu bar, and whichever came first in the list won.
+        # A bundle id is an exact answer; a name means the app a person can see,
+        # so regular apps (activation policy 0) beat agents and extensions.
+        by_bundle, by_name = [], []
         for app in NSWorkspace.sharedWorkspace().runningApplications():
             bid = (app.bundleIdentifier() or "").lower()
             name = (app.localizedName() or "").lower()
-            if want in (bid, name):
+            if want == bid:
+                by_bundle.append(app)
+            elif want == name:
+                by_name.append(app)
+        for group in (by_bundle, by_name):
+            regular = [a for a in group if a.activationPolicy() == 0]
+            for app in regular or group:
                 return int(app.processIdentifier())
         if not _pumped:
             # The snapshot may simply be stale — refresh before concluding the
@@ -403,6 +460,11 @@ class Driver:
         prev = self._latest.get(target.lower())
         self._latest[target.lower()] = obs
 
+        if obs.truncated:
+            # Say so in the tree itself: a selector that finds nothing here has
+            # a different meaning from one that searched the whole window, and
+            # the caller has to be able to tell those apart.
+            obs.lines.append(TRUNCATION_MARK)
         tree = "\n".join(obs.lines)
         if mode == "tree_diff" and prev is not None:
             diff = list(difflib.unified_diff(prev.lines, obs.lines,
@@ -413,7 +475,7 @@ class Driver:
                 tree = "\n".join(diff[3:])  # drop ---/+++/@@ header noise
         return {"type": "observation", "obs_id": obs.obs_id, "target": target,
                 "mode": mode, "tree": tree, "element_count": len(obs.elements),
-                "waited_ms": waited_ms}
+                "truncated": obs.truncated, "waited_ms": waited_ms}
 
     def wait_until(self, target: str, predicate, timeout_ms=4000, poll_ms=250):
         """Re-observe on a monotonic deadline until predicate(full_tree) is true.
@@ -504,6 +566,12 @@ class Driver:
             self._scroll_at(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2,
                             action.get("direction", "down"), action.get("pages", 1),
                             obs.pid)
+        elif name == "read":
+            # Look, change nothing. A recipe that must carry a value from one
+            # part of the screen to another had no way to say "now read this":
+            # every step had to act, so reading was only ever a side effect of
+            # doing something else.
+            return None
         elif name == "menu":
             # An app validates its menus only while it is the active one, so
             # this is a precondition for reading `enabled` correctly, not a
@@ -561,12 +629,34 @@ class Driver:
                                "input post to avoid wrong-app delivery")
 
     def _mouse_click(self, x, y, pid=None):
+        """Click at a screen point, for controls that expose no AX action.
+
+        Delivered through the system event tap rather than to a pid, because a
+        mouse event is routed by WHERE it is: posted to a process, it arrives
+        with nothing to tell the app which view was hit, and a sidebar row
+        simply never selects. The location is the targeting, which is why this
+        does not reintroduce the wrong-app hazard that pid-posting exists to
+        prevent for keystrokes — those carry no location at all.
+
+        The app is raised first so the point really belongs to the window the
+        frame was read from, and the pointer is put back where the person left
+        it.
+        """
+        if pid is not None:
+            self._activate(pid)
         with _INPUT_LOCK:
-            for etype in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+            where = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+            for etype in (Quartz.kCGEventMouseMoved,
+                          Quartz.kCGEventLeftMouseDown,
+                          Quartz.kCGEventLeftMouseUp):
                 ev = Quartz.CGEventCreateMouseEvent(_event_source(), etype, (x, y),
                                                     Quartz.kCGMouseButtonLeft)
-                self._post(ev, pid)
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
                 time.sleep(0.03)
+            back = Quartz.CGEventCreateMouseEvent(
+                _event_source(), Quartz.kCGEventMouseMoved, where,
+                Quartz.kCGMouseButtonLeft)
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, back)
 
     def _type_text(self, text, pid=None):
         with _INPUT_LOCK:

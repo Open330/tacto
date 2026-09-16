@@ -120,11 +120,9 @@ def finder_count_items() -> Flow:
     until now every recipe here acted. This one opens the folder and reads
     Finder's own status line back.
 
-    It reports the count rather than the file names on purpose: in column view
-    — Finder's default here — the names are not in the accessibility tree at
-    all, and switching the window to list view to get at them would change a
-    setting the person chose. Reading what is actually on screen is the honest
-    version of this task.
+    It reads Finder's own status line, which counts everything in the folder —
+    including what is scrolled out of view. `finder_list_items` names them
+    instead; "몇 개야?" and "뭐 있어?" are different questions.
     """
     path = ["Go", "{{folder}}"]
     return Flow(
@@ -137,11 +135,138 @@ def finder_count_items() -> Flow:
                                         operation="menu",
                                         params_digest=pin_params({"path": path})),
                  postcondition=Postcondition(equals="{{folder}}", attribute="Title"),
-                 capture=Capture(name="요약",
-                                 field=Selector(role="StaticText",
-                                                identifier="statusBarText",
-                                                in_focused_window=True),
-                                 attribute="Value")),
+                 captures=[Capture(name="요약",
+                                   field=Selector(role="StaticText",
+                                                  identifier="statusBarText",
+                                                  in_focused_window=True),
+                                   attribute="Value")]),
+        ])
+
+
+def finder_list_items() -> Flow:
+    """Name what is in a folder, rather than counting it.
+
+    Finder renders filenames as editable text fields (that is how rename-in-place
+    works), so a role plus the front window is the whole description — no
+    guessing at row identifiers, and no switching the window to list view to
+    reach them. What it reads is what the window currently shows, so a long
+    folder is reported up to `limit` and the count recipe remains the way to
+    ask how many there really are.
+
+    Read from the END of the matches: in column view Finder shows every parent
+    folder next to the current one, so the first names on screen belong to the
+    drive and the folders above, not to the folder that was asked about. The
+    rightmost column is the answer.
+    """
+    path = ["Go", "{{folder}}"]
+    return Flow(
+        name="finder_list_items", target="com.apple.finder",
+        params={"folder": "Downloads"},
+        steps=[
+            Step("menu", params={"path": path},
+                 intent_text="{{folder}} 폴더를 봅니다", safety=LOOK,
+                 binding=ContextBinding(bundle_id="com.apple.finder",
+                                        operation="menu",
+                                        params_digest=pin_params({"path": path})),
+                 postcondition=Postcondition(equals="{{folder}}", attribute="Title"),
+                 captures=[
+                     Capture(name="목록", many=True, limit=15, optional=True,
+                             tail=True,
+                             field=Selector(role="TextField",
+                                            in_focused_window=True),
+                             attribute="Value"),
+                     Capture(name="요약",
+                             field=Selector(role="StaticText",
+                                            identifier="statusBarText",
+                                            in_focused_window=True),
+                             attribute="Value")]),
+        ])
+
+
+# ---------------------------------------------------------------- Mail
+
+def mail_inbox() -> Flow:
+    """What is in the inbox — sender, subject, and the window's own tally.
+
+    Mail is the app that forced a limit on how much of a tree is worth walking:
+    a mailbox holds tens of thousands of rows that all look alike, and reading
+    every one of them took over a minute before the driver learned to stop. What
+    a person asked for is the top of the list, which is exactly what survives.
+
+    Getting to the inbox is a menu command rather than a click on the sidebar,
+    so it does not depend on which mailbox happened to be selected. That is
+    navigation, not a preference: "메일 왔어?" means the inbox, whatever was on
+    screen a moment ago.
+    """
+    CELL = "Mail.messageList"
+    inbox = ["Mailbox", ["Go to Favorite Mailbox", "즐겨찾는 메일함으로 이동"],
+             ["All Inboxes", "모든 받은 편지함"]]
+
+    def column(name: str, identifier: str) -> Capture:
+        return Capture(name=name, many=True, limit=8, empty_ok=True,
+                       field=Selector(role="StaticText", identifier=identifier,
+                                      ancestor=CELL, in_focused_window=True),
+                       attribute="Value")
+
+    return Flow(
+        name="mail_inbox", target="com.apple.mail",
+        steps=[
+            Step("menu", params={"path": inbox},
+                 intent_text="받은 편지함을 봅니다", safety=LOOK,
+                 binding=ContextBinding(bundle_id="com.apple.mail",
+                                        operation="menu",
+                                        params_digest=pin_params({"path": inbox})),
+                 postcondition=Postcondition(contains=CELL),
+                 captures=[
+                     # The window title carries Mail's own count, including the
+                     # unread tally when there is one — no arithmetic of ours.
+                     Capture(name="메일함", many=True, limit=1,
+                             field=Selector(role="Window", in_focused_window=True),
+                             attribute="Title"),
+                     column("보낸사람", "Mail.messageList.cell.view.addressLabel"),
+                     column("제목", "Mail.messageList.cell.view.subjectLabel"),
+                 ]),
+        ])
+
+
+# ---------------------------------------------------------------- Calendar
+
+def calendar_today() -> Flow:
+    """What is on today — the request a calendar exists to answer.
+
+    Calendar lays the week out as one list per day, labelled with the weekday in
+    the SYSTEM's language, and each event carries its whole summary (title, time,
+    place) in its description. So the recipe scopes to today's column and reads
+    the descriptions out; it never switches the window to day view, because the
+    week the person is looking at is a view they chose.
+
+    The weekday arrives as both spellings, since the app writes it in the
+    system's language while the caller computes it in its own. An empty column
+    is a real answer here — a free day — which is why the postcondition proves
+    the column is on screen before the capture concludes anything from its
+    being empty.
+    """
+    today = ["{{weekday_en}}", "{{weekday_ko}}"]
+    go_today = ["View", ["Go to Today", "오늘로 이동"]]
+    return Flow(
+        name="calendar_today", target="com.apple.iCal",
+        params={"weekday_en": "Monday", "weekday_ko": "월요일"},
+        steps=[
+            Step("menu", params={"path": go_today},
+                 intent_text="오늘 날짜를 봅니다", safety=LOOK,
+                 binding=ContextBinding(bundle_id="com.apple.iCal",
+                                        operation="menu",
+                                        params_digest=pin_params({"path": go_today})),
+                 postcondition=Postcondition(
+                     field=Selector(role="List", desc=today,
+                                    in_focused_window=True),
+                     contains="List"),
+                 captures=[Capture(name="오늘 일정", many=True, limit=12,
+                                   empty_ok=True,
+                                   field=Selector(role="StaticText",
+                                                  ancestor=today,
+                                                  in_focused_window=True),
+                                   attribute="Description")]),
         ])
 
 
@@ -248,9 +373,12 @@ def textedit_save_as() -> Flow:
     opens a sheet, a field inside that sheet, and a step whose contract says
     `write_persistent`, which the policy will not run on its own authority.
 
-    The sheet saves wherever the app last saved. Choosing the folder is a
-    separate capability this recipe does not claim — saying so is better than a
-    step that quietly lands the file somewhere the person did not expect.
+    The folder is chosen, not inherited. Letting the sheet keep whatever
+    location the app last used meant a file could land somewhere the person
+    never picked and would not think to look — the save panel here was still
+    pointing at a terminal's support directory. The two location steps stand
+    down when the sheet already shows the right folder, so re-saving to the same
+    place costs nothing.
     """
     # The menu item's own title tracks document state: an unsaved document shows
     # "Save…", a saved one shows "Save" and a separate "Save As…". Listing the
@@ -259,9 +387,15 @@ def textedit_save_as() -> Flow:
     save_as = ["File", ["Save As…", "Save…", "다른 이름으로 저장…", "저장…"]]
     name_field = Selector(role="TextField", identifier="saveAsNameTextField",
                           in_focused_window=True)
+    # The popup's own value is the folder it will save into, so it doubles as
+    # the condition for skipping the two steps that set it.
+    where = Selector(role="PopUpButton", identifier="where popup",
+                     in_focused_window=True)
+    at_folder = Postcondition(field=where, equals="{{folder}}", attribute="Value")
+    sidebar = Selector(role="Outline", desc="sidebar", in_focused_window=True)
     return Flow(
         name="textedit_save_as", target="com.apple.TextEdit",
-        params={"filename": "무제.rtf"},
+        params={"filename": "무제.rtf", "folder": "Downloads"},
         steps=[
             Step("menu", params={"path": save_as},
                  intent_text="저장 창을 엽니다", safety=_scratch("저장 대화상자"),
@@ -269,6 +403,25 @@ def textedit_save_as() -> Flow:
                                         operation="menu",
                                         params_digest=pin_params({"path": save_as})),
                  postcondition=Postcondition(contains="save-panel")),
+            # The sidebar, not the "Where:" popup. That popup is a menu, and a
+            # menu only opens for the active app — pressing it from here reports
+            # success and shows nothing. The sidebar is an ordinary list, and
+            # clicking a row works whatever has focus.
+            Step("click", Selector(role="DisclosureTriangle",
+                                   identifier="NS_OPEN_SAVE_DISCLOSURE_TRIANGLE",
+                                   in_focused_window=True),
+                 intent_text="저장 위치 목록을 펼칩니다", safety=_scratch("저장 대화상자"),
+                 skip_if=Postcondition(field=sidebar, contains="Outline")),
+            # The label identifies the row; the row is what responds to the
+            # click, so the selector matches the one and acts on the other.
+            Step("click", Selector(role="StaticText", value="{{folder}}",
+                                   ancestor="sidebar", in_focused_window=True,
+                                   click_ancestor=["Row", "Cell"]),
+                 intent_text="'{{folder}}' 폴더를 고릅니다",
+                 safety=_scratch("저장 위치"), skip_if=at_folder,
+                 binding=ContextBinding(bundle_id="com.apple.TextEdit",
+                                        role="StaticText", operation="click"),
+                 postcondition=at_folder),
             Step("set_value", name_field, params={"value": "{{filename}}"},
                  intent_text="파일 이름을 '{{filename}}' 으로 적습니다",
                  safety=_scratch("파일 이름"),
@@ -297,6 +450,10 @@ def textedit_save_as() -> Flow:
                                         # the name field has to still say it at
                                         # the moment the button is pressed.
                                         resource_identity="{{filename}}",
+                                        # …and into the folder that was agreed.
+                                        destination_identity="{{folder}}",
+                                        destination_identity_from={
+                                            **asdict(where), "attribute": "Value"},
                                         # Derived from the field itself rather
                                         # than restated: a second copy of the
                                         # selector drifts from the first, and
@@ -308,6 +465,36 @@ def textedit_save_as() -> Flow:
                  answers=True,
                  postcondition=Postcondition(equals="{{filename}}",
                                              attribute="Title")),
+        ])
+
+
+# ---------------------------------------------------------------- recovery
+
+def close_dialog() -> Flow:
+    """Dismiss a dialog the app is waiting on — the way OUT of a stuck run.
+
+    A run that stops midway leaves its sheet open, and a modal sheet disables
+    the whole menu bar, so the next request fails before it starts. Nothing
+    closes it on its own: cancelling a dialog is an action nobody asked for, and
+    guessing at it is how an automation throws away work. So it is a recipe the
+    person invokes — "대화상자 닫아줘" — and it presses Cancel, never the button
+    that commits.
+
+    It is verified by the sheet being gone, which is the only shape of evidence
+    that fits: nothing new appears when a dialog closes.
+    """
+    return Flow(
+        name="close_dialog", target="{{app}}",
+        params={"app": "com.apple.TextEdit"},
+        steps=[
+            # Deliberately NOT scoped to the front window: the dialog holding
+            # things up is usually on the window the run abandoned, not the one
+            # the person is looking at now. Two open dialogs make this ambiguous
+            # and it says so rather than guessing which to discard.
+            Step("click", Selector(role="Button", title=["Cancel", "취소"]),
+                 intent_text="열려 있는 대화상자를 닫습니다",
+                 safety=_scratch("대화상자"),
+                 postcondition=Postcondition(absent="Sheet")),
         ])
 
 
@@ -324,6 +511,10 @@ def builders() -> dict:
             "calc_arith": calc_arith,
             "finder_open_folder": finder_open_folder,
             "finder_count_items": finder_count_items,
+            "finder_list_items": finder_list_items,
+            "calendar_today": calendar_today,
+            "mail_inbox": mail_inbox,
+            "close_dialog": close_dialog,
             "textedit_write_note": textedit_write_note,
             "textedit_emphasize": textedit_emphasize,
             "textedit_new_document": textedit_new_document,

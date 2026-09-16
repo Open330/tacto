@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-30%2F30_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-39%2F39_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -263,15 +263,18 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 |---|---|---|
 | `7 더하기 8 해줘` | 계산기로 계산하고 **답을 읽어 알려줌** | 사칙연산 전체가 하나의 IR |
 | `다운로드 폴더 열어줘` | Finder로 폴더 열기 | **창이 하나도 없는 앱**에서 시작 |
-| `다운로드 폴더에 뭐 있어?` | 폴더를 열고 **읽어서 알려줌** | 조작이 아니라 **대답** |
+| `문서 폴더에 뭐 있어?` | 폴더를 열고 **파일 이름을 읽어줌** | 조작이 아니라 **대답** |
+| `오늘 일정 뭐 있어?` | 오늘 캘린더 일정을 읽어줌 | 보기 설정은 건드리지 않음 |
+| `메일 뭐 왔어?` | 받은편지함의 발신자·제목 | 요소 2만 개짜리 앱 |
+| `대화상자 닫아줘` | 막힌 대화상자에서 빠져나옴 | 저절로는 안 닫음 |
 | `"회의 준비" 라고 써줘` | 문서에 텍스트 입력 | 포커스 없이 쓰는 AX 쓰기 |
 | `굵게 해줘` | 전체 선택 후 굵게 | **토글이 재생마다 뒤집히지 않음** |
 | `새 문서 만들어줘` | 빈 문서 열기 | 메뉴 전용 명령 |
-| `"보고서.rtf" 로 저장해줘` | 이름을 정해 저장 | **되돌리기 어려운 동작 + 동의** |
+| `"보고서.rtf" 로 저장해줘` | 이름과 **폴더를 정해** 저장 | **되돌리기 어려운 동작 + 동의** |
 
 마지막 줄이 나머지와 다릅니다. 저장은 `write_persistent` 라서 정책이 스스로
-실행하지 않고 먼저 묻습니다. 그리고 동의는 **어떤 파일인지**에 묶입니다 — "A로
-저장"에 동의한 승인은 이름 칸이 B로 바뀌면 거부됩니다.
+실행하지 않고 먼저 묻습니다. 그리고 동의는 **어떤 파일을 어느 폴더에**에 묶입니다 —
+"A로 저장"에 동의한 승인은 이름 칸이 B로 바뀌면 거부됩니다.
 
 ```bash
 ./launcher/nlc do "\"보고서.rtf\" 로 저장해줘" --helper
@@ -281,10 +284,10 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `30/30 PASS`
+## 검증 상태 — `39/39 PASS`
 
 ```bash
-./launcher/nlc eval      # 권한 경계까지 포함해 전부 (30/30)
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (39/39)
 uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
 ```
 
@@ -300,6 +303,15 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
   PASS  consent_is_about_the_file   A를 승인했는데 B를 적으면 거부
   PASS  helper_menu             메뉴 명령이 권한 경계를 넘어감
   PASS  answers_a_question      조작 대신 화면을 읽어 대답
+  PASS  large_tree_is_bounded   메일함(요소 2만 개)이 멈추지 않고 답함
+  PASS  app_name_is_the_app     'Messages' 가 동명의 백그라운드 확장이 아님
+  PASS  reads_a_list            목록은 복수 — 읽기는 범위로 기술
+  PASS  calendar_reads_today    오늘 일정 (보기 설정 안 건드림)
+  PASS  mail_reads_inbox        발신자·제목·통계
+  PASS  save_chooses_its_folder 파일이 시킨 폴더에 떨어짐
+  PASS  dialog_recovery         막힌 실행에서 빠져나오는 길
+  PASS  absence_is_verifiable   '사라짐'도 증거
+  PASS  missing_target_says_what_is_there  고를 수 있는 것을 알려줌
   PASS  builtin_is_not_frozen   함께 배포되는 레시피는 저장본이 아니라 코드에서
   PASS  intent_parameters       값은 요청에서 뽑아냄 (폴더마다 레시피 X)
   …  그리고 결정론·계약·트레이스·경계 등 기존 19개
@@ -357,12 +369,18 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
   제품**이지 권한 플래그가 아닙니다. NLC는 `caffeinate`로 idle 잠금을 방지하고,
   실제 잠금 시엔 핸드오프합니다. → [`PROTOCOL.md` §5.1](PROTOCOL.md)
 - **신규 플로우 authoring만 모델 토큰을 씁니다** — 유일한 비결정론 경로.
-- **실행 도중 실패하면 앱 상태가 남습니다.** 저장 시트가 열린 채 멈추면 그 앱의
-  메뉴 막대 전체가 잠깁니다. 임의로 닫아 되돌리지는 않습니다 — 사용자가 시키지
-  않은 조작이니까요. 대신 다음 실행이 "메뉴가 비활성" 대신 "대화상자가 열려
-  있습니다" 라고 말해 줍니다.
-- **저장 위치는 앱이 마지막에 쓰던 곳입니다.** 폴더를 고르는 건 아직 이 레시피가
-  주장하지 않는 기능이고, 조용히 엉뚱한 곳에 떨어뜨리는 것보다 말해두는 편이 낫습니다.
+- **실행 도중 실패하면 대화상자가 남습니다.** 여전히 **저절로 닫지 않습니다** —
+  대화상자를 취소하는 건 아무도 요청하지 않은 행동이니까요. 대신 `대화상자 닫아줘`
+  라고 하시면 (Cancel만) 닫아드리고, 막힌 실행은 그 방법을 함께 알려줍니다.
+- **저장 위치는 패널이 제공하는 폴더 중에서만 고를 수 있습니다** — 즉 사용자의
+  즐겨찾기입니다. 목록에 없는 폴더를 요청하면 **고를 수 있는 목록을 알려주며** 실패하고,
+  엉뚱한 곳에 저장하지는 않습니다.
+- **큰 앱은 트리를 다 읽지 않습니다.** 메일함처럼 똑같은 행이 수만 개인 앱은 컨테이너당
+  60개·전체 2500개에서 끊고, 잘린 자리를 트리에 적습니다(`… (N개 더 있음)`). 못 찾은
+  것과 애초에 안 본 것은 다른 사실이니까요.
+- **폴더 목록은 화면에 보이는 것만입니다.** Finder는 폴더에 따라 파일 이름을 아예
+  노출하지 않기도 합니다(이 기기에선 Downloads가 그렇습니다) — 그럴 땐 이름 대신
+  개수로 답합니다.
 - **`press_key` 는 도우미에 없습니다.** 범용 키 입력은 "칸을 채운다"와 "명령을
   실행한다"를 같은 도구로 만들기 때문입니다. 사람들이 그걸로 하려던 일 대부분
   (저장·복사·열기)은 이름 붙은 메뉴 명령이라 `menu` 로 됩니다.
