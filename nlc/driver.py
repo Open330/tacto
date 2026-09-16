@@ -181,7 +181,24 @@ class Driver:
 
         pid = self._resolve(target)
         if pid is None:
-            return {"type": "error", "error": "target_not_found", "target": target}
+            # Distinguish "not running" from "this process cannot see the GUI
+            # session at all". NSWorkspace needs no Accessibility permission, but
+            # it DOES need a connection to the window server: a tmux/screen server
+            # started outside the Aqua login session (or an ssh/launchd context)
+            # returns an empty app list, so a running app looks absent. Reporting
+            # "app not running" there is misleading (real user report).
+            gui = [a for a in NSWorkspace.sharedWorkspace().runningApplications()
+                   if a.activationPolicy() == 0]
+            if not gui:
+                return {"type": "error", "error": "gui_session_unavailable",
+                        "target": target,
+                        "detail": "이 프로세스가 화면(GUI) 세션에 연결돼 있지 않아요. "
+                                  "tmux/스크린 안에서 실행 중이라면 tmux 밖에서 실행하거나 "
+                                  "`reattach-to-user-namespace uv run nlc ...` 로 실행해 주세요."}
+            return {"type": "error", "error": "target_not_found", "target": target,
+                    "detail": f"'{target}' 앱을 찾지 못했어요. 실행 중인 앱: "
+                              + ", ".join(sorted(a.bundleIdentifier() or a.localizedName()
+                                                 for a in gui)[:12])}
 
         obs = Observation(target, pid)
         has_windows = self._walk_windows(obs)

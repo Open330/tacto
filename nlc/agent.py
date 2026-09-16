@@ -128,7 +128,8 @@ class Agent:
     # Plain-language cause, so the user knows what to DO. The raw error can be
     # nested under `detail` (e.g. the initial observe), so dig for it.
     _CAUSE = {
-        "target_not_found": "그 앱이 실행되어 있지 않아요. 앱을 먼저 열어 주세요.",
+        "target_not_found": "그 앱을 찾지 못했어요. 앱이 켜져 있는지, 이름이 맞는지 확인해 주세요.",
+        "gui_session_unavailable": "지금은 화면에 접근할 수 없어요. tmux 안에서 실행 중이라면, tmux 밖 터미널에서 실행하거나 `reattach-to-user-namespace uv run nlc ...` 로 실행해 주세요.",
         "no_window_content": "앱 창이 보이지 않아요. 화면 잠금을 풀고 창을 띄워 주세요.",
         "empty_tree": "앱 화면을 읽을 수 없어요. 창을 한 번 클릭해 주세요.",
         "target_missing": "화면에서 눌러야 할 항목을 찾지 못했어요. 화면이 예상과 다른 것 같아요.",
@@ -142,11 +143,16 @@ class Agent:
 
     def _why(self, err: dict) -> str:
         code = err.get("error")
-        if code is None:
-            d = err.get("detail")
-            if isinstance(d, dict):
-                code = d.get("error")
-        return self._CAUSE.get(code, "화면 상태를 다시 확인해 주세요.")
+        detail = err.get("detail")
+        if code is None and isinstance(detail, dict):
+            code = detail.get("error")
+            detail = detail.get("detail")
+        base = self._CAUSE.get(code, "화면 상태를 다시 확인해 주세요.")
+        # A driver-supplied Korean detail (candidate app list, session hint) is
+        # more actionable than the generic line — prefer it when present.
+        if isinstance(detail, str) and detail and detail != base:
+            return detail
+        return base
 
 
 if __name__ == "__main__":

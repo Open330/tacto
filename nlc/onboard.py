@@ -75,6 +75,21 @@ def run(interactive: bool = True, narrate=print) -> bool:
             open_settings(c.settings_url)            # jump straight to the pane
         if required:
             all_ok = False
+    # A GUI-session check catches the tmux/ssh "app looks not-running" trap
+    # before the user hits it mid-task (real user report).
+    try:
+        from AppKit import NSWorkspace
+        gui = [a for a in NSWorkspace.sharedWorkspace().runningApplications()
+               if a.activationPolicy() == 0]
+        if not gui:
+            narrate("✕ 화면(GUI) 세션에 연결돼 있지 않아요 — tmux/스크린 밖에서 "
+                    "실행하거나 `reattach-to-user-namespace` 를 쓰세요.")
+            all_ok = False
+        else:
+            narrate(f"✓ 화면 세션 연결됨 (앱 {len(gui)}개 보임).")
+    except Exception:
+        pass
+
     if not all_ok:
         narrate("설정에서 권한을 켜신 뒤, 이 앱을 한 번 다시 열어주세요.")
     else:
