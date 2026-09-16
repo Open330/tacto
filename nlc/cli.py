@@ -253,7 +253,6 @@ def main(argv=None):
         if not onboard.run(interactive=False, narrate=lambda s: None):
             print("먼저 권한이 필요해요:  python -m nlc.cli doctor")
             return 1
-        from .driver import Driver
         from .session import preflight, KeepAwake
         pf = preflight()
         if pf["verdict"] == "session_locked":
@@ -288,6 +287,11 @@ def main(argv=None):
                       f"  Trace IR = 실행 중 무엇이 보였는지 (--trace)")
                 return 2
 
+        # Flags are not part of what the user asked for. Left in, `nlc do "..."
+        # --helper` sends "… --helper" to the intent matcher as if it were words
+        # the person said.
+        intent = " ".join(w for w in intent.split() if not w.startswith("--")).strip()
+
         driver = _make_driver(rest)
         tracer = None
         if trace_path:
@@ -309,8 +313,15 @@ def main(argv=None):
         from .store import FlowStore as _S
         guess = None
         try:
-            nm = agent.resolve(intent)
-            guess = _S().load(nm).target if nm and _S().has(nm) else None
+            from .library import builders
+            hit = agent.resolve(intent)
+            if hit and _S().has(hit.name):
+                guess = _S().load(hit.name).target
+            elif hit and hit.name in builders():
+                # A recipe that ships with NLC but has not been saved yet still
+                # deserves the outline — otherwise the very first run of a task
+                # is the one run nobody can see or stop.
+                guess = builders()[hit.name]().target
         except Exception:
             guess = None
         with KeepAwake(), _indicator_for(guess or "", rest):

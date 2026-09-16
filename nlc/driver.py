@@ -44,7 +44,7 @@ def _event_source():
             _EVENT_SOURCE = False      # unavailable; fall back to None source
     return _EVENT_SOURCE or None
 
-from AppKit import NSWorkspace
+from AppKit import NSRunningApplication, NSWorkspace
 from ApplicationServices import (
     AXIsProcessTrusted,
     AXUIElementCreateApplication,
@@ -215,11 +215,117 @@ class Driver:
             obs.walk(w)
         return bool(windows)
 
+    # ------------------------------------------------------------ menu commands
+    #
+    # A large share of everyday commands (save, copy, new tab, undo) live in the
+    # menu bar and nowhere else, so a driver that only walks windows cannot
+    # express them. Menus are NOT walked into the observation tree: an app's full
+    # menu bar is thousands of items, and paying that on every observe would make
+    # the cheap path expensive. Instead a menu command is addressed by its
+    # user-visible title path, resolved against the live menu bar at act time.
+    #
+    # Titles are the right key here — an AXIdentifier on a menu item is usually
+    # absent, whereas the title is the same string the user reads aloud. Because
+    # titles are localized, each path element may be a list of alternatives.
+
+    @staticmethod
+    def _menu_children(el):
+        """Children of a menu node, descending through the AXMenu wrapper.
+
+        A menu bar item holds an AXMenu child which holds the actual items, and
+        a submenu repeats that nesting; flattening it here keeps the caller's
+        path free of structural noise the user never sees.
+        """
+        kids = _attr(el, "AXChildren") or []
+        menus = [c for c in kids if _attr(c, "AXRole") == "AXMenu"]
+        if menus:
+            return _attr(menus[0], "AXChildren") or []
+        return kids
+
+    def _menu_item(self, pid: int, path):
+        """Resolve a menu command by title path, e.g. ["Format", "Font", "Bold"].
+
+        Each element may be a string or a list of acceptable titles, so one
+        recipe survives a localized menu ("Format" / "서식").
+        """
+        if not path:
+            raise ValueError("menu path is empty")
+        app_el = AXUIElementCreateApplication(pid)
+        node = _attr(app_el, "AXMenuBar")
+        if node is None:
+            raise RuntimeError("앱이 메뉴 막대를 노출하지 않습니다")
+        walked: list[str] = []
+        for want in path:
+            wants = [want] if isinstance(want, str) else list(want)
+            children = self._menu_children(node)
+            hit = None
+            for c in children:
+                title = _attr(c, "AXTitle")
+                if title in wants:
+                    hit = c
+                    break
+            if hit is None:
+                have = [t for t in (_attr(c, "AXTitle") for c in children) if t]
+                where = " > ".join(walked) or "메뉴 막대"
+                raise RuntimeError(
+                    f"{where} 에 {wants!r} 메뉴가 없습니다. 있는 항목: {have[:25]}")
+            walked.append(_attr(hit, "AXTitle") or wants[0])
+            node = hit
+        return node, walked
+
+    def _activate(self, pid: int, timeout_s: float = 2.0) -> bool:
+        """Bring an app forward, and wait until it really is forward.
+
+        Menu commands are validated against the ACTIVE application: with TextEdit
+        in the background, `Edit > Select All` reports itself disabled even
+        though nothing is wrong with it. Element presses need no such thing,
+        which is why only menu steps pay this cost — activation takes the user's
+        focus, so it is not something to do on every action.
+
+        Raised through AXFrontmost rather than NSRunningApplication.activate:
+        macOS may decline to let a background process change which app is
+        active, and this runs from one. Setting frontmost is the
+        assistive-technology path, and asking the same API whether it worked
+        keeps the wait from disagreeing with the request.
+        """
+        app_el = AXUIElementCreateApplication(pid)
+        if _attr(app_el, "AXFrontmost") is True:
+            return True
+        AXUIElementSetAttributeValue(app_el, "AXFrontmost", True)
+        running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+        if running is not None:
+            running.activateWithOptions_(1 << 1)
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if _attr(app_el, "AXFrontmost") is True:
+                return True
+            self._pump(0.05)
+        return False
+
+    def menu_state(self, target: str, path) -> dict:
+        """Report a menu command's live state without invoking it.
+
+        Lets a recipe check "is Bold already on?" (AXMenuItemMarkChar) or "is
+        Save available?" (AXEnabled) before deciding to act.
+        """
+        pid = self._resolve(target)
+        if pid is None:
+            return {"type": "error", "error": "target_not_found", "target": target}
+        try:
+            item, walked = self._menu_item(pid, path)
+        except Exception as e:
+            return {"type": "error", "error": "menu_not_found", "detail": str(e)}
+        return {"type": "menu_state", "path": walked,
+                "enabled": _attr(item, "AXEnabled") in (None, True),
+                "mark": _attr(item, "AXMenuItemMarkChar"),
+                "shortcut": _attr(item, "AXMenuItemCmdChar")}
+
     def identity(self, target: str) -> str:
         """Stable identity namespace for contract bindings: the bundle id."""
         return target
 
-    def observe(self, target: str, mode: str = "tree_diff"):
+    def observe(self, target: str, mode: str = "tree_diff",
+                require_window: bool = True):
         if mode not in ("tree_diff", "tree_full"):
             return {"type": "error", "error": "not_implemented_p0",
                     "detail": f"mode {mode!r} (screenshot lands in P1)"}
@@ -253,7 +359,7 @@ class Driver:
 
         obs = Observation(target, pid)
         has_windows = self._walk_windows(obs)
-        if not has_windows:
+        if not has_windows and require_window:
             # No window content. On a locked screen only the menu bar is
             # reachable, so this is the graceful analog of Codex's
             # cgWindowNotFound — report it clearly instead of dumping menus.
@@ -264,6 +370,16 @@ class Driver:
                     "lock": lock_state(),
                     "detail": "app exposes no AXWindows (locked screen, hidden, "
                               "or minimized). Unlock/raise the app and re-observe."}
+        if not has_windows:
+            # Menus belong to the application, not to a window, so a recipe whose
+            # first move is "File > New" must be able to start from an app with
+            # nothing open — which is exactly how Finder and Mail usually sit.
+            # Registering the empty observation gives that step a valid obs_id to
+            # cite without pretending window content exists.
+            self._latest[target.lower()] = obs
+            return {"type": "observation", "obs_id": obs.obs_id, "target": target,
+                    "mode": mode, "tree": "(창 없음 — 메뉴만 사용 가능)",
+                    "element_count": 0, "waited_ms": waited_ms}
         if not obs.elements:
             return {"type": "error", "error": "empty_tree", "target": target,
                     "detail": "window present but no AX elements (AX-opaque app?)"}
@@ -372,6 +488,26 @@ class Driver:
             self._scroll_at(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2,
                             action.get("direction", "down"), action.get("pages", 1),
                             obs.pid)
+        elif name == "menu":
+            # An app validates its menus only while it is the active one, so
+            # this is a precondition for reading `enabled` correctly, not a
+            # cosmetic raise-to-front.
+            if not self._activate(obs.pid):
+                raise RuntimeError("앱을 앞으로 가져오지 못해 메뉴를 쓸 수 없습니다")
+            item, walked = self._menu_item(obs.pid, action["path"])
+            # Menu items are validated lazily by the app, so a disabled item is
+            # a real precondition failure worth reporting by name rather than a
+            # silent no-op press.
+            if _attr(item, "AXEnabled") is False:
+                raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 가 지금은 비활성 상태입니다")
+            err = AXUIElementPerformAction(item, "AXPress")
+            if err != 0:
+                raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 실행 실패 ({err})")
+            # Observed on this machine: pressing Format > Font > Bold with no
+            # selection returns 0 and changes nothing. Success here means the
+            # press was delivered, never that the command took effect — which is
+            # why replay requires a postcondition on menu steps.
+            return {"menu_path": walked}
         elif name == "secondary_action":
             el = self._element(obs, action)
             err = AXUIElementPerformAction(el, action["action"])

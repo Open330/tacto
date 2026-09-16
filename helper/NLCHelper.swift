@@ -84,6 +84,65 @@ var latestElements: [AXUIElement] = []
 var latestTargetPID: pid_t = -1
 var latestTargetName: String = ""
 
+// MARK: - Menu bar
+//
+// A large share of everyday commands (save, copy, open a folder) exist only in
+// the menu bar, so a helper that can press buttons but not menu items cannot run
+// the tasks people actually ask for. Menus are addressed by their user-visible
+// title path rather than walked into the observation: an app's full menu bar
+// runs to thousands of items, and the title is the same word the person says.
+
+/// Children of a menu node, stepping through the AXMenu wrapper that nests
+/// under every menu bar item and submenu.
+func menuChildren(_ el: AXUIElement) -> [AXUIElement] {
+    let kids = (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+    if let menu = kids.first(where: { str($0, kAXRoleAttribute as String) == "AXMenu" }) {
+        return (attr(menu, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+    }
+    return kids
+}
+
+/// Resolve a menu command by title path. Each element is a list of acceptable
+/// titles, so one recipe survives a localized menu ("Format" / "서식").
+func menuItem(pid p: pid_t, path: [[String]]) -> (AXUIElement, [String])? {
+    let app = AXUIElementCreateApplication(p)
+    guard var node = attr(app, "AXMenuBar") as! AXUIElement? else { return nil }
+    var walked: [String] = []
+    for wants in path {
+        guard let hit = menuChildren(node).first(where: {
+            guard let t = str($0, kAXTitleAttribute as String) else { return false }
+            return wants.contains(t)
+        }) else { return nil }
+        walked.append(str(hit, kAXTitleAttribute as String) ?? "")
+        node = hit
+    }
+    return (node, walked)
+}
+
+/// Bring an app forward and wait until it really is forward. An app validates
+/// its menus only while active, so a background TextEdit reports Edit > Select
+/// All as disabled even though nothing is wrong with the command.
+///
+/// Raised through AXFrontmost rather than NSRunningApplication.activate: the
+/// helper is a background process, and macOS may decline to let one of those
+/// change which app is active. Setting frontmost is the assistive-technology
+/// path, which is exactly the grant this helper holds — and it is asked and
+/// answered through the same API, so the wait cannot disagree with the request.
+func activate(pid p: pid_t, timeout: TimeInterval = 2.0) -> Bool {
+    let app = AXUIElementCreateApplication(p)
+    if (attr(app, kAXFrontmostAttribute as String) as? Bool) == true { return true }
+    AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString,
+                                 kCFBooleanTrue)
+    NSRunningApplication(processIdentifier: p)?
+        .activate(options: [.activateIgnoringOtherApps])
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if (attr(app, kAXFrontmostAttribute as String) as? Bool) == true { return true }
+        usleep(50_000)
+    }
+    return false
+}
+
 func pid(forBundle bundle: String) -> pid_t? {
     for app in NSWorkspace.shared.runningApplications {
         if app.bundleIdentifier?.lowercased() == bundle.lowercased()
@@ -221,6 +280,40 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
             }
             usleep(10_000)
         }
+    case "menu":
+        // Normalized to lists so a path element may offer localized
+        // alternatives; the launcher has already checked the shape, and this
+        // check is repeated because the helper holds the grant and must not
+        // depend on a caller having validated on its behalf.
+        var path: [[String]] = []
+        for element in (action["path"] as? [Any] ?? []) {
+            if let one = element as? String { path.append([one]) }
+            else if let many = element as? [String], !many.isEmpty { path.append(many) }
+            else { return ["type": "error", "error": "action_failed",
+                           "detail": "menu path 형식 오류"] }
+        }
+        if path.isEmpty || path.count > 6 {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "menu path 길이가 올바르지 않습니다"]
+        }
+        if !activate(pid: p) {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "앱을 앞으로 가져오지 못해 메뉴를 쓸 수 없습니다"]
+        }
+        guard let (item, walked) = menuItem(pid: p, path: path) else {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "메뉴를 찾지 못했습니다"]
+        }
+        if (attr(item, kAXEnabledAttribute as String) as? Bool) == false {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "메뉴 '\(walked.joined(separator: " > "))' 가 비활성 상태입니다"]
+        }
+        if AXUIElementPerformAction(item, kAXPressAction as CFString) != .success {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "메뉴 실행 실패"]
+        }
+        return ["type": "acted", "action": name, "obs_id": obsID,
+                "menu_path": walked, "note": "not verified — observe again"]
     case "secondary_action":
         // Duplicated here on purpose: the helper holds the grant, so it does not
         // depend on a caller having filtered on its behalf.

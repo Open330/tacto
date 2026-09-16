@@ -58,7 +58,7 @@ def scenario_batch_invalidation():
     d = Driver()
     o = d.observe("com.apple.calculator", "tree_full")
     if o["type"] != "observation":
-        return None   # skip if calculator unavailable (locked/no window)
+        return "계산기 창이 없음 (잠금/미실행)"
     import re
     def idx(pat):
         for l in o["tree"].splitlines():
@@ -66,7 +66,7 @@ def scenario_batch_invalidation():
                 return int(l.strip().split()[0])
     one, two = idx("Identifier: One"), idx("Identifier: Two")
     if one is None or two is None:
-        return None
+        return "계산기 키패드 버튼을 찾지 못함"
     r = d.handle({"type": "act_batch", "obs_id": o["obs_id"],
                   "target": "com.apple.calculator",
                   "actions": [{"name": "click", "element_index": one},
@@ -173,7 +173,7 @@ def scenario_trace_reproducibility():
     from nlc.trace import record, rerun, Trace
     res, tr = record(Driver(), calculator_12x34())
     if not res.ok:
-        return None                      # skip when the live run itself can't run
+        return "실기기 실행이 되지 않아 녹화할 트레이스가 없음"
     again = rerun(Trace.load(tr.save("/tmp/nlc-eval-trace.json")),
                   calculator_12x34())
     return again.ok and again.log[-1]["status"] == "done"
@@ -242,14 +242,38 @@ def scenario_swift_helper():
     try:
         from nlc.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
-            return None                    # not running under the signed launcher
+            return "서명된 런처 밖에서 실행 중 — ./launcher/nlc eval 로 확인"
         d = InheritedHelperDriver()
     except Exception:
-        return None
+        return "서명된 런처 밖 — 상속 채널 없음"
     try:
         from nlc.flow import calculator_multiply, replay
         r = replay(d, calculator_multiply().bind(a="9", b="8"))
         return r.ok and str(r.log[-1].get("result")) == "72"
+    finally:
+        d.close()
+
+
+def scenario_helper_menu():
+    """The signed helper must run menu commands, not only element presses.
+
+    If it cannot, every task that lives in a menu — save, copy, open a folder —
+    either does not run at all or quietly runs outside the permission boundary,
+    which is the one thing the boundary exists to prevent. This also covers the
+    activation the helper needs: as a background process it cannot raise an app
+    the ordinary way, and a background app reports its own menus as disabled."""
+    try:
+        from nlc.helper import InheritedHelperDriver
+        if not InheritedHelperDriver.available():
+            return "서명된 런처 밖에서 실행 중 — ./launcher/nlc eval 로 확인"
+        d = InheritedHelperDriver()
+    except Exception:
+        return "서명된 런처 밖 — 상속 채널 없음"
+    try:
+        from nlc.flow import replay
+        from nlc.library import finder_open_folder
+        r = replay(d, finder_open_folder().bind(folder="Documents"))
+        return r.ok and r.log[-1]["status"] == "done"
     finally:
         d.close()
 
@@ -260,14 +284,14 @@ def scenario_helper_user_authority():
     try:
         from nlc.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
-            return None
+            return "서명된 런처 밖에서 실행 중 — ./launcher/nlc eval 로 확인"
         d = InheritedHelperDriver()
     except Exception:
-        return None
+        return "서명된 런처 밖 — 상속 채널 없음"
     try:
         o = d.observe("com.apple.calculator")
         if o.get("type") != "observation":
-            return None
+            return "계산기 창이 없음 (잠금/미실행)"
         # Schema-valid on purpose: the launcher vets shape first, so a malformed
         # probe would be rejected before it could test the helper's own check.
         cross = d.act(o["obs_id"], "com.apple.finder",
@@ -299,7 +323,7 @@ def scenario_permission_boundary():
     helper = root / "helper" / "NLC Helper.app" / "Contents" / "MacOS" / "NLCHelper"
     launcher = root / "launcher" / "nlc"
     if not helper.exists() or not launcher.exists():
-        return None                      # boundary not built here
+        return "권한 경계 미빌드 (helper/build.sh, launcher/build.sh)"
 
     # 1. The environment must not change the verdict either way. Run the same
     # client twice — once with a requirement that would allow anything, once
@@ -340,7 +364,7 @@ def scenario_peer_authentication():
     import pathlib, subprocess
     root = pathlib.Path(__file__).resolve().parent.parent
     if not (root / "launcher" / "nlc").exists():
-        return None                        # boundary not built here
+        return "권한 경계 미빌드 (launcher/build.sh)"
     from nlc.helper import InheritedHelperDriver, HelperUnavailable
 
     # The helper must refuse to run at all outside socket mode — that stdio
@@ -399,12 +423,94 @@ def scenario_cli_end_to_end():
     "{{digit[item]}}" while the suite stayed green. This closes that gap: run the
     real CLI path over a stored recipe and require the verified answer."""
     from nlc.agent import Agent
-    from nlc.store import FlowStore
-    if "calc_12x34" not in FlowStore().list():
-        return None
     said = []
     turn = Agent(narrate=said.append).handle("계산기로 12 곱하기 34")
     return turn.status == "done" and "408" in turn.say
+
+
+def scenario_intent_parameters():
+    """The request supplies the recipe's values, not just its name.
+
+    Without this, "문서 폴더 열어줘" and "다운로드 폴더 열어줘" would need two
+    stored recipes for one procedure. Pure resolution — no GUI, no tokens."""
+    from nlc.agent import Agent
+    a = Agent()
+    cases = [("7 더하기 8 해줘", "calc_arith", {"a": "7", "b": "8", "op": "+"}),
+             ("10 나누기 2", "calc_arith", {"a": "10", "b": "2", "op": "/"}),
+             ("문서 폴더 열어줘", "finder_open_folder", {"folder": "Documents"}),
+             ("바탕화면 열어줘", "finder_open_folder", {"folder": "Desktop"})]
+    for said, name, params in cases:
+        m = a.resolve(said)
+        if m is None or m.name != name or m.params != params:
+            return False
+    return a.resolve("이런 건 아직 모르는 작업입니다") is None
+
+
+def scenario_menu_command():
+    """Drive a command that exists only in the menu bar.
+
+    Everyday tasks — save, copy, open a folder — have no on-screen button, so a
+    driver that walks windows alone simply cannot express them. This also starts
+    from an app with no window at all, which is how Finder normally sits."""
+    from nlc.flow import replay
+    from nlc.library import finder_open_folder
+    d = Driver()
+    r = replay(d, finder_open_folder().bind(folder="Documents"))
+    return r.ok and r.log[-1]["status"] == "done"
+
+
+def scenario_menu_verification_required():
+    """A menu press that reports success proves nothing.
+
+    Measured on a real machine: Format > Font > Bold with no selection returns
+    success and changes nothing. So `menu` joins type_text/press_key in owing a
+    postcondition unless the recipe opts out on the record."""
+    from nlc.flow import Flow, Step, replay
+    from nlc.contract import SafetyContract, Resource
+    sc = SafetyContract(effects=["read"], reversibility="reversible",
+                        resource=Resource(object_type="메뉴", scope="item"))
+    d = Driver()
+    f = Flow("probe_menu", "com.apple.finder",
+             steps=[Step("menu", params={"path": ["Go", "Home"]}, safety=sc)])
+    return replay(d, f).log[-1].get("error") == "unverifiable_input_step"
+
+
+def scenario_toggle_converges():
+    """Replaying a toggle must converge, not oscillate.
+
+    "Make it bold" runs Format > Font > Bold; run it twice without a guard and
+    the document ends up plain. The recipe states the condition it exists to
+    bring about, so the second run stands down."""
+    from nlc.flow import replay
+    from nlc.library import textedit_write_note, textedit_emphasize
+    d = Driver()
+    if d.observe("com.apple.TextEdit", "tree_full")["type"] != "observation":
+        return "TextEdit 문서 창이 없음 (열어두고 다시 실행)"
+    if not replay(d, textedit_write_note().bind(text="굵게 수렴 테스트")).ok:
+        return "TextEdit 본문에 쓸 수 없음"
+    first = replay(d, textedit_emphasize())
+    second = replay(d, textedit_emphasize())
+    if not (first.ok and second.ok):
+        return False
+    # The point is not merely that both runs report success, but that the second
+    # one did nothing — a rerun that pressed Bold again would have un-bolded it.
+    return any(e.get("status") == "skipped" for e in second.log)
+
+
+def scenario_menu_path_pinned():
+    """A contract pins WHICH menu command it was written for.
+
+    `File > Save` and `File > Move to Trash` are the same `menu` operation on
+    the same app, so the path is the only thing separating them. Repointing a
+    step must invalidate the recorded meaning rather than run under it."""
+    from nlc.flow import replay
+    from nlc.library import finder_open_folder
+    d = Driver()
+    f = finder_open_folder().bind(folder="Documents")
+    f.steps[0].params = {"path": ["Go", "Home"]}      # same operation, new command
+    r = replay(d, f)
+    return (not r.ok) and any(e.get("error") == "contract_invalidated"
+                              for e in r.log)
 
 
 def scenario_resolver_honesty():
@@ -428,7 +534,7 @@ def scenario_browser_backend():
         import playwright  # noqa: F401
         from nlc.browser import BrowserDriver
     except Exception:
-        return None   # skipped
+        return "선택 의존성 web(playwright) 미설치"
     from nlc.flow import Flow, Step, Selector, Postcondition, replay
     PAGE = ("data:text/html,<h1>Sign up</h1>"
             "<input aria-label='email'><button>Submit</button>")
@@ -476,10 +582,18 @@ SCENARIOS = [
     ("reparameterize (concrete IR -> template, no model)", scenario_reparameterize),
     ("capture (read a value off the screen)", scenario_capture),
     ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
+    ("helper_menu (menu commands cross the permission boundary)", scenario_helper_menu),
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("permission_boundary (env override and argv0 forgery refused)", scenario_permission_boundary),
     ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
     ("cli_end_to_end (the command a person types)", scenario_cli_end_to_end),
+    ("intent_parameters (the request supplies the values)", scenario_intent_parameters),
+    ("menu_command (commands that exist only in the menu bar)", scenario_menu_command),
+    ("menu_verification (a menu press that 'worked' proves nothing)",
+     scenario_menu_verification_required),
+    ("toggle_converges (replaying a toggle does not oscillate)", scenario_toggle_converges),
+    ("menu_path_pinned (repointing a menu step invalidates consent)",
+     scenario_menu_path_pinned),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
@@ -497,8 +611,11 @@ def main():
             ok = False
             name += f"  [error: {e}]"
         dt = (time.monotonic() - t0) * 1000
-        if ok is None:                       # optional scenario, not installed
-            print(f"  SKIP  {name}  (optional 'web' extra not installed)")
+        # A scenario skips by returning the reason it skipped. One shared
+        # message for every skip hid which check was actually not running — the
+        # helper scenarios were reporting a missing web dependency.
+        if ok is None or isinstance(ok, str):
+            print(f"  SKIP  {name}  ({ok or '이 환경에서는 실행 불가'})")
             continue
         required += 1
         passed += bool(ok)
