@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from .contract import ContextBinding, Resource, SafetyContract
-from .flow import Flow, Postcondition, Selector, Step, pin_params
+from .flow import Capture, Flow, Postcondition, Selector, Step, pin_params
 
 # Reading and ephemeral editing are the two harmless shapes most everyday tasks
 # reduce to; naming them once keeps each recipe's contract to the part that is
@@ -110,6 +110,38 @@ def finder_open_folder() -> Flow:
                                         operation="menu",
                                         params_digest=pin_params({"path": path})),
                  postcondition=Postcondition(equals="{{folder}}", attribute="Title")),
+        ])
+
+
+def finder_count_items() -> Flow:
+    """Answer a question about a folder instead of changing anything.
+
+    Half of what someone wants from a computer is to be told something, and
+    until now every recipe here acted. This one opens the folder and reads
+    Finder's own status line back.
+
+    It reports the count rather than the file names on purpose: in column view
+    — Finder's default here — the names are not in the accessibility tree at
+    all, and switching the window to list view to get at them would change a
+    setting the person chose. Reading what is actually on screen is the honest
+    version of this task.
+    """
+    path = ["Go", "{{folder}}"]
+    return Flow(
+        name="finder_count_items", target="com.apple.finder",
+        params={"folder": "Downloads"},
+        steps=[
+            Step("menu", params={"path": path},
+                 intent_text="{{folder}} 폴더를 봅니다", safety=LOOK,
+                 binding=ContextBinding(bundle_id="com.apple.finder",
+                                        operation="menu",
+                                        params_digest=pin_params({"path": path})),
+                 postcondition=Postcondition(equals="{{folder}}", attribute="Title"),
+                 capture=Capture(name="요약",
+                                 field=Selector(role="StaticText",
+                                                identifier="statusBarText",
+                                                in_focused_window=True),
+                                 attribute="Value")),
         ])
 
 
@@ -289,6 +321,7 @@ def builders() -> dict:
     return {**_calculator(),
             "calc_arith": calc_arith,
             "finder_open_folder": finder_open_folder,
+            "finder_count_items": finder_count_items,
             "textedit_write_note": textedit_write_note,
             "textedit_emphasize": textedit_emphasize,
             "textedit_new_document": textedit_new_document,

@@ -83,13 +83,49 @@ recipe; select by meaning instead.
 alternatives as a list. Identifiers may also carry live state after a `;`
 (`StandardInputView;value:408`) — write only the stable part.
 
-**Actions:** `click`, `set_value`, `type_text`, `press_key`, `scroll`,
-`secondary_action`. Prefer clicking a named control over typing — a button press
-is verifiable through the control itself.
+**Scope to the front window** with `"in_focused_window": true` whenever an app
+can have several windows open. Two TextEdit documents expose two elements with
+the identifier `First Text View`, so an unscoped selector becomes ambiguous the
+moment a second document exists.
 
-**Typing must be verifiable.** A `type_text`/`press_key` step needs `"expect":
-"<text that should appear>"`, or an explicit `"unverified_ok": true`. Posting a
-keystroke proves nothing about the app accepting it.
+**Actions:** `click`, `set_value`, `type_text`, `scroll`, `secondary_action`,
+`menu`. Prefer clicking a named control over typing — a button press is
+verifiable through the control itself. (`press_key` exists in the in-process
+driver only; the signed helper does not implement it, so do not author with it.)
+
+**Use `menu` for commands that live in the menu bar** — save, copy, open a
+folder, new window. It takes a title path instead of a selector, and each level
+may list alternatives, because menu titles are localized *and* state-dependent
+(an unsaved document shows `Save…`, a saved one shows `Save`):
+
+```jsonc
+{ "action": "menu",
+  "params": { "path": ["File", ["Save As…", "Save…", "다른 이름으로 저장…"]] },
+  "postcondition": { "contains": "save-panel" } }
+```
+
+Menu items are not in the observation tree (an app's menu bar is thousands of
+items), so they are addressed by title, and the app is raised to the front first
+— an app validates its menus only while it is active.
+
+**A step whose success is not self-evident must be verifiable.** `type_text`,
+`press_key` and `menu` each need a `postcondition`/`expect`, or an explicit
+`"unverified_ok": true`. This is measured, not cautious: `Format > Font > Bold`
+with no selection returns success and changes nothing.
+
+**Toggles need `skip_if`.** Many commands toggle rather than set, so replaying
+one undoes it. State the condition the step exists to bring about and it stands
+down when that already holds:
+
+```jsonc
+{ "action": "menu", "params": { "path": ["Format", ["Font"], ["Bold"]] },
+  "skip_if":       { "field": { "role": "CheckBox", "desc": "bold",
+                                "in_focused_window": true },
+                     "equals": "1", "attribute": "Value" },
+  "postcondition": { "field": { "role": "CheckBox", "desc": "bold",
+                                "in_focused_window": true },
+                     "equals": "1", "attribute": "Value" } }
+```
 
 **Verify the outcome, not the click.** End with a `postcondition` reading the
 field that holds the result. `equals` compares an attribute value exactly
@@ -135,6 +171,26 @@ This is enforced, not advisory: only `user_intent` evidence can justify
 
 **`safety` is required.** A step without a contract is refused at run time
 (`contract_required`); there is no weaker fallback to drop into.
+
+**Pin what the consent is about.** A `binding` records the facts the judgment
+rested on, re-checked before the step runs. For a step that acts *on* something
+named — save this file, message this person — pin the identity AND say where it
+can be re-read from, or the pin is unverifiable and the step is refused:
+
+```jsonc
+"binding": {
+  "bundle_id": "com.apple.TextEdit", "role": "Button",
+  "identifier": "OKButton", "operation": "click",
+  "resource_identity": "{{filename}}",
+  "resource_identity_from": { "role": "TextField",
+                              "identifier": "saveAsNameTextField",
+                              "in_focused_window": true, "attribute": "Value" }
+}
+```
+
+Without the witness, approving "save as A" would authorize saving as anything.
+For a `menu` step, pin `params_digest` — `File > Save` and `File > Move to Trash`
+are the same operation on the same app, and the path is all that separates them.
 
 **Captured values flow forward.** A value read with `capture` is available to
 later steps as `{{name}}` — that is how a total read from one screen gets typed

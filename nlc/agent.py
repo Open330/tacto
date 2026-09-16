@@ -77,6 +77,12 @@ def _folder(m: re.Match) -> dict:
 _INTENT_RULES: list[tuple[re.Pattern, str, object]] = [
     (re.compile(r"(\d+)\s*(곱하기|더하기|빼기|나누기|[-+x×*/÷])\s*(\d+)"),
      "calc_arith", _calc),
+    # A question about a folder is answered, not acted on; it is checked first
+    # because "다운로드 폴더 보여줘" and "다운로드 폴더에 뭐 있어?" overlap.
+    (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
+                r")\s*(폴더|디렉터리|folder)?\s*(에|안에)?\s*"
+                r"(뭐|무엇|몇\s*개|몇개|얼마나)", re.I),
+     "finder_count_items", _folder),
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(을|를|로)?\s*(열어|열기|보여|open)",
                 re.I), "finder_open_folder", _folder),
@@ -235,8 +241,19 @@ class Agent:
         last = res.log[-1]
         if res.ok and last.get("status") == "done":
             value = last.get("result")
-            say = (f"다 됐어요. 결과는 {value} 입니다." if value
-                   else "다 됐어요. 결과를 확인했습니다.")
+            # A recipe that exists to answer a question has its answer in
+            # `captured`, not in a verified result. Reporting only "다 됐어요"
+            # for those would finish the task without saying what was found.
+            captured = last.get("captured") or {}
+            if value:
+                say = f"다 됐어요. 결과는 {value} 입니다."
+            elif len(captured) == 1:
+                say = "확인했어요. " + str(next(iter(captured.values())))
+            elif captured:
+                say = "확인했어요. " + ", ".join(f"{k}: {v}"
+                                               for k, v in captured.items())
+            else:
+                say = "다 됐어요. 결과를 확인했습니다."
             return Turn("done", say, flow.name, last)
 
         gated = next((e for e in res.log if e.get("status") == "gated"), None)
