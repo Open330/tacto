@@ -1,0 +1,8 @@
+# macOS accessibility backend (L1 native driver)
+pyobjc-framework-ApplicationServices>=10.0
+pyobjc-framework-Quartz>=10.0
+pyobjc-framework-Cocoa>=10.0
+
+# Web backend (optional but recommended). After install, run:
+#   python -m playwright install chromium
+playwright>=1.40
