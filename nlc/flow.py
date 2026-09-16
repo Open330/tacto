@@ -73,8 +73,27 @@ class Selector:
     ancestor: str | None = None       # identifier/title of a scoping container
     allow_nth: int | None = None      # explicit index into matches; None = require unique
 
+    # Known AX attribute keys as the driver formats them ("Key: value, Key2: …").
+    _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
+                  "Placeholder")
+
+    @classmethod
+    def _attr(cls, line: str, key: str) -> str | None:
+        """Extract one attribute's EXACT value from a tree line (not substring).
+        Value runs from 'Key: ' to the next ', <KnownKey>: ' or end / [disabled].
+        Exact comparison prevents 'Save' matching 'SaveAs' (review finding).
+        Unicode bidi/format marks (e.g. the LTR mark macOS Calculator wraps its
+        digits in) are stripped so '\\u200e408' compares equal to '408'."""
+        others = "|".join(k for k in cls._ATTR_KEYS if k != key)
+        m = re.search(rf"{key}:\s*(.+?)(?:,\s*(?:{others}):|\s*\[disabled\]|$)", line)
+        if not m:
+            return None
+        # drop Unicode format chars (category Cf: bidi marks, embeddings, …)
+        import unicodedata
+        return "".join(c for c in m.group(1).strip()
+                       if unicodedata.category(c) != "Cf")
+
     def matches(self, line: str) -> bool:
-        low = line.lower()
         if self.role:
             # role token is the 2nd field on the line: "<idx> <Role> ..."
             toks = line.strip().split()
@@ -82,17 +101,25 @@ class Selector:
                 return False
         if self.identifier:
             ids = [self.identifier] if isinstance(self.identifier, str) else self.identifier
-            if not any(f"identifier: {i.lower()}" in low for i in ids):
+            val = self._attr(line, "Identifier")
+            if val is None or val.lower() not in [i.lower() for i in ids]:
                 return False
-        if self.title and f"title: {self.title.lower()}" not in low:
-            return False
-        if self.desc and f"description: {self.desc.lower()}" not in low:
-            return False
+        if self.title:
+            val = self._attr(line, "Title")
+            if val is None or val.lower() != self.title.lower():
+                return False
+        if self.desc:
+            val = self._attr(line, "Description")
+            if val is None or val.lower() != self.desc.lower():
+                return False
         # at least one positive key required — role alone is not a selector
         return any([self.identifier, self.title, self.desc])
 
     def _in_scope(self, lines: list[str], line_no: int) -> bool:
-        """True if the matched line sits under an ancestor container (by indent)."""
+        """True if the matched line sits under an ancestor container. The ancestor
+        is matched on an exact attribute value (Identifier/Title), not a substring
+        of the whole line, so ancestor='main' doesn't match 'Title: domain main
+        settings' (review finding)."""
         if not self.ancestor:
             return True
         want = self.ancestor.lower()
@@ -103,8 +130,10 @@ class Selector:
                 continue
             pind = len(prev) - len(prev.lstrip())
             if pind < indent:
-                if want in prev.lower():
-                    return True
+                for key in ("Identifier", "Title"):
+                    v = self._attr(prev, key)
+                    if v is not None and v.lower() == want:
+                        return True
                 indent = pind   # climb to the next shallower ancestor
         return False
 
@@ -122,8 +151,9 @@ class Selector:
         if not hits:
             raise TargetMissing(f"selector {self} matched nothing")
         if self.allow_nth is not None:
-            if self.allow_nth >= len(hits):
-                raise TargetMissing(f"{self} allow_nth={self.allow_nth} but {len(hits)} matches")
+            if not (0 <= self.allow_nth < len(hits)):   # reject negatives too
+                raise TargetMissing(f"{self} allow_nth={self.allow_nth} out of "
+                                    f"range 0..{len(hits)-1}")
             return hits[self.allow_nth], f"{strat}[nth={self.allow_nth}]"
         if len(hits) > 1:
             raise TargetAmbiguous(f"selector {self} matched {len(hits)} elements: {hits}")
@@ -132,14 +162,19 @@ class Selector:
 
 @dataclass
 class Postcondition:
-    """Structured verification that the action landed (D7), stronger than a bare
-    substring. `field` is a selector for the element to read; `equals`/`contains`
-    is asserted against that element's tree line after the action settles."""
+    """Structured verification that the action landed (D7).
+
+    `equals` asserts the field's value EXACTLY (an attribute value equals the
+    expected, so '408' does not match a field showing '1408' — review finding).
+    `contains` is an explicit substring test. A postcondition with neither is
+    unverifiable and checks False rather than silently passing (review finding)."""
     field: Selector | None = None     # None = assert against the whole tree
-    equals: str | None = None         # exact substring on the field's line
-    contains: str | None = None       # substring anywhere in the tree
+    equals: str | None = None         # exact attribute-value match on the field
+    contains: str | None = None       # explicit substring (field block, or tree)
 
     def check(self, tree: str) -> bool:
+        if self.equals is None and self.contains is None:
+            return False   # nothing to verify -> not satisfied
         if self.field is not None:
             try:
                 idx, _ = self.field.resolve(tree)
@@ -148,8 +183,25 @@ class Postcondition:
             # Read the field's own line plus its subtree (deeper indent): AX
             # values commonly live on a child StaticText, not the container line.
             block = _element_block(tree, idx)
-            return (self.equals or self.contains or "") in block
-        return (self.contains or self.equals or "") in tree
+            if self.equals is not None:
+                # exact: some attribute value in the block equals `equals`
+                vals = []
+                for ln in block.splitlines():
+                    for k in Selector._ATTR_KEYS:
+                        v = Selector._attr(ln, k)
+                        if v is not None:
+                            vals.append(v)
+                if not any(v == self.equals for v in vals):
+                    return False
+            if self.contains is not None and self.contains not in block:
+                return False
+            return True
+        # whole-tree assertion
+        if self.equals is not None and self.equals not in tree:
+            return False
+        if self.contains is not None and self.contains not in tree:
+            return False
+        return True
 
 
 @dataclass

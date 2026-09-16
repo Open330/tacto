@@ -75,6 +75,15 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
     if name in ("scroll",):
         return "none", "non-mutating navigation"
 
+    # Inspect the action payload, not just the label. A destructive key combo
+    # carries its own risk regardless of what the target line says (review
+    # finding: press_key('cmd+delete') classified as none).
+    if name == "press_key":
+        k = str(action.get("key", "")).lower()
+        if k in ("delete", "forwarddelete") or "delete" in k.split("+") \
+                or k in ("cmd+delete", "super+delete", "cmd+backspace"):
+            return "confirm", f"destructive key: {k}"
+
     # Typing a password/OTP is transmission-adjacent -> hand off to the user.
     if name in ("type_text", "set_value") and into_sensitive_field:
         return "handoff", "credential entry: user must type it"
@@ -115,7 +124,10 @@ def merge(recorded: str, classified: str) -> str:
     and the live classifier wins. A recipe can raise risk but never lower what
     the classifier detects at run time."""
     order = {"none": 0, "preapproved": 1, "confirm": 2, "handoff": 3}
-    return recorded if order[recorded] >= order[classified] else classified
+    # Unknown/garbage risk strings fail closed to the strictest level rather
+    # than raising KeyError (review finding).
+    r, c = order.get(recorded, 3), order.get(classified, 3)
+    return recorded if r >= c else classified
 
 
 # ---- richer authorization model (codex browser-safety guidance) -------------
