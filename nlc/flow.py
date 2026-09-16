@@ -250,7 +250,8 @@ class Flow:
                 pc = s["postcondition"]
                 pf = Selector(**pc["field"]) if pc.get("field") else None
                 post = Postcondition(field=pf, equals=pc.get("equals"),
-                                     contains=pc.get("contains"))
+                                     contains=pc.get("contains"),
+                                     attribute=pc.get("attribute"))
             steps.append(Step(action=s["action"], selector=sel,
                               params=s.get("params", {}),
                               risk_class=s.get("risk_class", "none"),
