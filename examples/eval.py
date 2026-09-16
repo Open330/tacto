@@ -111,6 +111,21 @@ def scenario_approval_binding():
     return not tok.authorizes(b, c)[0]    # one-shot
 
 
+def scenario_input_verification():
+    """Synthesized input (type_text/press_key) must carry a postcondition —
+    event delivery proves nothing about acceptance (advisor finding)."""
+    from nlc.flow import Flow, Step, replay
+    d = Driver()
+    f = Flow("probe_input", "com.apple.calculator",
+             steps=[Step("type_text", params={"text": "1"})])
+    r = replay(d, f)
+    if r.log[-1].get("error") != "unverifiable_input_step":
+        return False
+    f2 = Flow("probe_input2", "com.apple.calculator",
+              steps=[Step("type_text", params={"text": "1"}, unverified_ok=True)])
+    return replay(d, f2).ok        # explicit opt-out is honored
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -173,6 +188,7 @@ SCENARIOS = [
     ("batch_invalidation (stale index stopped mid-batch)", scenario_batch_invalidation),
     ("contract_policy (meaning decides, not keywords)", scenario_contract_policy),
     ("approval_binding (consent tied to the action)", scenario_approval_binding),
+    ("input_verification (typed input must verify effect)", scenario_input_verification),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
