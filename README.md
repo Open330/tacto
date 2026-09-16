@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-15%2F15_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-29%2F29_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -22,11 +22,16 @@ _Talk to your computer. It clicks so you don't have to._
 ---
 
 ```
-$ nlc do "계산기로 12 곱하기 34"
+$ nlc do "7 더하기 8 해줘"
+  🗣  계산기를 지웁니다 → 7 → + → 8 → 계산합니다
+  [done] 다 됐어요. 결과는 15 입니다.
 
-  🗣  이런 순서로 할게요: 초기화 → 1 → 2 → 곱하기 → 3 → 4 → 계산
-  🔊  계산 결과 408을 확인했습니다.
-  [done] 다 됐어요.
+$ nlc do "다운로드 폴더에 뭐 있어?"
+  [done] 확인했어요. 21 items, 350.95 GB available
+
+$ nlc do "“보고서.rtf” 로 저장해줘"
+  ⚠  문서을(를) 저장합니다
+     진행할까요? [y/N]
 ```
 
 > 모델은 **한 번만** 흐름을 배웁니다. 이미 저장된 흐름으로 정확히 매핑되면, 그
@@ -249,29 +254,57 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `eval 15/15 PASS`
+## 지금 실제로 되는 일
 
-```
-  PASS  task_success           계산기 12×34 → 408 결정론 재생 (토큰 0)
-  PASS  determinism            재생은 모델을 호출하지 않음
-  PASS  safety_gate            위험 액션 승인 없이 차단 · 승인 시 진행
-  PASS  batch_invalidation     낡은 인덱스로 이어서 클릭하지 않음
-  PASS  contract_policy        키워드가 아니라 의미가 권한을 결정
-  PASS  approval_binding       승인은 스텝 번호가 아니라 행동에 묶임
-  PASS  input_verification     합성 입력은 효과를 검증해야 함
-  PASS  parameterized_flow     하나의 IR, 여러 입력
-  PASS  trace_reproducibility  실행을 다른 머신에서 재현
-  PASS  volatile_identifier    상태를 품은 AXIdentifier 해석
-  PASS  resolver_honesty       ambiguous/missing은 조용히 넘어가지 않고 예외
-  PASS  safety_classifier      4단계 분류 정확
-  PASS  browser_backend        동일 재생 엔진으로 웹 폼 조작
-```
+아래 레시피는 **이 기기에서 실행해 확인한 것**들입니다 — 그럴듯하게 적어둔 게
+아니라 [`nlc/library.py`](nlc/library.py) 에서 돌려본 결과입니다.
+
+| 말하면 | 하는 일 | 새로 확인된 형태 |
+|---|---|---|
+| `7 더하기 8 해줘` | 계산기로 계산하고 **답을 읽어 알려줌** | 사칙연산 전체가 하나의 IR |
+| `다운로드 폴더 열어줘` | Finder로 폴더 열기 | **창이 하나도 없는 앱**에서 시작 |
+| `다운로드 폴더에 뭐 있어?` | 폴더를 열고 **읽어서 알려줌** | 조작이 아니라 **대답** |
+| `"회의 준비" 라고 써줘` | 문서에 텍스트 입력 | 포커스 없이 쓰는 AX 쓰기 |
+| `굵게 해줘` | 전체 선택 후 굵게 | **토글이 재생마다 뒤집히지 않음** |
+| `새 문서 만들어줘` | 빈 문서 열기 | 메뉴 전용 명령 |
+| `"보고서.rtf" 로 저장해줘` | 이름을 정해 저장 | **되돌리기 어려운 동작 + 동의** |
+
+마지막 줄이 나머지와 다릅니다. 저장은 `write_persistent` 라서 정책이 스스로
+실행하지 않고 먼저 묻습니다. 그리고 동의는 **어떤 파일인지**에 묶입니다 — "A로
+저장"에 동의한 승인은 이름 칸이 B로 바뀌면 거부됩니다.
 
 ```bash
-uv run python examples/eval.py     # 재현
+./launcher/nlc do "\"보고서.rtf\" 로 저장해줘" --helper
+#   ⚠  문서을(를) 저장합니다
+#      진행할까요? [y/N]
 ```
 
-실사용 시나리오 30개 카탈로그: [`examples/scenarios.md`](examples/scenarios.md)
+<br>
+
+## 검증 상태 — `29/29 PASS`
+
+```bash
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (29/29)
+uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
+```
+
+계산기 밖으로 나오면서 드러난 것들이 그대로 시나리오가 되어 있습니다.
+
+```
+  PASS  menu_command            메뉴에만 있는 명령 (저장·복사·폴더 열기)
+  PASS  menu_verification       "성공" 을 반환하고 아무 일도 안 할 수 있음
+  PASS  toggle_converges        재생해도 토글이 진동하지 않음
+  PASS  menu_path_pinned        메뉴 경로를 바꾸면 기존 동의가 무효
+  PASS  consent_required        저장은 스스로의 권한으로 실행되지 않음
+  PASS  save_file               메뉴 → 시트 → 입력칸 → 되돌리기 어려운 클릭
+  PASS  consent_is_about_the_file   A를 승인했는데 B를 적으면 거부
+  PASS  helper_menu             메뉴 명령이 권한 경계를 넘어감
+  PASS  answers_a_question      조작 대신 화면을 읽어 대답
+  PASS  intent_parameters       값은 요청에서 뽑아냄 (폴더마다 레시피 X)
+  …  그리고 결정론·계약·트레이스·경계 등 기존 19개
+```
+
+실사용 시나리오 30개 카탈로그(미검증 포함): [`examples/scenarios.md`](examples/scenarios.md)
 
 <br>
 
@@ -321,6 +354,15 @@ uv run python examples/eval.py     # 재현
   제품**이지 권한 플래그가 아닙니다. NLC는 `caffeinate`로 idle 잠금을 방지하고,
   실제 잠금 시엔 핸드오프합니다. → [`PROTOCOL.md` §5.1](PROTOCOL.md)
 - **신규 플로우 authoring만 모델 토큰을 씁니다** — 유일한 비결정론 경로.
+- **실행 도중 실패하면 앱 상태가 남습니다.** 저장 시트가 열린 채 멈추면 그 앱의
+  메뉴 막대 전체가 잠깁니다. 임의로 닫아 되돌리지는 않습니다 — 사용자가 시키지
+  않은 조작이니까요. 대신 다음 실행이 "메뉴가 비활성" 대신 "대화상자가 열려
+  있습니다" 라고 말해 줍니다.
+- **저장 위치는 앱이 마지막에 쓰던 곳입니다.** 폴더를 고르는 건 아직 이 레시피가
+  주장하지 않는 기능이고, 조용히 엉뚱한 곳에 떨어뜨리는 것보다 말해두는 편이 낫습니다.
+- **`press_key` 는 도우미에 없습니다.** 범용 키 입력은 "칸을 채운다"와 "명령을
+  실행한다"를 같은 도구로 만들기 때문입니다. 사람들이 그걸로 하려던 일 대부분
+  (저장·복사·열기)은 이름 붙은 메뉴 명령이라 `menu` 로 됩니다.
 - **native와 web은 별도 ID 공간** — Flow는 백엔드 간 이식되지 않습니다.
 - 음성 STT는 플러그형(기본은 타이핑 폴백); 실 엔진 연결은 배포 시.
 - **Python으로 충분합니다.** 비용은 AX 프로세스 간 호출이 지배합니다(관찰 78–172ms,

@@ -13,6 +13,18 @@ Usage:
       (--helper routes through the signed Swift helper that holds the permissions)
       (add --no-indicator to suppress the on-screen "being controlled" outline)
   python -m nlc.cli replay <name>     # replay a saved flow by name
+
+  A step the policy will not run on its own authority (saving a file, sending a
+  message) asks first. Answer at the prompt, or pass --yes for scripts; with no
+  terminal to ask at, the answer is no.
+
+Things it already knows how to do (nlc do "…"):
+  7 더하기 8 해줘                  계산기 — 사칙연산 전부
+  다운로드 폴더 열어줘              Finder
+  새 문서 만들어줘                  TextEdit
+  “회의 준비” 라고 써줘             문서에 입력 (따옴표 안이 입력될 내용)
+  굵게 해줘                        전체 선택 + 굵게
+  “보고서.rtf” 로 저장해줘          이름을 정해 저장 — 확인을 묻습니다
 """
 
 import sys

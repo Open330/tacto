@@ -513,6 +513,18 @@ def scenario_menu_path_pinned():
                               for e in r.log)
 
 
+def scenario_answers_a_question():
+    """Some requests want an answer, not an action.
+
+    Every other recipe here changes something; this one opens a folder and
+    reads Finder's own status line back, and the agent has to actually say what
+    it found rather than reporting that it finished."""
+    from nlc.agent import Agent
+    turn = Agent().handle("다운로드 폴더에 뭐 있어?")
+    return (turn.status == "done" and turn.flow == "finder_count_items"
+            and "item" in turn.say)
+
+
 def scenario_consent_required():
     """A consequential step does not run on the recipe's own authority.
 
@@ -704,6 +716,8 @@ SCENARIOS = [
     ("toggle_converges (replaying a toggle does not oscillate)", scenario_toggle_converges),
     ("menu_path_pinned (repointing a menu step invalidates consent)",
      scenario_menu_path_pinned),
+    ("answers_a_question (reads the screen back instead of acting)",
+     scenario_answers_a_question),
     ("consent_required (a save does not run on its own authority)",
      scenario_consent_required),
     ("save_file (menu → sheet → field → consequential click)", scenario_save_file),
