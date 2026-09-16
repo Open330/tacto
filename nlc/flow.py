@@ -101,7 +101,12 @@ def _arith(expr: str):
             v = walk(n.operand)
             return v if isinstance(n.op, ast.UAdd) else -v
         if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](walk(n.left), walk(n.right))
+            left, right = walk(n.left), walk(n.right)
+            if isinstance(n.op, ast.Pow) and (abs(right) > 64 or abs(left) > 10**6):
+                # A recipe's derived value is an expected result, not a workload:
+                # cap exponentiation so a parameter cannot turn it into a DoS.
+                raise ValueError("거듭제곱이 너무 큽니다")
+            return ops[type(n.op)](left, right)
         raise ValueError(f"허용되지 않은 식: {ast.dump(n)[:60]}")
 
     v = walk(ast.parse(expr, mode="eval").body)
@@ -250,9 +255,12 @@ def _same_number(expected: str, observed: str) -> bool:
     a, b = canon(expected), canon(observed)
     if a == b:
         return True
+    # Decimal, not float: postconditions verify money and counts, and float()
+    # makes 9007199254740992 and ...93 compare equal (advisor finding).
+    from decimal import Decimal, InvalidOperation
     try:
-        return float(a) == float(b)
-    except ValueError:
+        return Decimal(a) == Decimal(b)
+    except (InvalidOperation, ValueError):
         return False
 
 
@@ -315,6 +323,7 @@ class Capture:
     name: str = "value"
     field: Selector | None = None      # element to read (None = whole tree)
     attribute: str = "Value"           # which attribute holds the value
+    sensitive: bool = False            # keep the value out of logs and traces
 
     def read(self, tree: str) -> str | None:
         if self.field is None:
@@ -372,6 +381,7 @@ class Flow:
     name: str
     target: str
     steps: list[Step] = field(default_factory=list)
+    schema: int = 2          # v2 requires a SafetyContract on every acting step
     params: dict = field(default_factory=dict)    # name -> default value
     tables: dict = field(default_factory=dict)    # name -> {key: value} lookups
     derived: dict = field(default_factory=dict)   # name -> arithmetic over params
@@ -395,10 +405,11 @@ class Flow:
             for it in items:
                 c = dict(ctx) if it is None else {**ctx, "item": it}
                 out.append(_render_step(st, c))
-        return Flow(name=self.name, target=self.target, steps=out)
+        return Flow(name=self.name, target=self.target, steps=out,
+                    schema=self.schema)
 
     def to_json(self) -> str:
-        d = {"name": self.name, "target": self.target,
+        d = {"name": self.name, "target": self.target, "schema": self.schema,
              "steps": [{**asdict(s)} for s in self.steps]}
         for k in ("params", "tables", "derived"):
             if getattr(self, k):
@@ -453,6 +464,7 @@ class Flow:
                                   attribute=s["capture"].get("attribute", "Value"))
                                   if s.get("capture") else None)))
         return Flow(name=d["name"], target=d["target"], steps=steps,
+                    schema=d.get("schema", 1),   # older files predate contracts
                     params=d.get("params", {}), tables=d.get("tables", {}),
                     derived=d.get("derived", {}))
 
@@ -476,38 +488,89 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
         post = Postcondition(field=pf, equals=_render(post.equals, ctx),
                              contains=_render(post.contains, ctx),
                              attribute=post.attribute)
+    # The contract and its binding describe THIS concrete action, so they are
+    # rendered too. Leaving them templated would let a confirmation and an
+    # ApprovalToken bind to "{{recipient}}" while the action goes to a real
+    # address (advisor finding) — the description the user approves must be the
+    # thing that runs.
+    safety = st.safety
+    if safety is not None:
+        from .contract import SafetyContract, Resource, Destination
+        r, dst = safety.resource, safety.destination
+        safety = SafetyContract(
+            effects=list(safety.effects), data_classes=list(safety.data_classes),
+            resource=Resource(object_type=_render(r.object_type, ctx),
+                              object_identity=_render(r.object_identity, ctx),
+                              selection_count=r.selection_count, scope=r.scope),
+            destination=Destination(kind=dst.kind,
+                                    identity=_render(dst.identity, ctx),
+                                    account=_render(dst.account, ctx)),
+            reversibility=safety.reversibility, commit_point=safety.commit_point,
+            evidence=list(safety.evidence), unknowns=list(safety.unknowns))
+    binding = st.binding
+    if binding is not None:
+        from .contract import ContextBinding as _CB
+        b = binding
+        binding = _CB(bundle_id=b.bundle_id, team_id=b.team_id,
+                      role=b.role,
+                      # a templated pin becomes the concrete value it renders to
+                      identifier=_render(b.identifier, ctx),
+                      ancestor=_render(b.ancestor, ctx), operation=b.operation,
+                      params_digest=b.params_digest,
+                      resource_identity=_render(b.resource_identity, ctx),
+                      selection_count=b.selection_count,
+                      destination_identity=_render(b.destination_identity, ctx),
+                      label_fingerprint=b.label_fingerprint,
+                      policy_version=b.policy_version)
     return Step(action=st.action, selector=sel, params=_render(st.params, ctx),
                 risk_class=st.risk_class, intent_text=_render(st.intent_text, ctx),
                 expect=_render(st.expect, ctx), postcondition=post,
                 require_enabled=st.require_enabled, is_submit=st.is_submit,
                 into_sensitive_field=st.into_sensitive_field,
-                safety=st.safety, binding=st.binding,
+                safety=safety, binding=binding,
                 unverified_ok=st.unverified_ok, capture=st.capture)
 
 
 def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
-    """Re-derive, from the live screen, the facts the contract was judged on."""
+    """Re-derive, from the live world, the facts the contract was judged on.
+
+    Only fields we can actually re-observe are filled. Copying a recorded value
+    into the "live" side would make that field incapable of ever mismatching —
+    which is how resource/destination invariants were silently passing before
+    (advisor finding). A field we cannot re-derive is left None and reported, so
+    an unverifiable invariant is visible rather than fake.
+    """
     import hashlib, json as _json
     rec = step.binding
     payload = {k: v for k, v in action.items() if k != "element_index"}
-    ident = driver.identity(flow.target) if hasattr(driver, "identity") else flow.target
-    return ContextBinding(
-        bundle_id=ident if rec.bundle_id else None,
-        team_id=rec.team_id,          # signer re-check is driver work (P2)
-        role=(step.selector.role if step.selector else None) if rec.role else None,
-        identifier=(_first_id(step.selector) if step.selector else None) if rec.identifier else None,
-        ancestor=(step.selector.ancestor if step.selector else None) if rec.ancestor else None,
-        operation=step.action if rec.operation else None,
-        params_digest=(hashlib.sha256(
+    live = ContextBinding(policy_version=rec.policy_version)
+
+    if rec.bundle_id is not None:
+        live.bundle_id = (driver.identity(flow.target)
+                          if hasattr(driver, "identity") else flow.target)
+    if rec.role is not None and step.selector is not None:
+        live.role = step.selector.role
+    if rec.identifier is not None and step.selector is not None:
+        live.identifier = _first_id(step.selector)
+    if rec.ancestor is not None and step.selector is not None:
+        live.ancestor = step.selector.ancestor
+    if rec.operation is not None:
+        live.operation = step.action
+    if rec.params_digest is not None:
+        live.params_digest = hashlib.sha256(
             _json.dumps(payload, sort_keys=True, default=str).encode()
-        ).hexdigest()[:32]) if rec.params_digest else None,
-        resource_identity=rec.resource_identity,
-        selection_count=rec.selection_count,
-        destination_identity=rec.destination_identity,
-        label_fingerprint=(hashlib.sha256(target_line.encode()).hexdigest()[:16]
-                           if rec.label_fingerprint else None),
-        policy_version=rec.policy_version,
-    )
+        ).hexdigest()[:32]
+    if rec.label_fingerprint is not None:
+        live.label_fingerprint = hashlib.sha256(target_line.encode()).hexdigest()[:16]
+
+    # Fields with no live source yet. Carrying the recorded value forward would
+    # assert they are unchanged when nothing checked; carry None and let
+    # validate() flag them as unverifiable instead.
+    for fname in ("team_id", "resource_identity", "selection_count",
+                  "destination_identity"):
+        if getattr(rec, fname) is not None:
+            setattr(live, fname, None)
+    return live
 
 
 def _first_id(sel) -> str | None:
@@ -530,6 +593,12 @@ def _approved(approvals, i, step, action) -> bool:
         if ok:
             tok.spend()
         return ok
+    # A bare True approves "step 3" — it would still read as approved if step 3
+    # came to mean something else. Consent must be bound to the described
+    # action, so a raw flag is only honoured for contract-less v1 recipes
+    # (advisor finding: the token was implemented but never required).
+    if step.safety is not None and step.binding is not None:
+        return False
     return bool(tok)
 
 
@@ -560,6 +629,20 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         res.record(status="error", stage="initial_observe", detail=obs)
         return res
 
+    # A contract is the authorization mechanism, not an optional annotation.
+    # Without this check a step that simply omits `safety` falls through to the
+    # legacy label classifier — so "the model never declares risk" would be
+    # false in practice (advisor finding). v1 recipes predate contracts and are
+    # still honoured, but must opt in explicitly.
+    if flow.schema >= 2:
+        missing = [i for i, st in enumerate(flow.steps)
+                   if st.action != "observe" and st.safety is None]
+        if missing:
+            res.record(status="error", error="contract_required",
+                       detail=f"스텝 {missing} 에 safety 계약이 없습니다 "
+                              "(schema 2는 모든 실행 스텝에 계약을 요구합니다)")
+            return res
+
     # Synthesized-input steps must be verifiable: delivery of a keyboard event
     # is not evidence the app accepted it, so an unverified type/key step could
     # report success while nothing happened (or worse, happened elsewhere).
@@ -577,6 +660,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if narrate and step.intent_text:
             narrate(step.intent_text)
 
+        # Values captured earlier in THIS run are only known now, so a step is
+        # rendered against them just before it executes. Flow.bind() resolves
+        # parameters ahead of time; this resolves what the screen told us since
+        # (without it, "capture the total, then type it" could not work — the
+        # promise the skill documents).
+        if captures:
+            step = _render_step(step, {**captures, "__tables__": flow.tables})
         action = {"name": step.action, **step.params}
         trace = None
         target_line = ""
@@ -612,6 +702,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             if step.binding is not None:
                 live = _live_binding(driver, flow, step, action, target_line)
                 v = validate(step.binding, live)
+                if v.unverifiable:
+                    res.record(status="error", step=i, action=step.action,
+                               error="invariant_unverifiable",
+                               detail="재검증할 수 없는 고정 항목: "
+                                      + ", ".join(v.unverifiable))
+                    return res
                 if not v.ok:
                     # The recorded meaning no longer applies. This is NOT a
                     # confirm — the user cannot consent to something whose
@@ -629,6 +725,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                            error="unverifiable_action", detail=reason)
                 return res
         else:
+            # schema 1 only: label heuristics, kept for recipes authored before
+            # contracts existed.
             detected, reason = safety.classify(
                 action, target_line, is_submit=step.is_submit,
                 into_sensitive_field=step.into_sensitive_field)
@@ -700,6 +798,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         captured = None
         if step.capture is not None and obs.get("tree"):
             captured = step.capture.read(obs["tree"])
+            # A captured value can be a password or an account number. Carry it
+            # for the run, but keep it out of the log the user sees and the
+            # trace they might send us.
+            if captured is not None and step.capture.sensitive:
+                captured = "[redacted]"
             if captured is None:
                 res.record(status="error", step=i, action=step.action,
                            error="capture_failed",

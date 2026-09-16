@@ -29,15 +29,27 @@ def scenario_safety_block():
     approval, and must run with it. (A calculator has no genuinely destructive
     control — its Delete is a backspace, correctly classified `none` — so the
     risk is declared on the step rather than inferred from the label.)"""
+    from nlc.contract import (SafetyContract, Resource, ContextBinding,
+                              issue_approval)
     d = Driver()
-    f = Flow("probe", "com.apple.calculator", steps=[
-        Step("click", Selector(role="Button", identifier="Delete",
-                               ancestor="CalculatorKeypadView"),
-             risk_class="confirm", intent_text="지우기(확인 필요로 선언)")])
+    # A contract whose meaning warrants confirmation: deleting a stored item.
+    contract = SafetyContract(
+        effects=["delete"], resource=Resource(object_type="항목", scope="item"),
+        reversibility="recoverable")
+    binding = ContextBinding(bundle_id="com.apple.calculator", role="Button",
+                             identifier="Delete", ancestor="CalculatorKeypadView",
+                             operation="click")
+    step = Step("click", Selector(role="Button", identifier="Delete",
+                                  ancestor="CalculatorKeypadView"),
+                intent_text="삭제", safety=contract, binding=binding)
+    f = Flow("probe", "com.apple.calculator", steps=[step])
     blocked = replay(d, f)                       # no approval -> must gate
-    proceeded = replay(d, f, approvals={0: True})   # approval -> must run
-    return (any(e.get("status") == "gated" for e in blocked.log)
-            and proceeded.log[-1]["status"] == "done")
+    if not any(e.get("status") == "gated" for e in blocked.log):
+        return False
+    if replay(d, f, approvals={0: True}).log[-1]["status"] == "done":
+        return False                             # a bare flag must NOT approve
+    tok = issue_approval(binding, contract)       # consent bound to THIS action
+    return replay(d, f, approvals={0: tok}).log[-1]["status"] == "done"
 
 
 def scenario_batch_invalidation():
@@ -115,14 +127,18 @@ def scenario_input_verification():
     """Synthesized input (type_text/press_key) must carry a postcondition —
     event delivery proves nothing about acceptance (advisor finding)."""
     from nlc.flow import Flow, Step, replay
+    from nlc.contract import SafetyContract, Resource
+    sc = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
+                        resource=Resource(object_type="입력", scope="entry"))
     d = Driver()
     f = Flow("probe_input", "com.apple.calculator",
-             steps=[Step("type_text", params={"text": "1"})])
+             steps=[Step("type_text", params={"text": "1"}, safety=sc)])
     r = replay(d, f)
     if r.log[-1].get("error") != "unverifiable_input_step":
         return False
     f2 = Flow("probe_input2", "com.apple.calculator",
-              steps=[Step("type_text", params={"text": "1"}, unverified_ok=True)])
+              steps=[Step("type_text", params={"text": "1"}, safety=sc,
+                          unverified_ok=True)])
     return replay(d, f2).ok        # explicit opt-out is honored
 
 
@@ -189,8 +205,17 @@ def scenario_reparameterize():
     if t.bind(a="5", b="6").steps[-1].postcondition.equals != "30":
         return False
     tpl_step = next((s for s in t.steps if s.for_each), None)
-    if tpl_step is None or (tpl_step.binding and tpl_step.binding.identifier):
-        return False           # a parameterized field must not stay pinned
+    if tpl_step is None or not tpl_step.binding:
+        return False
+    # The invariant stays pinned — as a TEMPLATE — and bind() makes it concrete,
+    # so the contract keeps describing whatever actually runs.
+    if "{{" not in (tpl_step.binding.identifier or ""):
+        return False
+    bound = t.bind(a="8", b="7")
+    concrete = [s.binding.identifier for s in bound.steps
+                if s.binding and s.selector and s.selector.identifier in ("Eight", "Seven")]
+    if not concrete or any("{{" in c for c in concrete):
+        return False
     from nlc.flow import replay
     r = replay(Driver(), t.bind(a="8", b="7"))
     return r.ok and str(r.log[-1].get("result")) == "56"

@@ -68,12 +68,12 @@ def parameterize(flow: Flow, mapping: dict[str, str], *,
                 folded["selector"]["identifier"] = "{{%s[item]}}" % tname
                 folded["for_each"] = "{{%s}}" % param
                 folded["intent_text"] = f"{param} 의 {{{{item}}}} 입력"
-                # The identifier is now an input, so the contract binding must
-                # stop pinning it — otherwise every value but the one it was
-                # authored with invalidates the contract. What stays invariant
-                # (app, role, container, operation) keeps being checked.
+                # The identifier is an input now, so the binding pins the
+                # TEMPLATE, which Flow.bind() renders to the concrete value.
+                # Clearing the pin instead would drop the invariant entirely —
+                # the contract must still describe whatever actually runs.
                 if folded.get("binding"):
-                    folded["binding"]["identifier"] = None
+                    folded["binding"]["identifier"] = "{{%s[item]}}" % tname
                 out_steps.append(folded)
                 i, matched = j, True
                 break
@@ -84,12 +84,9 @@ def parameterize(flow: Flow, mapping: dict[str, str], *,
         text = json.dumps(steps[i], ensure_ascii=False)
         for literal, param in mapping.items():
             text = text.replace(f'"{literal}"', '"{{%s}}"' % param)
-        st = json.loads(text)
-        b = st.get("binding") or {}
-        for key in ("identifier", "params_digest", "resource_identity"):
-            if isinstance(b.get(key), str) and "{{" in b[key]:
-                b[key] = None          # templated -> no longer invariant
-        out_steps.append(st)
+        # Templates in a binding stay templates: bind() renders them to the
+        # concrete value, so the invariant keeps describing the real action.
+        out_steps.append(json.loads(text))
         i += 1
 
     collapsed = out_steps
