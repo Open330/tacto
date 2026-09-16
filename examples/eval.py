@@ -126,6 +126,43 @@ def scenario_input_verification():
     return replay(d, f2).ok        # explicit opt-out is honored
 
 
+def scenario_volatile_identifier():
+    """An app may append live state to AXIdentifier
+    ('StandardInputView;value:408' on a real device) — the stable part before
+    ';' must still resolve, WITHOUT loosening exactness ('Save' != 'SaveAs')."""
+    tree = ("0 Window  Title: Calculator\n"
+            "  8 ScrollArea  Identifier: StandardInputView;value:408\n"
+            "    9 StaticText  Value: 408\n"
+            "  20 Button  Identifier: SaveAs")
+    from nlc.flow import Postcondition
+    try:
+        idx, _ = Selector(role="ScrollArea", identifier="StandardInputView").resolve(tree)
+    except LookupError:
+        return False
+    if not Postcondition(field=Selector(role="ScrollArea",
+                                        identifier="StandardInputView"),
+                         equals="408", attribute="Value").check(tree):
+        return False
+    try:
+        Selector(role="Button", identifier="Save").resolve(tree)
+        return False          # prefix must NOT match
+    except TargetMissing:
+        return True
+
+
+def scenario_trace_reproducibility():
+    """A recorded run must re-execute off-machine: record live, then replay the
+    same flow against the trace alone (no app, no GUI, no permissions). This is
+    what makes a user's failure debuggable somewhere else."""
+    from nlc.trace import record, rerun, Trace
+    res, tr = record(Driver(), calculator_12x34())
+    if not res.ok:
+        return None                      # skip when the live run itself can't run
+    again = rerun(Trace.load(tr.save("/tmp/nlc-eval-trace.json")),
+                  calculator_12x34())
+    return again.ok and again.log[-1]["status"] == "done"
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -189,6 +226,8 @@ SCENARIOS = [
     ("contract_policy (meaning decides, not keywords)", scenario_contract_policy),
     ("approval_binding (consent tied to the action)", scenario_approval_binding),
     ("input_verification (typed input must verify effect)", scenario_input_verification),
+    ("volatile_identifier (state-carrying AXIdentifier resolves)", scenario_volatile_identifier),
+    ("trace_reproducibility (replay a run off-machine)", scenario_trace_reproducibility),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
