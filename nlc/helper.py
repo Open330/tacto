@@ -18,8 +18,15 @@ import os
 import subprocess
 import time
 
-HELPER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "helper", "nlc-helper")
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Prefer the .app bundle: TCC identifies it by signature and lists it by name,
+# so the grant belongs to "NLC Helper" rather than to whatever the bare
+# executable happens to be called, and survives rebuilds of the same identity.
+_BUNDLED = os.path.join(_ROOT, "helper", "NLC Helper.app",
+                        "Contents", "MacOS", "NLCHelper")
+_BARE = os.path.join(_ROOT, "helper", "nlc-helper")
+HELPER = _BUNDLED if os.path.exists(_BUNDLED) else _BARE
 
 
 class HelperUnavailable(RuntimeError):
