@@ -196,6 +196,8 @@ func pid(forBundle bundle: String) -> pid_t? {
         if app.bundleIdentifier?.lowercased() == want { byBundle.append(app) }
         else if app.localizedName?.lowercased() == want { byName.append(app) }
     }
+    // A name never means a background agent; a bundle id is explicit and may.
+    byName = byName.filter { $0.activationPolicy == .regular }
     for group in [byBundle, byName] where !group.isEmpty {
         let regular = group.filter { $0.activationPolicy == .regular }
         return (regular.first ?? group.first)?.processIdentifier

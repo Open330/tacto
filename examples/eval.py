@@ -724,14 +724,24 @@ def scenario_app_name_is_the_app():
     windows and no menu bar, so whichever the system listed first decided
     whether the app could be driven at all."""
     from AppKit import NSWorkspace
+    running = list(NSWorkspace.sharedWorkspace().runningApplications())
+    # Find a name that a visible app and a background process actually share
+    # right now, rather than naming apps that may or may not be open.
+    by_name: dict = {}
+    for a in running:
+        by_name.setdefault((a.localizedName() or "").lower(), []).append(a)
+    collisions = {n: apps for n, apps in by_name.items()
+                  if n and len(apps) > 1
+                  and any(a.activationPolicy() == 0 for a in apps)
+                  and any(a.activationPolicy() != 0 for a in apps)}
+    if not collisions:
+        return "이름이 겹치는 앱/확장이 지금 없음"
     d = Driver()
-    for name in ("Messages", "Notes"):
+    for name, apps in collisions.items():
         pid = d._resolve(name, launch=False)
-        if pid is None:
-            return f"{name} 이(가) 실행 중이 아님"
-        app = NSWorkspace.sharedWorkspace().runningApplications()
-        match = next((a for a in app if int(a.processIdentifier()) == pid), None)
-        if match is None or match.activationPolicy() != 0:
+        want = {int(a.processIdentifier()) for a in apps
+                if a.activationPolicy() == 0}
+        if pid not in want:
             return False
     return True
 
@@ -908,6 +918,76 @@ def scenario_save_chooses_its_folder():
     return ok and landed and os.path.dirname(path).endswith("/Downloads")
 
 
+def scenario_learning_is_reachable():
+    """The one path that handles a task nobody wrote a recipe for.
+
+    `--learn` read its own flag out of a list it had already stripped it from,
+    so the condition could never be true: every unknown task was reported
+    unconditionally and authoring had never once run from the CLI."""
+    import nlc.cli as cli
+    src = __import__("inspect").getsource(cli.main)
+    # The flag must be read before the list it lives in is filtered.
+    return ("learning = \"--learn\" in rest" in src
+            and src.index("learning = ") < src.index("if r != \"--learn\""))
+
+
+def scenario_authoring_produces_a_runnable_flow():
+    """A model's recipe must survive the whole path and actually run.
+
+    The provider is stubbed because authoring costs tokens and needs a logged-in
+    CLI, but everything else is the real thing: the real prompt, the real
+    parser, the real selector validation, and a real replay against the app.
+    This is what "handles a task it has never seen" has to mean."""
+    import json as _json
+    import nlc.authoring as authoring
+    from nlc.flow import replay
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    reply = _json.dumps({
+        "name": "probe_scientific", "target": "com.apple.calculator",
+        "steps": [{"action": "menu",
+                   "params": {"path": ["View", ["Scientific", "공학용"]]},
+                   "intent_text": "공학용으로 바꿉니다",
+                   "postcondition": {"contains": "Mode: scientific"},
+                   "safety": {"effects": ["write_ephemeral"],
+                              "data_classes": ["none"],
+                              "resource": {"object_type": "계산기 보기",
+                                           "scope": "entry"},
+                              "destination": {"kind": "none"},
+                              "reversibility": "reversible",
+                              "commit_point": False, "unknowns": []}}]})
+    real_ask = authoring._ask_model
+    authoring._ask_model = lambda prompt, provider="auto", timeout=180: reply
+    try:
+        flow = authoring.author("계산기 공학용으로", d,
+                                target="com.apple.calculator")
+        ok = replay(d, flow).ok
+    finally:
+        authoring._ask_model = real_ask
+        back = d.observe("com.apple.calculator", "tree_full", require_window=False)
+        if back["type"] == "observation":
+            d.act(back["obs_id"], "com.apple.calculator",
+                  {"name": "menu", "path": ["View", ["Basic", "기본"]]})
+    return ok
+
+
+def scenario_authoring_teaches_the_real_vocabulary():
+    """The prompt must describe the engine that exists, not the one that did.
+
+    The engine grew `menu`, captures and front-window scoping while the
+    authoring prompt still taught `press_key` and a postcondition shape the
+    parser ignores — so a freshly authored recipe could not express the everyday
+    commands (save, close, copy) that live only in the menu bar."""
+    from nlc.authoring import _SYSTEM
+    required = ("menu", "captures", "in_focused_window", "click_ancestor",
+                "skip_if", "absent", "empty_ok")
+    if any(k not in _SYSTEM for k in required):
+        return False
+    # field_identifier was the shape the parser silently dropped.
+    return "field_identifier" not in _SYSTEM and "There is no `press_key`" in _SYSTEM
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -1012,6 +1092,12 @@ SCENARIOS = [
     ("dialog_recovery (a way out of a stuck run)", scenario_dialog_recovery),
     ("save_chooses_its_folder (lands where it was asked to)",
      scenario_save_chooses_its_folder),
+    ("learning_is_reachable (--learn actually reaches authoring)",
+     scenario_learning_is_reachable),
+    ("authoring_produces_a_runnable_flow (a novel task, end to end)",
+     scenario_authoring_produces_a_runnable_flow),
+    ("authoring_teaches_the_real_vocabulary (prompt matches the engine)",
+     scenario_authoring_teaches_the_real_vocabulary),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

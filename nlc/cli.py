@@ -292,6 +292,10 @@ def main(argv=None):
         if pf["verdict"] == "session_locked":
             print("화면이 잠겨 있어요. 잠금을 풀어주시면 바로 이어서 할게요.")
             return 1
+        # Read the flag BEFORE stripping it. Checking `rest` afterwards, as this
+        # did, could never be true — so `--learn` has never once reached the
+        # authoring path and every unknown task was reported unconditionally.
+        learning = "--learn" in rest
         rest = [r for r in rest if r != "--learn"]
         trace_path = None
         if "--trace" in rest:
@@ -335,7 +339,17 @@ def main(argv=None):
         # STAGE 1+2+3. Learning an unknown task spends model tokens, so it is
         # opt-in: without --learn an unknown request is reported, not billed.
         author_hook = None
-        if "--learn" in rest:
+        if learning and _os.environ.get("NLC_LAUNCHER"):
+            # The signed launcher gives its child a fixed PATH so nobody can
+            # redirect what runs — which is exactly right, and also means the
+            # model CLIs (installed in user directories) are unreachable from
+            # here. Learning and running are separate stages for this reason;
+            # say so now instead of after four provider timeouts.
+            print("  배우기는 권한 경계 밖에서 합니다 (모델 호출이 필요해서요):\n"
+                  f'    uv run nlc compile "{intent}"\n'
+                  "    ./launcher/nlc run flows/<이름>.json")
+            learning = False
+        if learning:
             from .authoring import author as _author
             def author_hook(intent_text, drv):        # noqa: E306
                 print("  🧠 처음 보는 작업이라 배우는 중… (모델 사용)")

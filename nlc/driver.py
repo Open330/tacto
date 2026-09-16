@@ -233,6 +233,11 @@ class Driver:
                 by_bundle.append(app)
             elif want == name:
                 by_name.append(app)
+        # A bundle id is explicit, so it may name anything. A NAME never means a
+        # background agent: with the real Messages quit, falling back to
+        # com.apple.messages.AssistantExtension would hand back a process with
+        # no windows and no menus instead of reporting the app as absent.
+        by_name = [a for a in by_name if a.activationPolicy() == 0]
         for group in (by_bundle, by_name):
             regular = [a for a in group if a.activationPolicy() == 0]
             for app in regular or group:
