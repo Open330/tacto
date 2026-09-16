@@ -105,6 +105,17 @@ func observe(_ target: String) -> [String: Any] {
     if windows.isEmpty {
         return ["type": "error", "error": "no_window_content", "target": target]
     }
+    // Reading another app's contents is not neutral: an accessibility tree can
+    // carry messages, names and account numbers. Show the outline for reads too,
+    // so nothing is taken off the screen invisibly (advisor finding: observe
+    // was silent, leaving confidentiality unprotected while integrity was not).
+    if aborted {
+        return ["type": "error", "error": "aborted_by_user"]
+    }
+    guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+        return ["type": "error", "error": "indicator_unavailable",
+                "detail": "조작 표시를 띄울 수 없어 중단했습니다"]
+    }
     var lines: [String] = []
     var elements: [AXUIElement] = []
     for w in windows { walk(w, depth: 0, out: &lines, elements: &elements) }
@@ -146,7 +157,10 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
         return ["type": "error", "error": "aborted_by_user",
                 "detail": "사용자가 Esc로 중단했습니다"]
     }
-    showOverlay(forPID: p)
+    guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+        return ["type": "error", "error": "indicator_unavailable",
+                "detail": "조작 표시를 띄울 수 없어 중단했습니다"]
+    }
     let name = action["name"] as? String ?? ""
 
     func element() -> AXUIElement? {
@@ -174,6 +188,10 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
             return ["type": "error", "error": "action_failed", "detail": "bad type_text"]
         }
         for ch in text {
+            if aborted {
+                return ["type": "error", "error": "aborted_by_user",
+                        "detail": "입력 도중 사용자가 중단했습니다"]
+            }
             for down in [true, false] {
                 guard let ev = CGEvent(keyboardEventSource: eventSource, virtualKey: 0, keyDown: down)
                 else { continue }
@@ -211,21 +229,36 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
 var aborted = false
 var overlay: NSWindow?
 
-func showOverlay(forPID pid: pid_t) {
-    guard overlay == nil else { return }
+/// Returns false when the outline could not be drawn. Callers treat that as a
+/// refusal: acting without the person being able to see it is the situation
+/// this whole mechanism exists to prevent, so a drawing failure must stop the
+/// action rather than silently proceed (advisor finding).
+@discardableResult
+func showOverlay(forPID pid: pid_t) -> Bool {
     let app = AXUIElementCreateApplication(pid)
     guard let win = attr(app, kAXFocusedWindowAttribute as String)
             ?? (attr(app, kAXWindowsAttribute as String) as? [AXUIElement])?.first
-    else { return }
+    else { return false }
     let winEl = win as! AXUIElement
     guard let posV = attr(winEl, kAXPositionAttribute as String),
-          let sizeV = attr(winEl, kAXSizeAttribute as String) else { return }
+          let sizeV = attr(winEl, kAXSizeAttribute as String) else { return false }
     var pt = CGPoint.zero, sz = CGSize.zero
     AXValueGetValue(posV as! AXValue, .cgPoint, &pt)
     AXValueGetValue(sizeV as! AXValue, .cgSize, &sz)
-    guard let screen = NSScreen.screens.first else { return }
-    let frame = NSRect(x: pt.x, y: screen.frame.height - pt.y - sz.height,
+    // AX y is measured from the top of the PRIMARY screen; AppKit from the
+    // bottom. screens[0] is the menu-bar screen, which is that origin — `main`
+    // follows keyboard focus and would misplace the outline.
+    guard let primary = NSScreen.screens.first else { return false }
+    let frame = NSRect(x: pt.x, y: primary.frame.height - pt.y - sz.height,
                        width: sz.width, height: sz.height)
+
+    // Follow the window rather than drawing once: a recipe that moves or
+    // switches windows would otherwise outline the wrong place.
+    if let existing = overlay {
+        existing.setFrame(frame, display: true)
+        existing.orderFrontRegardless()
+        return true
+    }
 
     let panel = NSPanel(contentRect: frame,
                         styleMask: [.borderless, .nonactivatingPanel],
@@ -233,7 +266,7 @@ func showOverlay(forPID pid: pid_t) {
     panel.isOpaque = false
     panel.backgroundColor = .clear
     panel.ignoresMouseEvents = true
-    panel.level = .floating
+    panel.level = .statusBar    // above normal and floating windows
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
     panel.hasShadow = false
 
@@ -253,6 +286,7 @@ func showOverlay(forPID pid: pid_t) {
     panel.contentView = view
     panel.orderFrontRegardless()
     overlay = panel
+    return true
 }
 
 func hideOverlay() {
@@ -330,12 +364,10 @@ let expectedToken: String = {
 }()
 var authenticated = false
 
-/// The OS's view of who launched us. A PID can be reused, so this is checked
-/// once at startup and the parent is then pinned — it is a real identity check
-/// (SecCode), not a name comparison, but it is not a substitute for XPC audit
-/// tokens. See `clientIdentityNote` below for why that distinction matters
-/// less than it looks for our current client.
-func parentCodeIdentity(_ pid: pid_t) -> String? {
+/// The signing identifier of whatever launched us, recorded for diagnostics.
+/// This is NOT authentication: no validity, team or requirement check is made,
+/// and a PID can be reused.
+func parentSigningTelemetry(_ pid: pid_t) -> String? {
     var code: SecCode?
     let attrs = [kSecGuestAttributePid: NSNumber(value: Int32(pid))] as CFDictionary
     guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &code) == errSecSuccess,
@@ -351,7 +383,10 @@ func parentCodeIdentity(_ pid: pid_t) -> String? {
 }
 
 let parentPID = getppid()
-let parentIdentity = parentCodeIdentity(parentPID) ?? "unknown"
+// Telemetry only: we record what the OS says launched us. We do NOT check
+// validity, team or a requirement, so this is not an identity check and is
+// never used to authorize anything (advisor finding: do not overclaim).
+let parentSigningID = parentSigningTelemetry(parentPID) ?? "unknown"
 DispatchQueue.global().async {
     while true {
         Thread.sleep(forTimeInterval: 1.0)
@@ -383,8 +418,11 @@ while let line = readLine(strippingNewline: true) {
         respond(["type": "error", "error": "bad_message"])
         continue
     }
-    let reply = DispatchQueue.main.sync { handle(msg) }
-    respond(reply)
+    // Handled off the main thread: the Esc monitor is delivered on main, and a
+    // long type_text used to occupy it for the whole action — leaving the user
+    // unable to stop exactly the run that most needed stopping (advisor
+    // finding). Only the UI touches main, and briefly.
+    respond(handle(msg))
 }
 DispatchQueue.main.async { hideOverlay(); exit(0) }
 }
