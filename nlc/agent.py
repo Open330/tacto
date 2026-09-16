@@ -122,7 +122,11 @@ class Agent:
         err = next((e for e in res.log if e.get("status") == "error"), last)
         step_i = err.get("step")
         where = flow.steps[step_i].intent_text if isinstance(step_i, int) else "시작"
-        return Turn("failed", f"'{where}' 단계에서 막혔어요. {self._why(err)}",
+        extra = ""
+        if err.get("error") == "postcondition_timeout" and "observed" in err:
+            extra = (f" (기대값 {err.get('expected')!r}, 화면에서 읽은 값 "
+                     f"{err.get('observed')!r})")
+        return Turn("failed", f"'{where}' 단계에서 막혔어요. {self._why(err)}{extra}",
                     flow.name, err)
 
     # Plain-language cause, so the user knows what to DO. The raw error can be

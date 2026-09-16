@@ -37,6 +37,18 @@ def main(argv=None):
             print(f"  {a['id']:40} {a['displayName']}")
         return 0
 
+    if cmd == "observe":
+        if not rest:
+            print("usage: observe <bundle-id>")
+            return 2
+        from .driver import Driver
+        o = Driver().observe(rest[0], "tree_full")
+        if o["type"] != "observation":
+            print(f"{o.get('error')}: {o.get('detail','')}")
+            return 1
+        print(o["tree"])
+        return 0
+
     if cmd == "list":
         names = FlowStore().list()
         print("\n".join(f"  {n}" for n in names) if names else "  (no saved flows)")
