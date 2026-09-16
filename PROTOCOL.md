@@ -660,3 +660,36 @@ impossible 로 바꿔도 **판정이 동일할 것**, 그리고 argv[0]을 위�
 peer는 공유 파이썬이 아니라 **팀이 서명한 전용 broker** 여야 한다(그러지 않으면
 원점이다). 즉 최종 형태는 `서명·hardened broker ↔ XPC helper` 이고 파이썬은
 broker에 좁은 데이터 요청만 보낸다.
+
+### 3.15 Peer 인증 + broker — 조상 추정에서 신원 확인으로
+
+§3.14가 남긴 구조적 문제는 정책이 실제로는 *"서명된 nlc의 후손이면 허용"* 이라는
+점이었다. 체인 중 하나라도 공격자 제어가 되면 그 프로세스도 유효한 후손이 된다.
+
+**해결: 연결한 프로세스 자체를 인증한다.** launchd 없이도 가능했다 —
+유닉스 소켓의 `LOCAL_PEERTOKEN` 이 **peer의 audit token**(커널의 답, 이 연결에
+바인딩, PID 재사용 경합 없음)을 주고, `kSecGuestAttributeAudit` 로 코드 객체를 만든
+뒤 `SecCodeCheckValidity` 로 requirement를 검사한다. XPC를 쓰는 이유가 되는 바로 그
+성질을 launchd 등록 없이 얻는다.
+
+```
+Python (구별 불가)  →  broker (서명·좁음)  ═══소켓═══>  helper (TCC 권한 보유)
+   stdin/stdout          ai.callabo.nlc.broker          peer audit token 검증
+```
+
+**왜 broker가 필요한가.** peer 인증은 peer가 OS로 구별 가능한 바이너리일 때만
+의미가 있는데, 공유 파이썬은 누가 실행하든 동일하게 보인다. 그래서 파이썬은
+도우미에 **직접 붙지 않는다**. broker가 peer가 되고, 도우미는 broker의 audit
+token을 검증한다. 실증: 서명 안 된 파이썬 직접 연결 → `peer_not_authorized`,
+broker 경유 → 정상 실행.
+
+**서명만으로는 부족하다는 것도 반영했다.** broker가 받은 것을 그대로 중계하면
+서명된 confused deputy일 뿐이다. 그래서 broker는 **L2 어휘만** 받아들이고 모든
+메시지의 형태를 검사한다 — 알 수 없는 `type`, 허용되지 않은 `action`, 정의되지 않은
+필드, 타입 불일치를 모두 거부한다(`rejected_by_broker`). 통과하는 것은
+observe/act 프로토콜이지 임의 명령이 아니며, 어떤 필드도 경로·명령·URL을 싣지
+못한다. 실증: `exec`, `run_shell`, `path` 필드 주입, `element_index` 타입 위조가
+모두 차단됐다.
+
+회귀 테스트 `peer_authentication` 이 두 성질을 고정한다: 이 인터프리터는 직접
+연결할 수 없을 것, broker를 통하면 되지만 어휘 밖 메시지는 거부될 것.

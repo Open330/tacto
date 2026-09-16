@@ -328,6 +328,51 @@ def scenario_permission_boundary():
     return not marker.exists()           # the attacker's interpreter never ran
 
 
+def scenario_peer_authentication():
+    """The helper authenticates the process that connects, not its ancestry —
+    so unsigned Python is refused and only the signed broker gets through. And
+    being signed is not a licence to relay: the broker rejects anything outside
+    the L2 vocabulary."""
+    import os, pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    if not (root / "broker" / "nlc-broker").exists():
+        return None                        # boundary not built here
+    from nlc.helper import SocketHelperDriver, BrokeredHelperDriver, HelperUnavailable
+
+    sock = "/tmp/nlc-eval-peer.sock"
+    if os.path.exists(sock):
+        os.unlink(sock)
+    # 1. This interpreter must not be able to connect directly.
+    try:
+        d = SocketHelperDriver(sock)
+        d.close()
+        return False
+    except HelperUnavailable:
+        pass
+    finally:
+        if os.path.exists(sock):
+            os.unlink(sock)
+
+    # 2. Through the signed broker it works, and the broker vets messages.
+    d = BrokeredHelperDriver(socket_path=sock)
+    try:
+        if d._send({"type": "list_targets"}).get("type") != "targets":
+            return False
+        for bad in ({"type": "exec", "cmd": "id"},
+                    {"type": "act", "obs_id": "x", "target": "y",
+                     "action": {"name": "run_shell", "cmd": "id"}},
+                    {"type": "act", "obs_id": "x", "target": "y",
+                     "action": {"name": "click", "element_index": 1,
+                                "path": "/etc/passwd"}}):
+            if d._send(bad).get("error") != "rejected_by_broker":
+                return False
+        return True
+    finally:
+        d.close()
+        if os.path.exists(sock):
+            os.unlink(sock)
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -399,6 +444,7 @@ SCENARIOS = [
     ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("permission_boundary (env override and argv0 forgery refused)", scenario_permission_boundary),
+    ("peer_authentication (unsigned refused; broker vets messages)", scenario_peer_authentication),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

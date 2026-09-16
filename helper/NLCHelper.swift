@@ -311,7 +311,8 @@ func respond(_ obj: [String: Any]) {
 
 func handle(_ msg: [String: Any]) -> [String: Any] {
     if !authenticated {
-        guard let tok = msg["token"] as? String, tok == expectedToken else {
+        if expectedToken.isEmpty { authenticated = true }      // socket peer check
+        else if !(msg["token"] as? String == expectedToken) {
             return ["type": "error", "error": "unauthenticated",
                     "detail": "first message must carry the launch token"]
         }
@@ -354,6 +355,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // an XPC service checking the client's audit token and code-signing
 // requirement — which is the documented next step (PROTOCOL.md §3.8).
 let expectedToken: String = {
+    if CommandLine.arguments.contains("--listen") { return "" }   // peer-authenticated
     guard let t = ProcessInfo.processInfo.environment["NLC_HELPER_TOKEN"],
           !t.isEmpty else {
         FileHandle.standardError.write(Data(
@@ -381,7 +383,8 @@ var authenticated = false
 /// `anchor apple generic` alone only means "an Apple-issued identity", not
 /// "ours", so the team is checked explicitly.
 let clientRequirement =
-    "identifier \"ai.callabo.nlc\" and anchor apple generic and " +
+    "(identifier \"ai.callabo.nlc\" or identifier \"ai.callabo.nlc.broker\") " +
+    "and anchor apple generic and " +
     "certificate leaf[subject.OU] = \"48H4RZNB97\""
 
 /// The PID of `pid`'s parent, via sysctl.
@@ -447,7 +450,11 @@ func parentSigningTelemetry(_ pid: pid_t) -> String? {
 }
 
 let parentPID = getppid()
-let (parentOK, parentWhy) = ancestrySatisfiesRequirement(parentPID)
+// In socket mode the peer check authenticates each connection, which is
+// strictly stronger, so the ancestry heuristic is not also applied.
+let usingSocket = CommandLine.arguments.contains("--listen")
+let (parentOK, parentWhy) = usingSocket ? (true, "socket mode")
+                                        : ancestrySatisfiesRequirement(parentPID)
 if !parentOK {
     FileHandle.standardError.write(Data("nlc-helper: \(parentWhy)\n".utf8))
     exit(3)
@@ -468,14 +475,99 @@ if !AXIsProcessTrusted() {
              "detail": "System Settings > Privacy & Security > Accessibility 에서 NLCHelper 를 켜주세요"])
 }
 
+// MARK: - Socket mode (peer-authenticated)
+//
+// With `--listen <path>` the helper serves one connection at a time over a unix
+// socket and authenticates the CONNECTING PROCESS via its audit token, rather
+// than inferring trust from ancestry. That distinction matters: ancestry admits
+// anything descended from the signed launcher, so one attacker-controlled link
+// in the chain was enough; a peer check names the process actually talking.
+
+func serveSocket(at path: String) -> Never {
+    unlink(path)
+    let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard listener >= 0 else {
+        FileHandle.standardError.write(Data("nlc-helper: socket() 실패\n".utf8)); exit(4)
+    }
+    var addr = sockaddr_un()
+    addr.sun_family = sa_family_t(AF_UNIX)
+    let maxPath = MemoryLayout.size(ofValue: addr.sun_path) - 1
+    let bytes = Array(path.utf8.prefix(maxPath)) + [0]
+    withUnsafeMutableBytes(of: &addr.sun_path) { dst in
+        bytes.withUnsafeBytes { src in
+            dst.copyMemory(from: UnsafeRawBufferPointer(
+                start: src.baseAddress, count: min(src.count, dst.count)))
+        }
+    }
+    let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+    let bound = withUnsafePointer(to: &addr) { p in
+        p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, size) }
+    }
+    guard bound == 0, listen(listener, 1) == 0 else {
+        FileHandle.standardError.write(Data("nlc-helper: bind/listen 실패\n".utf8)); exit(4)
+    }
+    // Only this user may reach the socket; the peer check does the rest.
+    chmod(path, 0o600)
+
+    while true {
+        let conn = accept(listener, nil, nil)
+        if conn < 0 { continue }
+        let (ok, why) = PeerAuth.satisfies(fd: conn, requirement: clientRequirement)
+        if !ok {
+            let refusal = ["type": "error", "error": "peer_not_authorized",
+                           "detail": why] as [String: Any]
+            if let d = try? JSONSerialization.data(withJSONObject: refusal) {
+                _ = d.withUnsafeBytes { write(conn, $0.baseAddress, d.count) }
+                _ = "\n".withCString { write(conn, $0, 1) }
+            }
+            close(conn)
+            continue
+        }
+        FileHandle.standardError.write(Data(
+            "nlc-helper: peer \(PeerAuth.describe(fd: conn)) 인증됨\n".utf8))
+        serve(connection: conn)
+        close(conn)
+    }
+}
+
+func serve(connection fd: Int32) {
+    let input = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
+    var buffer = Data()
+    while true {
+        let chunk = input.availableData
+        if chunk.isEmpty { return }
+        buffer.append(chunk)
+        while let nl = buffer.firstIndex(of: 0x0A) {
+            let line = buffer[buffer.startIndex..<nl]
+            buffer = buffer[buffer.index(after: nl)...]
+            guard let msg = (try? JSONSerialization.jsonObject(with: line))
+                    as? [String: Any] else { continue }
+            let reply = handle(msg)
+            if var out = try? JSONSerialization.data(withJSONObject: reply) {
+                out.append(0x0A)
+                _ = out.withUnsafeBytes { write(fd, $0.baseAddress, out.count) }
+            }
+        }
+    }
+}
+
 // A panel and a key monitor need an app object and a run loop; the helper is an
 // accessory (no Dock icon, never takes focus).
 let nsApp = NSApplication.shared
 nsApp.setActivationPolicy(.accessory)
 watchForAbort()
 
+let listenPath: String? = {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--listen"), i + 1 < args.count else { return nil }
+    return args[i + 1]
+}()
+
 DispatchQueue.global().async {
-    readLoop()
+    if let path = listenPath {
+        serveSocket(at: path)      // peer-authenticated; never returns
+    }
+    readLoop()                     // legacy stdio path (ancestry-checked)
 }
 nsApp.run()
 

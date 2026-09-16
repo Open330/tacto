@@ -33,6 +33,122 @@ class HelperUnavailable(RuntimeError):
     pass
 
 
+BROKER = os.path.join(_ROOT, "broker", "nlc-broker")
+
+
+class BrokeredHelperDriver:
+    """Talk to the helper through the signed broker.
+
+    Python is not a peer the OS can distinguish — a shared interpreter looks the
+    same whoever runs it — so it does not connect to the helper at all. The
+    broker does, and the helper authenticates the broker's audit token. The
+    broker in turn accepts only well-formed L2 messages, so being signed is not
+    a licence to relay anything (which would just move the deputy problem)."""
+
+    def __init__(self, socket_path: str = "/tmp/nlc-helper.sock",
+                 helper: str = HELPER, broker: str = BROKER):
+        if not os.path.exists(broker):
+            raise HelperUnavailable(f"{broker} 이 없습니다. broker/build.sh 로 빌드하세요.")
+        self._helper_proc = None
+        if not os.path.exists(socket_path):
+            self._helper_proc = subprocess.Popen(
+                [helper, "--listen", socket_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(50):
+                if os.path.exists(socket_path):
+                    break
+                time.sleep(0.1)
+        if not os.path.exists(socket_path):
+            raise HelperUnavailable("도우미 소켓이 열리지 않았습니다")
+        self._proc = subprocess.Popen(
+            [broker, "--helper-socket", socket_path],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, bufsize=1)
+        self._last_action_at = 0.0
+        pong = self._send({"type": "ping"})
+        if pong.get("error") == "peer_not_authorized":
+            raise HelperUnavailable(f"도우미가 broker를 거부했습니다: {pong.get('detail','')}")
+        if pong.get("type") != "pong":
+            raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
+        if not pong.get("trusted"):
+            raise HelperUnavailable("도우미에 접근성 권한이 없습니다")
+
+    def close(self):
+        try:
+            self._proc.stdin.close(); self._proc.wait(timeout=2)
+        except Exception:
+            self._proc.kill()
+        if self._helper_proc is not None:
+            self._helper_proc.terminate()
+
+    def _send(self, msg: dict) -> dict:
+        self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        self._proc.stdin.flush()
+        line = self._proc.stdout.readline()
+        if not line:
+            err = (self._proc.stderr.read() if self._proc.stderr else "") or ""
+            raise HelperUnavailable(f"broker 연결이 끊어졌습니다: {err.strip()[:200]}")
+        return json.loads(line)
+
+
+class SocketHelperDriver:
+    """Talks to a helper that authenticates THIS process, not our ancestry.
+
+    The helper listens on a unix socket and checks the connecting peer's audit
+    token against a code requirement. That is the property XPC is usually
+    reached for; the difference from the spawn path is that trust is decided
+    about the process actually connecting rather than inferred from who started
+    whom."""
+
+    def __init__(self, socket_path: str, path: str = HELPER, start: bool = True):
+        import socket as _s
+        self.socket_path = socket_path
+        self._proc = None
+        if start and not os.path.exists(socket_path):
+            self._proc = subprocess.Popen(
+                [path, "--listen", socket_path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            for _ in range(50):
+                if os.path.exists(socket_path):
+                    break
+                time.sleep(0.1)
+        if not os.path.exists(socket_path):
+            err = (self._proc.stderr.read() if self._proc else "") or ""
+            raise HelperUnavailable(f"소켓이 열리지 않았습니다: {err.strip()[:200]}")
+        self._sock = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
+        self._sock.connect(socket_path)
+        self._f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
+        self._last_action_at = 0.0
+        pong = self._send({"type": "ping"})
+        if pong.get("error") == "peer_not_authorized":
+            raise HelperUnavailable(
+                "도우미가 이 프로세스를 인증하지 못했습니다 — 서명된 클라이언트로 "
+                f"연결해야 합니다.\n  {pong.get('detail','')}")
+        if pong.get("type") != "pong":
+            raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
+        if not pong.get("trusted"):
+            raise HelperUnavailable("도우미에 접근성 권한이 없습니다")
+
+    def close(self):
+        try:
+            self._f.close(); self._sock.close()
+        except Exception:
+            pass
+        if self._proc is not None:
+            self._proc.terminate()
+
+    def _send(self, msg: dict) -> dict:
+        self._f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        self._f.flush()
+        line = self._f.readline()
+        if not line:
+            raise HelperUnavailable("도우미 연결이 끊어졌습니다")
+        return json.loads(line)
+
+    # The rest of the L2 surface is identical to the spawn-based driver.
+    identity = None     # filled in below
+
+
 class HelperDriver:
     """L2 endpoint backed by the Swift helper process."""
 
@@ -124,3 +240,12 @@ class HelperDriver:
             if time.monotonic() >= deadline:
                 return {"type": "timeout", "last_obs": last}
             time.sleep(poll_ms / 1000)
+
+
+# The L2 surface is transport-independent: observe/act/wait_until only need a
+# `_send`, so the socket driver borrows the spawn driver's implementations
+# rather than keeping a second copy in step with the first.
+for _name in ("identity", "list_targets", "observe", "act", "wait_until"):
+    impl = getattr(HelperDriver, _name)
+    setattr(SocketHelperDriver, _name, impl)
+    setattr(BrokeredHelperDriver, _name, impl)

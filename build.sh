@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build everything the permission boundary needs, in dependency order.
 #
-#   launcher/nlc        signed entry point — the only client the helper accepts
+#   launcher/nlc        signed entry point
+#   broker/nlc-broker   signed, narrow peer — the only process the helper accepts
 #   helper/nlc-helper   the binary that holds the Accessibility grant
 #   NLC Helper.app      that binary packaged so TCC lists it by name
 #
@@ -10,6 +11,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 ./launcher/build.sh
+./broker/build.sh
 ./helper/build.sh
 ./helper/bundle.sh
 echo
