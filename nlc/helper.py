@@ -41,9 +41,20 @@ class HelperDriver:
         env = dict(os.environ, NLC_HELPER_TOKEN=self._token)
         self._proc = subprocess.Popen(
             [path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            text=True, bufsize=1, env=env)
+            stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
         self._last_action_at = 0.0
-        pong = self._send({"type": "ping", "token": self._token})
+        try:
+            pong = self._send({"type": "ping", "token": self._token})
+        except HelperUnavailable:
+            err = (self._proc.stderr.read() if self._proc.stderr else "") or ""
+            self._proc.poll()
+            if self._proc.returncode == 3:
+                raise HelperUnavailable(
+                    "도우미가 이 클라이언트를 거부했습니다. 서명된 런처를 통해 "
+                    "실행하세요:  ./launcher/nlc <명령> --helper\n"
+                    "  (개발 중이라면 NLC_HELPER_REQUIREMENT 로 요구조건을 바꿀 수 "
+                    "있습니다)") from None
+            raise HelperUnavailable(f"도우미가 시작되지 못했습니다: {err.strip()[:200]}")
         if pong.get("type") != "pong":
             raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
         if not pong.get("trusted"):

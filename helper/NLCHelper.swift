@@ -364,9 +364,68 @@ let expectedToken: String = {
 }()
 var authenticated = false
 
+/// Does the process that launched us satisfy the code requirement?
+///
+/// This is the check that makes the helper refuse to be anyone's deputy: the
+/// grant it holds is usable only through the signed `nlc` launcher, not by any
+/// process that can execute this binary. It is a genuine OS check —
+/// `SecCodeCheckValidity` against a requirement, not a name comparison —
+/// though a PID can in principle be reused, so it is made once at startup and
+/// the parent is pinned thereafter.
+///
+/// Set NLC_HELPER_REQUIREMENT to override (development, or a different signing
+/// identity). Refusing to run unsigned is deliberate: an unsigned helper would
+/// hand its accessibility grant to whatever launched it.
+let clientRequirement = ProcessInfo.processInfo.environment["NLC_HELPER_REQUIREMENT"]
+    ?? "identifier \"ai.callabo.nlc\" and anchor apple generic"
+
+/// The PID of `pid`'s parent, via sysctl.
+func parentOf(_ pid: pid_t) -> pid_t? {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return nil }
+    let ppid = info.kp_eproc.e_ppid
+    return ppid > 0 ? ppid : nil
+}
+
+/// Walk the ancestors looking for the signed launcher.
+///
+/// The immediate parent is the Python process the launcher started, so checking
+/// only one level would reject our own client. Descending FROM the signed
+/// launcher is the property that matters: to be one of its descendants a process
+/// has to have been started by it, and the launcher runs only NLC's own code —
+/// it takes no script path, interpreter override or injectable environment. An
+/// unrelated process has no signed ancestor and is refused.
+func ancestrySatisfiesRequirement(_ start: pid_t, maxDepth: Int = 6) -> (Bool, String) {
+    var pid: pid_t? = start
+    var depth = 0
+    var last = "부모 프로세스를 확인하지 못했습니다"
+    while let p = pid, depth < maxDepth, p > 1 {
+        let (ok, why) = parentSatisfiesRequirement(p)
+        if ok { return (true, "ok (depth \(depth))") }
+        last = why
+        pid = parentOf(p)
+        depth += 1
+    }
+    return (false, last)
+}
+
+func parentSatisfiesRequirement(_ pid: pid_t) -> (Bool, String) {
+    var code: SecCode?
+    let attrs = [kSecGuestAttributePid: NSNumber(value: Int32(pid))] as CFDictionary
+    guard SecCodeCopyGuestWithAttributes(nil, attrs, [], &code) == errSecSuccess,
+          let code else { return (false, "부모 프로세스의 코드 정보를 얻지 못했습니다") }
+    var requirement: SecRequirement?
+    guard SecRequirementCreateWithString(clientRequirement as CFString, [],
+                                         &requirement) == errSecSuccess,
+          let requirement else { return (false, "requirement 문자열이 잘못되었습니다") }
+    let status = SecCodeCheckValidity(code, [], requirement)
+    if status == errSecSuccess { return (true, "ok") }
+    return (false, "부모가 요구 조건을 만족하지 않습니다 (OSStatus \(status))")
+}
+
 /// The signing identifier of whatever launched us, recorded for diagnostics.
-/// This is NOT authentication: no validity, team or requirement check is made,
-/// and a PID can be reused.
 func parentSigningTelemetry(_ pid: pid_t) -> String? {
     var code: SecCode?
     let attrs = [kSecGuestAttributePid: NSNumber(value: Int32(pid))] as CFDictionary
@@ -383,6 +442,11 @@ func parentSigningTelemetry(_ pid: pid_t) -> String? {
 }
 
 let parentPID = getppid()
+let (parentOK, parentWhy) = ancestrySatisfiesRequirement(parentPID)
+if !parentOK {
+    FileHandle.standardError.write(Data("nlc-helper: \(parentWhy)\n".utf8))
+    exit(3)
+}
 // Telemetry only: we record what the OS says launched us. We do NOT check
 // validity, team or a requirement, so this is not an identity check and is
 // never used to authorize anything (advisor finding: do not overclaim).

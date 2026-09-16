@@ -77,6 +77,15 @@ def main(argv=None):
         ok = onboard.run(interactive="--check" not in rest)
         return 0 if ok else 1
 
+    if cmd == "eval":
+        # Run the suite through this process, so the helper scenarios
+        # see the signed launcher in their ancestry.
+        import runpy, os as _os
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        runpy.run_path(_os.path.join(root, "examples", "eval.py"),
+                       run_name="__main__")
+        return 0
+
     if cmd == "apps":
         from .driver import Driver
         r = Driver().list_targets()
