@@ -153,7 +153,7 @@ func pid(forBundle bundle: String) -> pid_t? {
     return nil
 }
 
-func observe(_ target: String) -> [String: Any] {
+func observe(_ target: String, requireWindow: Bool = true) -> [String: Any] {
     guard let p = pid(forBundle: target) else {
         let gui = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         if gui.isEmpty {
@@ -164,7 +164,7 @@ func observe(_ target: String) -> [String: Any] {
     let app = AXUIElementCreateApplication(p)
     let windows = ((attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? [])
         .filter { str($0, kAXRoleAttribute as String) == "AXWindow" }
-    if windows.isEmpty {
+    if windows.isEmpty && requireWindow {
         return ["type": "error", "error": "no_window_content", "target": target]
     }
     // Reading another app's contents is not neutral: an accessibility tree can
@@ -180,14 +180,26 @@ func observe(_ target: String) -> [String: Any] {
     }
     var lines: [String] = []
     var elements: [AXUIElement] = []
-    for w in windows { walk(w, depth: 0, out: &lines, elements: &elements) }
+    for w in windows {
+        let start = lines.count
+        walk(w, depth: 0, out: &lines, elements: &elements)
+        // Mark the frontmost window, exactly as the Python driver does. The two
+        // must produce the same tree for the same app, or a recipe that scopes
+        // to the front window silently matches nothing under one of them.
+        if lines.count > start,
+           (attr(w, "AXMain") as? Bool) == true || (attr(w, "AXFocused") as? Bool) == true {
+            lines[start] += " [focused]"
+        }
+    }
     let obsID = "s" + UUID().uuidString.prefix(8)
     latestObsID = obsID
     latestElements = elements
     latestTargetPID = p
     latestTargetName = target
     return ["type": "observation", "obs_id": obsID, "target": target,
-            "tree": lines.joined(separator: "\n"), "element_count": elements.count]
+            "tree": windows.isEmpty ? "(창 없음 — 메뉴만 사용 가능)"
+                                    : lines.joined(separator: "\n"),
+            "element_count": elements.count]
 }
 
 // MARK: - Acting
@@ -446,7 +458,8 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                     "pid": Int($0.processIdentifier), "isRunning": true] as [String: Any] }
         return ["type": "targets", "apps": apps]
     case "observe":
-        return observe(msg["target"] as? String ?? "")
+        return observe(msg["target"] as? String ?? "",
+                       requireWindow: msg["require_window"] as? Bool ?? true)
     case "act":
         return act(msg["obs_id"] as? String ?? "", msg["target"] as? String ?? "",
                    msg["action"] as? [String: Any] ?? [:])

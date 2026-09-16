@@ -212,13 +212,18 @@ class HelperDriver:
     def list_targets(self):
         return self._send({"type": "list_targets"})
 
-    def observe(self, target: str, mode: str = "tree_full"):
+    def observe(self, target: str, mode: str = "tree_full",
+                require_window: bool = True):
         # Same settle contract as the in-process driver: an action's effect may
         # land a moment after the call returns, so wait before capturing.
         settle = self._last_action_at + 1.0 - time.time()
         if settle > 0:
             time.sleep(settle)
-        return self._send({"type": "observe", "target": target})
+        # `require_window` travels on the wire because the two drivers have to
+        # return the same tree for the same app: a recipe that starts from an
+        # app with nothing open must behave identically whichever one runs it.
+        return self._send({"type": "observe", "target": target,
+                           "require_window": require_window})
 
     def act(self, obs_id, target, action, risk_class="none", intent_text="",
             approved=False):

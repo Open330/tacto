@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 
 from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
@@ -144,6 +144,12 @@ class Selector:
     desc: str | None = None
     ancestor: str | None = None       # identifier/title of a scoping container
     allow_nth: int | None = None      # explicit index into matches; None = require unique
+    # Restrict the search to the window the app considers frontmost. Apps hold
+    # several windows open — two TextEdit documents expose two identical
+    # "First Text View" text areas — and almost every request means the one the
+    # person is looking at. Without this, a second open document turns a working
+    # recipe into TargetAmbiguous.
+    in_focused_window: bool = False
 
     # Known AX attribute keys as the driver formats them ("Key: value, Key2: …").
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
@@ -167,7 +173,8 @@ class Selector:
         Unicode bidi/format marks (e.g. the LTR mark macOS Calculator wraps its
         digits in) are stripped so '\\u200e408' compares equal to '408'."""
         others = "|".join(k for k in cls._ATTR_KEYS if k != key)
-        m = re.search(rf"{key}:\s*(.+?)(?:,\s*(?:{others}):|\s*\[disabled\]|$)", line)
+        m = re.search(rf"{key}:\s*(.+?)"
+                      rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused)\]|$)", line)
         return _norm(m.group(1).strip()) if m else None
 
     def matches(self, line: str) -> bool:
@@ -201,6 +208,8 @@ class Selector:
         is matched on an exact attribute value (Identifier/Title), not a substring
         of the whole line, so ancestor='main' doesn't match 'Title: domain main
         settings' (review finding)."""
+        if self.in_focused_window and not self._under_focused_window(lines, line_no):
+            return False
         if not self.ancestor:
             return True
         want = _norm(self.ancestor).lower()
@@ -218,6 +227,26 @@ class Selector:
                         return True
                 indent = pind   # climb to the next shallower ancestor
         return False
+
+    @staticmethod
+    def _under_focused_window(lines: list[str], line_no: int) -> bool:
+        """Is this line inside the window the driver marked `[focused]`?
+
+        Climb to the outermost container above the line; that is the window it
+        belongs to. A line at top level is its own window.
+        """
+        indent = len(lines[line_no]) - len(lines[line_no].lstrip())
+        top = lines[line_no]
+        for j in range(line_no - 1, -1, -1):
+            prev = lines[j]
+            if not prev.strip():
+                continue
+            pind = len(prev) - len(prev.lstrip())
+            if pind < indent:
+                indent, top = pind, prev
+                if pind == 0:
+                    break
+        return "[focused]" in top
 
     def resolve(self, tree: str) -> tuple[int, str]:
         """Return (element_index, resolver_trace) for a unique match in a fresh tree."""
@@ -503,21 +532,19 @@ def pin_params(params: dict) -> str:
 def _render_step(st: "Step", ctx: dict) -> "Step":
     """A copy of `st` with every template in its selector/params/verification
     resolved against `ctx`."""
-    sel = st.selector
-    if sel is not None:
-        sel = Selector(role=sel.role,
-                       identifier=_render(sel.identifier, ctx),
-                       title=_render(sel.title, ctx), desc=_render(sel.desc, ctx),
-                       ancestor=_render(sel.ancestor, ctx), allow_nth=sel.allow_nth)
+    # `replace` rather than a field-by-field rebuild: listing the fields meant
+    # every new one had to be remembered here too, and the first one added
+    # (in_focused_window) was silently dropped on every bind.
+    def render_sel(s):
+        return None if s is None else replace(
+            s, identifier=_render(s.identifier, ctx), title=_render(s.title, ctx),
+            desc=_render(s.desc, ctx), ancestor=_render(s.ancestor, ctx))
+
+    sel = render_sel(st.selector)
     def render_post(p):
         if p is None:
             return None
-        pf = p.field
-        if pf is not None:
-            pf = Selector(role=pf.role, identifier=_render(pf.identifier, ctx),
-                          title=_render(pf.title, ctx), desc=_render(pf.desc, ctx),
-                          ancestor=_render(pf.ancestor, ctx), allow_nth=pf.allow_nth)
-        return Postcondition(field=pf, equals=_render(p.equals, ctx),
+        return Postcondition(field=render_sel(p.field), equals=_render(p.equals, ctx),
                              contains=_render(p.contains, ctx),
                              attribute=p.attribute)
 
@@ -527,39 +554,38 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
     # ApprovalToken bind to "{{recipient}}" while the action goes to a real
     # address (advisor finding) — the description the user approves must be the
     # thing that runs.
+    # Rendered with `replace`, so a field added later is carried through instead
+    # of quietly dropped. Both of these were rebuilt field-by-field before, and
+    # both lost the first field added to them — the binding losing
+    # resource_identity_from turned every witnessed pin into "unverifiable".
     safety = st.safety
     if safety is not None:
-        from .contract import SafetyContract, Resource, Destination
-        r, dst = safety.resource, safety.destination
-        safety = SafetyContract(
+        safety = replace(
+            safety,
+            # copied, not shared: `replace` would hand the rendered step the
+            # template's own lists
             effects=list(safety.effects), data_classes=list(safety.data_classes),
-            resource=Resource(object_type=_render(r.object_type, ctx),
-                              object_identity=_render(r.object_identity, ctx),
-                              selection_count=r.selection_count, scope=r.scope),
-            destination=Destination(kind=dst.kind,
-                                    identity=_render(dst.identity, ctx),
-                                    account=_render(dst.account, ctx)),
-            reversibility=safety.reversibility, commit_point=safety.commit_point,
-            evidence=list(safety.evidence), unknowns=list(safety.unknowns))
+            evidence=list(safety.evidence), unknowns=list(safety.unknowns),
+            resource=replace(safety.resource,
+                             object_type=_render(safety.resource.object_type, ctx),
+                             object_identity=_render(safety.resource.object_identity, ctx)),
+            destination=replace(safety.destination,
+                                identity=_render(safety.destination.identity, ctx),
+                                account=_render(safety.destination.account, ctx)))
     binding = st.binding
     if binding is not None:
-        from .contract import ContextBinding as _CB
-        b = binding
-        binding = _CB(bundle_id=b.bundle_id, team_id=b.team_id,
-                      role=b.role,
-                      # a templated pin becomes the concrete value it renders to
-                      identifier=_render(b.identifier, ctx),
-                      ancestor=_render(b.ancestor, ctx), operation=b.operation,
-                      # Recomputed from the rendered payload: a parameterized
-                      # type_text changes what is typed, so a copied digest
-                      # would invalidate every concrete run (advisor finding).
-                      params_digest=(_payload_digest(_render(st.params, ctx))
-                                     if b.params_digest is not None else None),
-                      resource_identity=_render(b.resource_identity, ctx),
-                      selection_count=b.selection_count,
-                      destination_identity=_render(b.destination_identity, ctx),
-                      label_fingerprint=b.label_fingerprint,
-                      policy_version=b.policy_version)
+        binding = replace(
+            binding,
+            # a templated pin becomes the concrete value it renders to
+            identifier=_render(binding.identifier, ctx),
+            ancestor=_render(binding.ancestor, ctx),
+            # Recomputed from the rendered payload: a parameterized type_text
+            # changes what is typed, so a copied digest would invalidate every
+            # concrete run (advisor finding).
+            params_digest=(_payload_digest(_render(st.params, ctx))
+                           if binding.params_digest is not None else None),
+            resource_identity=_render(binding.resource_identity, ctx),
+            destination_identity=_render(binding.destination_identity, ctx))
     return Step(action=st.action, selector=sel, params=_render(st.params, ctx),
                 risk_class=st.risk_class, intent_text=_render(st.intent_text, ctx),
                 expect=_render(st.expect, ctx), postcondition=post,
@@ -570,7 +596,8 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 skip_if=render_post(st.skip_if))
 
 
-def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
+def _live_binding(driver, flow, step, action, target_line,
+                  tree: str = "") -> ContextBinding:
     """Re-derive, from the live world, the facts the contract was judged on.
 
     Only fields we can actually re-observe are filled. Copying a recorded value
@@ -608,12 +635,26 @@ def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
     if rec.label_fingerprint is not None:
         live.label_fingerprint = hashlib.sha256(target_line.encode()).hexdigest()[:16]
 
-    # Fields with no live source yet. Carrying the recorded value forward would
+    # An identity the recipe said where to find is re-read from the screen, not
+    # copied across. This is what lets consent be about WHICH document is being
+    # saved rather than only which button is being pressed: the name field still
+    # has to say what the person agreed to, right before the click.
+    for fname in ("resource_identity", "destination_identity"):
+        spec = getattr(rec, f"{fname}_from", None)
+        if getattr(rec, fname) is None or not spec or not tree:
+            continue
+        spec = dict(spec)
+        witness = Capture(field=Selector(**{k: v for k, v in spec.items()
+                                            if k != "attribute"}),
+                          attribute=spec.get("attribute", "Value"))
+        setattr(live, fname, witness.read(tree))
+
+    # Fields with no live source. Carrying the recorded value forward would
     # assert they are unchanged when nothing checked; carry None and let
     # validate() flag them as unverifiable instead.
     for fname in ("team_id", "resource_identity", "selection_count",
                   "destination_identity"):
-        if getattr(rec, fname) is not None:
+        if getattr(rec, fname) is not None and getattr(live, fname) is None:
             setattr(live, fname, None)
     return live
 
@@ -774,7 +815,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         gate_desc = step.intent_text
         if step.safety is not None:
             if step.binding is not None:
-                live = _live_binding(driver, flow, step, action, target_line)
+                live = _live_binding(driver, flow, step, action, target_line,
+                                     obs.get("tree", ""))
                 v = validate(step.binding, live)
                 if v.unverifiable:
                     res.record(status="error", step=i, action=step.action,
@@ -861,11 +903,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 if post.attribute:
                     vals = list(post._attr_values(block))
                 else:
-                    # The ANSWER lives in Value; Description/Help are labels for
-                    # the field, not its content. Prefer Value when the recipe
-                    # didn't say which attribute to read.
+                    # The ANSWER lives in Value; Description/Help/Identifier are
+                    # labels for the field, not its content. A field with no
+                    # Value simply has no answer to report — falling back to any
+                    # attribute is how "새 문서 만들어줘" came back as
+                    # "결과는 First Text View 입니다".
                     vals = [Selector._attr(ln, "Value") for ln in block.splitlines()]
-                    vals = [v for v in vals if v] or list(post._attr_values(block))
+                    vals = [v for v in vals if v]
                 result_value = vals[0] if vals else None
             except Exception:
                 result_value = None

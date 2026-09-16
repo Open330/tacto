@@ -38,6 +38,28 @@ def _make_driver(argv):
     return Driver()
 
 
+def _confirmer(argv):
+    """How a consequential step gets the user's yes.
+
+    A gate nobody can answer is the same as a task that cannot run, which is
+    what saving a file did before this existed. `--yes` is for scripts, and
+    when there is no terminal to ask at, the answer is no — silence is not
+    consent.
+    """
+    import sys as _sys
+    if "--yes" in argv or "-y" in argv:
+        return lambda what: True
+    if not _sys.stdin.isatty():
+        return lambda what: False
+    def ask(what: str) -> bool:
+        print(f"\n  ⚠  {what}")
+        try:
+            return input("     진행할까요? [y/N] ").strip().lower() in ("y", "yes", "네")
+        except (EOFError, KeyboardInterrupt):
+            return False
+    return ask
+
+
 def _params_from(argv):
     """Collect -p key=value pairs into a dict (and return the rest)."""
     out, rest = {}, []
@@ -325,7 +347,7 @@ def main(argv=None):
         except Exception:
             guess = None
         with KeepAwake(), _indicator_for(guess or "", rest):
-            turn = agent.handle(intent)
+            turn = agent.handle(intent, ask=_confirmer(rest))
         if tracer is not None:
             tracer.trace.flow = turn.flow or "(unresolved)"
             print(f"\n트레이스 저장: {tracer.trace.save(trace_path)}"

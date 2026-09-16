@@ -253,6 +253,14 @@ class ContextBinding:
     destination_identity: str | None = None
     label_fingerprint: str | None = None  # SOFT: drift only
     policy_version: int = POLICY_VERSION
+    # Where a pinned identity can be re-read from the screen, as
+    # {"role":…, "identifier":…, "attribute":…}. A pin with no witness is
+    # refused at replay rather than quietly passing, so without these a recipe
+    # cannot tie consent to WHICH document it is saving or WHO it is messaging —
+    # only to which button it presses. They say how to check the fact, not what
+    # the fact is, so they are not themselves invariants.
+    resource_identity_from: dict | None = None
+    destination_identity_from: dict | None = None
 
     HARD_FIELDS = ("bundle_id", "team_id", "role", "identifier", "ancestor",
                    "operation", "params_digest", "resource_identity",

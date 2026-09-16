@@ -110,7 +110,8 @@ func isMenuPath(_ v: Any) -> Bool {
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode"]
+let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode",
+                                 "require_window"]
 
 func isInt(_ v: Any) -> Bool {
     // CFBoolean bridges to NSNumber, so a bare NSNumber test would let `true`
@@ -127,6 +128,9 @@ func vetted(_ msg: [String: Any]) -> String? {
     }
     if type == "observe" {
         guard msg["target"] is String else { return "observe 에 target 없음" }
+        if let rw = msg["require_window"], !(rw is Bool) {
+            return "require_window 형식 오류"
+        }
     }
     if type == "act" {
         guard msg["obs_id"] is String, msg["target"] is String,
