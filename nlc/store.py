@@ -33,12 +33,35 @@ class FlowStore:
             f.write(flow.to_json())
         return p
 
+    class Corrupt(ValueError):
+        """A file exists under the flow name but is not a usable Flow IR."""
+
     def load(self, name: str) -> Flow:
-        with open(self._file(name), encoding="utf-8") as f:
-            return Flow.from_json(f.read())
+        path = self._file(name)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        try:
+            return Flow.from_json(text)
+        except Exception as e:
+            # A stored recipe can be damaged (a trace written over it, a partial
+            # write). Say so clearly instead of surfacing a raw KeyError from
+            # deep inside parsing — and let callers re-author rather than crash.
+            raise FlowStore.Corrupt(
+                f"{path} 은(는) 올바른 Flow IR이 아닙니다 ({e}). "
+                f"파일을 지우고 다시 학습하거나 복구하세요.") from e
 
     def has(self, name: str) -> bool:
-        return os.path.exists(self._file(name))
+        """True only when the file exists AND parses — a damaged file is
+        treated as absent so the caller can re-author over it."""
+        path = self._file(name)
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, encoding="utf-8") as f:
+                Flow.from_json(f.read())
+            return True
+        except Exception:
+            return False
 
     def list(self) -> list[str]:
         return sorted(f[:-5] for f in os.listdir(self.path) if f.endswith(".json"))

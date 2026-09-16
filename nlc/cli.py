@@ -5,7 +5,8 @@ Usage:
   python -m nlc.cli apps              # list running apps (GUI session check)
   python -m nlc.cli list              # list saved flows (+ where the IR lives)
   python -m nlc.cli show <name>       # print a flow's IR (JSON)
-  python -m nlc.cli do "<intent>"     # run a natural-language request
+  python -m nlc.cli compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
+  python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
   python -m nlc.cli replay <name>     # replay a saved flow by name
@@ -71,6 +72,39 @@ def main(argv=None):
         print("  전체 IR 보기:  nlc show <이름>")
         return 0
 
+    if cmd == "compile":
+        # STAGE 1 only: natural language -> Flow IR. Spends model tokens;
+        # writes the recipe and stops. Nothing on screen is touched.
+        if not rest:
+            print('usage: compile "<intent>" [-o <flow.json>] [--provider cxweb]')
+            return 2
+        out = provider = None
+        words = list(rest)
+        for flag, setter in (("-o", "out"), ("--provider", "provider")):
+            if flag in words:
+                k = words.index(flag)
+                val = words[k + 1] if k + 1 < len(words) else None
+                if setter == "out":
+                    out = val
+                else:
+                    provider = val
+                del words[k:k + 2]
+        intent = " ".join(words)
+        from .driver import Driver as _D
+        from .authoring import author as _author
+        from .store import FlowStore as _FS
+        print(f"  🧠 '{intent}' 를 배우는 중… (모델 사용)")
+        flow = _author(intent, _D(), provider=provider or "cxweb")
+        if out:
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write(flow.to_json())
+            path = out
+        else:
+            path = _FS().save(flow)
+        print(f"  ✓ IR 저장: {path}  ({len(flow.steps)}단계, 앱 {flow.target})")
+        print(f"  실행:  nlc run {path}")
+        return 0
+
     if cmd == "run":
         # Execute a Flow IR straight from a file — skips intent resolution
         # entirely, which is what you want for scripting/CI.
@@ -116,6 +150,7 @@ def main(argv=None):
         if pf["verdict"] == "session_locked":
             print("화면이 잠겨 있어요. 잠금을 풀어주시면 바로 이어서 할게요.")
             return 1
+        rest = [r for r in rest if r != "--learn"]
         trace_path = None
         if "--trace" in rest:
             k = rest.index("--trace")
@@ -150,7 +185,16 @@ def main(argv=None):
             from .trace import TracingDriver, Trace
             tracer = TracingDriver(driver, Trace(intent=intent))
             driver = tracer
-        agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"))
+        # STAGE 1+2+3. Learning an unknown task spends model tokens, so it is
+        # opt-in: without --learn an unknown request is reported, not billed.
+        author_hook = None
+        if "--learn" in rest:
+            from .authoring import author as _author
+            def author_hook(intent_text, drv):        # noqa: E306
+                print("  🧠 처음 보는 작업이라 배우는 중… (모델 사용)")
+                return _author(intent_text, drv, provider="cxweb")
+        agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
+                      author=author_hook)
         with KeepAwake():   # option A: hold off idle-lock while the task runs
             turn = agent.handle(intent)
         if tracer is not None:

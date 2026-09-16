@@ -42,7 +42,10 @@ Output ONLY JSON of this shape, no prose:
     }},
    ...
  ],
- "postcondition": {"field_identifier": "<id to read>", "equals": "<expected>"}}
+ "postcondition": {"field_identifier": "<id to read>", "equals": "<expected>",
+                   "attribute": "Value"}}
+The postcondition's `attribute` names WHICH attribute holds the answer — almost
+always "Value" (Description/Help are labels for the field, not its content).
 You state what each action MEANS — never a risk level. A deterministic policy
 derives authorization from your contract; you do not decide it.
 Rules: prefer identifier over title. Use ancestor to disambiguate repeated labels.
@@ -135,15 +138,39 @@ def _to_flow(spec: dict) -> Flow:
         if pc.get("field_identifier"):
             steps[-1].postcondition = Postcondition(
                 field=Selector(identifier=pc["field_identifier"]),
-                equals=pc.get("equals"))
+                equals=pc.get("equals"),
+                attribute=pc.get("attribute", "Value"))
     return Flow(name=spec["name"], target=spec["target"], steps=steps)
 
 
-def author(intent: str, driver: Driver, target: str, provider: str = "claude") -> Flow:
+_PICK = """You choose which installed app can satisfy a user's request.
+Answer with ONLY the bundle identifier, nothing else (e.g. com.apple.calculator).
+Pick from the list; if none fits, answer NONE."""
+
+
+def pick_target(intent: str, driver: Driver, provider: str = "claude") -> str:
+    """Phase 1 of authoring: decide WHICH app the request is about.
+
+    Authoring needs an app's tree to write selectors against, but the request
+    names the task, not the bundle id — so the model picks from what is actually
+    running/installed rather than us guessing from keywords."""
+    apps = driver.list_targets()["apps"]
+    inventory = "\n".join(f"{a['id']}  ({a['displayName']})" for a in apps)
+    answer = _ask_model(f"{_PICK}\n\n# 요청\n{intent}\n\n# 설치된 앱\n{inventory}",
+                        provider).strip().split()[-1].strip("`'\"")
+    if answer.upper() == "NONE" or not answer:
+        raise ValueError(f"어떤 앱으로 처리할지 정하지 못했어요: {intent!r}")
+    return answer
+
+
+def author(intent: str, driver: Driver, target: str | None = None,
+           provider: str = "claude") -> Flow:
     """Observe `target`, ask the model for a recipe, return a validated Flow.
 
     Caller (Agent) saves it. This is the token-spending path; replay never is.
     """
+    if target is None:
+        target = pick_target(intent, driver, provider)
     obs = driver.observe(target, "tree_full")
     if obs["type"] != "observation":
         raise RuntimeError(f"cannot observe {target}: {obs}")
