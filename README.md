@@ -126,9 +126,20 @@ $ nlc do "계산기로 12 곱하기 34"
 # 1. 클론
 git clone git@github.com:Open330/nlc.git && cd nlc
 
-# 2. 설치 — uv가 venv 생성·의존성 해석·`nlc` 명령 등록을 한 번에
+# 2. 설치 — uv가 venv 생성·의존성 해석을 한 번에
 uv sync           # 코어: pyobjc(AX)만. 브라우저 automation 스택 없음
+
+# 3. 권한 경계 빌드 (서명된 런처 + 도우미 번들)
+./build.sh
+./launcher/nlc doctor       # 'NLC Helper' 에 손쉬운 사용 권한을 부여
 ```
+
+> **권한은 파이썬이 아니라 도우미에 줍니다.** venv의 `python`은 대개 공유
+> 인터프리터로의 심볼릭 링크라, 거기에 권한을 주면 **그 인터프리터로 실행되는 모든
+> 스크립트**가 앱을 조작할 수 있게 됩니다(실측 확인). `./build.sh` 로 만든
+> **NLC Helper.app** 은 서명으로 식별되므로 권한이 그 하나에만 붙고 재빌드에도
+> 유지되며, 시스템 설정 목록에 `python3.11` 대신 "NLC Helper" 로 표시됩니다.
+> 도우미 경유로 실행하려면 `--helper` 를 붙입니다.
 
 > **브라우저는 별도 스택이 필요 없습니다.** 컴퓨터 사용에서 브라우저는 다른 앱과
 > 똑같이 접근성(AX) 레이어로 조작됩니다 — 코어 설치에 Playwright도 Chromium도

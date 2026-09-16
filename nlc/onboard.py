@@ -61,12 +61,22 @@ def run(interactive: bool = True, narrate=print) -> bool:
     Accessibility is required; screen recording is optional (AX-tree first design
     means most tasks never need pixels), so a missing SR is reported, not blocked.
     """
+    # When the signed helper holds the grant, this interpreter does not need it:
+    # the whole point of the helper is that permission lives with a named,
+    # single-purpose binary instead of a shared Python.
+    helper = {}
+    try:
+        helper = helper_status()
+    except Exception:
+        helper = {}
+    helper_covers = bool(helper.get("built") and helper.get("trusted"))
+
     all_ok = True
     for c in check_all():
         if c.ok:
             narrate(f"✓ {c.title} — 이미 켜져 있어요.")
             continue
-        required = c.key == "accessibility"
+        required = c.key == "accessibility" and not helper_covers
         mark = "✕" if required else "○"
         narrate(f"{mark} {c.title} — {c.fix_hint}")
         if interactive:
@@ -85,7 +95,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         real = _os.path.realpath(_sys.executable)
         shared = ("/uv/python/" in real or "/Cellar/" in real
                   or real.startswith("/usr/bin/") or "/Frameworks/Python" in real)
-        if shared:
+        if shared and not helper_covers:
             narrate(f"⚠ 권한이 공유 파이썬({_os.path.basename(real)})에 부여됩니다 — "
                     f"같은 인터프리터로 실행되는 다른 스크립트도 앱을 조작할 수 있어요. "
                     f"배포 시에는 서명된 전용 도우미로 분리할 예정입니다.")
@@ -107,6 +117,20 @@ def run(interactive: bool = True, narrate=print) -> bool:
     except Exception:
         pass
 
+    # The helper is the path we want people on: a named, signed binary holding
+    # the grant instead of a shared interpreter.
+    try:
+        st = helper_status()
+        if st["built"]:
+            narrate("— 권한 경계 —")
+            if run_helper_onboarding(narrate) :
+                narrate("   실행:  ./launcher/nlc <명령> --helper")
+        else:
+            narrate("○ 서명된 도우미를 빌드하면 권한을 파이썬 대신 도우미에만 "
+                    "줄 수 있어요 (helper/build.sh && helper/bundle.sh).")
+    except Exception:
+        pass
+
     if not all_ok:
         narrate("설정에서 권한을 켜신 뒤, 이 앱을 한 번 다시 열어주세요.")
     else:
@@ -118,3 +142,49 @@ if __name__ == "__main__":
     import sys
     ok = run(interactive="--check" not in sys.argv)
     sys.exit(0 if ok else 1)
+
+
+# ---------------------------------------------------------------- helper path
+
+def helper_status() -> dict:
+    """Is the signed helper built, and does it hold the Accessibility grant?
+
+    This is the permission story we actually want users to follow: grant the
+    named, signed helper rather than a shared Python interpreter that every
+    other script on the machine also uses.
+    """
+    import os
+    from .helper import HELPER
+    out = {"built": os.path.exists(HELPER), "path": HELPER, "trusted": None,
+           "bundled": HELPER.endswith("Contents/MacOS/NLCHelper")}
+    if not out["built"]:
+        return out
+    try:
+        from .helper import HelperDriver
+        d = HelperDriver()          # its ping reports AX trust
+        d.close()
+        out["trusted"] = True
+    except Exception as e:
+        out["trusted"] = False
+        out["why"] = str(e)
+    return out
+
+
+def run_helper_onboarding(narrate=print) -> bool:
+    """Walk the user through granting the HELPER, not this interpreter."""
+    st = helper_status()
+    if not st["built"]:
+        narrate("✕ 도우미가 아직 빌드되지 않았어요:")
+        narrate("    helper/build.sh && helper/bundle.sh && launcher/build.sh")
+        return False
+    name = "NLC Helper" if st["bundled"] else os.path.basename(st["path"])
+    if st["trusted"]:
+        narrate(f"✓ '{name}' 에 권한이 있어요. 파이썬에는 권한이 필요 없습니다.")
+        return True
+    narrate(f"✕ '{name}' 에 손쉬운 사용 권한이 필요해요.")
+    narrate("   시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용 에서 켜주세요.")
+    if st.get("why"):
+        narrate(f"   ({st['why'].splitlines()[0]})")
+    open_settings("x-apple.systempreferences:com.apple.preference.security"
+                  "?Privacy_Accessibility")
+    return False
