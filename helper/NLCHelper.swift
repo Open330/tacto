@@ -382,9 +382,12 @@ var authenticated = false
 ///
 /// `anchor apple generic` alone only means "an Apple-issued identity", not
 /// "ours", so the team is checked explicitly.
+// Only the launcher. A separate broker binary was removed: anyone could run it
+// and feed it well-formed JSON, so authenticating it proved nothing (advisor
+// finding). The relay now lives inside the launcher, which hands its child an
+// inherited socket nothing else can obtain.
 let clientRequirement =
-    "(identifier \"ai.callabo.nlc\" or identifier \"ai.callabo.nlc.broker\") " +
-    "and anchor apple generic and " +
+    "identifier \"ai.callabo.nlc\" and anchor apple generic and " +
     "certificate leaf[subject.OU] = \"48H4RZNB97\""
 
 /// The PID of `pid`'s parent, via sysctl.
