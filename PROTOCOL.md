@@ -627,3 +627,36 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 
 **빌드.** `./build.sh` 하나로 런처·도우미·번들을 의존 순서대로 만든다. Xcode
 라이선스 동의는 필요 없다(Command Line Tools 툴체인 + 명시적 SDK 경로).
+
+### 3.14 경계를 실제로 뚫던 것들 (3차 검증에서 수정)
+
+외부 검증이 §3.12의 경계에서 **실제 우회로**를 찾았다. 방향은 맞았지만 구현이
+새고 있었다.
+
+1. **`NLC_HELPER_REQUIREMENT` 환경변수 override** — 개발 편의로 둔 것이 치명적이었다.
+   런처가 이를 제거하지 않고 클라이언트가 환경을 그대로 넘기므로, 공격자가 통과하는
+   requirement로 바꾸면 검사가 **권고로 전락**했다. → requirement를 **컴파일에 고정**.
+2. **`CommandLine.arguments[0]` 신뢰** — 이것은 실행 경로가 아니라 **호출자가 넘긴
+   argv[0]** 이다. 공격자가 진짜 서명 런처를 실행하며 argv[0]만 자기 경로로 주면
+   런처가 **공격자의 `.venv/bin/python`** 을 실행했다 — 그러면 서명된 런처가
+   공격자 코드의 조상이 된다. → `_NSGetExecutablePath()` 로 실제 경로를 얻는다.
+3. **requirement에 Team ID 없음** — `anchor apple generic` 은 "Apple이 발급한
+   신원"이지 "우리 팀"이 아니다. → `certificate leaf[subject.OU] = "48H4RZNB97"` 추가.
+4. **`python -m` + 호출자 cwd** — Python은 `-m` 실행 시 현재 디렉터리를 `sys.path`
+   앞에 넣는다. 즉 "고정 모듈"이 "고정 코드"가 아니었다. → `-I`(격리) 사용.
+5. **PATH 상속(denylist)** — 빠뜨린 변수를 계속 찾는 구조였고, PATH 앞에 둔
+   바이너리가 `open`·`caffeinate` 를 가로챌 수 있었다. → **allowlist**로 전환하고
+   PATH를 시스템 경로로 고정.
+6. **`codesign --deep` 서명** — Apple 권장은 **안쪽부터 각각 서명 후 바깥**이며
+   `--deep` 은 검증용이다. → 순서 수정, hardened runtime 유지.
+
+회귀 테스트(`permission_boundary`)가 두 가지를 고정한다: 환경변수를 permissive /
+impossible 로 바꿔도 **판정이 동일할 것**, 그리고 argv[0]을 위조해도 공격자
+인터프리터가 **실행되지 않을 것**.
+
+**구조적으로 남는 것.** 현재 정책은 정확히 말하면 *"서명된 nlc의 후손이면 허용"*
+이다. `nlc → python → 도구` 체인 중 하나라도 공격자 제어가 되면 그 프로세스도 유효한
+후손이 된다. 이를 좁히려면 XPC로 **peer 자체**에 requirement를 걸어야 하며, 그때
+peer는 공유 파이썬이 아니라 **팀이 서명한 전용 broker** 여야 한다(그러지 않으면
+원점이다). 즉 최종 형태는 `서명·hardened broker ↔ XPC helper` 이고 파이썬은
+broker에 좁은 데이터 요청만 보낸다.

@@ -25,10 +25,22 @@
 
 import Foundation
 
-// Resolve relative to the RUNNING binary, not #filePath — that is the source
-// location baked in at build time, which is wrong the moment the binary moves.
-let exe = URL(fileURLWithPath: CommandLine.arguments[0])
-    .resolvingSymlinksInPath()
+// The REAL path of this binary, from the kernel — not `CommandLine.arguments[0]`,
+// which is whatever argv[0] the caller chose to pass. Trusting argv[0] let a
+// caller point the launcher at their own .venv, which would have made the signed
+// launcher the ancestor of their Python (advisor finding: a direct bypass).
+func executablePath() -> String {
+    var size = UInt32(4096)
+    var buf = [CChar](repeating: 0, count: Int(size))
+    guard _NSGetExecutablePath(&buf, &size) == 0 else { return "" }
+    return String(cString: buf)
+}
+
+let exe = URL(fileURLWithPath: executablePath()).resolvingSymlinksInPath()
+guard !exe.path.isEmpty else {
+    FileHandle.standardError.write(Data("nlc: 실행 경로를 확인하지 못했습니다\n".utf8))
+    exit(2)
+}
 let root = exe
     .deletingLastPathComponent()      // launcher/
     .deletingLastPathComponent()      // repo root
@@ -43,18 +55,25 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 
 let proc = Process()
 proc.executableURL = python
-proc.arguments = ["-m", module] + Array(CommandLine.arguments.dropFirst())
+// `-I` (isolated): without it `python -m` puts the CALLER's working directory
+// first on sys.path, so "a fixed module" would not mean fixed code — a file
+// named nlc.py beside the caller would win. -I also drops PYTHON* environment
+// and the user site directory.
+proc.arguments = ["-I", "-m", module] + Array(CommandLine.arguments.dropFirst())
 proc.currentDirectoryURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 
-// A fixed, minimal environment: nothing a caller sets can change which code
-// runs. PATH is needed for the tools a flow may legitimately shell out to
-// (`open`, `caffeinate`); PYTHON* variables that could inject code are dropped.
-var env = ProcessInfo.processInfo.environment
-for key in ["PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "PYTHONEXECUTABLE",
-            "PYTHONWARNINGS", "PYTHONINSPECT", "DYLD_INSERT_LIBRARIES",
-            "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "NLC_HELPER_TOKEN"] {
-    env.removeValue(forKey: key)
+// Allowlist, not denylist. Chasing individual dangerous variables means missing
+// one; starting empty and adding what is needed cannot (advisor finding).
+// Absolute paths are used for the few tools NLC shells out to, so an inherited
+// PATH cannot shadow them.
+let allowed = ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+               "SSL_CERT_FILE", "TERM"]
+var env: [String: String] = [:]
+let inherited = ProcessInfo.processInfo.environment
+for key in allowed {
+    if let v = inherited[key] { env[key] = v }
 }
+env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
 env["NLC_LAUNCHER"] = "1"
 proc.environment = env
 

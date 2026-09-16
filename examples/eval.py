@@ -285,6 +285,49 @@ def scenario_helper_user_authority():
         d.close()
 
 
+def scenario_permission_boundary():
+    """The helper's client check must not be defeatable by the environment or by
+    a forged argv[0] — both were real bypasses found in review."""
+    import os, subprocess, tempfile, pathlib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    helper = root / "helper" / "NLC Helper.app" / "Contents" / "MacOS" / "NLCHelper"
+    launcher = root / "launcher" / "nlc"
+    if not helper.exists() or not launcher.exists():
+        return None                      # boundary not built here
+
+    # 1. The environment must not change the verdict either way. Run the same
+    # client twice — once with a requirement that would allow anything, once
+    # with one that would allow nothing — and require the same outcome. Whether
+    # that outcome is accept or refuse depends on the real ancestry (this suite
+    # runs both ways), but it must not depend on what the caller set.
+    def probe(requirement):
+        return subprocess.run(
+            [str(helper)], input='{"type":"ping","token":"x"}\n',
+            capture_output=True, text=True, timeout=30,
+            env={**os.environ, "NLC_HELPER_TOKEN": "x",
+                 "NLC_HELPER_REQUIREMENT": requirement}).returncode
+    permissive = probe("anchor apple generic")
+    impossible = probe('identifier "nope.not.a.real.identifier"')
+    if permissive != impossible:
+        return False                     # the environment moved the boundary
+
+    # 2. A forged argv[0] must not redirect which interpreter runs.
+    d = tempfile.mkdtemp()
+    vb = pathlib.Path(d) / ".venv" / "bin"
+    vb.mkdir(parents=True)
+    marker = pathlib.Path(d) / "ran"
+    (vb / "python").write_text(f"#!/bin/sh\ntouch {marker}\n")
+    os.chmod(vb / "python", 0o755)
+    pid = os.fork()
+    if pid == 0:
+        try:
+            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "nlc"), "list"])
+        except Exception:
+            os._exit(9)
+    os.waitpid(pid, 0)
+    return not marker.exists()           # the attacker's interpreter never ran
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -355,6 +398,7 @@ SCENARIOS = [
     ("capture (read a value off the screen)", scenario_capture),
     ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
+    ("permission_boundary (env override and argv0 forgery refused)", scenario_permission_boundary),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
