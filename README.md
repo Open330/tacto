@@ -150,40 +150,99 @@ python -m playwright install chromium
 ```
 </details>
 
-## 사용
+## 사용 — 세 단계로 나뉩니다
 
-```bash
-# 1. 권한 점검 — 손쉬운 사용(필수)·화면기록(선택)을 확인하고 설정창으로 안내
-uv run nlc doctor
-
-# 2. 말로 시키기
-uv run nlc do "계산기로 12 곱하기 34"
-
-# 3. 저장된 플로우 재생 (모델 토큰 0)
-uv run nlc list
-uv run nlc replay calc_12x34
-
-# 4. 음성 세션 (말로 대화)
-uv run python -m nlc.voice
-
-# 5. 평가 재현
-uv run python examples/eval.py
+```
+① 자연어 → IR        ② IR 실행           ③ 결과
+   nlc compile          nlc run             (실행이 값을 검증해 함께 보고)
+   (모델 사용)          (모델 토큰 0)
+        └──────────── nlc do  (①+②+③ 한 번에) ───────────┘
 ```
 
-> 처음 실행 시 macOS가 **손쉬운 사용(Accessibility)** 권한을 요청합니다.
-> `uv run nlc doctor`가 정확한 설정 창을 열어주며, 권한을 켠 뒤 한 번 다시 실행하면 됩니다.
+```bash
+uv run nlc doctor                       # 권한·화면세션 점검 (맨 처음 한 번)
+
+# ① 배우기만 — 화면은 건드리지 않음 (모델 토큰 사용)
+uv run nlc compile "계산기로 9 빼기 4" -o flows/sub.json
+
+# ②+③ 실행 — 모델 호출 없음
+uv run nlc run flows/sub.json           # 파일에서 바로
+uv run nlc replay calc_multiply         # 저장된 이름으로
+
+# ①+②+③ 한 번에 — 모르는 작업을 배우려면 --learn
+uv run nlc do "계산기로 12 곱하기 34"
+uv run nlc do "메일 정리해줘" --learn
+
+# 진단
+uv run nlc apps                         # 실행 중 앱 + GUI 세션 확인
+uv run nlc observe com.apple.calculator # 접근성 트리 덤프
+uv run nlc list                         # 저장된 IR 목록 + 위치
+uv run nlc show calc_multiply           # IR 전문 보기
+uv run python -m nlc.voice              # 음성 세션
+uv run python examples/eval.py          # 평가 재현
+```
+
+> 실행 중에는 조작 대상 창에 **"NLC가 이 창을 조작 중입니다 · Esc로 중단"** 테두리가
+> 표시됩니다(`--no-indicator`로 끌 수 있음). 합성 입력에는 `NLC1` 마커가 붙어 사람
+> 입력과 구분됩니다. 처음 실행 시 macOS가 **손쉬운 사용** 권한을 요청합니다 —
+> `nlc doctor`가 정확한 설정 창을 열어줍니다.
 
 <br>
 
-## 검증 상태 — `eval 6/6 PASS`
+## 파라미터화 — 하나의 IR, 여러 입력
+
+계산기의 숫자는 절차가 아니라 **입력**입니다. 숫자마다 레시피를 만들지 않습니다:
+
+```bash
+uv run nlc replay calc_multiply -p a=12 -p b=34   # → 408
+uv run nlc replay calc_multiply -p a=6  -p b=7    # → 42
+uv run nlc replay calc_multiply                   # 기본값 → 408
+```
+
+| IR 필드 | 역할 |
+|---|---|
+| `params` | 입력과 기본값 — `{"a": "12", "b": "34"}` |
+| `tables` | 앱별 매핑 — `{"digit": {"1": "One", …}}` (숫자 1 → 버튼 `One`) |
+| `derived` | 파라미터로부터 계산 — `{"result": "{{a}} * {{b}}"}` (기대값 하드코딩 불필요) |
+| `for_each` | 값의 각 글자마다 스텝 반복, `{{item}}` 바인딩 — "12의 각 자리 누르기" |
+
+템플릿 `{{a}}` · `{{item}}` · `{{digit[item]}}` 을 셀렉터·파라미터·검증조건 어디서나 쓸 수 있습니다.
+`derived`는 숫자와 `+ - * / // % **`만 허용하는 AST 평가라 `eval`을 쓰지 않습니다.
+
+<br>
+
+## 재현 — 두 개의 IR
+
+| IR | 무엇 | 언제 |
+|---|---|---|
+| **Flow** (`flows/*.json`) | 무엇을 할지 | 배울 때 저장 |
+| **Trace** (`--trace`) | 실행 중 무엇이 보였는지 | `--trace run.json` 줄 때 |
+
+```bash
+uv run nlc do "계산기로 12 곱하기 34" --trace run.json
+```
+
+Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨터에서 그대로 재현할 수 있습니다.
+문제가 생기면 이 파일을 보내주세요 — 이 프로젝트의 가장 어려운 버그가 이것으로 잡혔습니다.
+
+<br>
+
+## 검증 상태 — `eval 12/12 PASS`
 
 ```
-  PASS  task_success        계산기 12×34 → 408 결정론 재생 (토큰 0)
-  PASS  determinism         재생은 모델을 호출하지 않음
-  PASS  safety_gate         위험 액션 승인 없이 차단 · 승인 시 진행
-  PASS  resolver_honesty    ambiguous/missing은 조용히 넘어가지 않고 예외
-  PASS  safety_classifier   4단계 분류 정확
-  PASS  browser_backend     동일 재생 엔진으로 웹 폼 조작
+  PASS  task_success           계산기 12×34 → 408 결정론 재생 (토큰 0)
+  PASS  determinism            재생은 모델을 호출하지 않음
+  PASS  safety_gate            위험 액션 승인 없이 차단 · 승인 시 진행
+  PASS  batch_invalidation     낡은 인덱스로 이어서 클릭하지 않음
+  PASS  contract_policy        키워드가 아니라 의미가 권한을 결정
+  PASS  approval_binding       승인은 스텝 번호가 아니라 행동에 묶임
+  PASS  input_verification     합성 입력은 효과를 검증해야 함
+  PASS  parameterized_flow     하나의 IR, 여러 입력
+  PASS  trace_reproducibility  실행을 다른 머신에서 재현
+  PASS  volatile_identifier    상태를 품은 AXIdentifier 해석
+  PASS  resolver_honesty       ambiguous/missing은 조용히 넘어가지 않고 예외
+  PASS  safety_classifier      4단계 분류 정확
+  PASS  browser_backend        동일 재생 엔진으로 웹 폼 조작
 ```
 
 ```bash
@@ -194,27 +253,42 @@ uv run python examples/eval.py     # 재현
 
 <br>
 
-## 예시: 결정론 레시피
+## 예시: 파라미터화된 레시피
 
 ```jsonc
 {
-  "name": "calc_12x34",
+  "name": "calc_multiply",
   "target": "com.apple.calculator",
+  "params":  { "a": "12", "b": "34" },              // 입력 (기본값 포함)
+  "tables":  { "digit": { "1": "One", "2": "Two" /* … */ } },
+  "derived": { "result": "{{a}} * {{b}}" },          // 기대값을 계산 (하드코딩 X)
   "steps": [
     { "action": "click",
       "selector": { "role": "Button", "identifier": ["AllClear", "Clear"],
                     "ancestor": "CalculatorKeypadView" },   // 매칭 1개 강제
       "intent_text": "초기화" },
-    // … 1 · 2 · × · 3 · 4 …
+
+    { "action": "click", "for_each": "{{a}}",              // 12 → '1','2' 각각
+      "selector": { "role": "Button", "identifier": "{{digit[item]}}",
+                    "ancestor": "CalculatorKeypadView" },
+      "intent_text": "첫째 수 {{item}} 입력" },
+
+    // … × … {{b}} 의 각 자리 …
+
     { "action": "click",
       "selector": { "role": "Button", "identifier": "Equals",
                     "ancestor": "CalculatorKeypadView" },
       "intent_text": "계산",
       "postcondition": { "field_identifier": "StandardInputView",
-                         "equals": "408" } }               // 결과 검증 (D7)
+                         "equals": "{{result}}",           // 결과 검증 (D7)
+                         "attribute": "Value" } }
   ]
 }
 ```
+
+각 스텝에는 **의미 계약**(`safety`)도 함께 저장됩니다 — 라벨 키워드가 아니라
+`effects`·`resource.scope`·`reversibility` 로 권한이 결정됩니다. 자세한 것은
+[`PROTOCOL.md` §3.6](PROTOCOL.md).
 
 <br>
 
@@ -227,6 +301,11 @@ uv run python examples/eval.py     # 재현
 - **신규 플로우 authoring만 모델 토큰을 씁니다** — 유일한 비결정론 경로.
 - **native와 web은 별도 ID 공간** — Flow는 백엔드 간 이식되지 않습니다.
 - 음성 STT는 플러그형(기본은 타이핑 폴백); 실 엔진 연결은 배포 시.
+- **Python으로 충분합니다.** 비용은 AX 프로세스 간 호출이 지배합니다(관찰 78–172ms,
+  클릭 118ms). 순수 파이썬 작업은 0.12ms — 1000배 작아서 병목이 아니고, Rust로 바꿔도
+  같은 AX 호출을 같은 속도로 합니다. 저수준이 필요한 곳은 성능이 아니라 **권한 경계**:
+  서명된 상주 데몬(TCC 안정성·권한 분리, PROTOCOL.md D8)과 고빈도 이벤트 탭이며,
+  오버레이의 run loop는 별도 프로세스로 우회했습니다.
 
 <br>
 
