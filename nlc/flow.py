@@ -279,6 +279,25 @@ class Selector:
                     break
         return "[focused]" in top
 
+    def describe(self) -> str:
+        """The selector in the words a person would use.
+
+        The error a beginner sees should say "'Cancel' 이라는 이름의 버튼", not a
+        dataclass repr with eight None fields — this product exists for people
+        who are uneasy with computers.
+        """
+        role = {"Button": "버튼", "TextField": "입력칸", "TextArea": "글 상자",
+                "CheckBox": "체크박스", "MenuItem": "메뉴 항목",
+                "Row": "항목", "Cell": "항목", "StaticText": "항목",
+                "Window": "창", "PopUpButton": "선택 목록",
+                "Outline": "목록", "List": "목록", "Table": "표"
+                }.get(self.role or "", self.role or "항목")
+        for label in (self.title, self.value, self.desc, self.identifier):
+            if label:
+                names = [label] if isinstance(label, str) else list(label)
+                return f"'{' 또는 '.join(names)}' {role}"
+        return role
+
     def resolve_all(self, tree: str) -> list[int]:
         """Every element matching this selector, in tree order.
 
@@ -318,14 +337,15 @@ class Selector:
         if self.ancestor:
             strat += f"@{self.ancestor}"
         if not hits:
-            raise TargetMissing(f"selector {self} matched nothing")
+            raise TargetMissing(f"화면에서 찾지 못했어요 — {self.describe()}")
         if self.allow_nth is not None:
             if not (0 <= self.allow_nth < len(hits)):   # reject negatives too
                 raise TargetMissing(f"{self} allow_nth={self.allow_nth} out of "
                                     f"range 0..{len(hits)-1}")
             return hits[self.allow_nth], f"{strat}[nth={self.allow_nth}]"
         if len(hits) > 1:
-            raise TargetAmbiguous(f"selector {self} matched {len(hits)} elements: {hits}")
+            raise TargetAmbiguous(f"어느 것인지 알 수 없어요 — {self.describe()} "
+                                  f"{len(hits)}개가 화면에 있습니다")
         if self.click_ancestor:
             return self._climb(lines, hits[0]), strat + "^" + str(self.click_ancestor)
         return hits[0], strat
@@ -669,7 +689,7 @@ def _nearby(selector: "Selector", tree: str, limit: int = 8) -> str:
                 break
         if len(names) >= limit:
             break
-    return f"화면에 있는 {selector.role}: {', '.join(names)}" if names else ""
+    return f"화면에 있는 것: {', '.join(names)}" if names else ""
 
 
 def _payload_digest(params: dict) -> str:

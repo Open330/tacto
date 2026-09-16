@@ -494,6 +494,9 @@ def close_dialog() -> Flow:
             Step("click", Selector(role="Button", title=["Cancel", "취소"]),
                  intent_text="열려 있는 대화상자를 닫습니다",
                  safety=_scratch("대화상자"),
+                 # Nothing to close is not a failure; it is the state this
+                 # recipe exists to reach.
+                 skip_if=Postcondition(absent="Sheet"),
                  postcondition=Postcondition(absent="Sheet")),
         ])
 

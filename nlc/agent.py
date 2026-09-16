@@ -309,8 +309,14 @@ class Agent:
             # `captured`, not in a verified result. Reporting only "다 됐어요"
             # for those would finish the task without saying what was found.
             captured = last.get("captured") or {}
+            skipped = [e for e in res.log if e.get("status") == "skipped"]
+            acted = [e for e in res.log if e.get("status") == "ok"]
             if value:
                 say = f"다 됐어요. 결과는 {value} 입니다."
+            elif skipped and not acted and not captured:
+                # Every step stood down because the world already looked the way
+                # the recipe wanted. "다 됐어요" would suggest work happened.
+                say = "이미 그렇게 되어 있어서 할 일이 없었어요."
             elif len(captured) == 1:
                 say = "확인했어요. " + _readable(next(iter(captured.values())))
             elif captured:
