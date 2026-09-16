@@ -74,6 +74,12 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String], elements: inout [A
 // through the helper would weaken it (advisor finding).
 var latestObsID: String = ""
 var latestElements: [AXUIElement] = []
+// The observation belongs to ONE app. Without this, an obs_id taken from app A
+// could be presented while acting on app B — and `type_text` does not even
+// consult the element list, so it would simply type into the other app
+// (advisor finding).
+var latestTargetPID: pid_t = -1
+var latestTargetName: String = ""
 
 func pid(forBundle bundle: String) -> pid_t? {
     for app in NSWorkspace.shared.runningApplications {
@@ -105,6 +111,8 @@ func observe(_ target: String) -> [String: Any] {
     let obsID = "s" + UUID().uuidString.prefix(8)
     latestObsID = obsID
     latestElements = elements
+    latestTargetPID = p
+    latestTargetName = target
     return ["type": "observation", "obs_id": obsID, "target": target,
             "tree": lines.joined(separator: "\n"), "element_count": elements.count]
 }
@@ -125,10 +133,15 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
         return ["type": "error", "error": "stale_observation",
                 "detail": "observe again and re-derive element_index"]
     }
-    let elements = latestElements
     guard let p = pid(forBundle: target) else {
         return ["type": "error", "error": "target_not_found"]
     }
+    // The observation and the action must concern the same app.
+    guard p == latestTargetPID else {
+        return ["type": "error", "error": "target_mismatch",
+                "detail": "obs_id was taken on \(latestTargetName)"]
+    }
+    let elements = latestElements
     let name = action["name"] as? String ?? ""
 
     func element() -> AXUIElement? {
@@ -189,6 +202,13 @@ func respond(_ obj: [String: Any]) {
 }
 
 func handle(_ msg: [String: Any]) -> [String: Any] {
+    if !authenticated {
+        guard let tok = msg["token"] as? String, tok == expectedToken else {
+            return ["type": "error", "error": "unauthenticated",
+                    "detail": "first message must carry the launch token"]
+        }
+        authenticated = true
+    }
     switch msg["type"] as? String {
     case "ping":
         return ["type": "pong", "trusted": AXIsProcessTrusted()]
@@ -212,6 +232,27 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // it serves exactly one client — the process that spawned it — and exits when
 // that process goes away. It speaks only over the stdio pair it was launched
 // with, never a socket, so there is no channel for another process to reach.
+// A parent-PID liveness check is not authentication: any local process could
+// spawn this signed binary and inherit its Accessibility grant. Requiring a
+// secret the launcher passes in raises that bar — a process that cannot read
+// our environment cannot drive us. It is a mitigation, not a boundary: proper
+// caller authentication needs XPC with the client's audit token, which is the
+// documented next step (PROTOCOL.md §3.8).
+// LIMITATION, stated plainly: this token is NOT an authentication boundary. A
+// local process that can execute this binary can also set this variable for its
+// own child. What it does buy is that the helper cannot be driven by accident
+// or by something that merely inherited a pipe, and that every launch is
+// deliberate. A real boundary requires the OS to tell us who the caller is —
+// an XPC service checking the client's audit token and code-signing
+// requirement — which is the documented next step (PROTOCOL.md §3.8).
+guard let expectedToken = ProcessInfo.processInfo.environment["NLC_HELPER_TOKEN"],
+      !expectedToken.isEmpty else {
+    FileHandle.standardError.write(Data(
+        "NLC_HELPER_TOKEN is required; launch this helper through nlc\n".utf8))
+    exit(2)
+}
+var authenticated = false
+
 let parentPID = getppid()
 DispatchQueue.global().async {
     while true {

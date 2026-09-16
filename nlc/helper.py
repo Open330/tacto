@@ -33,11 +33,17 @@ class HelperDriver:
         if not os.path.exists(path):
             raise HelperUnavailable(
                 f"{path} 이 없습니다. helper/build.sh 로 빌드하세요.")
+        # A secret generated per launch and handed to the helper through its
+        # environment: a process that cannot read that environment cannot drive
+        # the helper even if it can execute the binary.
+        import secrets
+        self._token = secrets.token_hex(16)
+        env = dict(os.environ, NLC_HELPER_TOKEN=self._token)
         self._proc = subprocess.Popen(
             [path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            text=True, bufsize=1)
+            text=True, bufsize=1, env=env)
         self._last_action_at = 0.0
-        pong = self._send({"type": "ping"})
+        pong = self._send({"type": "ping", "token": self._token})
         if pong.get("type") != "pong":
             raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
         if not pong.get("trusted"):

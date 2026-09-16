@@ -461,12 +461,20 @@ class Flow:
                                   name=s["capture"].get("name", "value"),
                                   field=(Selector(**s["capture"]["field"])
                                          if s["capture"].get("field") else None),
-                                  attribute=s["capture"].get("attribute", "Value"))
+                                  attribute=s["capture"].get("attribute", "Value"),
+                                  sensitive=bool(s["capture"].get("sensitive")))
                                   if s.get("capture") else None)))
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=d.get("schema", 1),   # older files predate contracts
                     params=d.get("params", {}), tables=d.get("tables", {}),
                     derived=d.get("derived", {}))
+
+
+def _payload_digest(params: dict) -> str:
+    import hashlib, json as _json
+    payload = {k: v for k, v in params.items() if k != "element_index"}
+    return hashlib.sha256(
+        _json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:32]
 
 
 def _render_step(st: "Step", ctx: dict) -> "Step":
@@ -516,7 +524,11 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                       # a templated pin becomes the concrete value it renders to
                       identifier=_render(b.identifier, ctx),
                       ancestor=_render(b.ancestor, ctx), operation=b.operation,
-                      params_digest=b.params_digest,
+                      # Recomputed from the rendered payload: a parameterized
+                      # type_text changes what is typed, so a copied digest
+                      # would invalidate every concrete run (advisor finding).
+                      params_digest=(_payload_digest(_render(st.params, ctx))
+                                     if b.params_digest is not None else None),
                       resource_identity=_render(b.resource_identity, ctx),
                       selection_count=b.selection_count,
                       destination_identity=_render(b.destination_identity, ctx),
@@ -597,7 +609,10 @@ def _approved(approvals, i, step, action) -> bool:
     # came to mean something else. Consent must be bound to the described
     # action, so a raw flag is only honoured for contract-less v1 recipes
     # (advisor finding: the token was implemented but never required).
-    if step.safety is not None and step.binding is not None:
+    if step.safety is not None:
+        # A contract-bearing step needs consent bound to the described action.
+        # Requiring a binding too left a gap exactly where authoring lands:
+        # contract present, binding absent, bare True still approving.
         return False
     return bool(tok)
 
@@ -798,25 +813,29 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         captured = None
         if step.capture is not None and obs.get("tree"):
             captured = step.capture.read(obs["tree"])
-            # A captured value can be a password or an account number. Carry it
-            # for the run, but keep it out of the log the user sees and the
-            # trace they might send us.
-            if captured is not None and step.capture.sensitive:
-                captured = "[redacted]"
             if captured is None:
                 res.record(status="error", step=i, action=step.action,
                            error="capture_failed",
                            detail=f"{step.capture.name!r} 값을 화면에서 읽지 못했습니다")
                 return res
+            # The run needs the real value; the log and any trace must not have
+            # it. Keep the two apart rather than masking at the source, which
+            # would hand "[redacted]" to the next step (advisor finding).
             captures[step.capture.name] = captured
+            shown = "[redacted]" if step.capture.sensitive else captured
         res.record(status="ok", step=i, action=step.action, resolver=trace,
                    risk=risk, verified=step.expect or (post and "postcond"),
-                   result=result_value, captured=captured)
+                   result=result_value,
+                   captured=(shown if step.capture is not None else None))
 
     final = next((e.get("result") for e in reversed(res.log)
                   if e.get("status") == "ok" and e.get("result")), None)
+    sensitive_names = {st.capture.name for st in flow.steps
+                       if st.capture is not None and st.capture.sensitive}
+    shown_captures = {k: ("[redacted]" if k in sensitive_names else v)
+                      for k, v in captures.items()}
     res.record(status="done", steps=len(flow.steps), result=final,
-               captured=captures or None)
+               captured=shown_captures or None)
     return res
 
 

@@ -15,7 +15,8 @@ import json
 import shutil
 import subprocess
 
-from .contract import (SafetyContract, Resource, Destination, Evidence)
+from .contract import (SafetyContract, Resource, Destination, Evidence,
+                       ContextBinding)
 from .driver import Driver
 from .flow import Flow, Step, Selector, Postcondition
 
@@ -167,8 +168,25 @@ def _to_flow(spec: dict) -> Flow:
                 commit_point=sf.get("commit_point"),
                 unknowns=sf.get("unknowns", []),
                 # Everything the model read off the screen is untrusted evidence.
-                evidence=[Evidence("ui_content", "ax_tree", "authored from tree")])
-        steps.append(Step(action=s["action"], selector=sel,
+                evidence=[
+                    # What the user asked for is the only thing that can ground
+                    # authorization; the tree is context, never permission.
+                    Evidence("user_intent", "asked", spec.get("_intent", "")),
+                    Evidence("ui_content", "ax_tree", "authored from tree")])
+        # Pin the facts the contract rests on that replay can actually
+        # re-observe. Pinning a field with no live resolver would make every
+        # run fail as unverifiable; pinning nothing would mean the contract is
+        # never re-checked at all (advisor found both failure modes).
+        binding = None
+        if sel is not None:
+            ident = sel.identifier
+            binding = ContextBinding(
+                bundle_id=spec.get("target"),
+                role=sel.role,
+                identifier=(ident[0] if isinstance(ident, list) and ident else ident),
+                ancestor=sel.ancestor,
+                operation=s["action"])
+        steps.append(Step(action=s["action"], selector=sel, binding=binding,
                           params=s.get("params", {}),
                           intent_text=s.get("intent_text", ""),
                           risk_class=s.get("risk_class", "none"),
@@ -220,6 +238,7 @@ def author(intent: str, driver: Driver, target: str | None = None,
     prompt = (f"{_SYSTEM}\n\n# 사용자 의도\n{intent}\n\n"
               f"# 대상 앱 bundle id\n{target}\n\n# 접근성 트리\n{obs['tree']}")
     spec = _extract_json(_ask_model(prompt, provider))
+    spec["_intent"] = intent          # provenance for the authorization scope
     flow = _to_flow(spec)
     # A recipe that cannot verify its own typing would be refused at run time,
     # which is a confusing way to learn the model forgot something. Give such a
