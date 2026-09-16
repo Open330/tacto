@@ -110,7 +110,8 @@ $ nlc do "계산기로 12 곱하기 34"
 | `nlc/session.py` | 잠금 상태·capability·keep-awake |
 | `nlc/onboard.py` | 권한 온보딩 마법사 |
 | `nlc/parallel.py` | 병렬 조작 (AX 액션 병렬 + CGEvent 직렬화) |
-| `helper/NLCHelper.swift` | **권한을 보유하는 서명된 도우미** — 파이썬은 권한 없이 L2로만 통신 (`--helper`) |
+| `launcher/nlc.swift` | **서명된 진입점** — 도우미가 받아들이는 유일한 클라이언트 |
+| `helper/NLCHelper.swift` | **권한을 보유하는 서명된 도우미** — 표시·Esc 중단을 직접 소유 (`--helper`) |
 | `nlc/reparam.py` | 구체 IR → 템플릿 재파라미터화 (모델 불필요) |
 | `nlc/cli.py` | `doctor` · `list` · `do` · `replay` |
 
@@ -185,8 +186,9 @@ uv run nlc show calc_multiply           # IR 전문 보기
 uv run nlc parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
        --digits --derived='result={{a}} * {{b}}'
 
-# 권한을 보유한 서명된 Swift 도우미 경유 (helper/build.sh 로 빌드)
-uv run nlc replay calc_multiply -p a=3 -p b=4 --helper
+# 권한 경계를 거쳐 실행 (launcher/build.sh, helper/build.sh 로 빌드)
+./launcher/nlc replay calc_multiply -p a=3 -p b=4 --helper
+./launcher/nlc eval                     # 도우미 시나리오 포함 전체 평가
 uv run python -m nlc.voice              # 음성 세션
 uv run python examples/eval.py          # 평가 재현
 ```

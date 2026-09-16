@@ -236,8 +236,11 @@ def scenario_capture():
 def scenario_swift_helper():
     """The same recipe, same protocol, executed by the signed helper that holds
     the permissions instead of by this interpreter. Skips when not built."""
+    # The helper refuses clients that are not descendants of the signed
+    # launcher, which is the point of it — so when this suite runs outside the
+    # launcher the scenario is skipped rather than reported as a failure.
     try:
-        from nlc.helper import HelperDriver, HelperUnavailable
+        from nlc.helper import HelperDriver
         d = HelperDriver()
     except Exception:
         return None
