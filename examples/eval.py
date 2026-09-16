@@ -50,11 +50,13 @@ def scenario_resolver_honesty():
 
 
 def scenario_browser_backend():
-    """Same replay engine, over the web via Playwright/CDP a11y tree."""
+    """Same replay engine, over the web via the OPTIONAL Playwright/CDP backend.
+    Skips (not fails) when the optional `web` extra isn't installed."""
     try:
+        import playwright  # noqa: F401
         from nlc.browser import BrowserDriver
     except Exception:
-        return False
+        return None   # skipped
     from nlc.flow import Flow, Step, Selector, Postcondition, replay
     PAGE = ("data:text/html,<h1>Sign up</h1>"
             "<input aria-label='email'><button>Submit</button>")
@@ -92,7 +94,7 @@ SCENARIOS = [
 
 def main():
     print("NLC evaluation\n" + "=" * 48)
-    passed = 0
+    passed = required = 0
     for name, fn in SCENARIOS:
         t0 = time.monotonic()
         try:
@@ -101,11 +103,15 @@ def main():
             ok = False
             name += f"  [error: {e}]"
         dt = (time.monotonic() - t0) * 1000
+        if ok is None:                       # optional scenario, not installed
+            print(f"  SKIP  {name}  (optional 'web' extra not installed)")
+            continue
+        required += 1
+        passed += bool(ok)
         print(f"  {'PASS' if ok else 'FAIL'}  {name}  ({dt:.0f}ms)")
-        passed += ok
     print("=" * 48)
-    print(f"  {passed}/{len(SCENARIOS)} scenarios passed")
-    sys.exit(0 if passed == len(SCENARIOS) else 1)
+    print(f"  {passed}/{required} scenarios passed")
+    sys.exit(0 if passed == required else 1)
 
 
 if __name__ == "__main__":
