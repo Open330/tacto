@@ -12,6 +12,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![status](https://img.shields.io/badge/status-working_prototype-2ea44f?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
+![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
 ![eval](https://img.shields.io/badge/eval-6%2F6_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
@@ -107,7 +108,7 @@ $ nlc do "계산기로 12 곱하기 34"
 
 <br>
 
-## 설치
+## 설치 &nbsp;<sub>with [uv](https://docs.astral.sh/uv/)</sub>
 
 > **요구사항**: macOS(네이티브 조작용) · Python 3.11+ · 손쉬운 사용 권한.
 > 웹 백엔드는 Chromium이 필요합니다.
@@ -116,20 +117,20 @@ $ nlc do "계산기로 12 곱하기 34"
 # 1. 클론
 git clone git@github.com:Open330/nlc.git && cd nlc
 
-# 2. 가상환경 + 설치 (콘솔 명령 `nlc` 등록됨)
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .                    # requirements는 pyproject가 관리
-python -m playwright install chromium   # 웹 백엔드용 (선택)
+# 2. 설치 — uv가 venv 생성·의존성 해석·`nlc` 명령 등록을 한 번에
+uv sync
+uv run playwright install chromium   # 웹 백엔드용 (선택)
 ```
 
+uv가 없다면: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
 <details>
-<summary>가상환경 없이 / requirements.txt로 설치</summary>
+<summary>uv 없이 pip로 설치</summary>
 
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 python -m playwright install chromium
-# 이 경우 `nlc` 대신 `python -m nlc.cli` 로 실행
 ```
 </details>
 
@@ -137,21 +138,24 @@ python -m playwright install chromium
 
 ```bash
 # 1. 권한 점검 — 손쉬운 사용(필수)·화면기록(선택)을 확인하고 설정창으로 안내
-nlc doctor
+uv run nlc doctor
 
 # 2. 말로 시키기
-nlc do "계산기로 12 곱하기 34"
+uv run nlc do "계산기로 12 곱하기 34"
 
 # 3. 저장된 플로우 재생 (모델 토큰 0)
-nlc list
-nlc replay calc_12x34
+uv run nlc list
+uv run nlc replay calc_12x34
 
 # 4. 음성 세션 (말로 대화)
-python -m nlc.voice
+uv run python -m nlc.voice
+
+# 5. 평가 재현
+uv run python examples/eval.py
 ```
 
 > 처음 실행 시 macOS가 **손쉬운 사용(Accessibility)** 권한을 요청합니다.
-> `nlc doctor`가 정확한 설정 창을 열어주며, 권한을 켠 뒤 한 번 다시 실행하면 됩니다.
+> `uv run nlc doctor`가 정확한 설정 창을 열어주며, 권한을 켠 뒤 한 번 다시 실행하면 됩니다.
 
 <br>
 
@@ -167,7 +171,7 @@ python -m nlc.voice
 ```
 
 ```bash
-.venv/bin/python examples/eval.py     # 재현
+uv run python examples/eval.py     # 재현
 ```
 
 실사용 시나리오 30개 카탈로그: [`examples/scenarios.md`](examples/scenarios.md)
