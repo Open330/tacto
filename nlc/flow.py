@@ -459,8 +459,17 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if post is not None:
             obs = driver.wait_until(flow.target, post.check)
             if obs["type"] != "observation":
+                seen = None
+                last = obs.get("last_obs") or {}
+                if post.field is not None and last.get("tree"):
+                    try:
+                        idx, _ = post.field.resolve(last["tree"])
+                        seen = list(post._attr_values(_element_block(last["tree"], idx)))
+                    except Exception:
+                        seen = "field-not-found"
                 res.record(status="error", step=i, action=step.action,
-                           error="postcondition_timeout", detail=obs.get("last_obs"))
+                           error="postcondition_timeout",
+                           expected=post.equals, observed=seen)
                 return res
         else:
             obs = driver.observe(flow.target, "tree_full")
