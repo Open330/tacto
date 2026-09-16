@@ -39,10 +39,23 @@ _H = [re.compile(p) for p in _HANDOFF]
 _C = [re.compile(p) for p in _CONFIRM]
 _P = [re.compile(p) for p in _PREAPPROVED]
 
+# Korean signals. \b word boundaries don't work across Hangul, so these are
+# plain substrings (the product is Korean-first — English-only regexes would
+# silently pass 결제/삭제/전송 as risk-free, a critical false negative).
+_HANDOFF_KO = ["비밀번호 변경", "비밀번호 재설정", "보안 우회", "안전하지 않"]
+_CONFIRM_KO = ["삭제", "지우기", "휴지통", "결제", "구매", "주문", "결제하기",
+               "전송", "보내기", "전송하기", "게시", "제출", "확인", "구독",
+               "구독 취소", "로그아웃", "계정 만들기", "계정 생성", "이체",
+               "송금", "예약", "취소", "설치", "확장 프로그램"]
+_PREAPPROVED_KO = ["로그인", "로그인하기", "업로드", "파일 선택", "이동",
+                   "이름 변경", "이름변경", "허용", "나이 확인"]
+
 # Field kinds that count as sensitive-data entry -> transmission on submit.
 _SENSITIVE_FIELD = re.compile(
     r"password|passcode|otp|one[- ]time|card number|cvv|ssn|social security|"
     r"account number|routing")
+_SENSITIVE_FIELD_KO = ["비밀번호", "비번", "카드 번호", "카드번호", "카드 정보",
+                       "cvc", "주민등록번호", "주민번호", "인증번호", "일회용 비밀번호"]
 
 
 def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
@@ -56,6 +69,7 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
     """
     name = action.get("name", "")
     low = target_line.lower()
+    raw = target_line   # Korean matched case-sensitively on the original text
 
     # Observation-like / pure navigation never gates.
     if name in ("scroll",):
@@ -64,12 +78,17 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
     # Typing a password/OTP is transmission-adjacent -> hand off to the user.
     if name in ("type_text", "set_value") and into_sensitive_field:
         return "handoff", "credential entry: user must type it"
-    if name in ("type_text", "set_value") and _SENSITIVE_FIELD.search(low):
+    if name in ("type_text", "set_value") and (
+            _SENSITIVE_FIELD.search(low)
+            or any(k in raw for k in _SENSITIVE_FIELD_KO)):
         return "handoff", "target looks like a credential field"
 
     for rx in _H:
         if rx.search(low):
             return "handoff", f"handoff signal: {rx.pattern}"
+    for k in _HANDOFF_KO:
+        if k in raw:
+            return "handoff", f"handoff signal(ko): {k}"
 
     # A final submit inherits the risk of what it submits.
     if is_submit:
@@ -78,9 +97,15 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
     for rx in _C:
         if rx.search(low):
             return "confirm", f"confirm signal: {rx.pattern}"
+    for k in _CONFIRM_KO:
+        if k in raw:
+            return "confirm", f"confirm signal(ko): {k}"
     for rx in _P:
         if rx.search(low):
             return "preapproved", f"preapproval-eligible: {rx.pattern}"
+    for k in _PREAPPROVED_KO:
+        if k in raw:
+            return "preapproved", f"preapproval-eligible(ko): {k}"
 
     return "none", "no risk signal"
 

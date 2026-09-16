@@ -151,6 +151,19 @@ class Driver:
 
     # ------------------------------------------------------------ observe
 
+    def _walk_windows(self, obs: "Observation") -> bool:
+        """Walk an app's real window content into `obs`. Returns False when the
+        app exposes no genuine AXWindow (locked screen echoes back the app
+        element, role AXApplication, which would recurse into the whole menu
+        bar). Walking windows, not the whole app, avoids thousands of menu items.
+        """
+        app_el = AXUIElementCreateApplication(obs.pid)
+        windows = [w for w in (_attr(app_el, "AXWindows") or [])
+                   if _attr(w, "AXRole") == "AXWindow"]
+        for w in windows:
+            obs.walk(w)
+        return bool(windows)
+
     def observe(self, target: str, mode: str = "tree_diff"):
         if mode not in ("tree_diff", "tree_full"):
             return {"type": "error", "error": "not_implemented_p0",
@@ -167,19 +180,8 @@ class Driver:
             return {"type": "error", "error": "target_not_found", "target": target}
 
         obs = Observation(target, pid)
-        app_el = AXUIElementCreateApplication(pid)
-        # Walk window content, not the whole app: the menu bar alone can be
-        # thousands of items (pure token waste). Fall back to the full app only
-        # when no windows are exposed.
-        # Keep only genuine windows: on a locked screen AXWindows can echo back
-        # the application element (role AXApplication) instead of a real window,
-        # which recurses into the whole menu bar.
-        windows = [w for w in (_attr(app_el, "AXWindows") or [])
-                   if _attr(w, "AXRole") == "AXWindow"]
-        if windows:
-            for w in windows:
-                obs.walk(w)
-        else:
+        has_windows = self._walk_windows(obs)
+        if not has_windows:
             # No window content. On a locked screen only the menu bar is
             # reachable, so this is the graceful analog of Codex's
             # cgWindowNotFound — report it clearly instead of dumping menus.
@@ -372,17 +374,33 @@ class Driver:
                             msg.get("intent_text", ""),
                             msg.get("approved", False))
         if mtype == "act_batch":
+            # A batch reuses one obs_id, so raw element_index values only stay
+            # valid while the tree is unchanged. After each action we check the
+            # tree: if it changed, the remaining actions' indices are stale, so
+            # we stop rather than click the wrong element (codex guidance — never
+            # reuse the first observation's index list across a mutation).
             results = []
+            obs_id = msg["obs_id"]
+            target = msg["target"]
+            base = self._latest.get(target.lower())
+            base_lines = list(base.lines) if base else None
             for action in msg["actions"]:
-                r = self.act(msg["obs_id"], msg["target"], action,
-                             msg.get("risk_class", "none"))
+                r = self.act(obs_id, target, action, msg.get("risk_class", "none"))
                 results.append(r)
                 if r["type"] == "error":
                     break
+                fresh = Observation(target, base.pid) if base else None
+                if fresh is not None:
+                    self._walk_windows(fresh)
+                    if fresh.lines != base_lines:
+                        results.append({"type": "error", "error": "batch_invalidated",
+                                        "detail": "tree changed mid-batch; remaining "
+                                        "actions need a fresh observe/resolve"})
+                        break
             out = {"type": "acted_batch", "results": results}
             then = msg.get("then_observe")
             if then and results and results[-1]["type"] != "error":
-                out["observation"] = self.observe(msg["target"], then)
+                out["observation"] = self.observe(target, then)
             return out
         return {"type": "error", "error": "unknown_message", "detail": str(mtype)}
 
