@@ -310,6 +310,28 @@ class Postcondition:
 
 
 @dataclass
+class Capture:
+    """Read one value from the screen into `name` for later steps to use."""
+    name: str = "value"
+    field: Selector | None = None      # element to read (None = whole tree)
+    attribute: str = "Value"           # which attribute holds the value
+
+    def read(self, tree: str) -> str | None:
+        if self.field is None:
+            return None
+        try:
+            idx, _ = self.field.resolve(tree)
+        except LookupError:
+            return None
+        block = _element_block(tree, idx)
+        for ln in block.splitlines():
+            v = Selector._attr(ln, self.attribute)
+            if v:
+                return v
+        return None
+
+
+@dataclass
 class Step:
     action: str                       # click | set_value | type_text | press_key | scroll | secondary_action
     selector: Selector | None = None  # None for target-less actions (type_text, press_key)
@@ -335,6 +357,11 @@ class Step:
     # {{item}} each time — "click each digit of 12" without unrolling the
     # recipe for one specific number.
     for_each: str | None = None
+    # Read a value OFF the screen into the run's context, so later steps can use
+    # it: "open the invoice, read the total, type it into the form". Without
+    # this a recipe can only push data in, never carry it forward — which is
+    # most real interactions, not just a calculator.
+    capture: "Capture | None" = None
 
 
 @dataclass
@@ -418,7 +445,13 @@ class Flow:
                               into_sensitive_field=s.get("into_sensitive_field", False),
                               safety=contract, binding=binding,
                               unverified_ok=s.get("unverified_ok", False),
-                              for_each=s.get("for_each")))
+                              for_each=s.get("for_each"),
+                              capture=(Capture(
+                                  name=s["capture"].get("name", "value"),
+                                  field=(Selector(**s["capture"]["field"])
+                                         if s["capture"].get("field") else None),
+                                  attribute=s["capture"].get("attribute", "Value"))
+                                  if s.get("capture") else None)))
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     params=d.get("params", {}), tables=d.get("tables", {}),
                     derived=d.get("derived", {}))
@@ -449,7 +482,7 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 require_enabled=st.require_enabled, is_submit=st.is_submit,
                 into_sensitive_field=st.into_sensitive_field,
                 safety=st.safety, binding=st.binding,
-                unverified_ok=st.unverified_ok)
+                unverified_ok=st.unverified_ok, capture=st.capture)
 
 
 def _live_binding(driver, flow, step, action, target_line) -> ContextBinding:
@@ -520,6 +553,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     """
     approvals = approvals or {}
     res = ReplayResult()
+    captures: dict = {}      # values read off the screen during this run
 
     obs = driver.observe(flow.target, "tree_full")
     if obs["type"] != "observation":
@@ -663,13 +697,23 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 result_value = vals[0] if vals else None
             except Exception:
                 result_value = None
+        captured = None
+        if step.capture is not None and obs.get("tree"):
+            captured = step.capture.read(obs["tree"])
+            if captured is None:
+                res.record(status="error", step=i, action=step.action,
+                           error="capture_failed",
+                           detail=f"{step.capture.name!r} 값을 화면에서 읽지 못했습니다")
+                return res
+            captures[step.capture.name] = captured
         res.record(status="ok", step=i, action=step.action, resolver=trace,
                    risk=risk, verified=step.expect or (post and "postcond"),
-                   result=result_value)
+                   result=result_value, captured=captured)
 
     final = next((e.get("result") for e in reversed(res.log)
                   if e.get("status") == "ok" and e.get("result")), None)
-    res.record(status="done", steps=len(flow.steps), result=final)
+    res.record(status="done", steps=len(flow.steps), result=final,
+               captured=captures or None)
     return res
 
 
