@@ -105,7 +105,10 @@ class Agent:
     def _to_turn(self, flow: Flow, res: ReplayResult) -> Turn:
         last = res.log[-1]
         if res.ok and last.get("status") == "done":
-            return Turn("done", "다 됐어요. 결과를 확인했습니다.", flow.name, last)
+            value = last.get("result")
+            say = (f"다 됐어요. 결과는 {value} 입니다." if value
+                   else "다 됐어요. 결과를 확인했습니다.")
+            return Turn("done", say, flow.name, last)
 
         gated = next((e for e in res.log if e.get("status") == "gated"), None)
         if gated:

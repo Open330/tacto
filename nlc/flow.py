@@ -500,10 +500,25 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                                error="expect_not_met",
                                detail=f"expect {step.expect!r} not in tree")
                     return res
+        # Capture the value the verification actually read, so the agent can
+        # tell the user the ANSWER — not just that something finished. A
+        # calculator run that reports "done" without saying 408 has not really
+        # answered the question that was asked.
+        result_value = None
+        if post is not None and post.field is not None and obs.get("tree"):
+            try:
+                fidx, _ = post.field.resolve(obs["tree"])
+                vals = [v for v in post._attr_values(_element_block(obs["tree"], fidx))]
+                result_value = vals[0] if vals else None
+            except Exception:
+                result_value = None
         res.record(status="ok", step=i, action=step.action, resolver=trace,
-                   risk=risk, verified=step.expect or (post and "postcond"))
+                   risk=risk, verified=step.expect or (post and "postcond"),
+                   result=result_value)
 
-    res.record(status="done", steps=len(flow.steps))
+    final = next((e.get("result") for e in reversed(res.log)
+                  if e.get("status") == "ok" and e.get("result")), None)
+    res.record(status="done", steps=len(flow.steps), result=final)
     return res
 
 
