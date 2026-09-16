@@ -508,7 +508,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if post is not None and post.field is not None and obs.get("tree"):
             try:
                 fidx, _ = post.field.resolve(obs["tree"])
-                vals = [v for v in post._attr_values(_element_block(obs["tree"], fidx))]
+                block = _element_block(obs["tree"], fidx)
+                if post.attribute:
+                    vals = list(post._attr_values(block))
+                else:
+                    # The ANSWER lives in Value; Description/Help are labels for
+                    # the field, not its content. Prefer Value when the recipe
+                    # didn't say which attribute to read.
+                    vals = [Selector._attr(ln, "Value") for ln in block.splitlines()]
+                    vals = [v for v in vals if v] or list(post._attr_values(block))
                 result_value = vals[0] if vals else None
             except Exception:
                 result_value = None
