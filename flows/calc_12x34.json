@@ -59,13 +59,16 @@
         "destination_identity": null,
         "label_fingerprint": null,
         "policy_version": 1
-      }
+      },
+      "unverified_ok": false,
+      "for_each": null,
+      "capture": null
     },
     {
       "action": "click",
       "selector": {
         "role": "Button",
-        "identifier": "One",
+        "identifier": "{{digit[item]}}",
         "title": null,
         "desc": null,
         "ancestor": "CalculatorKeypadView",
@@ -73,7 +76,7 @@
       },
       "params": {},
       "risk_class": "none",
-      "intent_text": "1 버튼",
+      "intent_text": "a 의 {{item}} 입력",
       "expect": null,
       "postcondition": null,
       "require_enabled": true,
@@ -106,7 +109,7 @@
         "bundle_id": "com.apple.calculator",
         "team_id": null,
         "role": "Button",
-        "identifier": "One",
+        "identifier": null,
         "ancestor": "CalculatorKeypadView",
         "operation": "click",
         "params_digest": null,
@@ -115,63 +118,10 @@
         "destination_identity": null,
         "label_fingerprint": null,
         "policy_version": 1
-      }
-    },
-    {
-      "action": "click",
-      "selector": {
-        "role": "Button",
-        "identifier": "Two",
-        "title": null,
-        "desc": null,
-        "ancestor": "CalculatorKeypadView",
-        "allow_nth": null
       },
-      "params": {},
-      "risk_class": "none",
-      "intent_text": "2 버튼",
-      "expect": null,
-      "postcondition": null,
-      "require_enabled": true,
-      "is_submit": false,
-      "into_sensitive_field": false,
-      "safety": {
-        "effects": [
-          "write_ephemeral"
-        ],
-        "data_classes": [
-          "none"
-        ],
-        "resource": {
-          "object_type": "계산기 입력",
-          "object_identity": null,
-          "selection_count": null,
-          "scope": "entry"
-        },
-        "destination": {
-          "kind": "none",
-          "identity": null,
-          "account": null
-        },
-        "reversibility": "reversible",
-        "commit_point": null,
-        "evidence": [],
-        "unknowns": []
-      },
-      "binding": {
-        "bundle_id": "com.apple.calculator",
-        "team_id": null,
-        "role": "Button",
-        "identifier": "Two",
-        "ancestor": "CalculatorKeypadView",
-        "operation": "click",
-        "params_digest": null,
-        "resource_identity": null,
-        "selection_count": null,
-        "destination_identity": null,
-        "label_fingerprint": null,
-        "policy_version": 1
-      }
+      "unverified_ok": false,
+      "for_each": "{{a}}",
+      "capture": null
     },
     {
       "action": "click",
@@ -227,13 +177,16 @@
         "destination_identity": null,
         "label_fingerprint": null,
         "policy_version": 1
-      }
+      },
+      "unverified_ok": false,
+      "for_each": null,
+      "capture": null
     },
     {
       "action": "click",
       "selector": {
         "role": "Button",
-        "identifier": "Three",
+        "identifier": "{{digit[item]}}",
         "title": null,
         "desc": null,
         "ancestor": "CalculatorKeypadView",
@@ -241,7 +194,7 @@
       },
       "params": {},
       "risk_class": "none",
-      "intent_text": "3 버튼",
+      "intent_text": "b 의 {{item}} 입력",
       "expect": null,
       "postcondition": null,
       "require_enabled": true,
@@ -274,7 +227,7 @@
         "bundle_id": "com.apple.calculator",
         "team_id": null,
         "role": "Button",
-        "identifier": "Three",
+        "identifier": null,
         "ancestor": "CalculatorKeypadView",
         "operation": "click",
         "params_digest": null,
@@ -283,63 +236,10 @@
         "destination_identity": null,
         "label_fingerprint": null,
         "policy_version": 1
-      }
-    },
-    {
-      "action": "click",
-      "selector": {
-        "role": "Button",
-        "identifier": "Four",
-        "title": null,
-        "desc": null,
-        "ancestor": "CalculatorKeypadView",
-        "allow_nth": null
       },
-      "params": {},
-      "risk_class": "none",
-      "intent_text": "4 버튼",
-      "expect": null,
-      "postcondition": null,
-      "require_enabled": true,
-      "is_submit": false,
-      "into_sensitive_field": false,
-      "safety": {
-        "effects": [
-          "write_ephemeral"
-        ],
-        "data_classes": [
-          "none"
-        ],
-        "resource": {
-          "object_type": "계산기 입력",
-          "object_identity": null,
-          "selection_count": null,
-          "scope": "entry"
-        },
-        "destination": {
-          "kind": "none",
-          "identity": null,
-          "account": null
-        },
-        "reversibility": "reversible",
-        "commit_point": null,
-        "evidence": [],
-        "unknowns": []
-      },
-      "binding": {
-        "bundle_id": "com.apple.calculator",
-        "team_id": null,
-        "role": "Button",
-        "identifier": "Four",
-        "ancestor": "CalculatorKeypadView",
-        "operation": "click",
-        "params_digest": null,
-        "resource_identity": null,
-        "selection_count": null,
-        "destination_identity": null,
-        "label_fingerprint": null,
-        "policy_version": 1
-      }
+      "unverified_ok": false,
+      "for_each": "{{b}}",
+      "capture": null
     },
     {
       "action": "click",
@@ -364,7 +264,7 @@
           "ancestor": null,
           "allow_nth": null
         },
-        "equals": "408",
+        "equals": "{{result}}",
         "contains": null,
         "attribute": "Value"
       },
@@ -407,7 +307,32 @@
         "destination_identity": null,
         "label_fingerprint": null,
         "policy_version": 1
-      }
+      },
+      "unverified_ok": false,
+      "for_each": null,
+      "capture": null
     }
-  ]
+  ],
+  "params": {
+    "a": "12",
+    "b": "34",
+    "result": "408"
+  },
+  "tables": {
+    "digit": {
+      "0": "Zero",
+      "1": "One",
+      "2": "Two",
+      "3": "Three",
+      "4": "Four",
+      "5": "Five",
+      "6": "Six",
+      "7": "Seven",
+      "8": "Eight",
+      "9": "Nine"
+    }
+  },
+  "derived": {
+    "result": "{{a}} * {{b}}"
+  }
 }

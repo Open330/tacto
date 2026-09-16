@@ -178,6 +178,36 @@ def scenario_parameterized_flow():
     return r.ok and str(r.log[-1].get("result")) in ("42", "42.0")
 
 
+def scenario_reparameterize():
+    """A concrete recipe can become a template without re-learning it: the
+    literals it was authored with turn into inputs, and the contract stops
+    pinning what is now variable."""
+    from nlc.flow import calculator_12x34
+    from nlc.reparam import parameterize, digits_table
+    t = parameterize(calculator_12x34(), {"12": "a", "34": "b", "408": "result"},
+                     tables=digits_table(), derived={"result": "{{a}} * {{b}}"})
+    if t.bind(a="5", b="6").steps[-1].postcondition.equals != "30":
+        return False
+    tpl_step = next((s for s in t.steps if s.for_each), None)
+    if tpl_step is None or (tpl_step.binding and tpl_step.binding.identifier):
+        return False           # a parameterized field must not stay pinned
+    from nlc.flow import replay
+    r = replay(Driver(), t.bind(a="8", b="7"))
+    return r.ok and str(r.log[-1].get("result")) == "56"
+
+
+def scenario_capture():
+    """A recipe can read a value OFF the screen, not just push values in."""
+    from nlc.flow import calculator_multiply, Capture, Selector, replay
+    f = calculator_multiply().bind(a="8", b="9")
+    f.steps[-1].capture = Capture(
+        name="answer",
+        field=Selector(role="ScrollArea", identifier="StandardInputView"),
+        attribute="Value")
+    r = replay(Driver(), f)
+    return r.ok and (r.log[-1].get("captured") or {}).get("answer") == "72"
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -244,6 +274,8 @@ SCENARIOS = [
     ("volatile_identifier (state-carrying AXIdentifier resolves)", scenario_volatile_identifier),
     ("trace_reproducibility (replay a run off-machine)", scenario_trace_reproducibility),
     ("parameterized_flow (one IR, many inputs)", scenario_parameterized_flow),
+    ("reparameterize (concrete IR -> template, no model)", scenario_reparameterize),
+    ("capture (read a value off the screen)", scenario_capture),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

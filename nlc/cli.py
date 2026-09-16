@@ -8,6 +8,7 @@ Usage:
   python -m nlc.cli compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
+  python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
       (add --no-indicator to suppress the on-screen "being controlled" outline)
   python -m nlc.cli replay <name>     # replay a saved flow by name
@@ -125,7 +126,7 @@ def main(argv=None):
         from .authoring import author as _author
         from .store import FlowStore as _FS
         print(f"  🧠 '{intent}' 를 배우는 중… (모델 사용)")
-        flow = _author(intent, _D(), provider=provider or "cxweb")
+        flow = _author(intent, _D(), provider=provider or "auto")
         if out:
             with open(out, "w", encoding="utf-8") as fh:
                 fh.write(flow.to_json())
@@ -134,6 +135,39 @@ def main(argv=None):
             path = _FS().save(flow)
         print(f"  ✓ IR 저장: {path}  ({len(flow.steps)}단계, 앱 {flow.target})")
         print(f"  실행:  nlc run {path}")
+        return 0
+
+    if cmd == "parameterize":
+        # Rewrite an existing recipe so chosen literals become inputs.
+        # Text-level transform on the IR: no model, no app, no screen.
+        params, rest = _params_from(rest)
+        if not rest or not params:
+            print('usage: parameterize <flow.json|name> -p 12=a -p 34=b [-p 408=result] '
+                  '[--derived result="{{a}} * {{b}}"] [--digits] [-o out.json]')
+            return 2
+        import json as _j, os as _os
+        from .flow import Flow as _F
+        from .reparam import parameterize as _par, digits_table as _dt
+        src, out, derived = rest[0], None, {}
+        words = rest[1:]
+        if "-o" in words:
+            k = words.index("-o"); out = words[k+1] if k+1 < len(words) else None
+        for w in words:
+            if w.startswith("--derived"):
+                _, _, expr = w.partition("=")
+                name, _, rhs = expr.partition("=") if "=" in expr else ("result", "", expr)
+                derived[name or "result"] = rhs or expr
+        flow = (_F.from_json(open(src, encoding="utf-8").read())
+                if _os.path.exists(src) else FlowStore().load(src))
+        tmpl = _par(flow, params, tables=_dt() if "--digits" in words else None,
+                    derived=derived or None)
+        if out:
+            open(out, "w", encoding="utf-8").write(tmpl.to_json()); path = out
+        else:
+            path = FlowStore().save(tmpl)
+        print(f"  ✓ 파라미터화: {path}")
+        print(f"    params={tmpl.params} derived={tmpl.derived or {}}")
+        print(f"    실행:  nlc run {path} " + " ".join(f"-p {k}=…" for k in tmpl.params))
         return 0
 
     if cmd == "run":
@@ -233,7 +267,7 @@ def main(argv=None):
             from .authoring import author as _author
             def author_hook(intent_text, drv):        # noqa: E306
                 print("  🧠 처음 보는 작업이라 배우는 중… (모델 사용)")
-                return _author(intent_text, drv, provider="cxweb")
+                return _author(intent_text, drv, provider="auto")
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook)
         # The person should be able to see their computer being driven, and

@@ -75,6 +75,23 @@ def run(interactive: bool = True, narrate=print) -> bool:
             open_settings(c.settings_url)            # jump straight to the pane
         if required:
             all_ok = False
+    # Over-broad grant check. TCC identifies a client by binary, and a venv's
+    # python is usually a symlink to a SHARED interpreter — so granting NLC
+    # accessibility grants it to every script run with that interpreter.
+    # Verified on this machine: an unrelated /tmp script could read other apps'
+    # windows. Users deserve to know that before they click Allow.
+    try:
+        import os as _os, sys as _sys
+        real = _os.path.realpath(_sys.executable)
+        shared = ("/uv/python/" in real or "/Cellar/" in real
+                  or real.startswith("/usr/bin/") or "/Frameworks/Python" in real)
+        if shared:
+            narrate(f"⚠ 권한이 공유 파이썬({_os.path.basename(real)})에 부여됩니다 — "
+                    f"같은 인터프리터로 실행되는 다른 스크립트도 앱을 조작할 수 있어요. "
+                    f"배포 시에는 서명된 전용 도우미로 분리할 예정입니다.")
+    except Exception:
+        pass
+
     # A GUI-session check catches the tmux/ssh "app looks not-running" trap
     # before the user hits it mid-task (real user report).
     try:
