@@ -107,28 +107,51 @@ $ nlc do "계산기로 12 곱하기 34"
 
 <br>
 
-## 빠른 시작
+## 설치
+
+> **요구사항**: macOS(네이티브 조작용) · Python 3.11+ · 손쉬운 사용 권한.
+> 웹 백엔드는 Chromium이 필요합니다.
 
 ```bash
-# 1. 설치
+# 1. 클론
+git clone git@github.com:Open330/nlc.git && cd nlc
+
+# 2. 가상환경 + 설치 (콘솔 명령 `nlc` 등록됨)
 python3 -m venv .venv
-.venv/bin/pip install pyobjc-framework-ApplicationServices \
-                     pyobjc-framework-Quartz pyobjc-framework-Cocoa playwright
-.venv/bin/python -m playwright install chromium   # 웹 백엔드용
-
-# 2. 권한 점검 (손쉬운 사용 = 필수)
-.venv/bin/python -m nlc.cli doctor
-
-# 3. 말로 시키기
-.venv/bin/python -m nlc.cli do "계산기로 12 곱하기 34"
-
-# 4. 저장된 플로우 재생 (토큰 0)
-.venv/bin/python -m nlc.cli list
-.venv/bin/python -m nlc.cli replay calc_12x34
-
-# 5. 음성 세션
-.venv/bin/python -m nlc.voice
+source .venv/bin/activate
+pip install -e .                    # requirements는 pyproject가 관리
+python -m playwright install chromium   # 웹 백엔드용 (선택)
 ```
+
+<details>
+<summary>가상환경 없이 / requirements.txt로 설치</summary>
+
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+# 이 경우 `nlc` 대신 `python -m nlc.cli` 로 실행
+```
+</details>
+
+## 사용
+
+```bash
+# 1. 권한 점검 — 손쉬운 사용(필수)·화면기록(선택)을 확인하고 설정창으로 안내
+nlc doctor
+
+# 2. 말로 시키기
+nlc do "계산기로 12 곱하기 34"
+
+# 3. 저장된 플로우 재생 (모델 토큰 0)
+nlc list
+nlc replay calc_12x34
+
+# 4. 음성 세션 (말로 대화)
+python -m nlc.voice
+```
+
+> 처음 실행 시 macOS가 **손쉬운 사용(Accessibility)** 권한을 요청합니다.
+> `nlc doctor`가 정확한 설정 창을 열어주며, 권한을 켠 뒤 한 번 다시 실행하면 됩니다.
 
 <br>
 
