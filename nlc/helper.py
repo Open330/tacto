@@ -43,19 +43,32 @@ class InheritedHelperDriver:
     no way to obtain this channel other than being the launcher's child."""
 
     FD_ENV = "NLC_HELPER_FD"
+    # One inherited descriptor means one channel. Wrapping it twice would give
+    # two objects that each close the same fd, so the second user finds it gone.
+    _shared = None
 
     @classmethod
     def available(cls) -> bool:
         return os.environ.get(cls.FD_ENV) is not None
 
+    def __new__(cls):
+        if cls._shared is None:
+            cls._shared = super().__new__(cls)
+            cls._shared._ready = False
+        return cls._shared
+
     def __init__(self):
+        if getattr(self, "_ready", False):
+            return                      # already connected on this channel
         fd = os.environ.get(self.FD_ENV)
         if fd is None:
             raise HelperUnavailable(
                 "권한 채널이 없습니다 — 서명된 런처로 실행하세요:  ./launcher/nlc <명령>")
         import socket as _s
         self._sock = _s.socket(fileno=int(fd))
+        self._sock.setblocking(True)
         self._f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
+        self._ready = True
         self._last_action_at = 0.0
         pong = self._send({"type": "ping"})
         if pong.get("type") != "pong":
@@ -65,6 +78,9 @@ class InheritedHelperDriver:
                 "도우미에 접근성 권한이 없습니다 — 시스템 설정에서 'NLC Helper' 를 켜주세요")
 
     def close(self):
+        # Deliberately does not close the descriptor: the channel belongs to the
+        # process, not to one driver object, and the launcher tears it down when
+        # the command ends.
         try:
             self._f.flush()
         except Exception:

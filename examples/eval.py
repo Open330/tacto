@@ -240,8 +240,10 @@ def scenario_swift_helper():
     # launcher, which is the point of it — so when this suite runs outside the
     # launcher the scenario is skipped rather than reported as a failure.
     try:
-        from nlc.helper import HelperDriver
-        d = HelperDriver()
+        from nlc.helper import InheritedHelperDriver
+        if not InheritedHelperDriver.available():
+            return None                    # not running under the signed launcher
+        d = InheritedHelperDriver()
     except Exception:
         return None
     try:
@@ -256,16 +258,20 @@ def scenario_helper_user_authority():
     """The helper refuses to act after the user presses Esc, and refuses an
     obs_id taken on a different app — neither depends on trusting the caller."""
     try:
-        from nlc.helper import HelperDriver
-        d = HelperDriver()
+        from nlc.helper import InheritedHelperDriver
+        if not InheritedHelperDriver.available():
+            return None
+        d = InheritedHelperDriver()
     except Exception:
         return None
     try:
         o = d.observe("com.apple.calculator")
         if o.get("type") != "observation":
             return None
+        # Schema-valid on purpose: the launcher vets shape first, so a malformed
+        # probe would be rejected before it could test the helper's own check.
         cross = d.act(o["obs_id"], "com.apple.finder",
-                      {"name": "type_text", "text": "x"})
+                      {"name": "click", "element_index": 0})
         if cross.get("error") != "target_mismatch":
             return False
         import Quartz, time
@@ -329,16 +335,24 @@ def scenario_permission_boundary():
 
 
 def scenario_peer_authentication():
-    """The privileged channel is only reachable as the signed launcher's child,
-    and even then only the L2 vocabulary crosses it."""
-    import os, pathlib
+    """The privileged channel exists only as the signed launcher's child, the
+    legacy stdio path is gone, and what crosses is checked per action."""
+    import pathlib, subprocess
     root = pathlib.Path(__file__).resolve().parent.parent
     if not (root / "launcher" / "nlc").exists():
         return None                        # boundary not built here
     from nlc.helper import InheritedHelperDriver, HelperUnavailable
 
+    # The helper must refuse to run at all outside socket mode — that stdio
+    # fallback was reachable by the launcher's own child, bypassing vetting.
+    helper = root / "helper" / "NLC Helper.app" / "Contents" / "MacOS" / "NLCHelper"
+    if helper.exists():
+        r = subprocess.run([str(helper)], input='{"type":"ping"}\n',
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 3:
+            return False
+
     if not InheritedHelperDriver.available():
-        # Not running under the launcher: the channel must simply not exist.
         try:
             InheritedHelperDriver()
             return False
@@ -349,22 +363,27 @@ def scenario_peer_authentication():
     try:
         if d._send({"type": "list_targets"}).get("type") != "targets":
             return False
-        # The launcher vets what crosses: unknown types, actions outside the
-        # set, undefined fields (top level and inside action), an AX action
-        # that is not enumerated, and a boolean where an index belongs.
-        for bad in ({"type": "exec"},
-                    {"type": "act", "obs_id": "x", "target": "y",
-                     "action": {"name": "run_shell"}},
-                    {"type": "act", "obs_id": "x", "target": "y", "path": "/etc/passwd",
-                     "action": {"name": "click", "element_index": 1}},
-                    {"type": "act", "obs_id": "x", "target": "y",
-                     "action": {"name": "click", "element_index": 1,
-                                "path": "/etc/passwd"}},
-                    {"type": "act", "obs_id": "x", "target": "y",
-                     "action": {"name": "secondary_action", "element_index": 1,
-                                "action": "AXRaise"}},
-                    {"type": "act", "obs_id": "x", "target": "y",
-                     "action": {"name": "click", "element_index": True}}):
+        rejected = [
+            {"type": "exec"},                                        # unknown type
+            {"type": "act", "obs_id": "x", "target": "y",
+             "action": {"name": "run_shell"}},                       # unknown action
+            {"type": "act", "obs_id": "x", "target": "y", "path": "/etc/passwd",
+             "action": {"name": "click", "element_index": 1}},       # top-level field
+            {"type": "act", "obs_id": "x", "target": "y",
+             "action": {"name": "click", "element_index": 1,
+                        "text": "x"}},                               # field not in schema
+            {"type": "act", "obs_id": "x", "target": "y",
+             "action": {"name": "secondary_action", "element_index": 1,
+                        "action": "AXRaise"}},                       # AX action not allowed
+            {"type": "act", "obs_id": "x", "target": "y",
+             "action": {"name": "click", "element_index": True}},    # bool as index
+            {"type": "act", "obs_id": "x", "target": "y",
+             "action": {"name": "type_text", "element_index": 1,
+                        "text": "id\n"}},                            # newline commits
+            {"type": "act", "obs_id": "x", "target": "y",
+             "action": {"name": "press_key", "key": "Return"}},      # capability removed
+        ]
+        for bad in rejected:
             if d._send(bad).get("error") != "rejected_by_launcher":
                 return False
         return True
@@ -443,7 +462,7 @@ SCENARIOS = [
     ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("permission_boundary (env override and argv0 forgery refused)", scenario_permission_boundary),
-    ("peer_authentication (unsigned refused; broker vets messages)", scenario_peer_authentication),
+    ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
