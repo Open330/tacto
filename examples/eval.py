@@ -270,7 +270,11 @@ def scenario_helper_user_authority():
             Quartz.CGEventPost(Quartz.kCGHIDEventTap,
                                Quartz.CGEventCreateKeyboardEvent(None, 53, down))
         time.sleep(0.8)
+        # After an abort the helper refuses everything, reads included — taking
+        # data off the screen is exactly what the user just stopped.
         o2 = d.observe("com.apple.calculator")
+        if o2.get("error") == "aborted_by_user":
+            return True
         after = d.act(o2["obs_id"], "com.apple.calculator",
                       {"name": "click", "element_index": 0})
         return after.get("error") == "aborted_by_user"
