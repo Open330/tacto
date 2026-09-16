@@ -192,16 +192,25 @@ class Agent:
                             f"그 작업을 배우는 데 실패했어요. 조금 더 구체적으로 말씀해 주시겠어요? ({e})")
             self.store.save(flow)                          # learn once
         else:
+            from .library import builders
             name, values = match.name, match.params
-            if self.store.has(name):
+            builder = builders().get(name)
+            if builder is not None:
+                # A recipe that ships with NLC comes from the code, always. The
+                # store used to win once a name had been saved, which froze
+                # every built-in at whatever it looked like the first time it
+                # ran — five of them were already stale against fixes made
+                # since. The saved copy is kept current so `nlc show` and
+                # `nlc list` still describe what actually runs; someone who
+                # wants their own version saves it under a different name.
+                flow = builder()
+                if not self.store.has(name) or \
+                        self.store.load(name).to_json() != flow.to_json():
+                    self.store.save(flow)
+            elif self.store.has(name):
                 flow = self.store.load(name)
             else:
-                from .library import builders
-                builder = builders().get(name)
-                if builder is None:
-                    return Turn("unknown_task", "그 작업 레시피를 찾지 못했어요.")
-                flow = builder()
-                self.store.save(flow)                 # cache it for next time
+                return Turn("unknown_task", "그 작업 레시피를 찾지 못했어요.")
 
         # A stored recipe may be a template. Running it unbound sends
         # "{{digit[item]}}" to the screen as if it were a selector, which is how

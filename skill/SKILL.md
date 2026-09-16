@@ -65,8 +65,9 @@ recipe; select by meaning instead.
     { "action": "click",
       "selector": { "role": "Button", "identifier": "Equals",
                     "ancestor": "CalculatorKeypadView" },
-      "intent_text": "계산",
-      "postcondition": { "field_identifier": "StandardInputView",
+      "intent_text": "계산", "answers": true,
+      "postcondition": { "field": { "role": "ScrollArea",
+                                    "identifier": "StandardInputView" },
                          "equals": "{{result}}", "attribute": "Value" },
       "safety": { "effects": ["write_ephemeral"], "reversibility": "reversible",
                   "resource": { "object_type": "계산기 입력", "scope": "entry" } } }
@@ -128,7 +129,10 @@ down when that already holds:
 ```
 
 **Verify the outcome, not the click.** End with a `postcondition` reading the
-field that holds the result. `equals` compares an attribute value exactly
+field that holds the result. Add `"answers": true` when that value is what the
+person asked for — a calculator's 408 is an answer, a bold checkbox's "1" is
+only proof the step landed, and reporting the latter made "굵게 해줘" reply
+"결과는 1 입니다". `equals` compares an attribute value exactly
 (digit grouping aside, so `5,535` matches `5535`).
 
 **Read values out with `capture`** when a later step, or the user, needs them:
