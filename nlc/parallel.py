@@ -32,6 +32,13 @@ def run_parallel(flows: list[Flow], approvals: dict[str, dict] | None = None,
     Each worker builds its own Driver so observation state never crosses flows.
     """
     approvals = approvals or {}
+    # Two flows on the SAME app would each hold their own observation registry
+    # and could not see the other's mutations, so a stale index would slip past
+    # each guard (review finding). Distinct targets only.
+    targets = [f.target.lower() for f in flows]
+    dupes = {t for t in targets if targets.count(t) > 1}
+    if dupes:
+        raise ValueError(f"parallel flows must target distinct apps; shared: {dupes}")
     outcomes: list[ParallelOutcome] = []
 
     def _one(flow: Flow) -> ParallelOutcome:

@@ -236,12 +236,17 @@ class Driver:
     def act(self, obs_id: str, target: str, action: dict,
             risk_class: str = "none", intent_text: str = "",
             approved: bool = False):
-        # D6 stub: policy engine is P1, but the gate exists at the schema level.
+        # D6 gate. handoff -> user does it. confirm AND preapproved both require
+        # approval at the driver: the driver cannot see the user's original
+        # request, so it cannot itself decide a "preapproved" action was in scope
+        # — the caller that HAS that context passes approved=True. Failing closed
+        # here (not silently running preapproved) was a review finding.
         if risk_class == "handoff":
             return {"type": "handoff_request", "reason": intent_text or "user_action_required"}
-        if risk_class == "confirm" and not approved:
-            return {"type": "confirm_request", "what": intent_text,
-                    "detail": "resend with approved=true after user consent"}
+        if risk_class in ("confirm", "preapproved") and not approved:
+            return {"type": "confirm_request", "what": intent_text, "risk_class": risk_class,
+                    "detail": "resend with approved=true after user consent "
+                              "(preapproved needs the original request to have named it)"}
 
         # D3: index freshness — action must cite the newest observation.
         obs = self._latest.get(target.lower())
@@ -276,7 +281,7 @@ class Driver:
                 frame = _elem_frame(el)
                 if frame is None:
                     raise RuntimeError(f"AXPress failed ({err}) and no frame for fallback")
-                self._mouse_click(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2)
+                self._mouse_click(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2, obs.pid)
                 return {"fallback": "coordinate_click"}
         elif name == "set_value":
             el = self._element(obs, action)
@@ -284,16 +289,17 @@ class Driver:
             if err != 0:
                 raise RuntimeError(f"AXValue set failed ({err})")
         elif name == "type_text":
-            self._type_text(action["text"])
+            self._type_text(action["text"], obs.pid)
         elif name == "press_key":
-            self._press_key(action["key"])
+            self._press_key(action["key"], obs.pid)
         elif name == "scroll":
             el = self._element(obs, action)
             frame = _elem_frame(el)
             if frame is None:
                 raise RuntimeError("no frame for scroll target")
             self._scroll_at(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2,
-                            action.get("direction", "down"), action.get("pages", 1))
+                            action.get("direction", "down"), action.get("pages", 1),
+                            obs.pid)
         elif name == "secondary_action":
             el = self._element(obs, action)
             err = AXUIElementPerformAction(el, action["action"])
@@ -303,22 +309,33 @@ class Driver:
             raise ValueError(f"unknown action {name!r}")
 
     # ------------------------------------------------------------ input synthesis
+    #
+    # CGEvent input is delivered to the TARGET pid via CGEventPostToPid, not the
+    # global HID tap — otherwise a background target would receive keystrokes
+    # into whatever app currently holds focus (a correctness + safety bug caught
+    # in review). We still take _INPUT_LOCK because posting to a pid activates it.
 
-    def _mouse_click(self, x, y):
-        with _INPUT_LOCK:   # global focus-dependent input — serialize across flows
+    def _post(self, ev, pid):
+        if pid is not None and hasattr(Quartz, "CGEventPostToPid"):
+            Quartz.CGEventPostToPid(pid, ev)
+        else:
+            Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+
+    def _mouse_click(self, x, y, pid=None):
+        with _INPUT_LOCK:
             for etype in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
                 ev = Quartz.CGEventCreateMouseEvent(None, etype, (x, y),
                                                     Quartz.kCGMouseButtonLeft)
-                Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+                self._post(ev, pid)
                 time.sleep(0.03)
 
-    def _type_text(self, text):
+    def _type_text(self, text, pid=None):
         with _INPUT_LOCK:
             for ch in text:
                 for down in (True, False):
                     ev = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
                     Quartz.CGEventKeyboardSetUnicodeString(ev, len(ch), ch)
-                    Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+                    self._post(ev, pid)
                 time.sleep(0.01)
 
     _KEYCODES = {"return": 36, "tab": 48, "space": 49, "delete": 51,
@@ -330,7 +347,7 @@ class Driver:
              "shift": Quartz.kCGEventFlagMaskShift, "alt": Quartz.kCGEventFlagMaskAlternate,
              "ctrl": Quartz.kCGEventFlagMaskControl}
 
-    def _press_key(self, key):
+    def _press_key(self, key, pid=None):
         """xdotool-style: 'Return', 'cmd+c', 'Escape' (subset for P0)."""
         parts = key.lower().split("+")
         mods, base = parts[:-1], parts[-1]
@@ -345,19 +362,19 @@ class Driver:
                 ev = Quartz.CGEventCreateKeyboardEvent(None, code, down)
                 if flags:
                     Quartz.CGEventSetFlags(ev, flags)
-                Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+                self._post(ev, pid)
 
-    def _scroll_at(self, x, y, direction, pages):
-      with _INPUT_LOCK:
-        move = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved,
-                                              (x, y), 0)
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, move)
-        amount = int(10 * pages) * (1 if direction in ("up", "left") else -1)
-        vertical = direction in ("up", "down")
-        ev = Quartz.CGEventCreateScrollWheelEvent(
-            None, Quartz.kCGScrollEventUnitLine, 2 if not vertical else 1,
-            amount if vertical else 0, amount if not vertical else 0)
-        Quartz.CGEventPost(Quartz.kCGHIDEventTap, ev)
+    def _scroll_at(self, x, y, direction, pages, pid=None):
+        with _INPUT_LOCK:
+            move = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved,
+                                                  (x, y), 0)
+            self._post(move, pid)
+            amount = int(10 * pages) * (1 if direction in ("up", "left") else -1)
+            vertical = direction in ("up", "down")
+            ev = Quartz.CGEventCreateScrollWheelEvent(
+                None, Quartz.kCGScrollEventUnitLine, 2 if not vertical else 1,
+                amount if vertical else 0, amount if not vertical else 0)
+            self._post(ev, pid)
 
     # ------------------------------------------------------------ L2 dispatch
 
@@ -389,6 +406,10 @@ class Driver:
                 results.append(r)
                 if r["type"] == "error":
                     break
+                # Settle before re-checking: a UI that updates asynchronously
+                # (100-500ms later) would otherwise still show the old tree and
+                # the guard would wave a stale index through (review finding).
+                time.sleep(AUTO_WAIT_BASE_S)
                 fresh = Observation(target, base.pid) if base else None
                 if fresh is not None:
                     self._walk_windows(fresh)
