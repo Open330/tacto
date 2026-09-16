@@ -14,6 +14,8 @@ rather than one recipe per folder.
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from .contract import ContextBinding, Resource, SafetyContract
 from .flow import Flow, Postcondition, Selector, Step, pin_params
 
@@ -113,7 +115,11 @@ def finder_open_folder() -> Flow:
 
 # ---------------------------------------------------------------- TextEdit
 
-TEXT_AREA = Selector(role="TextArea", identifier="First Text View")
+# Scoped to the front window: every open TextEdit document exposes a text area
+# with this same identifier, so an unscoped selector stops working the moment a
+# second document is open — which on a real desktop is most of the time.
+TEXT_AREA = Selector(role="TextArea", identifier="First Text View",
+                     in_focused_window=True)
 
 
 def textedit_write_note() -> Flow:
@@ -154,7 +160,7 @@ def textedit_emphasize() -> Flow:
     the document is already bold — otherwise running "make it bold" twice would
     leave it plain, which is how this recipe failed the first time it ran.
     """
-    bold_box = Selector(role="CheckBox", desc="bold")
+    bold_box = Selector(role="CheckBox", desc="bold", in_focused_window=True)
     bold_path = ["Format", ["Font", "폰트"], ["Bold", "볼드"]]
     return Flow(
         name="textedit_emphasize", target="com.apple.TextEdit",
@@ -179,6 +185,98 @@ def textedit_emphasize() -> Flow:
         ])
 
 
+def textedit_new_document() -> Flow:
+    """Start a blank document.
+
+    Like `finder_open_folder`, this begins with no window to act in — TextEdit
+    launched with nothing open shows a file picker, not a document — so the
+    recipe has to reach the menu bar before there is anything on screen.
+    """
+    path = ["File", ["New", "새로 만들기"]]
+    return Flow(
+        name="textedit_new_document", target="com.apple.TextEdit",
+        steps=[
+            Step("menu", params={"path": path},
+                 intent_text="빈 문서를 엽니다", safety=_scratch("새 문서"),
+                 binding=ContextBinding(bundle_id="com.apple.TextEdit",
+                                        operation="menu",
+                                        params_digest=pin_params({"path": path})),
+                 # "there is now a blank document to type into": a text area
+                 # exists in the front window.
+                 postcondition=Postcondition(field=TEXT_AREA, contains="TextArea")),
+        ])
+
+
+def textedit_save_as() -> Flow:
+    """Save the open document under a name — the first genuinely consequential
+    task in this library, and the one that exercises the consent gate.
+
+    Three shapes appear here that the calculator never had: a menu command that
+    opens a sheet, a field inside that sheet, and a step whose contract says
+    `write_persistent`, which the policy will not run on its own authority.
+
+    The sheet saves wherever the app last saved. Choosing the folder is a
+    separate capability this recipe does not claim — saying so is better than a
+    step that quietly lands the file somewhere the person did not expect.
+    """
+    # The menu item's own title tracks document state: an unsaved document shows
+    # "Save…", a saved one shows "Save" and a separate "Save As…". Listing the
+    # alternatives is not defensive padding — it is the same command wearing the
+    # name the app currently gives it.
+    save_as = ["File", ["Save As…", "Save…", "다른 이름으로 저장…", "저장…"]]
+    name_field = Selector(role="TextField", identifier="saveAsNameTextField",
+                          in_focused_window=True)
+    return Flow(
+        name="textedit_save_as", target="com.apple.TextEdit",
+        params={"filename": "무제.rtf"},
+        steps=[
+            Step("menu", params={"path": save_as},
+                 intent_text="저장 창을 엽니다", safety=_scratch("저장 대화상자"),
+                 binding=ContextBinding(bundle_id="com.apple.TextEdit",
+                                        operation="menu",
+                                        params_digest=pin_params({"path": save_as})),
+                 postcondition=Postcondition(contains="save-panel")),
+            Step("set_value", name_field, params={"value": "{{filename}}"},
+                 intent_text="파일 이름을 '{{filename}}' 으로 적습니다",
+                 safety=_scratch("파일 이름"),
+                 binding=ContextBinding(bundle_id="com.apple.TextEdit",
+                                        role="TextField",
+                                        identifier="saveAsNameTextField",
+                                        operation="set_value",
+                                        params_digest=pin_params(
+                                            {"value": "{{filename}}"})),
+                 postcondition=Postcondition(field=name_field,
+                                             equals="{{filename}}",
+                                             attribute="Value")),
+            Step("click", Selector(role="Button", identifier="OKButton",
+                                   ancestor="save-panel",
+                                   in_focused_window=True),
+                 intent_text="저장합니다",
+                 safety=SafetyContract(
+                     effects=["write_persistent"],
+                     resource=Resource(object_type="문서", object_identity="{{filename}}",
+                                       scope="item"),
+                     reversibility="recoverable"),
+                 binding=ContextBinding(bundle_id="com.apple.TextEdit",
+                                        role="Button", identifier="OKButton",
+                                        ancestor="save-panel", operation="click",
+                                        # Consent was given to save THIS name, so
+                                        # the name field has to still say it at
+                                        # the moment the button is pressed.
+                                        resource_identity="{{filename}}",
+                                        # Derived from the field itself rather
+                                        # than restated: a second copy of the
+                                        # selector drifts from the first, and
+                                        # the copy that drifted here dropped the
+                                        # front-window scope and read nothing.
+                                        resource_identity_from={
+                                            **asdict(name_field),
+                                            "attribute": "Value"}),
+                 postcondition=Postcondition(equals="{{filename}}",
+                                             attribute="Title")),
+        ])
+
+
 # ---------------------------------------------------------------- registry
 
 def _calculator():
@@ -192,4 +290,6 @@ def builders() -> dict:
             "calc_arith": calc_arith,
             "finder_open_folder": finder_open_folder,
             "textedit_write_note": textedit_write_note,
-            "textedit_emphasize": textedit_emphasize}
+            "textedit_emphasize": textedit_emphasize,
+            "textedit_new_document": textedit_new_document,
+            "textedit_save_as": textedit_save_as}

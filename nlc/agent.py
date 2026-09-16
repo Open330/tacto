@@ -80,6 +80,11 @@ _INTENT_RULES: list[tuple[re.Pattern, str, object]] = [
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(을|를|로)?\s*(열어|열기|보여|open)",
                 re.I), "finder_open_folder", _folder),
+    # Saving is checked before writing: "'보고서' 로 저장해줘" contains a quoted
+    # string too, and reading it as "type 보고서" would be the wrong task.
+    (re.compile(r"[\"'“](.+?)[\"'”]\s*(으로|로)?\s*저장", re.S),
+     "textedit_save_as", lambda m: {"filename": m.group(1)}),
+    (re.compile(r"(새|빈)\s*(문서|파일)"), "textedit_new_document", lambda m: {}),
     # An explicitly quoted string is a stronger signal than a stray "굵게", so
     # the write rule is tried first.
     (re.compile(r"[\"'“](.+?)[\"'”]\s*(라고|이라고)?\s*(써|적어|입력|write)",
@@ -117,9 +122,57 @@ class Agent:
                 return Match(name, {})
         return None
 
+    # ------------------------------------------------------------ consent
+
+    def authorize(self, flow: Flow, ask: Callable[[str], bool] | None = None
+                  ) -> tuple[dict, list[str]]:
+        """Collect the consent a flow needs BEFORE any of it runs.
+
+        Asking mid-run would mean stopping half-finished and asking someone to
+        approve something that has already partly happened. Asking first also
+        lets them decline while the screen is still untouched.
+
+        Returns the approvals to hand to `replay`, plus the reasons any step
+        cannot proceed. `preapproved` steps are granted without a question:
+        the policy reached that level only because the user's own request
+        already named the action, and re-asking would train people to click
+        through prompts. `confirm` steps go to `ask`; `handoff` steps cannot be
+        approved by anyone but the person at the keyboard.
+        """
+        from .contract import describe, issue_approval, policy
+
+        approvals: dict = {}
+        blocked: list[str] = []
+        for i, st in enumerate(flow.steps):
+            if st.safety is None:
+                continue
+            decision = policy(st.safety)
+            if decision.risk == "none":
+                continue
+            what = describe(st.safety, decision)
+            if decision.risk == "handoff":
+                blocked.append(f"{what} — 이 단계는 직접 해주셔야 해요")
+                continue
+            if decision.risk == "blocked":
+                blocked.append(f"{what} — 무슨 일이 일어날지 확정할 수 없어 실행하지 않습니다")
+                continue
+            if st.binding is None:
+                # Consent is bound to a described action; with nothing to bind
+                # it to, approving would authorize "step i" rather than the
+                # thing the person agreed to.
+                blocked.append(f"{what} — 이 단계에 고정된 설명이 없어 승인할 수 없어요")
+                continue
+            if decision.risk == "confirm":
+                if ask is None or not ask(what):
+                    blocked.append(f"{what} — 진행하지 않았습니다")
+                    continue
+            approvals[i] = issue_approval(st.binding, st.safety)
+        return approvals, blocked
+
     # ------------------------------------------------------------ run
 
-    def handle(self, intent: str, approvals: dict[int, bool] | None = None) -> Turn:
+    def handle(self, intent: str, approvals: dict[int, bool] | None = None,
+               ask: Callable[[str], bool] | None = None) -> Turn:
         match = self.resolve(intent)
         values: dict = {}
         if match is None:
@@ -155,6 +208,14 @@ class Agent:
             except Exception as e:
                 return Turn("failed",
                             f"'{flow.name}' 에 필요한 값이 없어요: {e}", flow.name)
+
+        # Consent before contact with the screen. Without this a save or a send
+        # gated mid-run and the command simply ended there, because nothing in
+        # the CLI could answer the question the gate asked.
+        if approvals is None:
+            approvals, blocked = self.authorize(flow, ask)
+            if blocked:
+                return Turn("needs_handoff", "\n".join(blocked), flow.name)
 
         plan = self._plan_text(flow)
         self.narrate(plan)

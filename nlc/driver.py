@@ -212,7 +212,14 @@ class Driver:
         windows = [w for w in (_attr(app_el, "AXWindows") or [])
                    if _attr(w, "AXRole") == "AXWindow"]
         for w in windows:
+            start = len(obs.lines)
             obs.walk(w)
+            # Mark the frontmost window so a selector can mean "the one the
+            # person is looking at". Two open documents expose two identical
+            # text areas, and without this every such recipe reads as ambiguous.
+            if len(obs.lines) > start and (_attr(w, "AXMain") is True
+                                           or _attr(w, "AXFocused") is True):
+                obs.lines[start] += " [focused]"
         return bool(windows)
 
     # ------------------------------------------------------------ menu commands
@@ -300,6 +307,15 @@ class Driver:
             if _attr(app_el, "AXFrontmost") is True:
                 return True
             self._pump(0.05)
+        return False
+
+    @staticmethod
+    def _modal_sheet(pid: int) -> bool:
+        """Is a sheet or modal dialog waiting for an answer in this app?"""
+        app_el = AXUIElementCreateApplication(pid)
+        for w in (_attr(app_el, "AXWindows") or []):
+            if _attr(w, "AXSheets") or _attr(w, "AXModal") is True:
+                return True
         return False
 
     def menu_state(self, target: str, path) -> dict:
@@ -499,6 +515,14 @@ class Driver:
             # a real precondition failure worth reporting by name rather than a
             # silent no-op press.
             if _attr(item, "AXEnabled") is False:
+                # A modal sheet disables the whole menu bar, and "this menu is
+                # disabled" is a dead end when the real answer is "a dialog is
+                # waiting". An earlier run that stopped mid-flow leaves exactly
+                # that state behind, so this is the common case, not an exotic one.
+                if self._modal_sheet(obs.pid):
+                    raise RuntimeError(
+                        f"앱에 열린 대화상자가 있어 '{' > '.join(walked)}' 메뉴를 "
+                        f"쓸 수 없습니다. 대화상자를 닫고 다시 시도해 주세요")
                 raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 가 지금은 비활성 상태입니다")
             err = AXUIElementPerformAction(item, "AXPress")
             if err != 0:

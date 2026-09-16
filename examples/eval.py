@@ -513,6 +513,116 @@ def scenario_menu_path_pinned():
                               for e in r.log)
 
 
+def scenario_consent_required():
+    """A consequential step does not run on the recipe's own authority.
+
+    Saving a file is `write_persistent`, which the policy will not grant by
+    itself. With nobody to ask, the answer is no and nothing happens — checked
+    without touching the screen."""
+    from nlc.agent import Agent
+    from nlc.library import textedit_save_as
+    f = textedit_save_as().bind(filename="동의없음.rtf")
+    approvals, blocked = Agent(driver=Driver()).authorize(f, ask=None)
+    return not approvals and len(blocked) == 1
+
+
+def _textedit_ready(d):
+    """Is TextEdit running with something to act in?"""
+    o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
+    return o["type"] == "observation"
+
+
+def scenario_save_file():
+    """Save a document under a name, end to end, and clean up after itself.
+
+    This is the first task in the suite with a consequence that outlives the
+    run: a menu command that opens a sheet, a field inside that sheet, and a
+    step the policy refuses without consent. The file is removed afterwards so
+    the suite can run again tomorrow without leaving a pile behind."""
+    import os, time, urllib.parse
+    from ApplicationServices import AXUIElementCreateApplication
+    from nlc.agent import Agent
+    from nlc.driver import _attr
+    from nlc.flow import replay
+    from nlc.library import (textedit_new_document, textedit_write_note,
+                             textedit_save_as)
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    name = f"nlc-eval-{int(time.time())}.rtf"
+    agent = Agent(driver=d)
+
+    def run(flow):
+        approvals, blocked = agent.authorize(flow, ask=lambda _what: True)
+        return (not blocked) and replay(d, flow, approvals=approvals).ok
+
+    if not run(textedit_new_document()):
+        return False
+    if not run(textedit_write_note().bind(text="저장 시나리오 테스트")):
+        return False
+    if not run(textedit_save_as().bind(filename=name)):
+        return False
+
+    # Where it landed is not guessed: the window says which file it holds.
+    pid = d._resolve("com.apple.TextEdit")
+    app = AXUIElementCreateApplication(pid)
+    saved = next((w for w in (_attr(app, "AXWindows") or [])
+                  if _attr(w, "AXTitle") == name), None)
+    if saved is None:
+        return False
+    url = _attr(saved, "AXDocument") or ""
+    path = urllib.parse.unquote(url.replace("file://", ""))
+    o = d.observe("com.apple.TextEdit", "tree_full")
+    d.act(o["obs_id"], "com.apple.TextEdit",
+          {"name": "menu", "path": ["File", ["Close", "닫기"]]})
+    time.sleep(0.8)
+    existed = os.path.exists(path)
+    if existed:
+        os.remove(path)
+    return existed
+
+
+def scenario_consent_is_about_the_file():
+    """Consent names WHICH file, not just which button.
+
+    Approve saving as A, then let the name field end up saying B: the click has
+    to be refused. Without a witness the pin would be unverifiable, and without
+    the pin the approval would cover any filename at all."""
+    from nlc.agent import Agent
+    from nlc.flow import replay
+    from nlc.library import textedit_new_document, textedit_save_as
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    agent = Agent(driver=d)
+    approvals, blocked = agent.authorize(textedit_new_document(), ask=lambda _w: True)
+    if blocked or not replay(d, textedit_new_document(), approvals=approvals).ok:
+        return False
+
+    f = textedit_save_as().bind(filename="승인한이름.rtf")
+    approvals, blocked = agent.authorize(f, ask=lambda _what: True)
+    if blocked:
+        return False
+    # The name actually typed no longer matches the name consent was given for.
+    f.steps[1].params = {"value": "다른이름.rtf"}
+    f.steps[1].postcondition.equals = "다른이름.rtf"
+    r = replay(d, f, approvals=approvals)
+    refused = (not r.ok) and any(e.get("error") == "contract_invalidated"
+                                 for e in r.log)
+    # Leave no sheet waiting for an answer: a stuck modal disables the whole
+    # menu bar and would break every later scenario.
+    o = d.observe("com.apple.TextEdit", "tree_full")
+    from nlc.flow import Selector
+    try:
+        idx, _ = Selector(role="Button", identifier="CancelButton",
+                          in_focused_window=True).resolve(o["tree"])
+        d.act(o["obs_id"], "com.apple.TextEdit",
+              {"name": "click", "element_index": idx})
+    except Exception:
+        pass
+    return refused
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -594,6 +704,11 @@ SCENARIOS = [
     ("toggle_converges (replaying a toggle does not oscillate)", scenario_toggle_converges),
     ("menu_path_pinned (repointing a menu step invalidates consent)",
      scenario_menu_path_pinned),
+    ("consent_required (a save does not run on its own authority)",
+     scenario_consent_required),
+    ("save_file (menu → sheet → field → consequential click)", scenario_save_file),
+    ("consent_is_about_the_file (approved A, typed B, refused)",
+     scenario_consent_is_about_the_file),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
