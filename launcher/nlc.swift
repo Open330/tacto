@@ -81,6 +81,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // expensive. The path is what distinguishes File > Save from File > Move to
     // Trash, so it is vetted as strictly as an element index would be.
     "menu":             (["name", "path"], []),
+    // Reads the screen and changes nothing, so it carries no target at all.
+    "read":             (["name"], []),
 ]
 
 /// Text that is inserted must stay text. A newline or carriage return is what

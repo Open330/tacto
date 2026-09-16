@@ -225,10 +225,10 @@ def scenario_capture():
     """A recipe can read a value OFF the screen, not just push values in."""
     from nlc.flow import calculator_multiply, Capture, Selector, replay
     f = calculator_multiply().bind(a="8", b="9")
-    f.steps[-1].capture = Capture(
+    f.steps[-1].captures = [Capture(
         name="answer",
         field=Selector(role="ScrollArea", identifier="StandardInputView"),
-        attribute="Value")
+        attribute="Value")]
     r = replay(Driver(), f)
     return r.ok and (r.log[-1].get("captured") or {}).get("answer") == "72"
 
@@ -482,10 +482,16 @@ def scenario_toggle_converges():
     the document ends up plain. The recipe states the condition it exists to
     bring about, so the second run stands down."""
     from nlc.flow import replay
-    from nlc.library import textedit_write_note, textedit_emphasize
+    from nlc.library import (textedit_new_document, textedit_write_note,
+                             textedit_emphasize)
     d = Driver()
-    if d.observe("com.apple.TextEdit", "tree_full")["type"] != "observation":
-        return "TextEdit 문서 창이 없음 (열어두고 다시 실행)"
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    # Make the document this needs instead of hoping one is lying around: the
+    # suite now tidies up after itself, so nothing is.
+    _tidy_textedit(d)
+    if not replay(d, textedit_new_document()).ok:
+        return "빈 문서를 열지 못함"
     if not replay(d, textedit_write_note().bind(text="굵게 수렴 테스트")).ok:
         return "TextEdit 본문에 쓸 수 없음"
     first = replay(d, textedit_emphasize())
@@ -494,6 +500,7 @@ def scenario_toggle_converges():
         return False
     # The point is not merely that both runs report success, but that the second
     # one did nothing — a rerun that pressed Bold again would have un-bolded it.
+    _tidy_textedit(d)
     return any(e.get("status") == "skipped" for e in second.log)
 
 
@@ -539,7 +546,7 @@ def scenario_answers_a_question():
     it found rather than reporting that it finished."""
     from nlc.agent import Agent
     turn = Agent().handle("다운로드 폴더에 뭐 있어?")
-    return (turn.status == "done" and turn.flow == "finder_count_items"
+    return (turn.status == "done" and turn.flow == "finder_list_items"
             and "item" in turn.say)
 
 
@@ -562,6 +569,54 @@ def _textedit_ready(d):
     return o["type"] == "observation"
 
 
+def _tidy_textedit(d):
+    """Close what a scenario opened.
+
+    Scenarios that make a document and walk away were piling up windows — a
+    suite that leaves a different machine behind every time it runs is not
+    repeatable, and the extra windows were themselves breaking later scenarios
+    by making selectors ambiguous."""
+    import re, time
+    # Both kinds of sheet: the save panel (Cancel) and the "save changes?"
+    # prompt that File > Close raises on an edited document (Delete / Don't
+    # Save). Leaving the second one open put TWO Cancel buttons on screen, which
+    # is what made close_dialog — correctly — call it ambiguous.
+    for _ in range(12):
+        o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
+        if o["type"] != "observation":
+            return
+        hit = None
+        for line in o["tree"].splitlines():
+            if ("CancelButton" in line or "Title: Delete" in line
+                    or "Don't Save" in line):
+                hit = int(re.match(r"\s*(\d+)\s", line).group(1))
+                break
+        if hit is None:
+            break
+        d.act(o["obs_id"], "com.apple.TextEdit",
+              {"name": "click", "element_index": hit})
+        time.sleep(0.6)
+    for _ in range(16):
+        o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
+        if o["type"] != "observation" or o["element_count"] == 0:
+            return
+        d.act(o["obs_id"], "com.apple.TextEdit",
+              {"name": "menu", "path": ["File", ["Close", "닫기"]]})
+        time.sleep(0.5)
+        # Closing an edited document raises its own prompt; discard the draft
+        # rather than leaving a second dialog behind.
+        o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
+        if o["type"] != "observation":
+            return
+        for line in o["tree"].splitlines():
+            if "Title: Delete" in line or "Don't Save" in line:
+                d.act(o["obs_id"], "com.apple.TextEdit",
+                      {"name": "click",
+                       "element_index": int(re.match(r"\s*(\d+)\s", line).group(1))})
+                time.sleep(0.5)
+                break
+
+
 def scenario_save_file():
     """Save a document under a name, end to end, and clean up after itself.
 
@@ -579,6 +634,7 @@ def scenario_save_file():
     d = Driver()
     if not _textedit_ready(d):
         return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    _tidy_textedit(d)
     name = f"nlc-eval-{int(time.time())}.rtf"
     agent = Agent(driver=d)
 
@@ -624,6 +680,9 @@ def scenario_consent_is_about_the_file():
     d = Driver()
     if not _textedit_ready(d):
         return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    # Start from a clean slate rather than assuming one: a scenario that needs
+    # exactly one dialog open cannot depend on whatever ran before it.
+    _tidy_textedit(d)
     agent = Agent(driver=d)
     approvals, blocked = agent.authorize(textedit_new_document(), ask=lambda _w: True)
     if blocked or not replay(d, textedit_new_document(), approvals=approvals).ok:
@@ -634,11 +693,16 @@ def scenario_consent_is_about_the_file():
     if blocked:
         return False
     # The name actually typed no longer matches the name consent was given for.
-    f.steps[1].params = {"value": "다른이름.rtf"}
-    f.steps[1].postcondition.equals = "다른이름.rtf"
+    # Found by what the step DOES, not by its position: the recipe grew two
+    # steps for choosing the folder and a hard-coded index silently moved onto
+    # one of them.
+    naming = next(st for st in f.steps if st.action == "set_value")
+    naming.params = {"value": "다른이름.rtf"}
+    naming.postcondition.equals = "다른이름.rtf"
     r = replay(d, f, approvals=approvals)
     refused = (not r.ok) and any(e.get("error") == "contract_invalidated"
                                  for e in r.log)
+    _tidy_textedit(d)
     # Leave no sheet waiting for an answer: a stuck modal disables the whole
     # menu bar and would break every later scenario.
     o = d.observe("com.apple.TextEdit", "tree_full")
@@ -651,6 +715,197 @@ def scenario_consent_is_about_the_file():
     except Exception:
         pass
     return refused
+
+
+def scenario_app_name_is_the_app():
+    """"Messages" means the app, never a background extension of the same name.
+
+    com.apple.messages.AssistantExtension is also called Messages and has no
+    windows and no menu bar, so whichever the system listed first decided
+    whether the app could be driven at all."""
+    from AppKit import NSWorkspace
+    d = Driver()
+    for name in ("Messages", "Notes"):
+        pid = d._resolve(name, launch=False)
+        if pid is None:
+            return f"{name} 이(가) 실행 중이 아님"
+        app = NSWorkspace.sharedWorkspace().runningApplications()
+        match = next((a for a in app if int(a.processIdentifier()) == pid), None)
+        if match is None or match.activationPolicy() != 0:
+            return False
+    return True
+
+
+def scenario_large_tree_is_bounded():
+    """A huge app must answer, not hang.
+
+    Mail walks past 11,000 elements; before the driver had a budget, observing
+    it simply never returned, which meant the app people most want help with was
+    the one that never worked. Reading the label attributes in one round trip
+    instead of six is the other half."""
+    d = Driver()
+    if d._resolve("Mail", launch=False) is None:
+        return "Mail 이 실행 중이 아님"
+    t0 = time.monotonic()
+    o = d.observe("Mail", "tree_full")
+    took = time.monotonic() - t0
+    if o["type"] != "observation":
+        return False
+    # Bounded in both senses: it finished, and it said what it left out.
+    return took < 25 and o["element_count"] <= 2500 and o.get("truncated") is True
+
+
+def scenario_reads_a_list():
+    """A folder's contents are plural, so reading them needs a plural selector.
+
+    Acting still demands exactly one match; reading asks for a scope instead, or
+    "every TextField on screen" would pass for a description."""
+    from nlc.flow import Capture, replay
+    from nlc.library import finder_list_items
+    d = Driver()
+    r = replay(d, finder_list_items().bind(folder="Applications"))
+    names = (r.log[-1].get("captured") or {}).get("목록") or []
+    if not (r.ok and len(names) > 3):
+        return False
+    try:
+        Selector(role="TextField").resolve_all("0 Window\n  1 TextField  Value: x")
+        return False                      # a bare role is not a description
+    except TargetMissing:
+        return True
+
+
+def scenario_calendar_reads_today():
+    """Today's events, without switching the window to day view.
+
+    The weekday arrives in both the app's language and the caller's, because
+    Calendar labels its columns in the system's and the two need not agree."""
+    import datetime
+    from nlc.agent import _WEEKDAY_KO
+    from nlc.flow import replay
+    from nlc.library import calendar_today
+    d = Driver()
+    if d._resolve("Calendar", launch=False) is None:
+        return "Calendar 가 실행 중이 아님"
+    t = datetime.date.today()
+    f = calendar_today().bind(weekday_en=t.strftime("%A"),
+                              weekday_ko=_WEEKDAY_KO[t.weekday()])
+    r = replay(d, f)
+    return r.ok and "오늘 일정" in (r.log[-1].get("captured") or {})
+
+
+def scenario_mail_reads_inbox():
+    """Mail's inbox: the window's own tally, plus senders and subjects."""
+    from nlc.flow import replay
+    from nlc.library import mail_inbox
+    d = Driver()
+    if d._resolve("Mail", launch=False) is None:
+        return "Mail 이 실행 중이 아님"
+    r = replay(d, mail_inbox())
+    got = r.log[-1].get("captured") or {}
+    return r.ok and bool(got.get("메일함")) and "제목" in got
+
+
+def scenario_missing_target_says_what_is_there():
+    """"matched nothing" leaves a person nowhere to go.
+
+    The save panel offers only the folders in their own sidebar, so asking for
+    another one fails — and the useful reply is the list it does offer."""
+    from nlc.flow import _nearby
+    tree = ("0 Window [focused]\n"
+            "  1 Outline  Description: sidebar\n"
+            "    2 StaticText  Value: Downloads\n"
+            "    3 StaticText  Value: iCloud Drive")
+    said = _nearby(Selector(role="StaticText", value="Documents"), tree)
+    return "Downloads" in said and "iCloud Drive" in said
+
+
+def scenario_absence_is_verifiable():
+    """Some actions are verified by something going away.
+
+    A dialog closing adds nothing to the screen, so a postcondition that can
+    only assert presence has nothing to check."""
+    from nlc.flow import Postcondition
+    before = "0 Window\n  1 Sheet  Description: save"
+    after = "0 Window\n  1 TextArea  Value: hi"
+    gone = Postcondition(absent="Sheet")
+    return (not gone.check(before)) and gone.check(after)
+
+
+def scenario_dialog_recovery():
+    """A run that stopped midway leaves its dialog open; there has to be a way out.
+
+    Nothing dismisses it automatically — cancelling is an action nobody asked
+    for — so it is a recipe the person invokes, and it presses Cancel, never the
+    button that commits."""
+    import time as _t
+    from nlc.agent import Agent
+    from nlc.flow import replay
+    from nlc.library import close_dialog, textedit_new_document
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    # Start from a clean slate rather than assuming one: a scenario that needs
+    # exactly one dialog open cannot depend on whatever ran before it.
+    _tidy_textedit(d)
+    agent = Agent(driver=d)
+    approvals, blocked = agent.authorize(textedit_new_document(), ask=lambda _w: True)
+    if blocked or not replay(d, textedit_new_document(), approvals=approvals).ok:
+        raise AssertionError("빈 문서를 열지 못함")
+    o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
+    opened = d.act(o["obs_id"], "com.apple.TextEdit",
+                   {"name": "menu", "path": ["File", ["Save As…", "Save…"]]})
+    _t.sleep(2)
+    stuck = d.observe("com.apple.TextEdit", "tree_full")
+    if "save-panel" not in stuck["tree"]:
+        raise AssertionError(f"저장 시트를 띄우지 못함 ({opened.get('detail', opened.get('type'))})")
+    r = replay(d, close_dialog().bind(app="com.apple.TextEdit"))
+    cleared = "save-panel" not in d.observe("com.apple.TextEdit", "tree_full")["tree"]
+    _tidy_textedit(d)
+    if not r.ok:
+        bad = next((e for e in r.log if e.get("status") == "error"), {})
+        raise AssertionError(f"닫기 실패: {bad.get('error')} {str(bad.get('detail'))[:120]}")
+    return cleared
+
+
+def scenario_save_chooses_its_folder():
+    """A file lands where it was asked to, not where the app last saved.
+
+    The save panel here was still pointing at a terminal's support directory;
+    the folder is now named, selected from the panel's own sidebar, pinned into
+    the consent, and checked against the window afterwards."""
+    import os, time as _t, urllib.parse
+    from ApplicationServices import AXUIElementCreateApplication
+    from nlc.agent import Agent
+    from nlc.driver import _attr
+    from nlc.flow import replay
+    from nlc.library import (textedit_new_document, textedit_write_note,
+                             textedit_save_as)
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    _tidy_textedit(d)
+    agent = Agent(driver=d)
+    name = f"nlc-eval-{int(_t.time())}.rtf"
+
+    def run(flow):
+        approvals, blocked = agent.authorize(flow, ask=lambda _w: True)
+        return (not blocked) and replay(d, flow, approvals=approvals).ok
+
+    ok = (run(textedit_new_document())
+          and run(textedit_write_note().bind(text="폴더 지정 저장"))
+          and run(textedit_save_as().bind(filename=name, folder="Downloads")))
+    path = ""
+    if ok:
+        app = AXUIElementCreateApplication(d._resolve("com.apple.TextEdit"))
+        win = next((w for w in (_attr(app, "AXWindows") or [])
+                    if _attr(w, "AXTitle") == name), None)
+        path = urllib.parse.unquote((_attr(win, "AXDocument") or "")
+                                    .replace("file://", "")) if win else ""
+    _tidy_textedit(d)
+    landed = bool(path) and os.path.exists(path)
+    if landed:
+        os.remove(path)
+    return ok and landed and os.path.dirname(path).endswith("/Downloads")
 
 
 def scenario_resolver_honesty():
@@ -743,6 +998,20 @@ SCENARIOS = [
     ("save_file (menu → sheet → field → consequential click)", scenario_save_file),
     ("consent_is_about_the_file (approved A, typed B, refused)",
      scenario_consent_is_about_the_file),
+    ("app_name_is_the_app (not a same-named extension)", scenario_app_name_is_the_app),
+    ("large_tree_is_bounded (Mail answers instead of hanging)",
+     scenario_large_tree_is_bounded),
+    ("reads_a_list (plural selector for plural things)", scenario_reads_a_list),
+    ("calendar_reads_today (today's events, view untouched)",
+     scenario_calendar_reads_today),
+    ("mail_reads_inbox (senders, subjects and the tally)", scenario_mail_reads_inbox),
+    ("missing_target_says_what_is_there (names the alternatives)",
+     scenario_missing_target_says_what_is_there),
+    ("absence_is_verifiable (a dialog closing is evidence)",
+     scenario_absence_is_verifiable),
+    ("dialog_recovery (a way out of a stuck run)", scenario_dialog_recovery),
+    ("save_chooses_its_folder (lands where it was asked to)",
+     scenario_save_chooses_its_folder),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),

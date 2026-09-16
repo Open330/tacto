@@ -38,31 +38,72 @@ func str(_ el: AXUIElement, _ name: String) -> String? {
     return nil
 }
 
+// The same budgets the Python driver applies, for the same reason and with the
+// same numbers: the two must produce identical trees, or a recipe works
+// in-process and fails across the permission boundary. Mail walks to tens of
+// thousands of elements, and one enormous homogeneous list — a mailbox — is
+// what makes it expensive.
+let maxTreeNodes = 2500
+let maxChildrenPerNode = 60
+let truncationMark = "… (트리가 커서 여기서 잘렸습니다 — 더 좁은 창/앱을 대상으로 하세요)"
+
+let labelAttrs = ["AXTitle", "AXDescription", "AXValue", "AXHelp",
+                  "AXIdentifier", "AXPlaceholderValue"]
+let labelNames = ["Title", "Description", "Value", "Help",
+                  "Identifier", "Placeholder"]
+
+/// The element's label attributes in ONE round trip. Some apps compute these
+/// lazily per element — a Mail row costs 20ms read one at a time and 3ms read
+/// together — and a mailbox has thousands of rows.
+func label(_ el: AXUIElement) -> String {
+    var raw: CFArray?
+    var parts: [String] = []
+    if AXUIElementCopyMultipleAttributeValues(
+        el, labelAttrs as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
+        == .success, let values = raw as? [Any], values.count == labelAttrs.count {
+        for (i, v) in values.enumerated() {
+            // An attribute the element lacks comes back as an AXValue holding
+            // an error, not as nil, so only real strings and numbers count.
+            if let s = v as? String, !s.isEmpty { parts.append("\(labelNames[i]): \(s)") }
+            else if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
+                parts.append("\(labelNames[i]): \(n.stringValue)")
+            }
+        }
+        return parts.joined(separator: ", ")
+    }
+    for (i, key) in labelAttrs.enumerated() {
+        if let v = str(el, key) { parts.append("\(labelNames[i]): \(v)") }
+    }
+    return parts.joined(separator: ", ")
+}
+
 /// One line per element, in the exact format the Python `Selector` parses:
 /// `<indent><index> <Role>  Key: value, Key2: value [disabled]`
-func walk(_ el: AXUIElement, depth: Int, out: inout [String], elements: inout [AXUIElement]) {
+func walk(_ el: AXUIElement, depth: Int, out: inout [String],
+          elements: inout [AXUIElement], visited: inout Int,
+          truncated: inout Bool) {
     if depth > 25 { return }
+    if visited >= maxTreeNodes { truncated = true; return }
+    visited += 1
     let role = str(el, kAXRoleAttribute as String) ?? "?"
-    var parts: [String] = []
-    for (key, label) in [(kAXTitleAttribute as String, "Title"),
-                         (kAXDescriptionAttribute as String, "Description"),
-                         (kAXValueAttribute as String, "Value"),
-                         (kAXHelpAttribute as String, "Help"),
-                         ("AXIdentifier", "Identifier"),
-                         ("AXPlaceholderValue", "Placeholder")] {
-        if let v = str(el, key) { parts.append("\(label): \(v)") }
-    }
-    let label = parts.joined(separator: ", ")
-    if interactableRoles.contains(role) || !label.isEmpty {
+    let text = label(el)
+    if interactableRoles.contains(role) || !text.isEmpty {
         let idx = elements.count
         elements.append(el)
         let enabled = (attr(el, kAXEnabledAttribute as String) as? Bool) ?? true
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
         out.append(String(repeating: "  ", count: depth) + "\(idx) \(short)"
-                   + (label.isEmpty ? "" : "  \(label)") + (enabled ? "" : " [disabled]"))
+                   + (text.isEmpty ? "" : "  \(text)") + (enabled ? "" : " [disabled]"))
     }
-    for child in (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? [] {
-        walk(child, depth: depth + 1, out: &out, elements: &elements)
+    let children = (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+    for child in children.prefix(maxChildrenPerNode) {
+        walk(child, depth: depth + 1, out: &out, elements: &elements,
+             visited: &visited, truncated: &truncated)
+    }
+    if children.count > maxChildrenPerNode {
+        truncated = true
+        out.append(String(repeating: "  ", count: depth + 1)
+                   + "… (\(children.count - maxChildrenPerNode)개 더 있음)")
     }
 }
 
@@ -143,12 +184,21 @@ func activate(pid p: pid_t, timeout: TimeInterval = 2.0) -> Bool {
     return false
 }
 
+/// An app's everyday name is not unique: "Messages" also names
+/// com.apple.messages.AssistantExtension, a background agent with no windows
+/// and no menu bar. A bundle id is an exact answer; a name means the app a
+/// person can see, so regular apps beat agents and extensions.
 func pid(forBundle bundle: String) -> pid_t? {
+    let want = bundle.lowercased()
+    var byBundle: [NSRunningApplication] = []
+    var byName: [NSRunningApplication] = []
     for app in NSWorkspace.shared.runningApplications {
-        if app.bundleIdentifier?.lowercased() == bundle.lowercased()
-            || app.localizedName?.lowercased() == bundle.lowercased() {
-            return app.processIdentifier
-        }
+        if app.bundleIdentifier?.lowercased() == want { byBundle.append(app) }
+        else if app.localizedName?.lowercased() == want { byName.append(app) }
+    }
+    for group in [byBundle, byName] where !group.isEmpty {
+        let regular = group.filter { $0.activationPolicy == .regular }
+        return (regular.first ?? group.first)?.processIdentifier
     }
     return nil
 }
@@ -180,9 +230,12 @@ func observe(_ target: String, requireWindow: Bool = true) -> [String: Any] {
     }
     var lines: [String] = []
     var elements: [AXUIElement] = []
+    var visited = 0
+    var truncated = false
     for w in windows {
         let start = lines.count
-        walk(w, depth: 0, out: &lines, elements: &elements)
+        walk(w, depth: 0, out: &lines, elements: &elements,
+             visited: &visited, truncated: &truncated)
         // Mark the frontmost window, exactly as the Python driver does. The two
         // must produce the same tree for the same app, or a recipe that scopes
         // to the front window silently matches nothing under one of them.
@@ -196,10 +249,11 @@ func observe(_ target: String, requireWindow: Bool = true) -> [String: Any] {
     latestElements = elements
     latestTargetPID = p
     latestTargetName = target
+    if truncated { lines.append(truncationMark) }
     return ["type": "observation", "obs_id": obsID, "target": target,
             "tree": windows.isEmpty ? "(창 없음 — 메뉴만 사용 가능)"
                                     : lines.joined(separator: "\n"),
-            "element_count": elements.count]
+            "element_count": elements.count, "truncated": truncated]
 }
 
 // MARK: - Acting
@@ -292,6 +346,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
             }
             usleep(10_000)
         }
+    case "read":
+        // Look, change nothing — the observation and overlay above are the
+        // whole of it. Lets a recipe read one part of the screen before using
+        // that value somewhere else.
+        break
     case "menu":
         // Normalized to lists so a path element may offer localized
         // alternatives; the launcher has already checked the shape, and this

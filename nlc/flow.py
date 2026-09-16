@@ -113,6 +113,12 @@ def _arith(expr: str):
     return int(v) if isinstance(v, float) and v.is_integer() else v
 
 
+def _alternatives(value) -> set[str]:
+    """Accepted spellings of one selector field, normalized and lowercased."""
+    items = [value] if isinstance(value, str) else list(value)
+    return {_norm(v).lower() for v in items}
+
+
 class TargetMissing(LookupError):
     """Zero elements matched the selector."""
 
@@ -140,9 +146,17 @@ class Selector:
     identifier: str | list[str] | None = None   # str, or any-of list for a
                                                  # state-dependent control (e.g.
                                                  # AllClear↔Clear) — still unique
-    title: str | None = None
-    desc: str | None = None
-    ancestor: str | None = None       # identifier/title of a scoping container
+    # Like `identifier`, these take a list when one control answers to more
+    # than one name — a localized menu or a weekday heading the app writes in
+    # the system's language, not the user's.
+    title: str | list[str] | None = None
+    desc: str | list[str] | None = None
+    # Plenty of elements are labelled only by their value — a save panel's
+    # sidebar entries, a Finder sidebar, a calendar's name — and without this
+    # they could be read but never pointed at.
+    value: str | list[str] | None = None
+    ancestor: str | list[str] | None = None   # identifier/title/description of
+                                               # a scoping container
     allow_nth: int | None = None      # explicit index into matches; None = require unique
     # Restrict the search to the window the app considers frontmost. Apps hold
     # several windows open — two TextEdit documents expose two identical
@@ -150,6 +164,12 @@ class Selector:
     # person is looking at. Without this, a second open document turns a working
     # recipe into TargetAmbiguous.
     in_focused_window: bool = False
+    # After matching, act on the nearest enclosing element with one of these
+    # roles. Lists label their rows with an inner text element while the row
+    # itself is what responds to a click, so the identifiable part and the
+    # actionable part are different elements — a save panel's sidebar and a
+    # mail list both work this way.
+    click_ancestor: str | list[str] | None = None
 
     # Known AX attribute keys as the driver formats them ("Key: value, Key2: …").
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
@@ -192,16 +212,24 @@ class Selector:
             want |= {self._stable_id(w) for w in want}
             if val.lower() not in want and self._stable_id(val.lower()) not in want:
                 return False
-        if self.title:
-            val = self._attr(line, "Title")
-            if val is None or val.lower() != _norm(self.title).lower():
+        for key, want in (("Title", self.title), ("Description", self.desc),
+                          ("Value", self.value)):
+            if not want:
+                continue
+            val = self._attr(line, key)
+            if val is None or val.lower() not in _alternatives(want):
                 return False
-        if self.desc:
-            val = self._attr(line, "Description")
-            if val is None or val.lower() != _norm(self.desc).lower():
-                return False
-        # at least one positive key required — role alone is not a selector
-        return any([self.identifier, self.title, self.desc])
+        return True
+
+    def _names_something(self) -> bool:
+        """Does this selector name a particular element, rather than a kind?
+
+        Required for acting: "click a Button" is not an instruction, and a
+        selector that only says a role would happily resolve against whichever
+        button happened to be alone on screen. Reading a list is the opposite
+        case — see `resolve_all`, which asks for a scope instead.
+        """
+        return any([self.identifier, self.title, self.desc, self.value])
 
     def _in_scope(self, lines: list[str], line_no: int) -> bool:
         """True if the matched line sits under an ancestor container. The ancestor
@@ -212,7 +240,7 @@ class Selector:
             return False
         if not self.ancestor:
             return True
-        want = _norm(self.ancestor).lower()
+        want = _alternatives(self.ancestor)
         indent = len(lines[line_no]) - len(lines[line_no].lstrip())
         for j in range(line_no - 1, -1, -1):
             prev = lines[j]
@@ -220,10 +248,13 @@ class Selector:
                 continue
             pind = len(prev) - len(prev.lstrip())
             if pind < indent:
-                for key in ("Identifier", "Title"):
+                # Description as well as Identifier/Title: plenty of containers
+                # carry no identifier and no title, and are labelled only by
+                # what they are — Calendar's day columns, Finder's sidebar.
+                for key in ("Identifier", "Title", "Description"):
                     v = self._attr(prev, key)
-                    if v is not None and (v.lower() == want
-                                          or self._stable_id(v.lower()) == want):
+                    if v is not None and (v.lower() in want
+                                          or self._stable_id(v.lower()) in want):
                         return True
                 indent = pind   # climb to the next shallower ancestor
         return False
@@ -248,15 +279,42 @@ class Selector:
                     break
         return "[focused]" in top
 
+    def resolve_all(self, tree: str) -> list[int]:
+        """Every element matching this selector, in tree order.
+
+        Acting still demands exactly one match — `resolve` below — but *reading*
+        a list is a different job: a folder's contents, the senders of unread
+        mail, the rows of a table. Those are plural by nature, and a selector
+        that must match once cannot describe them.
+
+        What acting gets from "name one element", reading gets from a scope: a
+        role plus a container is a description ("every filename in the file
+        list"), while a bare role would mean every TextField on the screen.
+        """
+        if not (self.ancestor or self.in_focused_window or self._names_something()):
+            raise TargetMissing(f"{self} reads a list but names no scope — "
+                                "add ancestor or in_focused_window")
+        lines = tree.splitlines()
+        out = []
+        for i, line in enumerate(lines):
+            m = re.match(r"\s*(\d+)\s", line)
+            if m and self.matches(line) and self._in_scope(lines, i):
+                out.append(int(m.group(1)))
+        return out
+
     def resolve(self, tree: str) -> tuple[int, str]:
         """Return (element_index, resolver_trace) for a unique match in a fresh tree."""
+        if not self._names_something():
+            raise TargetMissing(f"{self} names no element — role alone is not a "
+                                "selector for acting")
         lines = tree.splitlines()
         hits = []
         for i, line in enumerate(lines):
             m = re.match(r"\s*(\d+)\s", line)
             if m and self.matches(line) and self._in_scope(lines, i):
                 hits.append(int(m.group(1)))
-        strat = "id" if self.identifier else ("title" if self.title else "desc")
+        strat = ("id" if self.identifier else "title" if self.title
+                 else "value" if self.value else "desc")
         if self.ancestor:
             strat += f"@{self.ancestor}"
         if not hits:
@@ -268,7 +326,28 @@ class Selector:
             return hits[self.allow_nth], f"{strat}[nth={self.allow_nth}]"
         if len(hits) > 1:
             raise TargetAmbiguous(f"selector {self} matched {len(hits)} elements: {hits}")
+        if self.click_ancestor:
+            return self._climb(lines, hits[0]), strat + "^" + str(self.click_ancestor)
         return hits[0], strat
+
+    def _climb(self, lines: list[str], idx: int) -> int:
+        """Index of the nearest ancestor of `idx` whose role we want to act on."""
+        want = _alternatives(self.click_ancestor)
+        start = next(k for k, l in enumerate(lines) if re.match(rf"\s*{idx}\s", l))
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        for j in range(start - 1, -1, -1):
+            prev = lines[j]
+            if not prev.strip():
+                continue
+            pind = len(prev) - len(prev.lstrip())
+            if pind >= indent:
+                continue
+            indent = pind
+            toks = prev.strip().split()
+            if len(toks) >= 2 and toks[1].lower() in want:
+                return int(toks[0])
+        raise TargetMissing(f"{self}: no enclosing {self.click_ancestor} above "
+                            f"element {idx}")
 
 
 _GROUPING = ",_ \u00a0\u202f\u2009\u2019"    # digit-grouping marks, NOT the decimal point
@@ -304,6 +383,10 @@ class Postcondition:
     field: Selector | None = None     # None = assert against the whole tree
     equals: str | None = None         # exact attribute-value match
     contains: str | None = None       # explicit substring (field block, or tree)
+    # Some actions are verified by something GOING AWAY — a dialog closes, a
+    # spinner stops, a row is removed. Without this the only expressible
+    # verification was "something is there", so those steps had nothing to check.
+    absent: str | None = None
     attribute: str | None = None      # narrow `equals` to one attribute (e.g.
                                       # "Value"); None = any of _ATTR_KEYS
 
@@ -316,8 +399,10 @@ class Postcondition:
                     yield v
 
     def check(self, tree: str) -> bool:
+        if self.absent is not None and self.absent in tree:
+            return False
         if self.equals is None and self.contains is None:
-            return False   # nothing to verify -> not satisfied
+            return self.absent is not None   # absence alone is a real check
         want = _norm(self.equals) if self.equals is not None else None
         if self.field is not None:
             try:
@@ -353,20 +438,49 @@ class Capture:
     field: Selector | None = None      # element to read (None = whole tree)
     attribute: str = "Value"           # which attribute holds the value
     sensitive: bool = False            # keep the value out of logs and traces
+    # Missing is an answer too. Finder exposes a folder's filenames for
+    # Documents and Applications but not for Downloads, so a recipe that reads
+    # both a count and the names should report what it could see rather than
+    # failing outright.
+    optional: bool = False
+    # Is "nothing matched" an answer, or a failure to see? For a folder listing
+    # it is a failure — Finder shows 21 items and exposes none of their names.
+    # For today's calendar it is the answer: the recipe's postcondition already
+    # proved the day column is on screen, so an empty one means a free day.
+    empty_ok: bool = False
+    # Read the LAST matches rather than the first. Finder's column view shows
+    # every parent folder alongside the current one, so taking the first few
+    # names answered with drives and ancestors — names that are not in the
+    # folder at all. The rightmost column is the folder, so reading from the end
+    # is never wrong, only sometimes partial.
+    tail: bool = False
+    # Read every match rather than requiring exactly one. "무슨 파일 있어?" and
+    # "안 읽은 메일 누구한테서 왔어?" are questions about a list, and the
+    # single-value form could only ever answer them with a count.
+    many: bool = False
+    limit: int = 20                    # how many, at most, to read back
 
-    def read(self, tree: str) -> str | None:
-        if self.field is None:
-            return None
-        try:
-            idx, _ = self.field.resolve(tree)
-        except LookupError:
-            return None
-        block = _element_block(tree, idx)
-        for ln in block.splitlines():
+    def _one(self, tree: str, idx: int) -> str | None:
+        for ln in _element_block(tree, idx).splitlines():
             v = Selector._attr(ln, self.attribute)
             if v:
                 return v
         return None
+
+    def read(self, tree: str):
+        if self.field is None:
+            return None
+        if self.many:
+            found = self.field.resolve_all(tree)
+            found = found[-self.limit:] if self.tail else found[:self.limit]
+            vals = [self._one(tree, i) for i in found]
+            vals = [v for v in vals if v]
+            return vals if (vals or self.empty_ok) else None
+        try:
+            idx, _ = self.field.resolve(tree)
+        except LookupError:
+            return None
+        return self._one(tree, idx)
 
 
 @dataclass
@@ -399,7 +513,10 @@ class Step:
     # it: "open the invoice, read the total, type it into the form". Without
     # this a recipe can only push data in, never carry it forward — which is
     # most real interactions, not just a calculator.
-    capture: "Capture | None" = None
+    # A step may read several things off the screen at once — a folder's item
+    # count AND its filenames — so this is a list. One of them being
+    # unavailable does not have to sink the other.
+    captures: list["Capture"] = field(default_factory=list)
     # Skip this step when the world already satisfies it. Many real commands are
     # toggles, not settings — "make it bold" runs Format > Font > Bold, and
     # running that twice UN-bolds the document. A replay engine whose reruns
@@ -444,7 +561,9 @@ class Flow:
             for it in items:
                 c = dict(ctx) if it is None else {**ctx, "item": it}
                 out.append(_render_step(st, c))
-        return Flow(name=self.name, target=self.target, steps=out,
+        # The target is rendered too: which app a recipe drives can itself be
+        # an input, as it is for "close the dialog in <app>".
+        return Flow(name=self.name, target=_render(self.target, ctx), steps=out,
                     schema=self.schema)
 
     def to_json(self) -> str:
@@ -468,6 +587,7 @@ class Flow:
                 pf = Selector(**pc["field"]) if pc.get("field") else None
                 return Postcondition(field=pf, equals=pc.get("equals"),
                                      contains=pc.get("contains"),
+                                     absent=pc.get("absent"),
                                      attribute=pc.get("attribute"))
 
             post = _post(s.get("postcondition"))
@@ -500,18 +620,56 @@ class Flow:
                               safety=contract, binding=binding,
                               unverified_ok=s.get("unverified_ok", False),
                               for_each=s.get("for_each"),
-                              capture=(Capture(
-                                  name=s["capture"].get("name", "value"),
-                                  field=(Selector(**s["capture"]["field"])
-                                         if s["capture"].get("field") else None),
-                                  attribute=s["capture"].get("attribute", "Value"),
-                                  sensitive=bool(s["capture"].get("sensitive")))
-                                  if s.get("capture") else None),
+                              captures=_captures_from(s),
                               skip_if=skip_if, answers=s.get("answers", False)))
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=d.get("schema", 1),   # older files predate contracts
                     params=d.get("params", {}), tables=d.get("tables", {}),
                     derived=d.get("derived", {}))
+
+
+def _captures_from(step: dict) -> list["Capture"]:
+    """Read a step's captures, accepting the older single-`capture` spelling."""
+    raw = step.get("captures")
+    if raw is None:
+        one = step.get("capture")
+        raw = [one] if one else []
+    out = []
+    for c in raw:
+        out.append(Capture(
+            name=c.get("name", "value"),
+            field=Selector(**c["field"]) if c.get("field") else None,
+            attribute=c.get("attribute", "Value"),
+            sensitive=bool(c.get("sensitive")),
+            many=bool(c.get("many")),
+            limit=int(c.get("limit", 20)),
+            optional=bool(c.get("optional")),
+            empty_ok=bool(c.get("empty_ok")),
+            tail=bool(c.get("tail"))))
+    return out
+
+
+def _nearby(selector: "Selector", tree: str, limit: int = 8) -> str:
+    """What IS on screen where the selector expected something.
+
+    "matched nothing" leaves a person with nowhere to go. The save panel offers
+    only recent and favourite locations, so asking it for Documents fails — and
+    the useful reply is the list it does offer, not the fact of the failure.
+    """
+    if not selector or not selector.role:
+        return ""
+    names = []
+    for line in tree.splitlines():
+        if not re.match(rf"\s*\d+\s+{re.escape(selector.role)}\b", line.strip()):
+            continue
+        for key in ("Title", "Description", "Value", "Identifier"):
+            v = Selector._attr(line, key)
+            if v:
+                names.append(v)
+                break
+        if len(names) >= limit:
+            break
+    return f"화면에 있는 {selector.role}: {', '.join(names)}" if names else ""
 
 
 def _payload_digest(params: dict) -> str:
@@ -542,7 +700,8 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
     def render_sel(s):
         return None if s is None else replace(
             s, identifier=_render(s.identifier, ctx), title=_render(s.title, ctx),
-            desc=_render(s.desc, ctx), ancestor=_render(s.ancestor, ctx))
+            desc=_render(s.desc, ctx), value=_render(s.value, ctx),
+            ancestor=_render(s.ancestor, ctx))   # click_ancestor is a role, never templated
 
     sel = render_sel(st.selector)
     def render_post(p):
@@ -550,7 +709,7 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
             return None
         return Postcondition(field=render_sel(p.field), equals=_render(p.equals, ctx),
                              contains=_render(p.contains, ctx),
-                             attribute=p.attribute)
+                             absent=_render(p.absent, ctx), attribute=p.attribute)
 
     post = render_post(st.postcondition)
     # The contract and its binding describe THIS concrete action, so they are
@@ -596,7 +755,12 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 require_enabled=st.require_enabled, is_submit=st.is_submit,
                 into_sensitive_field=st.into_sensitive_field,
                 safety=safety, binding=binding,
-                unverified_ok=st.unverified_ok, capture=st.capture,
+                unverified_ok=st.unverified_ok,
+                # Captures carry selectors too, and those were the one place
+                # templates were left unrendered — a capture scoped to
+                # "{{weekday_en}}" matched nothing and read as "no events".
+                captures=[replace(c, field=render_sel(c.field))
+                          for c in st.captures],
                 skip_if=render_post(st.skip_if), answers=st.answers)
 
 
@@ -798,7 +962,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return res
             except TargetMissing as e:
                 res.record(status="error", step=i, action=step.action,
-                           error="target_missing", detail=str(e))
+                           error="target_missing",
+                           detail=f"{e}. {_nearby(step.selector, obs['tree'])}")
                 return res
             idx = action["element_index"]
             target_line = next((l for l in obs["tree"].splitlines()
@@ -920,28 +1085,35 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 result_value = vals[0] if vals else None
             except Exception:
                 result_value = None
-        captured = None
-        if step.capture is not None and obs.get("tree"):
-            captured = step.capture.read(obs["tree"])
-            if captured is None:
+        shown = None
+        for cap in step.captures:
+            if not obs.get("tree"):
+                break
+            value = cap.read(obs["tree"])
+            if value is None:
+                if cap.optional:
+                    # Not every app exposes everything. Finder names a folder's
+                    # files for Documents and Applications but not for Downloads,
+                    # so a recipe that reads both a count and the names should
+                    # still answer with what it could see.
+                    continue
                 res.record(status="error", step=i, action=step.action,
                            error="capture_failed",
-                           detail=f"{step.capture.name!r} 값을 화면에서 읽지 못했습니다")
+                           detail=f"{cap.name!r} 값을 화면에서 읽지 못했습니다")
                 return res
             # The run needs the real value; the log and any trace must not have
             # it. Keep the two apart rather than masking at the source, which
             # would hand "[redacted]" to the next step (advisor finding).
-            captures[step.capture.name] = captured
-            shown = "[redacted]" if step.capture.sensitive else captured
+            captures[cap.name] = value
+            shown = "[redacted]" if cap.sensitive else value
         res.record(status="ok", step=i, action=step.action, resolver=trace,
                    risk=risk, verified=step.expect or (post and "postcond"),
-                   result=result_value,
-                   captured=(shown if step.capture is not None else None))
+                   result=result_value, captured=shown)
 
     final = next((e.get("result") for e in reversed(res.log)
                   if e.get("status") == "ok" and e.get("result")), None)
-    sensitive_names = {st.capture.name for st in flow.steps
-                       if st.capture is not None and st.capture.sensitive}
+    sensitive_names = {c.name for st in flow.steps for c in st.captures
+                       if c.sensitive}
     shown_captures = {k: ("[redacted]" if k in sensitive_names else v)
                       for k, v in captures.items()}
     res.record(status="done", steps=len(flow.steps), result=final,

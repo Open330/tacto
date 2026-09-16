@@ -89,8 +89,13 @@ can have several windows open. Two TextEdit documents expose two elements with
 the identifier `First Text View`, so an unscoped selector becomes ambiguous the
 moment a second document exists.
 
+**Point at things that are only labelled by their value** with `"value"`, and
+when the label and the clickable element differ — a list row identified by its
+inner text — match the label and act on the row with
+`"click_ancestor": ["Row", "Cell"]`.
+
 **Actions:** `click`, `set_value`, `type_text`, `scroll`, `secondary_action`,
-`menu`. Prefer clicking a named control over typing — a button press is
+`menu`, `read` (look and change nothing, for a step that only captures). Prefer clicking a named control over typing — a button press is
 verifiable through the control itself. (`press_key` exists in the in-process
 driver only; the signed helper does not implement it, so do not author with it.)
 
@@ -135,14 +140,36 @@ only proof the step landed, and reporting the latter made "굵게 해줘" reply
 "결과는 1 입니다". `equals` compares an attribute value exactly
 (digit grouping aside, so `5,535` matches `5535`).
 
-**Read values out with `capture`** when a later step, or the user, needs them:
+**Read values out with `captures`** when a later step, or the user, needs them.
+A step may read several things at once, because a count and a list of names come
+off the same screen:
 
 ```jsonc
-{ "action": "click", "selector": { … },
-  "capture": { "name": "total",
-               "field": { "identifier": "StandardInputView" },
-               "attribute": "Value" } }
+{ "action": "menu", "params": { "path": ["Go", "Documents"] },
+  "captures": [
+    { "name": "목록", "many": true, "limit": 15, "optional": true, "tail": true,
+      "field": { "role": "TextField", "in_focused_window": true },
+      "attribute": "Value" },
+    { "name": "요약", "field": { "identifier": "statusBarText" } } ] }
 ```
+
+- `many` reads every match instead of requiring one. Acting still demands a
+  unique element; reading asks for a **scope** instead (`ancestor` or
+  `in_focused_window`), or "every TextField on screen" would pass as a
+  description.
+- `optional` — carry on without it. Finder names a folder's files for Documents
+  but not for Downloads, and the count is still worth reporting.
+- `empty_ok` — nothing matched IS the answer (a free day in the calendar). Use it
+  only when a postcondition already proved the right place is on screen.
+- `tail` — read the last matches. Finder's column view shows every parent folder
+  beside the current one, so the first names on screen are not in the folder.
+
+**Verify a disappearance** with `"absent"`: a dialog closing adds nothing to the
+screen, so presence-only checks have nothing to assert.
+
+**Big apps are read partially.** At most 60 children per container and 2500
+elements in total; the tree says where it stopped (`… (N개 더 있음)`). A recipe
+that needs the 200th row of a mailbox cannot have it.
 
 ### Safety: state meaning, never a risk level
 
