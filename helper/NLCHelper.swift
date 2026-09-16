@@ -72,6 +72,9 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String], elements: inout [A
 // would let a caller act on a tree captured before the UI changed — the same
 // staleness rule the Python driver enforces has to hold here too, or routing
 // through the helper would weaken it (advisor finding).
+// Connection-local in effect: reset when a new connection is accepted, so a
+// later client never inherits the previous one's observation (they were global
+// and survived across connections — advisor finding).
 var latestObsID: String = ""
 var latestElements: [AXUIElement] = []
 // The observation belongs to ONE app. Without this, an obs_id taken from app A
@@ -184,8 +187,25 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
             return ["type": "error", "error": "action_failed", "detail": "AXValue set failed"]
         }
     case "type_text":
-        guard let text = action["text"] as? String else {
-            return ["type": "error", "error": "action_failed", "detail": "bad type_text"]
+        // Typing requires a target element, and that element must be somewhere
+        // text belongs. Before this, type_text posted key events to the PID
+        // without consulting any element at all — which is what made "fill in a
+        // field" and "type a command into a terminal" the same primitive.
+        guard let text = action["text"] as? String, let el = element() else {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "type_text 에는 element_index 가 필요합니다"]
+        }
+        let role = str(el, kAXRoleAttribute as String) ?? ""
+        let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox",
+                                      "AXSearchField"]
+        guard textRoles.contains(role) else {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "텍스트 입력 요소가 아닙니다: \(role)"]
+        }
+        guard !text.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F })
+        else {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "제어문자는 입력할 수 없습니다"]
         }
         for ch in text {
             if aborted {
@@ -202,8 +222,14 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
             usleep(10_000)
         }
     case "secondary_action":
-        guard let el = element(), let a = action["action"] as? String else {
-            return ["type": "error", "error": "action_failed", "detail": "bad secondary_action"]
+        // Duplicated here on purpose: the helper holds the grant, so it does not
+        // depend on a caller having filtered on its behalf.
+        let safeAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
+                                          "AXDecrement", "AXConfirm", "AXCancel"]
+        guard let el = element(), let a = action["action"] as? String,
+              safeAXActions.contains(a) else {
+            return ["type": "error", "error": "action_failed",
+                    "detail": "허용되지 않은 AX action"]
         }
         if AXUIElementPerformAction(el, a as CFString) != .success {
             return ["type": "error", "error": "action_failed", "detail": "secondary action failed"]
@@ -226,7 +252,14 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any]) -> [String:
 // So the indicator and the abort key belong HERE, in the process that performs
 // the actions — a caller cannot skip them by not drawing an overlay.
 
-var aborted = false
+// Touched by the key monitor on main and by workers off it, so it goes through
+// a lock rather than being read and written concurrently as a plain Bool.
+private let abortLock = NSLock()
+private var _aborted = false
+var aborted: Bool {
+    get { abortLock.lock(); defer { abortLock.unlock() }; return _aborted }
+    set { abortLock.lock(); _aborted = newValue; abortLock.unlock() }
+}
 var overlay: NSWindow?
 
 /// Returns false when the outline could not be drawn. Callers treat that as a
@@ -310,14 +343,6 @@ func respond(_ obj: [String: Any]) {
 }
 
 func handle(_ msg: [String: Any]) -> [String: Any] {
-    if !authenticated {
-        if expectedToken.isEmpty { authenticated = true }      // socket peer check
-        else if !(msg["token"] as? String == expectedToken) {
-            return ["type": "error", "error": "unauthenticated",
-                    "detail": "first message must carry the launch token"]
-        }
-        authenticated = true
-    }
     switch msg["type"] as? String {
     case "ping":
         return ["type": "pong", "trusted": AXIsProcessTrusted()]
@@ -354,17 +379,16 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // deliberate. A real boundary requires the OS to tell us who the caller is —
 // an XPC service checking the client's audit token and code-signing
 // requirement — which is the documented next step (PROTOCOL.md §3.8).
-let expectedToken: String = {
-    if CommandLine.arguments.contains("--listen") { return "" }   // peer-authenticated
-    guard let t = ProcessInfo.processInfo.environment["NLC_HELPER_TOKEN"],
-          !t.isEmpty else {
-        FileHandle.standardError.write(Data(
-            "NLC_HELPER_TOKEN is required; launch this helper through nlc\n".utf8))
-        exit(2)
-    }
-    return t
-}()
-var authenticated = false
+// Socket mode only. A stdio fallback used to exist, guarded by a launch token
+// and an "is a signed launcher among my ancestors" check — but the Python the
+// launcher starts IS such a descendant, so it could spawn this helper itself
+// and reach handle() without passing through the launcher's message vetting
+// (advisor finding: a bypass of the boundary we had just built). No fallback.
+guard CommandLine.arguments.contains("--listen") else {
+    FileHandle.standardError.write(Data(
+        "nlc-helper: --listen 이 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
+    exit(3)
+}
 
 /// Does the process that launched us satisfy the code requirement?
 ///
@@ -453,15 +477,6 @@ func parentSigningTelemetry(_ pid: pid_t) -> String? {
 }
 
 let parentPID = getppid()
-// In socket mode the peer check authenticates each connection, which is
-// strictly stronger, so the ancestry heuristic is not also applied.
-let usingSocket = CommandLine.arguments.contains("--listen")
-let (parentOK, parentWhy) = usingSocket ? (true, "socket mode")
-                                        : ancestrySatisfiesRequirement(parentPID)
-if !parentOK {
-    FileHandle.standardError.write(Data("nlc-helper: \(parentWhy)\n".utf8))
-    exit(3)
-}
 // Telemetry only: we record what the OS says launched us. We do NOT check
 // validity, team or a requirement, so this is not an identity check and is
 // never used to authorize anything (advisor finding: do not overclaim).
@@ -528,8 +543,26 @@ func serveSocket(at path: String) -> Never {
         }
         FileHandle.standardError.write(Data(
             "nlc-helper: peer \(PeerAuth.describe(fd: conn)) 인증됨\n".utf8))
+        // Fresh state per connection.
+        latestObsID = ""
+        latestElements = []
+        latestTargetPID = -1
+        latestTargetName = ""
         serve(connection: conn)
         close(conn)
+    }
+}
+
+/// Write the whole frame: a single write() can be partial, and without the loop
+/// a long reply would be silently truncated into invalid JSON.
+func writeAll(_ fd: Int32, _ data: Data) {
+    var sent = 0
+    data.withUnsafeBytes { raw in
+        while sent < data.count {
+            let n = write(fd, raw.baseAddress!.advanced(by: sent), data.count - sent)
+            if n <= 0 { if errno == EINTR { continue } else { return } }
+            sent += n
+        }
     }
 }
 
@@ -540,6 +573,7 @@ func serve(connection fd: Int32) {
         let chunk = input.availableData
         if chunk.isEmpty { return }
         buffer.append(chunk)
+        if buffer.count > 8 * 1024 * 1024 { return }   // frame budget, as launcher
         while let nl = buffer.firstIndex(of: 0x0A) {
             let line = buffer[buffer.startIndex..<nl]
             buffer = buffer[buffer.index(after: nl)...]
@@ -548,7 +582,7 @@ func serve(connection fd: Int32) {
             let reply = handle(msg)
             if var out = try? JSONSerialization.data(withJSONObject: reply) {
                 out.append(0x0A)
-                _ = out.withUnsafeBytes { write(fd, $0.baseAddress, out.count) }
+                writeAll(fd, out)
             }
         }
     }
@@ -567,26 +601,6 @@ let listenPath: String? = {
 }()
 
 DispatchQueue.global().async {
-    if let path = listenPath {
-        serveSocket(at: path)      // peer-authenticated; never returns
-    }
-    readLoop()                     // legacy stdio path (ancestry-checked)
+    serveSocket(at: listenPath!)   // peer-authenticated; never returns
 }
 nsApp.run()
-
-func readLoop() {
-while let line = readLine(strippingNewline: true) {
-    if line.isEmpty { continue }
-    guard let data = line.data(using: .utf8),
-          let msg = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-        respond(["type": "error", "error": "bad_message"])
-        continue
-    }
-    // Handled off the main thread: the Esc monitor is delivered on main, and a
-    // long type_text used to occupy it for the whole action — leaving the user
-    // unable to stop exactly the run that most needed stopping (advisor
-    // finding). Only the UI touches main, and briefly.
-    respond(handle(msg))
-}
-DispatchQueue.main.async { hideOverlay(); exit(0) }
-}

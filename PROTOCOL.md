@@ -731,3 +731,51 @@ requirement를 적용한다. 창을 좁혀 두었을 뿐(실행당 연결 1개, 
 `type_text` 로 터미널류 앱에 텍스트를 넣는 **의미적 명령 실행**은 어휘 검사로 막을
 수 없다. 그 지점의 방어는 계약 정책과, 도우미가 모든 읽기·동작을 보이게 하고 Esc로
 멈출 수 있게 한다는 성질이다.
+
+### 3.17 남은 항목 일괄 구현 (advisor 우선순위대로)
+
+**P0 — legacy stdio 경로 제거(실제 우회로였다).** 도우미는 `--listen` 없이 뜨면
+토큰+조상 검사 모드로 동작했는데, **런처가 띄운 파이썬이 바로 그 "서명된 런처의
+자손"** 이므로 파이썬이 도우미를 직접 spawn하면 조건을 만족하고 `readLoop()` 가
+런처의 `vetted()` 를 **건너뛰고** `handle()` 로 직행했다. 즉 방금 만든 경계를
+우리 자신의 자식이 우회할 수 있었다. 이제 `--listen` 이 없으면 즉시 종료하며,
+토큰·조상 검사·readLoop 코드는 **삭제**했다.
+
+**P0 게이트 — 바이너리 실태 점검(통과).** 런처·도우미 모두
+`flags=0x10000(runtime)`(hardened runtime)이고 `get-task-allow`,
+`disable-library-validation`, `allow-dyld-environment-variables` 등 위험
+entitlement가 없다. 확인 명령은 `codesign -dv --verbose=2` 와
+`codesign -d --entitlements :-`.
+
+**양방향 peer 인증.** 0700 디렉터리는 다른 사용자만 막을 뿐, 위협 모델인 **같은
+UID 프로세스**는 소켓을 unlink/rebind해 가짜 서버로 응답할 수 있다. 그래서 런처도
+연결 직후 `LOCAL_PEERTOKEN` 으로 **도우미의 signing requirement를 역검증**한다.
+인증은 양방향이어야 한다.
+
+**FD 위생.** socketpair 양쪽에 `FD_CLOEXEC`(없으면 나중에 spawn하는 도우미로 relay
+end가 상속된다), 그리고 자식에서는 `close(relayEnd) → dup2(childEnd,3) →
+close(childEnd)` 순서로 **fd 3 하나만** 남긴다(이전엔 원본 childEnd도 함께 남아
+"자식은 fd 3만 갖는다"는 불변식이 성립하지 않았다).
+
+**의미적 capability 축소(P1).** 블록리스트는 포기했다 — Terminal만 막아도 VS
+Code·Xcode·브라우저 개발자도구의 내장 터미널이 남는다. 대신 **권한을 분해**했다:
+- `type_text` 는 이제 **`element_index` 필수**이고, 그 요소의 role이 텍스트 입력
+  계열(`AXTextField`/`AXTextArea`/`AXComboBox`/`AXSearchField`)이어야 한다. 이전엔
+  요소를 전혀 보지 않고 PID에 키 이벤트를 보냈다 — "폼 채우기"와 "터미널에 명령
+  치기"가 같은 primitive였던 이유다.
+- **제어문자·개행 금지.** 삽입을 제출로 바꾸는 것이 개행이다.
+- **`press_key` 제거.** 도우미에 구현도 없었고, 범용 키 primitive가 바로 실행
+  경로다. 되돌아올 때는 `navigationKey` 와 명시적 `submit/shortcut` 으로 분리한다.
+
+**스키마·상태 정합성(P1/P2).** action별 **정확한 키 집합**(이전엔 모든 action 필드의
+합집합이라 `click` 에 `text`·`pages` 가 함께 와도 통과), 도우미에도 AX action
+allowlist **복제**(권한을 쥔 쪽이 호출자의 필터링에 의존하지 않는다), 연결마다 관찰
+상태 리셋, `aborted` 를 락으로 보호, 도우미에도 8MB 프레임 상한, 부분 쓰기·EINTR을
+처리하는 `writeAll`.
+
+**XPC는 P2로 유보.** 파이썬이 도우미 fd를 직접 갖지 않고 연결도 런처가 만들므로,
+"매 메시지 인증"이 막아 주는 추가 공격면이 현재 토폴로지에서는 좁다. 대신 규칙으로
+대신한다: **인증된 stream fd를 `SCM_RIGHTS` 로 전달하지 않고, 내부 fd는 모두
+CLOEXEC이며, 소유권이 바뀌어야 하면 연결을 폐기하고 새로 accept-time 인증을
+받는다.** 같은 fd에서 메시지마다 `LOCAL_PEERTOKEN` 을 다시 읽는 것은 XPC와 동등한
+해결이 아니다. 도우미를 상주시키거나 여러 클라이언트를 받게 되면 그때 XPC로 옮긴다.

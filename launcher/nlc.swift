@@ -27,6 +27,7 @@
 
 import Foundation
 import Darwin
+import Security
 
 // MARK: - Where we are
 
@@ -57,8 +58,29 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // MARK: - Message vetting
 
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act"]
-let allowedActions: Set<String> = ["click", "set_value", "type_text",
-                                   "press_key", "scroll", "secondary_action"]
+// Per-action exact schemas, not a union of every field. A union let `click`
+// arrive carrying `text`, `action` and `pages` as well (advisor finding);
+// requiring an exact key set makes each action mean one thing.
+//
+// `press_key` is deliberately absent. The helper does not implement it, and a
+// generic key primitive is how "type into a field" becomes "run a command" —
+// Return commits, and a modifier combination invokes. When it returns it should
+// return split into a navigation capability and an explicit submit/shortcut one,
+// so a recipe can fill a form without also being able to execute.
+let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
+    "click":            (["name", "element_index"], []),
+    "set_value":        (["name", "element_index", "value"], []),
+    "type_text":        (["name", "element_index", "text"], []),
+    "scroll":           (["name", "element_index", "direction"], ["pages"]),
+    "secondary_action": (["name", "element_index", "action"], []),
+]
+
+/// Text that is inserted must stay text. A newline or carriage return is what
+/// turns an insertion into a submission, and control characters are not
+/// something a person types into a form.
+func isPlainText(_ s: String) -> Bool {
+    !s.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+}
 // An AX action name goes straight to AXUIElementPerformAction, so it is an
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
@@ -85,11 +107,25 @@ func vetted(_ msg: [String: Any]) -> String? {
         guard msg["obs_id"] is String, msg["target"] is String,
               let action = msg["action"] as? [String: Any],
               let name = action["name"] as? String else { return "act 형식 오류" }
-        guard allowedActions.contains(name) else { return "허용되지 않은 action: \(name)" }
+        guard let schema = actionSchema[name] else {
+            return "허용되지 않은 action: \(name)"
+        }
+        let keys = Set(action.keys)
+        if !schema.required.isSubset(of: keys) {
+            return "\(name) 에 필수 필드 누락: \(schema.required.subtracting(keys))"
+        }
+        if !keys.isSubset(of: schema.required.union(schema.optional)) {
+            return "\(name) 에 허용되지 않은 필드: "
+                 + "\(keys.subtracting(schema.required.union(schema.optional)))"
+        }
         for (k, v) in action {
             switch k {
             case "name", "direction": if !(v is String) { return "\(k) 형식 오류" }
-            case "text", "value", "key": if !(v is String) { return "\(k) 형식 오류" }
+            case "value": if !(v is String) { return "value 형식 오류" }
+            case "text":
+                guard let t = v as? String, isPlainText(t) else {
+                    return "text 에 제어문자/개행은 넣을 수 없습니다"
+                }
             case "action":
                 guard let a = v as? String, allowedAXActions.contains(a) else {
                     return "허용되지 않은 AX action"
@@ -119,6 +155,34 @@ func fillAddr(_ path: String) -> sockaddr_un? {
     return addr
 }
 
+let helperRequirement =
+    "identifier \"ai.callabo.nlc.helper\" and anchor apple generic and " +
+    "certificate leaf[subject.OU] = \"48H4RZNB97\""
+
+/// Authenticate the SERVER we just connected to.
+///
+/// A 0700 directory keeps other users out, but the threat model is a process
+/// running as this same user — which can unlink and rebind the socket and
+/// answer as a fake helper. Authentication has to run both ways, so the
+/// launcher checks the helper's audit token exactly as the helper checks ours.
+func peerSatisfies(_ fd: Int32, _ requirement: String) -> Bool {
+    var token = audit_token_t()
+    var len = socklen_t(MemoryLayout<audit_token_t>.size)
+    let got = withUnsafeMutablePointer(to: &token) { ptr -> Bool in
+        getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, ptr, &len) == 0
+    }
+    guard got else { return false }
+    let data = withUnsafeBytes(of: &token) { Data($0) } as CFData
+    var code: SecCode?
+    guard SecCodeCopyGuestWithAttributes(
+            nil, [kSecGuestAttributeAudit: data] as CFDictionary, [], &code)
+            == errSecSuccess, let code else { return false }
+    var req: SecRequirement?
+    guard SecRequirementCreateWithString(requirement as CFString, [], &req)
+            == errSecSuccess, let req else { return false }
+    return SecCodeCheckValidity(code, [], req) == errSecSuccess
+}
+
 func connectSocket(_ path: String) -> Int32? {
     guard var addr = fillAddr(path) else { return nil }
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -128,6 +192,11 @@ func connectSocket(_ path: String) -> Int32? {
         p.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, size) }
     }
     if ok != 0 { close(fd); return nil }
+    guard peerSatisfies(fd, helperRequirement) else {
+        FileHandle.standardError.write(Data(
+            "nlc: 소켓 반대편이 진짜 도우미가 아닙니다 — 연결을 끊습니다\n".utf8))
+        close(fd); return nil
+    }
     return fd
 }
 
@@ -202,6 +271,10 @@ guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else {
     FileHandle.standardError.write(Data("nlc: 채널 생성 실패\n".utf8)); exit(1)
 }
 let relayEnd = pair[0], childEnd = pair[1]
+// CLOEXEC on both ends: without it the relay end leaks into the helper we spawn
+// later, and any exec inherits a channel that was authenticated for someone else.
+_ = fcntl(relayEnd, F_SETFD, FD_CLOEXEC)
+_ = fcntl(childEnd, F_SETFD, FD_CLOEXEC)
 
 env["NLC_HELPER_FD"] = "3"
 
@@ -210,8 +283,13 @@ posix_spawn_file_actions_init(&actions)
 // Order matters: file actions run in sequence. Closing the relay end AFTER the
 // dup2 closed the descriptor we had just created, because socketpair often
 // hands back 3 and 4 — so the relay end IS fd 3 until we close it.
+// Order matters: actions run in sequence, and socketpair often hands back 3 and
+// 4, so the relay end IS fd 3 until closed. dup2 also clears CLOEXEC on the new
+// descriptor, which is what lets fd 3 survive into the child — and only fd 3:
+// the original childEnd is closed so the child holds exactly one copy.
 posix_spawn_file_actions_addclose(&actions, relayEnd)
 posix_spawn_file_actions_adddup2(&actions, childEnd, 3)
+posix_spawn_file_actions_addclose(&actions, childEnd)
 
 // -I (isolated): without it `python -m` puts the CALLER's working directory
 // first on sys.path, so a fixed module would not be fixed code.
