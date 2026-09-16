@@ -1,0 +1,153 @@
+{
+  "name": "calc_12x34",
+  "target": "com.apple.calculator",
+  "steps": [
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": [
+          "AllClear",
+          "Clear"
+        ],
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "초기화",
+      "expect": null,
+      "postcondition": null,
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "One",
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "1 버튼",
+      "expect": null,
+      "postcondition": null,
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Two",
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "2 버튼",
+      "expect": null,
+      "postcondition": null,
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Multiply",
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "곱하기",
+      "expect": null,
+      "postcondition": null,
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Three",
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "3 버튼",
+      "expect": null,
+      "postcondition": null,
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Four",
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "4 버튼",
+      "expect": null,
+      "postcondition": null,
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Equals",
+        "title": null,
+        "desc": null,
+        "ancestor": "CalculatorKeypadView",
+        "allow_nth": null
+      },
+      "params": {},
+      "risk_class": "none",
+      "intent_text": "계산",
+      "expect": null,
+      "postcondition": {
+        "field": {
+          "role": "ScrollArea",
+          "identifier": "StandardInputView",
+          "title": null,
+          "desc": null,
+          "ancestor": null,
+          "allow_nth": null
+        },
+        "equals": "408",
+        "contains": null
+      },
+      "require_enabled": true,
+      "is_submit": false,
+      "into_sensitive_field": false
+    }
+  ]
+}
