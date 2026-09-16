@@ -22,6 +22,28 @@ import uuid
 # (AXPress, AXValue) are per-element and need no focus — they run truly parallel.
 _INPUT_LOCK = threading.Lock()
 
+# Synthetic input is tagged so a cooperating app (or an audit tool) can tell our
+# events apart from a human's. macOS has no public "this window is being
+# automated" flag, but CGEvent carries user data on its source, which is the one
+# public, cooperative signal available (advisor-confirmed).
+NLC_EVENT_MARKER = 0x4E4C4331        # 'NLC1'
+_EVENT_SOURCE = None
+
+
+def _event_source():
+    """A private-state event source stamped with our marker."""
+    global _EVENT_SOURCE
+    if _EVENT_SOURCE is None:
+        try:
+            import Quartz as _Q
+            src = _Q.CGEventSourceCreate(_Q.kCGEventSourceStatePrivate)
+            if src is not None:
+                _Q.CGEventSourceSetUserData(src, NLC_EVENT_MARKER)
+            _EVENT_SOURCE = src
+        except Exception:
+            _EVENT_SOURCE = False      # unavailable; fall back to None source
+    return _EVENT_SOURCE or None
+
 from AppKit import NSWorkspace
 from ApplicationServices import (
     AXIsProcessTrusted,
@@ -68,8 +90,13 @@ def _elem_frame(el):
     pos, size = _attr(el, "AXPosition"), _attr(el, "AXSize")
     if pos is None or size is None:
         return None
-    err_p, p = Quartz.AXValueGetValue(pos, Quartz.kAXValueCGPointType, None)
-    err_s, s = Quartz.AXValueGetValue(size, Quartz.kAXValueCGSizeType, None)
+    # AXValueGetValue lives in ApplicationServices; Quartz does not export it,
+    # so the coordinate fallback used to raise AttributeError the moment an
+    # AXPress failed and it was actually needed.
+    from ApplicationServices import (AXValueGetValue, kAXValueCGPointType,
+                                     kAXValueCGSizeType)
+    err_p, p = AXValueGetValue(pos, kAXValueCGPointType, None)
+    err_s, s = AXValueGetValue(size, kAXValueCGSizeType, None)
     if not (err_p and err_s):
         return None
     return (p.x, p.y, s.width, s.height)
@@ -352,7 +379,7 @@ class Driver:
     def _mouse_click(self, x, y, pid=None):
         with _INPUT_LOCK:
             for etype in (Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
-                ev = Quartz.CGEventCreateMouseEvent(None, etype, (x, y),
+                ev = Quartz.CGEventCreateMouseEvent(_event_source(), etype, (x, y),
                                                     Quartz.kCGMouseButtonLeft)
                 self._post(ev, pid)
                 time.sleep(0.03)
@@ -361,7 +388,7 @@ class Driver:
         with _INPUT_LOCK:
             for ch in text:
                 for down in (True, False):
-                    ev = Quartz.CGEventCreateKeyboardEvent(None, 0, down)
+                    ev = Quartz.CGEventCreateKeyboardEvent(_event_source(), 0, down)
                     Quartz.CGEventKeyboardSetUnicodeString(ev, len(ch), ch)
                     self._post(ev, pid)
                 time.sleep(0.01)
@@ -387,20 +414,20 @@ class Driver:
             flags |= self._MODS[m]
         with _INPUT_LOCK:
             for down in (True, False):
-                ev = Quartz.CGEventCreateKeyboardEvent(None, code, down)
+                ev = Quartz.CGEventCreateKeyboardEvent(_event_source(), code, down)
                 if flags:
                     Quartz.CGEventSetFlags(ev, flags)
                 self._post(ev, pid)
 
     def _scroll_at(self, x, y, direction, pages, pid=None):
         with _INPUT_LOCK:
-            move = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved,
+            move = Quartz.CGEventCreateMouseEvent(_event_source(), Quartz.kCGEventMouseMoved,
                                                   (x, y), 0)
             self._post(move, pid)
             amount = int(10 * pages) * (1 if direction in ("up", "left") else -1)
             vertical = direction in ("up", "down")
             ev = Quartz.CGEventCreateScrollWheelEvent(
-                None, Quartz.kCGScrollEventUnitLine, 2 if not vertical else 1,
+                _event_source(), Quartz.kCGScrollEventUnitLine, 2 if not vertical else 1,
                 amount if vertical else 0, amount if not vertical else 0)
             self._post(ev, pid)
 
