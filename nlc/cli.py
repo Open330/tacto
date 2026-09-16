@@ -9,6 +9,7 @@ Usage:
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
+      (add --no-indicator to suppress the on-screen "being controlled" outline)
   python -m nlc.cli replay <name>     # replay a saved flow by name
 """
 
@@ -17,6 +18,21 @@ import sys
 from . import onboard
 from .agent import Agent
 from .store import FlowStore
+
+
+
+def _indicator_for(target, argv):
+    """Show a 'being controlled' outline on the target window during a run,
+    unless the caller opted out. Never blocks the task if it can't draw."""
+    from .driver import Driver
+    from .overlay import Indicator
+    if "--no-indicator" in argv:
+        return Indicator(None, enabled=False)
+    try:
+        pid = Driver()._resolve(target, launch=False)
+    except Exception:
+        pid = None
+    return Indicator(pid, notify=lambda m: print(f"  {m}"))
 
 
 def main(argv=None):
@@ -115,7 +131,8 @@ def main(argv=None):
         from .flow import Flow as _F, replay as _replay
         with open(rest[0], encoding="utf-8") as fh:
             flow = _F.from_json(fh.read())
-        r = _replay(_D(), flow, narrate=lambda s: print(f"  … {s}"))
+        with _indicator_for(flow.target, rest):
+            r = _replay(_D(), flow, narrate=lambda s: print(f"  … {s}"))
         last = r.log[-1]
         if r.ok:
             v = last.get("result")
@@ -130,7 +147,8 @@ def main(argv=None):
         from .driver import Driver
         from .flow import replay
         flow = FlowStore().load(rest[0])
-        r = replay(Driver(), flow, narrate=lambda s: print(f"  … {s}"))
+        with _indicator_for(flow.target, rest):
+            r = replay(Driver(), flow, narrate=lambda s: print(f"  … {s}"))
         if r.ok:
             v = r.log[-1].get("result")
             print("done" + (f" — 결과: {v}" if v else ""))
@@ -195,7 +213,16 @@ def main(argv=None):
                 return _author(intent_text, drv, provider="cxweb")
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook)
-        with KeepAwake():   # option A: hold off idle-lock while the task runs
+        # The person should be able to see their computer being driven, and
+        # stop it: outline the window while the task runs.
+        from .store import FlowStore as _S
+        guess = None
+        try:
+            nm = agent.resolve(intent)
+            guess = _S().load(nm).target if nm and _S().has(nm) else None
+        except Exception:
+            guess = None
+        with KeepAwake(), _indicator_for(guess or "", rest):
             turn = agent.handle(intent)
         if tracer is not None:
             tracer.trace.flow = turn.flow or "(unresolved)"
