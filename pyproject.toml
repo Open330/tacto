@@ -9,11 +9,17 @@ description = "자연어로 컴퓨터를 조작하는 인터페이스 — 토큰
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    # Core computer-use = the OS accessibility layer. The browser is driven as
+    # just another app through this — no separate browser-automation stack.
     "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
-    "playwright>=1.40",
 ]
+
+[project.optional-dependencies]
+# Optional headless/programmatic web backend (nlc/browser.py). NOT needed for
+# computer use of the user's real browser, which the AX driver already handles.
+web = ["playwright>=1.40"]
 
 [project.scripts]
 nlc = "nlc.cli:main"

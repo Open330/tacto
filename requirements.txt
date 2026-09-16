@@ -3,6 +3,7 @@ pyobjc-framework-ApplicationServices>=10.0
 pyobjc-framework-Quartz>=10.0
 pyobjc-framework-Cocoa>=10.0
 
-# Web backend (optional but recommended). After install, run:
-#   python -m playwright install chromium
-playwright>=1.40
+# Optional headless web backend only (nlc/browser.py). NOT needed for computer
+# use of the real browser, which the AX driver handles as just another app.
+# Install if you want it, then: python -m playwright install chromium
+# playwright>=1.40

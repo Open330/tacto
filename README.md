@@ -86,17 +86,21 @@ $ nlc do "계산기로 12 곱하기 34"
  액션 프로토콜  ─────────────────────────  L2  observe · act · confirm · handoff
  드라이버  ───────────────┬──────────────  L1  백엔드
                           │
-            ┌─────────────┴─────────────┐
-       macOS AX                     Browser
-   AXUIElement + CGEvent      Playwright + CDP a11y tree
+            ┌─────────────┴───────────────┐
+       macOS AX                      Browser (선택)
+   AXUIElement + CGEvent       Playwright + CDP a11y tree
+   ↑ 브라우저 포함 모든 앱       ↑ 헤드리스/프로그래매틱 웹 전용
 ```
+
+> 컴퓨터 사용에서 **브라우저는 별도 백엔드가 아니라 macOS AX로 조작되는 앱**입니다.
+> 오른쪽 Browser 백엔드는 헤드리스·자동화 용도의 선택적 대안일 뿐입니다.
 
 | 모듈 | 역할 |
 |---|---|
 | `nlc/driver.py` | macOS AX 트리 읽기 + CGEvent 입력, L2 프로토콜, 조건 폴링 |
 | `nlc/flow.py` | 결정론 재생 — 셀렉터 카디널리티, precondition, 구조화 postcondition |
 | `nlc/safety.py` | 4단계 확인 정책 분류기 + escalation-only merge |
-| `nlc/browser.py` | 웹 백엔드(Playwright + CDP), 동일 L2/Flow 어휘 |
+| `nlc/browser.py` | **(선택)** 헤드리스 웹 백엔드(Playwright + CDP), 동일 L2/Flow 어휘 |
 | `nlc/voice.py` | 음성 프론트(macOS TTS + 플러그형 STT, 음성 확인 게이트) |
 | `nlc/agent.py` | L3/L4 — 인텐트→플로우→내레이션→복구/게이트 |
 | `nlc/authoring.py` | 신규 인텐트를 모델로 학습→Flow 저장 (유일한 토큰 소비 경로) |
@@ -118,9 +122,19 @@ $ nlc do "계산기로 12 곱하기 34"
 git clone git@github.com:Open330/nlc.git && cd nlc
 
 # 2. 설치 — uv가 venv 생성·의존성 해석·`nlc` 명령 등록을 한 번에
-uv sync
-uv run playwright install chromium   # 웹 백엔드용 (선택)
+uv sync           # 코어: pyobjc(AX)만. 브라우저 automation 스택 없음
 ```
+
+> **브라우저는 별도 스택이 필요 없습니다.** 컴퓨터 사용에서 브라우저는 다른 앱과
+> 똑같이 접근성(AX) 레이어로 조작됩니다 — 코어 설치에 Playwright도 Chromium도
+> 들어가지 않습니다.
+>
+> `nlc/browser.py`는 **선택적** 헤드리스/프로그래매틱 웹 백엔드일 뿐이며, 필요할
+> 때만 추가합니다:
+> ```bash
+> uv sync --extra web                  # Playwright 추가
+> uv run playwright install chromium
+> ```
 
 uv가 없다면: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 

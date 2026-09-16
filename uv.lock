@@ -84,19 +84,24 @@ name = "nlc"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "playwright" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
 ]
 
+[package.optional-dependencies]
+web = [
+    { name = "playwright" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "playwright", specifier = ">=1.40" },
+    { name = "playwright", marker = "extra == 'web'", specifier = ">=1.40" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
 ]
+provides-extras = ["web"]
 
 [[package]]
 name = "playwright"

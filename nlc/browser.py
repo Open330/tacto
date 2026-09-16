@@ -1,4 +1,12 @@
-"""Browser backend — the same L2 protocol, over Playwright + the CDP a11y tree.
+"""Browser backend (OPTIONAL) — the same L2 protocol, over Playwright + CDP.
+
+Not required for computer use of the user's real browser: to the macOS AX driver
+a browser (Chrome/Safari/Arc) is just another app, driven through the same
+accessibility layer as everything else. This module is a separate, optional path
+for headless / programmatic web automation — install it with the `web` extra
+(`uv sync --extra web`). The on-philosophy way to reach the *user's own* browser
+is to attach to its running instance (Codex's iab/extension/cdp providers do
+this), not to spawn a headless Chromium; that attach path is future work.
 
 Design parity with the macOS AX driver: observe returns a flat, indexed
 accessibility tree (role + name), actions target an element by the index derived
