@@ -390,8 +390,21 @@ NLCHelper.app (Swift)   서명·공증된 LSUIElement
 **지금 당장의 완화책(구현됨):** `nlc doctor`가 공유 인터프리터에 권한이 부여되는
 상황을 감지해 경고한다. 사용자가 Allow를 누르기 전에 그 범위를 알아야 한다.
 
-**전제조건:** Swift 빌드는 Xcode 라이선스 동의(`sudo xcodebuild -license`)가 필요하고,
-서명 인증서는 이미 보유 중이다.
+**구현 완료 (2026-09-16).** `helper/NLCHelper.swift` + `helper/build.sh`.
+Command Line Tools 툴체인으로 빌드하므로 **Xcode 라이선스 동의가 불필요**하다
+(`/Library/Developer/CommandLineTools/usr/bin/swiftc`, SDK 명시). 서명까지 완료
+(TeamIdentifier 48H4RZNB97). 파이썬 쪽은 `nlc/helper.py`의 `HelperDriver`가
+stdin/stdout JSON 한 줄씩으로 **동일한 L2 메시지**를 주고받는다 — 드라이버 교체만으로
+끝나며 프로토콜·IR·안전 게이트는 그대로다.
+
+```bash
+helper/build.sh                              # 빌드 + 서명
+uv run nlc replay calc_multiply -p a=3 -p b=4 --helper
+```
+
+실증: 동일 IR이 기본 드라이버와 도우미 경유에서 같은 결과(12)를 내고, 트리 출력
+포맷도 36요소로 일치한다. 남은 일은 배포 형태(.app 번들 + 공증)와, 권한을 도우미
+에게만 요구하도록 온보딩을 바꾸는 것이다.
 
 ### 3.9 일반적 상호작용을 위한 IR 확장
 

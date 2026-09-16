@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-12%2F12_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-15%2F15_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -110,6 +110,8 @@ $ nlc do "계산기로 12 곱하기 34"
 | `nlc/session.py` | 잠금 상태·capability·keep-awake |
 | `nlc/onboard.py` | 권한 온보딩 마법사 |
 | `nlc/parallel.py` | 병렬 조작 (AX 액션 병렬 + CGEvent 직렬화) |
+| `helper/NLCHelper.swift` | **권한을 보유하는 서명된 도우미** — 파이썬은 권한 없이 L2로만 통신 (`--helper`) |
+| `nlc/reparam.py` | 구체 IR → 템플릿 재파라미터화 (모델 불필요) |
 | `nlc/cli.py` | `doctor` · `list` · `do` · `replay` |
 
 <br>
@@ -178,6 +180,13 @@ uv run nlc apps                         # 실행 중 앱 + GUI 세션 확인
 uv run nlc observe com.apple.calculator # 접근성 트리 덤프
 uv run nlc list                         # 저장된 IR 목록 + 위치
 uv run nlc show calc_multiply           # IR 전문 보기
+
+# 기존 IR을 템플릿으로 승격 (모델 불필요)
+uv run nlc parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
+       --digits --derived='result={{a}} * {{b}}'
+
+# 권한을 보유한 서명된 Swift 도우미 경유 (helper/build.sh 로 빌드)
+uv run nlc replay calc_multiply -p a=3 -p b=4 --helper
 uv run python -m nlc.voice              # 음성 세션
 uv run python examples/eval.py          # 평가 재현
 ```
@@ -227,7 +236,7 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `eval 12/12 PASS`
+## 검증 상태 — `eval 15/15 PASS`
 
 ```
   PASS  task_success           계산기 12×34 → 408 결정론 재생 (토큰 0)

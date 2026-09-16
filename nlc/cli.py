@@ -10,6 +10,7 @@ Usage:
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
+      (--helper routes through the signed Swift helper that holds the permissions)
       (add --no-indicator to suppress the on-screen "being controlled" outline)
   python -m nlc.cli replay <name>     # replay a saved flow by name
 """
@@ -21,6 +22,20 @@ from .agent import Agent
 from .store import FlowStore
 
 
+
+
+
+def _make_driver(argv):
+    """--helper uses the signed Swift helper (which holds the permissions);
+    otherwise the in-process Python driver. Same L2 protocol either way."""
+    if "--helper" in argv:
+        from .helper import HelperDriver, HelperUnavailable
+        try:
+            return HelperDriver()
+        except HelperUnavailable as e:
+            print(f"  도우미를 쓸 수 없어 기본 드라이버로 진행합니다: {e}")
+    from .driver import Driver
+    return Driver()
 
 
 def _params_from(argv):
@@ -184,7 +199,7 @@ def main(argv=None):
         if flow.params or params:
             flow = flow.bind(**params)          # parameterized recipe
         with _indicator_for(flow.target, rest):
-            r = _replay(_D(), flow, narrate=lambda s: print(f"  … {s}"))
+            r = _replay(_make_driver(rest), flow, narrate=lambda s: print(f"  … {s}"))
         last = r.log[-1]
         if r.ok:
             v = last.get("result")
@@ -205,7 +220,7 @@ def main(argv=None):
         if flow.params or params:
             flow = flow.bind(**params)
         with _indicator_for(flow.target, rest):
-            r = replay(Driver(), flow, narrate=lambda s: print(f"  … {s}"))
+            r = replay(_make_driver(rest), flow, narrate=lambda s: print(f"  … {s}"))
         if r.ok:
             v = r.log[-1].get("result")
             print("done" + (f" — 결과: {v}" if v else ""))
@@ -254,7 +269,7 @@ def main(argv=None):
                       f"  Trace IR = 실행 중 무엇이 보였는지 (--trace)")
                 return 2
 
-        driver = Driver()
+        driver = _make_driver(rest)
         tracer = None
         if trace_path:
             from .trace import TracingDriver, Trace

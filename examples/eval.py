@@ -208,6 +208,22 @@ def scenario_capture():
     return r.ok and (r.log[-1].get("captured") or {}).get("answer") == "72"
 
 
+def scenario_swift_helper():
+    """The same recipe, same protocol, executed by the signed helper that holds
+    the permissions instead of by this interpreter. Skips when not built."""
+    try:
+        from nlc.helper import HelperDriver, HelperUnavailable
+        d = HelperDriver()
+    except Exception:
+        return None
+    try:
+        from nlc.flow import calculator_multiply, replay
+        r = replay(d, calculator_multiply().bind(a="9", b="8"))
+        return r.ok and str(r.log[-1].get("result")) == "72"
+    finally:
+        d.close()
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -276,6 +292,7 @@ SCENARIOS = [
     ("parameterized_flow (one IR, many inputs)", scenario_parameterized_flow),
     ("reparameterize (concrete IR -> template, no model)", scenario_reparameterize),
     ("capture (read a value off the screen)", scenario_capture),
+    ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
