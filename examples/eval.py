@@ -35,6 +35,28 @@ def scenario_safety_block():
             and proceeded.log[-1]["status"] == "done")
 
 
+def scenario_batch_invalidation():
+    """act_batch must stop when a mutation staled the remaining raw indices,
+    rather than clicking the wrong element on an unchanged obs_id."""
+    d = Driver()
+    o = d.observe("com.apple.calculator", "tree_full")
+    if o["type"] != "observation":
+        return None   # skip if calculator unavailable (locked/no window)
+    import re
+    def idx(pat):
+        for l in o["tree"].splitlines():
+            if "Button" in l and pat in l:
+                return int(l.strip().split()[0])
+    one, two = idx("Identifier: One"), idx("Identifier: Two")
+    if one is None or two is None:
+        return None
+    r = d.handle({"type": "act_batch", "obs_id": o["obs_id"],
+                  "target": "com.apple.calculator",
+                  "actions": [{"name": "click", "element_index": one},
+                              {"name": "click", "element_index": two}]})
+    return any(x.get("error") == "batch_invalidated" for x in r["results"])
+
+
 def scenario_resolver_honesty():
     tree = ("0 Window\n  1 Button  Title: Save\n  2 Button  Title: Save")
     try:
@@ -74,10 +96,18 @@ def scenario_browser_backend():
 
 def scenario_safety_classifier():
     cases = [
+        # English
         ({"name": "click"}, "Button Title: Delete Account", "confirm"),
         ({"name": "click"}, "Button Title: Log In", "preapproved"),
         ({"name": "type_text"}, "TextField Title: Password", "handoff"),
         ({"name": "click"}, "Button Identifier: Seven", "none"),
+        # Korean (product is Korean-first — must not silently pass these)
+        ({"name": "click"}, "Button Title: 결제하기", "confirm"),
+        ({"name": "click"}, "Button Title: 삭제", "confirm"),
+        ({"name": "click"}, "Button Title: 전송", "confirm"),
+        ({"name": "click"}, "Button Title: 로그인", "preapproved"),
+        ({"name": "set_value"}, "TextField Title: 카드 번호", "handoff"),
+        ({"name": "set_value"}, "TextField Title: 비밀번호", "handoff"),
     ]
     return all(classify(a, l)[0] == exp for a, l, exp in cases)
 
@@ -86,6 +116,7 @@ SCENARIOS = [
     ("task_success (12×34 → 408 verified)", scenario_task_success),
     ("determinism (replay uses 0 model tokens)", lambda: True),  # by construction
     ("safety_gate (block w/o approval, run w/ approval)", scenario_safety_block),
+    ("batch_invalidation (stale index stopped mid-batch)", scenario_batch_invalidation),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
