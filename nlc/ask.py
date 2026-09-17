@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from .authoring import _extract_json, reach_model
+from .contract import EFFECTS, REVERSIBILITY, SCOPES
 
 
 @dataclass
@@ -82,7 +83,30 @@ _ASKED = """사용자가 컴퓨터에게 한 말을 구조로 옮기십시오. J
  "quote": "<위 판단의 근거가 된 발화의 구간, 원문 그대로>",
  "excluded": ["<사용자가 하지 말라고 한 것>"],
  "date_from": "YYYY-MM-DD 또는 null",
- "date_to": "YYYY-MM-DD 또는 null"}
+ "date_to": "YYYY-MM-DD 또는 null",
+ "allows": ["read", "write_ephemeral"],
+ "scope": "entry",
+ "reversibility": "reversible"}
+
+`allows` 는 **이 요청을 수행하는 데 필요한 효과**입니다. 아래에서만 고르고,
+필요한 것보다 넓게 고르지 마십시오 — 넓힌 만큼 사용자가 부탁하지 않은 일이
+허용됩니다.
+
+  read              화면을 읽기만 함
+  write_ephemeral   입력칸·계산기처럼 저장되지 않는 것을 바꿈
+  write_persistent  파일·문서·일정처럼 남는 것을 만들거나 바꿈
+  delete            저장된 것을 지움
+  transmit          앱 밖으로 내보냄 (메일·메시지·업로드)
+  financial         돈이 움직임
+  credential        비밀번호·인증번호
+  install           프로그램 설치
+  system_config     시스템 설정 변경
+
+`scope` 는 얼마나 넓은 범위인가입니다: `entry`(입력 한 칸) · `item`(한 건) ·
+`collection`(여러 건) · `account`(계정 전체) · `all`.
+
+`reversibility` 는 되돌릴 수 있는가입니다: `reversible` · `recoverable` ·
+`irreversible` · `unknown`. 모르면 `unknown` 이 정답입니다.
 
 `negated` 는 사용자가 그 동작을 **하지 말라고** 했을 때 true 입니다.
 "굵게 하지 마" 는 goal 이 "굵게 하지 않기", negated 가 true 입니다.
@@ -141,8 +165,23 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
         # Nor may the goal be the thing the user ruled out.
         if any(x and x in goal for x in excluded):
             return None
-        out = {"goal": goal, "negated": negated,
-               "quote": quote, "excluded": excluded}
+        # The envelope, issued from the user's words alone and before any
+        # screen has been seen. Closed vocabularies, so an effect with no policy
+        # cannot be asked for; anything unrecognised makes this no answer at all
+        # rather than a quietly narrower one.
+        allows = a.get("allows")
+        if not isinstance(allows, list) or not allows:
+            return None
+        allows = {str(x) for x in allows}
+        if not allows <= EFFECTS:
+            return None
+        scope = str(a.get("scope", ""))
+        rev = str(a.get("reversibility", ""))
+        if scope not in SCOPES or rev not in REVERSIBILITY:
+            return None
+        out = {"goal": goal, "negated": negated, "quote": quote,
+               "excluded": excluded, "allows": sorted(allows),
+               "scope": scope, "reversibility": rev}
         for k in ("date_from", "date_to"):
             v = a.get(k)
             if isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):

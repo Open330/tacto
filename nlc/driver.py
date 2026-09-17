@@ -629,13 +629,25 @@ class Driver:
             el = self._element(obs, action)
         except Exception as e:
             return str(e)
+        want_role = expect.get("role")
+        if want_role:
+            # The element's OWN role, not a substring of its label. Comparing
+            # against the label line looked like it worked and could never
+            # pass: `_elem_label` describes what a thing is called, and a
+            # Button's label does not contain the word "Button". Every action
+            # the screen loop tried was refused as "대상이 달라졌습니다" while
+            # the element was sitting exactly where it always had been.
+            role = _attr(el, "AXRole") or ""
+            if role.startswith("AX"):
+                role = role[2:]
+            if role != want_role:
+                return f"대상이 달라졌습니다 (기대 {want_role}, 지금 {role or '?'})"
         seen = _elem_label(el)
         if seen is None:
             return "대상이 화면에서 사라졌습니다"
-        for key in ("role", "label"):
-            want = expect.get(key)
-            if want and want not in seen:
-                return f"대상이 달라졌습니다 (기대 {want!r}, 지금 {seen[:60]!r})"
+        want = expect.get("label")
+        if want and want not in seen:
+            return f"대상이 달라졌습니다 (기대 {want!r}, 지금 {seen[:60]!r})"
         return ""
 
     def probe(self, obs_id: str, target: str, element_index: int) -> dict:

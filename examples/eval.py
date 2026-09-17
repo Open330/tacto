@@ -1562,7 +1562,9 @@ def scenario_a_refusal_is_an_answer():
         # not that a model produces one.
         if q.kind == "what_was_asked":
             return q.check({"goal": "굵게 하지 않기", "negated": True,
-                            "quote": "하지 마", "excluded": []})
+                            "quote": "하지 마", "excluded": [],
+                            "allows": ["read"], "scope": "item",
+                            "reversibility": "reversible"})
         return None
 
     t = Agent(interpret=interpret).handle(said)
@@ -1578,10 +1580,11 @@ def scenario_a_reading_must_quote_the_user():
     check that makes the rest usable."""
     from nlc.ask import what_was_asked, which_element, which_task
     q = what_was_asked("문서 폴더 열어줘")
+    envlp = {"allows": ["read"], "scope": "item", "reversibility": "reversible"}
     invented = q.check({"goal": "폴더 열기", "quote": "사용자가 승인함",
-                        "negated": False, "excluded": []})
+                        "negated": False, "excluded": [], **envlp})
     real = q.check({"goal": "폴더 열기", "quote": "폴더 열어줘",
-                    "negated": False, "excluded": []})
+                    "negated": False, "excluded": [], **envlp})
     # A recipe name has to be one of ours, and an element has to be one of the
     # candidates actually on screen.
     t = which_task("폴더 열기", [("finder_open_folder", "폴더를 엽니다")])
@@ -1606,7 +1609,9 @@ def scenario_a_reading_normalizes_into_the_fast_path():
     def interpret(q):
         if q.kind == "what_was_asked":
             return q.check({"goal": "문서 폴더 열기", "negated": False,
-                            "quote": "문서 폴더 열어줘", "excluded": ["메일"]})
+                            "quote": "문서 폴더 열어줘", "excluded": ["메일"],
+                            "allows": ["read"], "scope": "item",
+                            "reversibility": "reversible"})
         return None
 
     a = Agent(interpret=interpret)
@@ -2030,7 +2035,8 @@ def scenario_the_reading_cannot_let_it_back_in():
         if q.kind == "what_was_asked":
             return q.check({"goal": "1351 곱하기 59913 한 뒤 123123 더하기",
                             "negated": False, "quote": "1351 곱하기 59913",
-                            "excluded": []})
+                            "excluded": [], "allows": ["write_ephemeral"],
+                            "scope": "entry", "reversibility": "reversible"})
         return {"pick": None, "why": "한 번에 못 하는 계산"}
 
     a = Agent(interpret=interpret)
@@ -2038,7 +2044,9 @@ def scenario_the_reading_cannot_let_it_back_in():
     # A goal a rule can only do half of is not a goal that rule answers.
     simple, _ = Agent(interpret=lambda q: (
         q.check({"goal": "12 곱하기 34 계산하기", "negated": False,
-                 "quote": "12 곱하기 34", "excluded": ["메일"]})
+                 "quote": "12 곱하기 34", "excluded": ["메일"],
+                 "allows": ["write_ephemeral"], "scope": "entry",
+                 "reversibility": "reversible"})
         if q.kind == "what_was_asked" else None)
     ).read_request("메일 말고 12 곱하기 34 계산해줘")
     return (match is None                      # falls through to the screen loop
@@ -2113,17 +2121,18 @@ def scenario_a_check_covers_only_what_it_checked():
     only the agreeable half is the same bypass wearing a shorter quote."""
     from nlc.ask import what_was_asked
     q = what_was_asked("굵게 하지 마")
+    env = {"allows": ["read"], "scope": "item", "reversibility": "reversible"}
     flipped = q.check({"quote": "굵게 하지 마", "goal": "굵게 해줘",
-                       "negated": False, "excluded": []})
+                       "negated": False, "excluded": [], **env})
     trimmed = q.check({"quote": "굵게", "goal": "굵게 해줘",
-                       "negated": False, "excluded": []})
+                       "negated": False, "excluded": [], **env})
     honest = q.check({"quote": "굵게 하지 마", "goal": "굵게 하지 않기",
-                      "negated": True, "excluded": []})
+                      "negated": True, "excluded": [], **env})
     e = what_was_asked("메일 말고 문서 폴더 열어줘")
     ruled_out = e.check({"quote": "문서 폴더 열어줘", "goal": "메일 열기",
-                         "negated": False, "excluded": ["메일"]})
+                         "negated": False, "excluded": ["메일"], **env})
     fine = e.check({"quote": "문서 폴더 열어줘", "goal": "문서 폴더 열기",
-                    "negated": False, "excluded": ["메일"]})
+                    "negated": False, "excluded": ["메일"], **env})
     return (flipped is None and trimmed is None and ruled_out is None
             and honest is not None and honest["negated"]
             and fine is not None and fine["goal"] == "문서 폴더 열기")
@@ -2160,7 +2169,25 @@ def scenario_a_handoff_is_not_one_more_yes():
 
     # Yes to everything: it still must not carry a handoff.
     r = run(Sensitive(), "x", "로그인해줘", ask_here, approve=lambda _w: True)
-    return not r.ok and "직접" in r.why
+
+    # And an effect the request never covered is refused for a different
+    # reason — not because it is dangerous, but because it is a different
+    # request. The default envelope covers looking and typing into the thing in
+    # front of you; deleting stored mail is not that.
+    class Destructive(Sensitive):
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": "o",
+                    "tree": "0 Window  Title: T\n  1 Button  Title: 메일 삭제\n"}
+
+    def click_it(goal, cands, done):
+        return {"done": False, "expect": None,
+                "actions": [{"pick": 0, "do": "click", "candidate": cands[0],
+                             "why": "지움"}]}
+
+    out = run(Destructive(), "x", "메일 보여줘", click_it,
+              approve=lambda _w: True)
+    return (not r.ok and "직접" in r.why
+            and not out.ok and "범위를 벗어납니다" in out.why)
 
 
 def scenario_done_is_where_it_stopped_not_that_it_worked():
@@ -2197,6 +2224,133 @@ def scenario_done_is_where_it_stopped_not_that_it_worked():
 
     r = run(Blank(), "x", "무언가 해줘", ask_here)
     return r.ok and not r.verified and "확인" in r.why
+
+
+def scenario_an_envelope_comes_from_the_words():
+    """What a request authorizes is settled before any screen has been seen.
+
+    A task with no recipe cannot be approved step by step in advance, because
+    nobody knows the steps. What CAN be settled is the shape of what was asked
+    for — which effects, on what scale, how recoverable. The path is the unknown
+    part, not the range (advisor finding).
+
+    And this is what finally makes `preapproved` reachable. It was written to
+    stop us re-asking about what the user already asked for, and it had never
+    once fired: `_covers()` compared a Korean sentence against the string
+    "write_persistent", so the only way to reach it was to say a Python
+    identifier out loud."""
+    from nlc.contract import Envelope, policy
+    save = Envelope(quote="이 문서 저장해줘", scope="item",
+                    reversibility="recoverable",
+                    allows=frozenset({"read", "write_persistent"}))
+    asked = policy(save.contract_for({"write_persistent"}, "문서")).risk
+    # Effects the request never covered are a different request, and the
+    # policy's own floors do not move for any of them.
+    out_of_range = not save.admits({"transmit"})
+    still_asks = policy(save.contract_for({"transmit"}, "메일")).risk
+    handed_off = policy(save.contract_for({"credential"}, "비밀번호")).risk
+    # And with no reading there is no envelope: looking and typing, no more.
+    m = Envelope.minimal()
+    return (asked == "preapproved" and out_of_range
+            and still_asks == "confirm" and handed_off == "handoff"
+            and m.admits({"read", "write_ephemeral"})
+            and not m.admits({"write_persistent"}))
+
+
+def scenario_the_control_says_what_not_how_risky():
+    """The screen loop and the recipes now go through one policy.
+
+    The loop used to keep a private notion of "risky" — a risk level straight
+    off the control — which nothing else in the system understood and which
+    could not be compared against what the user asked for. An EFFECT can be. So
+    the control is read for what an action IS, the envelope says what the
+    request covers, and `policy()` decides, exactly as it does for a recipe."""
+    from nlc.safety import effects_of
+    cases = {
+        "  1 Button  Title: All Clear": ("click", "write_ephemeral"),
+        "  1 Button  Title: 7": ("click", "write_ephemeral"),
+        "  1 Button  Title: 보내기": ("click", "transmit"),
+        "  1 Button  Title: Delete": ("click", "delete"),
+        "  1 Button  Title: 저장": ("click", "write_persistent"),
+        "  1 TextField  Title: 비밀번호": ("set_value", "credential"),
+        "  1 StaticText  Value: 408": ("read", "read"),
+    }
+    return all(effects_of({"name": act}, line)[0] == {want}
+               for line, (act, want) in cases.items())
+
+
+def scenario_an_expectation_that_holds_does_not_refuse():
+    """A claim about an element has to be checkable against the element.
+
+    This ran against the real driver because the bug it catches cannot be seen
+    from a fake: `expect.role` was compared against the element's LABEL line,
+    and a Button's label does not contain the word "Button". Every action the
+    screen loop attempted came back "대상이 달라졌습니다" while the element sat
+    exactly where it had always been — and every end-to-end check I ran after
+    that happened to resolve to a recipe, so the screen loop was broken for
+    several commits without one test noticing.
+
+    Both directions matter: a true claim must not refuse, and a false one must."""
+    from nlc.general import candidates
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    obs = d.observe("com.apple.calculator", "tree_full")
+    if obs["type"] != "observation":
+        return f"계산기를 관측하지 못함 ({obs.get('error')})"
+    c = next((x for x in candidates(obs["tree"])
+              if x["label"] == "All Clear"), None)
+    if c is None:
+        return "AC 버튼을 찾지 못함"
+    act = {"name": "click", "element_index": c["element_index"]}
+    true_claim = d.act(obs["obs_id"], "com.apple.calculator", act,
+                       expect={"role": c["role"], "label": c["match"]})
+    # A fresh observation, because acting spent that one.
+    obs2 = d.observe("com.apple.calculator", "tree_full")
+    act2 = {"name": "click", "element_index": c["element_index"]}
+    false_claim = d.act(obs2["obs_id"], "com.apple.calculator", act2,
+                        expect={"role": c["role"], "label": "Equals"})
+    return (true_claim["type"] == "acted"
+            and false_claim.get("error") == "target_changed"
+            and false_claim.get("effect") == "not_started")
+
+
+def scenario_a_role_is_not_a_word_in_a_label():
+    """The comparison itself, without needing a screen.
+
+    `expect.role` was checked by looking for the word "Button" inside the
+    element's label line — and a Button's label is "Description: 5, Identifier:
+    Five", which contains no such word. So every claim was false and every
+    action the screen loop tried was refused while the element sat exactly where
+    it had always been.
+
+    The real-driver version of this check needs a GUI and skips without one,
+    which is precisely when a bug like this gets several commits to hide in. The
+    comparison is pure, so it can be tested anywhere."""
+    import types
+    import nlc.driver as D
+    d = Driver()
+    obs = types.SimpleNamespace(pid=1, elements=["<the element>"],
+                                obs_id="o")
+    real_attr, real_label = D._attr, D._elem_label
+    real_modal = Driver._modal_sheet
+    D._attr = lambda el, k: "AXButton" if k == "AXRole" else None
+    D._elem_label = lambda el: "Description: 5, Identifier: Five"
+    Driver._modal_sheet = staticmethod(lambda pid: False)
+    try:
+        act = {"element_index": 0}
+        holds = d._mismatch(obs, act, {"role": "Button", "label": "5"})
+        wrong_role = d._mismatch(obs, act, {"role": "TextField", "label": "5"})
+        wrong_label = d._mismatch(obs, act, {"role": "Button", "label": "7"})
+        # A modal is its own reason, independent of the element.
+        Driver._modal_sheet = staticmethod(lambda pid: True)
+        covered = d._mismatch(obs, act, {"role": "Button", "label": "5",
+                                         "no_modal": True})
+    finally:
+        D._attr, D._elem_label = real_attr, real_label
+        Driver._modal_sheet = real_modal
+    return (holds == "" and bool(wrong_role) and bool(wrong_label)
+            and "대화상자" in covered)
 
 
 def scenario_provider_env_is_not_the_session():
@@ -2509,6 +2663,14 @@ SCENARIOS = [
      scenario_a_handoff_is_not_one_more_yes),
     ("done_is_where_it_stopped_not_that_it_worked (ended is not succeeded)",
      scenario_done_is_where_it_stopped_not_that_it_worked),
+    ("an_envelope_comes_from_the_words (the range is known, the path is not)",
+     scenario_an_envelope_comes_from_the_words),
+    ("the_control_says_what_not_how_risky (one policy for both modes)",
+     scenario_the_control_says_what_not_how_risky),
+    ("an_expectation_that_holds_does_not_refuse (a true claim must pass)",
+     scenario_an_expectation_that_holds_does_not_refuse),
+    ("a_role_is_not_a_word_in_a_label (the comparison, without a screen)",
+     scenario_a_role_is_not_a_word_in_a_label),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
@@ -2529,11 +2691,45 @@ SCENARIOS = [
 ]
 
 
+def _gui_reason() -> str:
+    """Why the screen cannot be driven right now — or "" if it can.
+
+    A locked screen made twenty scenarios report FAIL, which says the recipes
+    broke. They did not: nothing could be seen. "화면이 잠겼다" and "레시피가
+    깨졌다" are different findings and a suite that cannot tell them apart is
+    worse than one that admits it does not know.
+    """
+    try:
+        d = Driver()
+        seen = []
+        for app in ("com.apple.finder", "com.apple.calculator",
+                    "com.apple.TextEdit"):
+            if d._resolve(app, launch=False) is None:
+                continue
+            obs = d.observe(app, "tree_full", require_window=False)
+            if obs.get("error") in ("gui_session_unavailable",
+                                    "no_window_content", "empty_tree"):
+                seen.append(0)
+            else:
+                seen.append(obs.get("element_count", 0))
+        # A locked screen does not error — it observes successfully and returns
+        # NOTHING. One running app with an empty tree could be an app with no
+        # window; every running app empty at once is the screen being dark.
+        if seen and not any(seen):
+            return "화면이 잠겨 있거나 GUI 세션을 볼 수 없음"
+    except Exception as e:
+        return f"화면을 확인할 수 없음 ({e})"
+    return ""
+
+
 def main():
     # An argument narrows the run to scenarios whose name contains it. A failure
     # in one scenario used to mean sitting through all sixty to see it again.
     only = [a for a in sys.argv[1:] if not a.startswith("-")]
     print("NLC evaluation\n" + "=" * 48)
+    blind = _gui_reason()
+    if blind:
+        print(f"  ! {blind} — 화면이 필요한 시나리오는 판정하지 않습니다\n")
     passed = required = 0
     for name, fn in SCENARIOS:
         if only and not any(o in name for o in only):
@@ -2550,6 +2746,11 @@ def main():
         # helper scenarios were reporting a missing web dependency.
         if ok is None or isinstance(ok, str):
             print(f"  SKIP  {name}  ({ok or '이 환경에서는 실행 불가'})")
+            continue
+        if not ok and blind:
+            # It did not pass, and nothing could see the screen. Which of those
+            # is the finding cannot be told from here, so neither is claimed.
+            print(f"  SKIP  {name}  ({blind})")
             continue
         required += 1
         passed += bool(ok)

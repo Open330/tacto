@@ -62,6 +62,12 @@ _SENSITIVE_FIELD_KO = ["비밀번호", "비번", "카드 번호", "카드번호"
                        "cvc", "주민등록번호", "주민번호", "인증번호", "일회용 비밀번호"]
 
 
+_INPUT_CLEAR_WORDS = ("all clear", "allclear", "모두 지우기", "지우기", "clear",
+                      "backspace", "delete the last digit", "마지막 자리")
+_STORED_EN = ("account", "mail", "message", "file", "photo", "history", "data")
+_STORED_KO = ("계정", "메일", "메시지", "파일", "사진", "기록")
+
+
 def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
              is_submit=False) -> tuple[str, str]:
     """Return (risk_class, reason).
@@ -83,13 +89,10 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
     # ENTRY, not stored data, and are trivially reversible. They must not gate —
     # generic words like "지우기"/"clear"/"delete" on such a control were firing
     # false positives that blocked ordinary flows (real-run finding).
-    _INPUT_CLEAR = ("all clear", "allclear", "모두 지우기", "지우기", "clear",
-                    "backspace", "delete the last digit", "마지막 자리")
-    if name == "click" and any(k in low or k in raw for k in _INPUT_CLEAR):
+    if name == "click" and any(k in low or k in raw for k in _INPUT_CLEAR_WORDS):
         # only when it is NOT about stored items (mail/file/account …)
-        if not any(w in low for w in ("account", "mail", "message", "file", "photo",
-                                      "history", "data")) and \
-           not any(w in raw for w in ("계정", "메일", "메시지", "파일", "사진", "기록")):
+        if not any(w in low for w in _STORED_EN) and \
+           not any(w in raw for w in _STORED_KO):
             return "none", "input-clearing control (not data deletion)"
 
     # Inspect the action payload, not just the label. A destructive key combo
@@ -168,3 +171,65 @@ def merge(recorded: str, classified: str) -> str:
 # `classify()` above is the label-signal layer; this tuple layer is the P2+
 # authorization engine that sits over it. Documented here as the agreed shape;
 # the current build ships the label layer plus the escalation merge.
+
+
+# ---------------------------------------------------------------- effects
+
+# The same signals, read for WHAT an action does rather than how alarming it
+# looks. `classify` answers "how much does this need?"; policy() wants "what is
+# it?", and a risk level is not a thing you can compare against what the user
+# asked for. Both read one table so they cannot drift.
+_EFFECT_KO = [
+    ("delete", ("삭제", "휴지통", "지우기", "버리기")),
+    ("financial", ("결제", "구매", "주문", "이체", "송금", "결제하기")),
+    ("transmit", ("전송", "보내기", "전송하기", "게시", "제출", "공유")),
+    ("write_persistent", ("저장", "내보내기", "이름 변경", "이름변경", "이동")),
+    ("install", ("설치", "확장 프로그램")),
+    ("system_config", ("비밀번호 변경", "비밀번호 재설정", "보안 우회",
+                       "안전하지 않", "로그아웃", "계정 만들기", "계정 생성")),
+]
+_EFFECT_EN = [
+    ("delete", (r"\bdelete\b", r"\bremove\b", r"\btrash\b", r"\bempty trash\b")),
+    ("financial", (r"\bpay\b", r"\bpurchase\b", r"\bbuy now\b",
+                   r"\bplace order\b", r"\bcheckout\b", r"\btransfer\b")),
+    ("transmit", (r"\bsend\b", r"\bpost\b", r"\bpublish\b", r"\bsubmit\b",
+                  r"\bshare\b")),
+    ("write_persistent", (r"\bsave\b", r"\bexport\b", r"\brename\b", r"\bmove\b")),
+    ("install", (r"\binstall\b", r"\bextension\b")),
+    ("system_config", (r"\bchange password\b", r"\bnew password\b",
+                       r"\bbypass\b", r"\bnot secure\b", r"\bsign out\b")),
+]
+_EFFECT_RX = [(eff, [re.compile(p) for p in pats]) for eff, pats in _EFFECT_EN]
+
+
+def effects_of(action: dict, target_line: str = "") -> tuple[set, str]:
+    """What this action DOES, as effects — never as a risk level.
+
+    A risk level cannot be compared against what the user asked for; an effect
+    can. So the screen loop reads the control for effects, builds a contract out
+    of them, and hands it to the same `policy()` the recipes go through, rather
+    than keeping a second notion of "risky" that nothing else understands.
+    """
+    name = action.get("name", "")
+    low, raw = target_line.lower(), target_line
+    if name in ("scroll", "read"):
+        return {"read"}, "화면을 읽습니다"
+    if name in ("type_text", "set_value") and (
+            _SENSITIVE_FIELD.search(low)
+            or any(k in raw for k in _SENSITIVE_FIELD_KO)):
+        return {"credential"}, "자격 증명 입력란"
+    # The calculator's AC clears an ENTRY, not stored data. Same carve-out as
+    # `classify`, for the same reason and on the same words.
+    if name == "click" and any(k in low or k in raw for k in _INPUT_CLEAR_WORDS) \
+            and not any(w in low for w in _STORED_EN) \
+            and not any(w in raw for w in _STORED_KO):
+        return {"write_ephemeral"}, "입력 지우기"
+    for eff, words in _EFFECT_KO:
+        for w in words:
+            if w in raw:
+                return {eff}, f"'{w}'"
+    for eff, rxs in _EFFECT_RX:
+        for rx in rxs:
+            if rx.search(low):
+                return {eff}, f"{rx.pattern}"
+    return {"write_ephemeral"}, "화면 조작"
