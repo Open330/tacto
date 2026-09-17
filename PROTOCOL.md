@@ -952,3 +952,65 @@ Downloads의 21개 항목 이름을 하나도 노출하지 않는다(Documents·
 **검증:** 서명된 런처로 `39/39`. 스위트는 자기가 연 문서와 대화상자를 닫고 만든 파일을
 지운다 — 매번 다른 기기를 남기는 스위트는 반복 가능하지 않고, 실제로 그 쌓인 창들이
 뒤 시나리오를 모호하게 만들어 깨뜨리고 있었다.
+
+### 3.20 SkyLight를 흉내 낼 수 있는가 — advisor 조사 (2026-09-17)
+
+질문은 "사설 API를 우리가 모사하기 어려운가"였는데, **답은 모사의 난이도가 아니라
+모사 대상의 정체**에 있었다. (출처: cxweb/gpt-6-pro, 근거 링크는 §부록 B)
+
+**`focus-without-raise` 는 "사용자 포커스를 빼앗지 않음"이 아니다.** 공개된 yabai
+구현(`src/window_manager.c`)은 `_SLPSSetFrontProcessWithOptions` 로 **전면 프로세스를
+실제로 바꾸고** `SLPSPostEventRecordTo` 로 key window 를 바꾼다. 생략하는 것은
+`AXRaise`(창 올리기)뿐이다. 그러므로 "그 기법을 쓰면 사용자는 계속 자기 앱에 타이핑하고
+에이전트는 다른 앱을 조작한다"는 설명은 부정확하다. **창을 올리지 않는 것과 입력 대상을
+보존하는 것은 다른 조건이다.**
+
+**심볼은 실재하지만 계약이 아니다.** `NUIKit/CGSInternal` 과 yabai 의 `extern.h` 에서
+`SLSGetConnectionIDForPSN`, `_SLPSGetFrontProcess`, `SLPSPostEventRecordTo`,
+`CGSSetMouseFocusWindow` 등의 선언이 확인된다. macOS 11.3 SDK 의 `SkyLight.tbd` 에는
+`_SLPSSetFrontProcessWithOptions` 와 `__SLPSSetFrontProcessWithOptions` 가 **둘 다**
+있다 — 즉 C 이름이 다른 두 진입점이며, 하나의 시그니처를 다른 쪽에 적용해선 안 된다.
+yabai 의 key-window 코드는 `0xf8` 크기 레코드와 `0x3c` 오프셋, 40ms 지연까지
+하드코딩한다. `dlsym != NULL` 검사로는 안전성을 확인할 수 없다는 뜻이다.
+
+**우리 코드가 틀리게 적어둔 것 두 가지가 교정됐다.**
+
+- `CGEventPostToPid` 에 "hit-test가 없다"는 설명은 과장이었다. WindowServer 가
+  `NSView` 까지 고르는 게 아니라, 창까지 도달하면 **앱이 자기 hit-test를 수행**한다.
+  pid 전송이 재현하지 못하는 것은 그 앞 단계 — 창 연결·활성 상태와, 비활성 창의 첫
+  클릭에 대한 대상 앱의 정책(`acceptsFirstMouse:`) — 이다. 실측된 현상(저장 패널
+  사이드바 행이 선택되지 않음)은 그대로지만, 이유의 서술을 고쳤다.
+- `kCGEventSourceStateHIDSystemState` 는 **라우팅 옵션이 아니라 상태 테이블 선택**이다.
+  이걸 쓴다고 HID tap 에서 재주입되지 않는다. (`kCGEventSourceStatePrivate` 는 공개
+  API이며 "사설 API"라는 뜻이 아니다.)
+
+**그리고 실제 버그를 하나 잡았다.** Apple 의 `AXUIElement.h` 는 action 콜백이 modal
+처리 중 타임아웃하면 `kAXErrorCannotComplete` 가 반환될 수 있고 **이것이 action 실패를
+뜻하지 않는다**고 명시한다. 우리 `click` 은 `err != 0` 이면 좌표 클릭으로 재시도했다 —
+전송·삭제 버튼에서 **두 번 실행**될 수 있는 경로였다. 이제 이 오류는 재시도하지 않고
+`unverified` 로 보고하며, 성패는 postcondition 이 판정한다.
+
+**사설 API의 대가는 통념과 다르다.** 사설 API 사용 자체가 코드서명이나 공증을 막지
+않는다(공증은 App Review 가 아니다). 막히는 것은 **Mac App Store**(가이드라인 2.5.1,
+공개 API 전용)이고, `dlopen/dlsym` 으로 우회한다고 공개 API가 되지 않는다. SIP 는 별개
+조건이며, 접근성 권한이 있다고 모든 WindowServer 호출이 허용되지도 않는다 — 대부분의
+창 속성 변경은 소유자에 제한된다. 이벤트 권한도 AX 신뢰와 별개로
+`CGPreflightPostEventAccess` / `CGPreflightListenEventAccess` 로 각각 확인해야 한다.
+
+**결론: 공개 API로 도달 가능한 선.**
+
+| 목표 | 판정 |
+|---|---|
+| 백그라운드 AX 실행/값 설정 | **가능** (지원 요소에 한해) — action 의 포커스 부작용은 별도 검증 |
+| 백그라운드 앱에 키 이벤트 | 앱에 따라 가능 — PID 지정과 앱 내부 입력 대상은 다른 문제 |
+| 특정 백그라운드 창에 좌표 클릭 | **앱별 검증 대상**, 범용 보증 없음 |
+| hover·drag·IME 까지 완전 재현 | 공개 API 만으로는 범용 보장 어려움 |
+| 사용자와 에이전트 입력의 엄격한 분리 | 함수를 찾는 문제가 아니라 **별도 실행 환경**의 설계 문제 |
+
+가장 실용적인 절충은 우리가 이미 하고 있는 것이다: **AX 우선**으로 요소를 지목해
+조작하고 상태 재조회로 검증하며, 키보드·픽셀 입력은 검증된 앱에만 capability 단위로
+허용한다. 그리고 advisor 의 마지막 경고를 그대로 받아들인다 — **몰래 activate 했다가
+복원하는 방식은 무포커스 조작이 아니다.** 그 사이 사용자가 누른 키는 잘못 전달되고,
+창 순서를 되돌려도 이미 실행된 명령은 되돌아오지 않는다. 그래서 우리 좌표 클릭은
+포인터를 원위치시키되 **"백그라운드 조작"이라고 부르지 않는다.** 전경 조작이 필요한
+작업은 사용자가 명시적으로 넘겨준 구간에서 한다.

@@ -79,6 +79,19 @@ MAX_TREE_NODES = 2500
 # would spend everything inside the first big list and never reach the rest.
 MAX_CHILDREN_PER_NODE = 60
 TRUNCATION_MARK = "… (트리가 커서 여기서 잘렸습니다 — 더 좁은 창/앱을 대상으로 하세요)"
+# kAXErrorCannotComplete. Apple documents it as possible when an action's
+# callback times out during modal processing, WITHOUT meaning the action failed.
+AX_CANNOT_COMPLETE = -25204
+
+
+def _line_attr(line: str, key: str):
+    """One attribute out of a tree line, without importing the flow layer."""
+    import re as _re
+    others = "|".join(k for k in ("Title", "Description", "Value", "Help",
+                                  "Identifier", "Placeholder") if k != key)
+    m = _re.search(rf"{key}:\s*(.+?)"
+                   rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused)\]|$)", line)
+    return m.group(1).strip() if m else None
 
 
 def _attr(el, name):
@@ -372,6 +385,28 @@ class Driver:
         return False
 
     @staticmethod
+    def _blocking_hint(obs) -> str:
+        """What the window is showing, when a menu says it cannot be used.
+
+        An app that has just been updated greets you with a what's-new screen
+        that disables everything behind it — not a sheet, so nothing flags it,
+        and "this menu is disabled" leaves the person with nowhere to go. Naming
+        the button that IS live tells them what is in the way.
+        """
+        live = []
+        for line in obs.lines:
+            if "[disabled]" in line or " Button" not in line:
+                continue
+            for key in ("Title", "Description"):
+                v = _line_attr(line, key)
+                if v:
+                    live.append(v)
+                    break
+            if len(live) >= 5:
+                break
+        return f" 지금 화면에서 누를 수 있는 것: {', '.join(live)}" if live else ""
+
+    @staticmethod
     def _modal_sheet(pid: int) -> bool:
         """Is a sheet or modal dialog waiting for an answer in this app?"""
         app_el = AXUIElementCreateApplication(pid)
@@ -548,6 +583,14 @@ class Driver:
         if name == "click":
             el = self._element(obs, action)
             err = AXUIElementPerformAction(el, "AXPress")
+            if err == AX_CANNOT_COMPLETE:
+                # NOT a failure. Apple's AXUIElement.h says an action callback
+                # that does modal processing can time out and return this while
+                # having done the work. Clicking again "to be safe" is how a
+                # Send button sends twice — so report it and let the step's
+                # postcondition decide whether it landed.
+                return {"unverified": "cannot_complete",
+                        "note": "AXPress timed out; it may still have happened"}
             if err != 0:  # coordinate fallback per D3
                 frame = _elem_frame(el)
                 if frame is None:
@@ -596,7 +639,8 @@ class Driver:
                     raise RuntimeError(
                         f"앱에 열린 대화상자가 있어 '{' > '.join(walked)}' 메뉴를 "
                         f"쓸 수 없습니다. 대화상자를 닫고 다시 시도해 주세요")
-                raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 가 지금은 비활성 상태입니다")
+                raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 가 지금은 "
+                                   f"비활성 상태입니다.{self._blocking_hint(obs)}")
             err = AXUIElementPerformAction(item, "AXPress")
             if err != 0:
                 raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 실행 실패 ({err})")
@@ -636,12 +680,20 @@ class Driver:
     def _mouse_click(self, x, y, pid=None):
         """Click at a screen point, for controls that expose no AX action.
 
-        Delivered through the system event tap rather than to a pid, because a
-        mouse event is routed by WHERE it is: posted to a process, it arrives
-        with nothing to tell the app which view was hit, and a sidebar row
-        simply never selects. The location is the targeting, which is why this
-        does not reintroduce the wrong-app hazard that pid-posting exists to
-        prevent for keystrokes — those carry no location at all.
+        Delivered through the system event tap rather than to a pid. Not because
+        a pid-posted mouse event has "no hit-test" — the app still runs its own
+        view hit-test once the event reaches the right window. It is the step
+        BEFORE that which pid-posting does not reproduce: the window association
+        and activation state the window server normally attaches, plus the
+        target's own policy about clicks on an inactive window
+        (`acceptsFirstMouse:`). Measured here: a save-panel sidebar row posted
+        to the pid never selected, and the same click through the tap did.
+
+        This does not reintroduce the wrong-app hazard that pid-posting exists
+        to prevent for keystrokes, because a mouse event carries a location and
+        a keystroke does not — but it IS a foreground action: the app comes
+        forward and the pointer moves. It is not background operation, and
+        nothing here should be described as if it were.
 
         The app is raised first so the point really belongs to the window the
         frame was read from, and the pointer is put back where the person left

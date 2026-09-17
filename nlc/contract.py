@@ -178,7 +178,11 @@ def policy(c: SafetyContract) -> Decision:
     if problems:
         return Decision("blocked", f"malformed contract: {'; '.join(problems)}")
 
-    unknown_critical = [u for u in c.unknowns if u in AUTHORIZATION_CRITICAL]
+    # A model writes "resource.scope", not "resource". Matching only the bare
+    # name let "I could not determine the resource" through as if it had been
+    # determined — a fail-open in the one place that must fail closed.
+    unknown_critical = [u for u in c.unknowns
+                        if u.split(".", 1)[0] in AUTHORIZATION_CRITICAL]
     if unknown_critical:
         return Decision("blocked", f"undetermined {', '.join(unknown_critical)} — "
                                    "cannot describe the action well enough to run it")
