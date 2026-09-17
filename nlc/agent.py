@@ -157,11 +157,15 @@ _INTENT_RULES: list[tuple[re.Pattern, str, object]] = [
 class Agent:
     def __init__(self, driver: Driver | None = None, store: FlowStore | None = None,
                  narrate: Callable[[str], None] | None = None,
-                 author: Callable[[str, Driver], Flow] | None = None):
+                 author: Callable[[str, Driver], Flow] | None = None,
+                 judge: Callable | None = None):
         self.driver = driver or Driver()
         self.store = store or FlowStore()
         self.narrate = narrate or (lambda s: None)
         self.author = author   # optional model-backed flow author (spends tokens)
+        # Injectable so a caller — a test, or a host with its own model — can
+        # supply judgment without this module reaching for a provider.
+        self.judge = judge
 
     # ------------------------------------------------------------ intent
 
@@ -294,13 +298,37 @@ class Agent:
         # `think` is how many times this run may stop and ask. Zero — the
         # default — keeps it strictly deterministic and free; the cost is paid
         # per surprise, not per run, and only where a step said it expects one.
-        judge = None
-        if think:
+        judge = self.judge
+        if think and judge is None:
             from .judge import model_judge
             judge = model_judge(target=flow.target, narrate=self.narrate)
         res = replay(self.driver, flow, approvals=approvals,
                      narrate=self.narrate, escalate=judge, budget=think)
+        self._keep_what_it_learned(flow, res)
         return self._to_turn(flow, res)
+
+    def _keep_what_it_learned(self, flow: Flow, res: ReplayResult) -> None:
+        """Write a resolved selector back into the recipe, so it is free next time.
+
+        Only for recipes the store owns. One that ships with NLC is owned by the
+        code — saving over it would be undone on the next run, when the built-in
+        is refreshed from the library — so the fix is reported instead. That a
+        shipped recipe needed correcting on this machine is a fact about the
+        library, not something to bury in a user's store.
+        """
+        if not res.learned:
+            return
+        from .library import builders
+        if flow.name in builders():
+            self.narrate(f"  ({flow.name} 은 함께 배포되는 레시피라 이번 보완을 "
+                         f"저장하지 않았습니다 — 코드 쪽을 고쳐야 합니다)")
+            return
+        try:
+            self.store.save(flow.with_learned(res.learned))
+            self.narrate(f"  (배운 것을 '{flow.name}' 에 넣어 두었습니다 — "
+                         f"다음부터는 묻지 않습니다)")
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ L4 phrasing
 
