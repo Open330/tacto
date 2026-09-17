@@ -117,40 +117,68 @@ def _today(_m: re.Match) -> dict:
 # Intent resolution: map a natural-language request to a stored recipe AND the
 # values it needs. Deterministic and tokenless. A real deployment extends this
 # with the model only when nothing matches (the `author` path below).
-_INTENT_RULES: list[tuple[re.Pattern, str, object]] = [
+# What a request can carry that a regex has no slot for. A rule that matches
+# anyway is not a fast path — it is a wrong answer arrived at quickly. Measured,
+# not imagined: `"굵게 하지 마"` matched the bold recipe and made the text bold,
+# `"메일 말고 문서 폴더 열어줘"` opened Mail, and `"어제 온 메일"` and `"오늘 온
+# 메일"` resolved identically. Nothing failed in any of the three, so no amount
+# of `--think` could have caught them.
+#
+# Each rule declares the meanings it accounts for. Anything else the utterance
+# carries makes the fast path stand down and say so, rather than answer.
+_MARKERS: list[tuple[str, tuple[str, ...]]] = [
+    ("negation", ("하지 마", "하지마", "하지말", "말고", "말아", "빼고", "제외",
+                  "아니라", "아니고", "대신", "안 해", "안해")),
+    ("time:today", ("오늘", "today", "지금")),
+    ("time:other", ("어제", "그제", "내일", "모레", "지난", "저번", "이번 주",
+                    "이번주", "아까", "최근", "yesterday", "tomorrow")),
+]
+
+
+def _markers(intent: str) -> set[str]:
+    low = intent.lower()
+    return {tag for tag, words in _MARKERS if any(w in low for w in words)}
+
+
+_INTENT_RULES: list[tuple[re.Pattern, str, object, set]] = [
     (re.compile(r"(\d+)\s*(곱하기|더하기|빼기|나누기|[-+x×*/÷])\s*(\d+)"),
-     "calc_arith", _calc),
+     "calc_arith", _calc, set()),
     # Checked early: it is the way out of a stuck run, so it must not be
     # shadowed by a rule that matches the app's name inside the same sentence.
     (re.compile(r"(대화상자|다이얼로그|팝업|창).{0,6}(닫아|닫기|취소|없애)"
                 r"|(dialog|sheet).{0,6}(close|cancel)"),
-     "close_dialog", lambda _m: {"app": _frontmost()}),
-    (re.compile(r"(메일|이메일|mail|inbox|받은\s*편지)"), "mail_inbox", lambda m: {}),
+     "close_dialog", lambda _m: {"app": _frontmost()}, set()),
+    (re.compile(r"(메일|이메일|mail|inbox|받은\s*편지)"), "mail_inbox",
+     lambda m: {}, set()),
     (re.compile(r"(오늘|today).{0,6}(일정|스케줄|약속|schedule)"
-                r"|(일정|스케줄).{0,4}(뭐|뭔가|있어|알려)"), "calendar_today", _today),
+                r"|(일정|스케줄).{0,4}(뭐|뭔가|있어|알려)"), "calendar_today", _today,
+     # This one really is about today, so saying so is not extra meaning.
+     {"time:today"}),
     # A question about a folder is answered, not acted on; it is checked first
     # because "다운로드 폴더 보여줘" and "다운로드 폴더에 뭐 있어?" overlap.
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(에|안에)?\s*"
                 r"(몇\s*개|몇개|얼마나)", re.I),
-     "finder_count_items", _folder),
+     "finder_count_items", _folder, set()),
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(에|안에)?\s*"
                 r"(뭐|무엇|무슨)", re.I),
-     "finder_list_items", _folder),
+     "finder_list_items", _folder, set()),
     (re.compile(r"(" + "|".join(sorted(_FOLDERS, key=len, reverse=True)) +
                 r")\s*(폴더|디렉터리|folder)?\s*(을|를|로)?\s*(열어|열기|보여|open)",
-                re.I), "finder_open_folder", _folder),
+                re.I), "finder_open_folder", _folder, set()),
     # Saving is checked before writing: "'보고서' 로 저장해줘" contains a quoted
     # string too, and reading it as "type 보고서" would be the wrong task.
     (re.compile(r"[\"'“](.+?)[\"'”]\s*(으로|로)?\s*저장", re.S),
-     "textedit_save_as", lambda m: {"filename": m.group(1)}),
-    (re.compile(r"(새|빈)\s*(문서|파일)"), "textedit_new_document", lambda m: {}),
+     "textedit_save_as", lambda m: {"filename": m.group(1)}, set()),
+    (re.compile(r"(새|빈)\s*(문서|파일)"), "textedit_new_document",
+     lambda m: {}, set()),
     # An explicitly quoted string is a stronger signal than a stray "굵게", so
     # the write rule is tried first.
     (re.compile(r"[\"'“](.+?)[\"'”]\s*(라고|이라고)?\s*(써|적어|입력|write)",
-                re.S), "textedit_write_note", lambda m: {"text": m.group(1)}),
-    (re.compile(r"(굵게|볼드|bold)"), "textedit_emphasize", lambda m: {}),
+                re.S), "textedit_write_note",
+     lambda m: {"text": m.group(1)}, set()),
+    (re.compile(r"(굵게|볼드|bold)"), "textedit_emphasize", lambda m: {}, set()),
 ]
 
 
@@ -158,7 +186,8 @@ class Agent:
     def __init__(self, driver: Driver | None = None, store: FlowStore | None = None,
                  narrate: Callable[[str], None] | None = None,
                  author: Callable[[str, Driver], Flow] | None = None,
-                 judge: Callable | None = None):
+                 judge: Callable | None = None,
+                 interpret: Callable | None = None):
         self.driver = driver or Driver()
         self.store = store or FlowStore()
         self.narrate = narrate or (lambda s: None)
@@ -166,13 +195,27 @@ class Agent:
         # Injectable so a caller — a test, or a host with its own model — can
         # supply judgment without this module reaching for a provider.
         self.judge = judge
+        # Reading the request itself, for the requests the patterns decline.
+        # Separate from `judge`: this one is given the user's words and never
+        # the screen, which is why what it returns may say what the user wants.
+        self.interpret = interpret
 
     # ------------------------------------------------------------ intent
 
     def resolve(self, intent: str) -> Match | None:
-        for rx, name, extract in _INTENT_RULES:
+        """Which recipe this request means — by pattern, with zero tokens.
+
+        Returns None both when nothing matched and when something matched but
+        the request carries meaning the rule has no slot for. The second case
+        is the important one: answering it quickly is how "굵게 하지 마" made
+        text bold. `unrepresented()` says which it was.
+        """
+        said = _markers(intent)
+        for rx, name, extract, covers in _INTENT_RULES:
             m = rx.search(intent)
             if m is None:
+                continue
+            if said - covers:                 # said more than this rule can hold
                 continue
             try:
                 return Match(name, extract(m))
@@ -182,10 +225,95 @@ class Agent:
                 # we cannot supply.
                 continue
         # a request may also name a stored flow directly
-        for name in self.store.list():
-            if name.lower() in intent.lower():
-                return Match(name, {})
+        if not said:
+            for name in self.store.list():
+                if name.lower() in intent.lower():
+                    return Match(name, {})
         return None
+
+    def _match_from_goal(self, goal: str) -> Match | None:
+        """Run the patterns against a cleaned-up goal rather than the raw words.
+
+        "메일 말고 문서 폴더 열어줘" carries an exclusion no rule can hold, but
+        the goal it reduces to — "문서 폴더 열기" — is exactly what the folder
+        rule was written for, parameters and all. So reading the request does
+        not have to produce a recipe; it only has to produce a sentence the
+        fast path can finish.
+        """
+        for rx, name, extract, _covers in _INTENT_RULES:
+            m = rx.search(goal)
+            if m is None:
+                continue
+            try:
+                return Match(name, extract(m))
+            except KeyError:
+                continue
+        return None
+
+    def read_request(self, intent: str) -> tuple[Match | None, dict]:
+        """What the user asked for, when the patterns could not say.
+
+        Two bounded questions, each with a checkable answer: what was asked
+        (from their words alone, and the quote has to be IN those words), and
+        which of our recipes carries it out (from a closed list). Neither is
+        "what should I do" — that has no answer anything could check.
+        """
+        import time as _time
+        from .ask import what_was_asked, which_task
+        if self.interpret is None:
+            return None, {}
+        # "어제" has to mean the day before the moment they spoke, and keep
+        # meaning it if the run crosses midnight.
+        now = _time.strftime("%Y-%m-%d %H:%M %Z")
+        reading = self.interpret(what_was_asked(intent, now=now))
+        if not reading:
+            return None, {}
+        if reading.get("negated"):
+            # They said not to. There is no recipe for that, and running the
+            # thing they named is the one answer that is certainly wrong.
+            return None, reading
+        goal = reading.get("goal", "")
+        match = self._match_from_goal(goal)
+        if match is not None:
+            return match, reading
+        known = self._known_tasks()
+        if not known:
+            return None, reading
+        pick = self.interpret(which_task(
+            goal, known, excluded=reading.get("excluded", ())))
+        if pick and pick.get("pick"):
+            return Match(pick["pick"], {}), reading
+        return None, reading
+
+    def _known_tasks(self) -> list[tuple[str, str]]:
+        from .library import builders
+        out = []
+        for name, build in sorted(builders().items()):
+            try:
+                f = build()
+                # A recipe describes itself through the words its steps were
+                # written in — the same sentences the user hears while it runs.
+                desc = " · ".join(st.intent_text for st in f.steps
+                                  if st.intent_text)[:120]
+                out.append((name, desc or name))
+            except Exception:
+                out.append((name, name))
+        return out
+
+    def unrepresented(self, intent: str) -> set[str]:
+        """What this request carries that the fast path cannot express.
+
+        Empty means the patterns simply do not know this task, and authoring is
+        the answer. Non-empty means a rule DID match and was held back — the
+        request needs reading, not a new recipe.
+        """
+        said = _markers(intent)
+        if not said:
+            return set()
+        for rx, _name, _extract, covers in _INTENT_RULES:
+            if rx.search(intent) is not None and (said - covers):
+                return said - covers
+        return set()
 
     # ------------------------------------------------------------ consent
 
@@ -241,6 +369,19 @@ class Agent:
                think: int = 0) -> Turn:
         match = self.resolve(intent)
         values: dict = {}
+        reading: dict = {}
+        if match is None and self.unrepresented(intent):
+            # A rule DID match and was held back because the request said more
+            # than it could hold. That is a reading problem, not a missing
+            # recipe — authoring a new one here would learn the wrong task.
+            match, reading = self.read_request(intent)
+            if match is None and reading.get("negated"):
+                return Turn("done", f"'{reading['quote']}' 라고 하셔서 "
+                                    f"아무것도 하지 않았어요.")
+            if match is None:
+                return Turn("unknown_task",
+                            "말씀을 정확히 이해하지 못했어요. 조금 다르게 "
+                            "말씀해 주시겠어요?")
         if match is None:
             if self.author is None:
                 return Turn("unknown_task",

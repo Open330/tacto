@@ -9,6 +9,8 @@ Usage:
       (--verify runs the result once and lets the model fix what failed)
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
       (--think [N] lets a run stop and ask when the screen disagrees; N calls, default 1)
+      (--strict turns off reading the request itself: only phrasings the
+       patterns already know, and an honest "I did not understand" otherwise)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
@@ -386,8 +388,21 @@ def main(argv=None):
             def author_hook(intent_text, drv):        # noqa: E306
                 print("  🧠 처음 보는 작업이라 배우는 중… (모델 사용)")
                 return _author(intent_text, drv, provider="auto", narrate=print)
+        # Reading the request is on by default. A product for people who
+        # cannot use a computer cannot answer only to phrasings a regex was
+        # written for — and the patterns now say so themselves rather than
+        # guessing. `--strict` keeps the old behaviour for scripts that want a
+        # hard "I did not understand" instead of a question.
+        interpret = None
+        if "--strict" not in rest:
+            from .ask import ask as _ask
+
+            def interpret(q):                                  # noqa: F811
+                print(f"  🧠 말씀을 읽는 중… ({q.kind})")
+                return _ask(q, narrate=lambda m: print(f"  {m}"))
+
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
-                      author=author_hook)
+                      author=author_hook, interpret=interpret)
         # The person should be able to see their computer being driven, and
         # stop it: outline the window while the task runs.
         from .store import FlowStore as _S
