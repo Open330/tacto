@@ -1612,6 +1612,140 @@ def scenario_a_reading_normalizes_into_the_fast_path():
             and reading["excluded"] == ["메일"])
 
 
+def _fake_screen(labels, readable=()):
+    lines = ["0 Window  Title: T"]
+    for i, l in enumerate(labels, start=1):
+        lines.append(f"  {i} Button  Title: {l}")
+    for j, (l, v) in enumerate(readable, start=len(labels) + 1):
+        lines.append(f"  {j} StaticText  Identifier: {l}, Value: {v}")
+    return "\n".join(lines) + "\n"
+
+
+def scenario_a_screen_is_one_question():
+    """The unit of a general run is the screen, not the step.
+
+    A calculator writes its running total into an identifier, so hashing the
+    tree calls every keypress a new screen. What a question about "which button"
+    is asked over is the keypad, and the keypad does not change — so the screen
+    key is what you can ACT on, and seven presses share one question. Measured
+    on this machine: calc_arith is 7 steps across 3 screens, and a real general
+    run drove 8 presses from a single answer."""
+    from nlc.general import candidates, screen_key
+    keypad = ["1", "2", "3", "Multiply", "Equals"]
+    a = _fake_screen(keypad, readable=[("display", "0")])
+    b = _fake_screen(keypad, readable=[("display", "408")])
+    c = _fake_screen(keypad + ["Percent"], readable=[("display", "408")])
+    same = screen_key(candidates(a)) == screen_key(candidates(b))
+    moved = screen_key(candidates(b)) != screen_key(candidates(c))
+    # A display is read, never pressed.
+    # A display is named by what it says, and read rather than pressed.
+    can = {x["label"]: x["can"] for x in candidates(a)}
+    return (same and moved and can["1"] == ["click"] and can["0"] == ["read"])
+
+
+def scenario_a_batch_cannot_leave_its_screen():
+    """Every action in a batch is checked against the screen it was asked about.
+
+    A candidate list is only true of the observation it was read from, so a pick
+    outside it, an action we do not perform, or an action that does not apply to
+    that kind of thing are all rejected before anything runs — which is what
+    makes asking for eight at once no riskier than asking for one."""
+    from nlc.ask import what_to_do_here
+    from nlc.general import candidates
+    cands = candidates(_fake_screen(["1", "Equals"], readable=[("out", "0")]))
+    q = what_to_do_here("1 더하기 1", cands)
+    good = q.check({"done": False, "expect": "2", "actions": [
+        {"pick": 0, "do": "click"}, {"pick": 1, "do": "click"},
+        {"pick": 2, "do": "read"}]})
+    return (good is not None and len(good["actions"]) == 3
+            and q.check({"done": False, "actions": [{"pick": 9, "do": "click"}]}) is None
+            and q.check({"done": False, "actions": [{"pick": 0, "do": "sudo"}]}) is None
+            # a display is not a button, and the list says so
+            and q.check({"done": False, "actions": [{"pick": 2, "do": "click"}]}) is None
+            # writing with nothing to write
+            and q.check({"done": False, "actions": [{"pick": 0, "do": "set_value"}]}) is None)
+
+
+def scenario_a_general_run_leaves_a_graph():
+    """What a general run walks is a path, and a repeated path is a recipe.
+
+    This is how the mode with no recipe feeds the mode that replays them for
+    free, instead of competing with it."""
+    from nlc.general import run
+
+    class Screens:
+        """Two screens: pressing Go on the first reaches the second."""
+        def __init__(self):
+            self.at = 0
+            self.acted = []
+
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            tree = (_fake_screen(["Go"]) if self.at == 0
+                    else _fake_screen(["Back"], readable=[("out", "42")]))
+            return {"type": "observation", "obs_id": f"o{self.at}", "tree": tree}
+
+        def act(self, obs_id, target, action, risk_class=None, intent_text="",
+                approved=False):
+            self.acted.append(action["name"])
+            self.at = 1
+            return {"type": "acted", "action": action["name"]}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    d = Screens()
+    plans = [
+        {"done": False, "expect": None,
+         "actions": [{"pick": 0, "do": "click",
+                      "candidate": None, "why": "간다"}]},
+        {"done": True, "actions": [], "expect": None},
+    ]
+
+    def ask_here(goal, cands, done):
+        p = plans.pop(0)
+        for a in p["actions"]:
+            a["candidate"] = cands[a["pick"]]
+        return p
+
+    r = run(d, "x", "42를 보여줘", ask_here)
+    return (r.ok and r.path == [r.visits[0].screen, r.visits[0].next_screen]
+            and r.path[0] != r.path[1] and len(r.edges) == 1
+            and r.asked == 2 and d.acted == ["click"])
+
+
+def scenario_a_general_run_stops_going_nowhere():
+    """A screen that keeps coming back means the last batch changed nothing.
+
+    Asking again gets the same answer and the same nothing, so the run says so
+    instead of spending the rest of its budget proving it."""
+    from nlc.general import run
+
+    class Stuck:
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": "o",
+                    "tree": _fake_screen(["Go"])}
+
+        def act(self, *a, **k):
+            return {"type": "acted", "action": "click"}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    def ask_here(goal, cands, done):
+        return {"done": False, "expect": None,
+                "actions": [{"pick": 0, "do": "click", "candidate": cands[0],
+                             "why": "또"}]}
+
+    r = run(Stuck(), "x", "무언가", ask_here, max_screens=20)
+    return not r.ok and "진전" in r.why and r.asked <= 3
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -1892,6 +2026,14 @@ SCENARIOS = [
      scenario_a_reading_must_quote_the_user),
     ("a_reading_normalizes_into_the_fast_path (one question, then free)",
      scenario_a_reading_normalizes_into_the_fast_path),
+    ("a_screen_is_one_question (the unit is the screen, not the step)",
+     scenario_a_screen_is_one_question),
+    ("a_batch_cannot_leave_its_screen (every pick is checked)",
+     scenario_a_batch_cannot_leave_its_screen),
+    ("a_general_run_leaves_a_graph (a repeated path is a recipe)",
+     scenario_a_general_run_leaves_a_graph),
+    ("a_general_run_stops_going_nowhere (the same screen twice is an answer)",
+     scenario_a_general_run_stops_going_nowhere),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
