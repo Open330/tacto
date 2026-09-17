@@ -401,8 +401,28 @@ def main(argv=None):
                 print(f"  🧠 말씀을 읽는 중… ({q.kind})")
                 return _ask(q, narrate=lambda m: print(f"  {m}"))
 
+        # The other half: a task no recipe covers is done by looking at the
+        # screen and asking about it — one question per screen, not per click.
+        # Same boundary problem as learning, and worth saying up front rather
+        # than after four provider timeouts.
+        general_hook = None
+        if interpret is not None and not _os.environ.get("NLC_LAUNCHER"):
+            from .ask import ask as _ask2, what_to_do_here
+
+            def general_hook(target, goal, confirm):   # noqa: F811
+                from .general import run as _run
+                def here(g, cands, done):
+                    print(f"  👀 화면을 보고 있어요… ({len(cands)}개)")
+                    return _ask2(what_to_do_here(g, cands, done),
+                                 narrate=lambda m: print(f"  {m}"))
+                return _run(driver, target, goal, here,
+                            approve=confirm, narrate=lambda m: print(f"  {m}"))
+        elif interpret is not None:
+            print("  (처음 하는 작업을 화면 보며 하기는 권한 경계 밖에서만 됩니다)")
+
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
-                      author=author_hook, interpret=interpret)
+                      author=author_hook, interpret=interpret,
+                      general=general_hook)
         # The person should be able to see their computer being driven, and
         # stop it: outline the window while the task runs.
         from .store import FlowStore as _S

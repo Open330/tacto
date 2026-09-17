@@ -187,7 +187,8 @@ class Agent:
                  narrate: Callable[[str], None] | None = None,
                  author: Callable[[str, Driver], Flow] | None = None,
                  judge: Callable | None = None,
-                 interpret: Callable | None = None):
+                 interpret: Callable | None = None,
+                 general: Callable | None = None):
         self.driver = driver or Driver()
         self.store = store or FlowStore()
         self.narrate = narrate or (lambda s: None)
@@ -199,6 +200,9 @@ class Agent:
         # Separate from `judge`: this one is given the user's words and never
         # the screen, which is why what it returns may say what the user wants.
         self.interpret = interpret
+        # Doing a task no recipe covers, by asking about each screen. The other
+        # half of the product: a recipe answers "again", this answers "at all".
+        self.general = general
 
     # ------------------------------------------------------------ intent
 
@@ -284,6 +288,32 @@ class Agent:
         if pick and pick.get("pick"):
             return Match(pick["pick"], {}), reading
         return None, reading
+
+    def _work_it_out(self, intent: str, reading: dict, ask) -> Turn:
+        """Do a task with no recipe, one question per screen.
+
+        The goal comes from the reading when there was one, because "메일 말고
+        문서 폴더 열어줘" is a worse instruction to work from than the "문서
+        폴더 열기" it reduces to.
+        """
+        from .authoring import guess_target
+        goal = reading.get("goal") or intent
+        target = guess_target(intent, self.driver) or _frontmost()
+        if not target:
+            return Turn("unknown_task",
+                        "어느 앱에서 할 일인지 알 수 없어요. 앱 이름을 같이 "
+                        "말씀해 주시겠어요?")
+        self.narrate(f"처음 하는 일이라 화면을 보면서 해볼게요: {goal}")
+        try:
+            r = self.general(target, goal, ask)
+        except Exception as e:
+            return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
+        said = "\n".join(f"결과는 {v} 입니다" for v in r.said) if r.said else ""
+        if r.ok:
+            return Turn("done", said or "끝냈어요.",
+                        detail={"screens": r.path, "asked": r.asked})
+        return Turn("failed", f"{r.why}." + (f"\n{said}" if said else ""),
+                    detail={"screens": r.path, "asked": r.asked})
 
     def _known_tasks(self) -> list[tuple[str, str]]:
         from .library import builders
@@ -378,14 +408,22 @@ class Agent:
             if match is None and reading.get("negated"):
                 return Turn("done", f"'{reading['quote']}' 라고 하셔서 "
                                     f"아무것도 하지 않았어요.")
-            if match is None:
+            if match is None and self.general is None and self.author is None:
                 return Turn("unknown_task",
                             "말씀을 정확히 이해하지 못했어요. 조금 다르게 "
                             "말씀해 주시겠어요?")
         if match is None:
+            # Authoring is asked for on purpose (`--learn`): it produces a
+            # recipe, which is the answer to "do this again". Without it the
+            # answer to "do this at all" is to work it out against the screen,
+            # which is what a person who cannot use a computer actually needs
+            # the first time they ask for anything.
             if self.author is None:
-                return Turn("unknown_task",
-                            "그 작업은 아직 방법을 몰라요. 한 번만 알려주시면 다음부터는 제가 알아서 할게요.")
+                if self.general is None:
+                    return Turn("unknown_task",
+                                "그 작업은 아직 방법을 몰라요. 한 번만 알려주시면 "
+                                "다음부터는 제가 알아서 할게요.")
+                return self._work_it_out(intent, reading, ask)
             try:
                 flow = self.author(intent, self.driver)   # the token-spending path
             except Exception as e:
