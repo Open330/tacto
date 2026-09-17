@@ -1249,6 +1249,81 @@ def _saved_path(d, name):
                                 .replace("file://", "")) if win else ""
 
 
+def scenario_learning_makes_it_free_next_time():
+    """An escalation that pays for itself.
+
+    The judgment came back as a selector, so the recipe can keep it — and a
+    recipe that keeps what it was told stops having to ask. That is the whole
+    argument for answering in IR rather than in prose: the second run of the
+    same task costs nothing."""
+    from nlc.agent import Agent
+    from nlc.contract import Resource, SafetyContract
+    from nlc.flow import Flow, Resolution, Step
+    from nlc.store import FlowStore
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    KP = "CalculatorKeypadView"
+    store = FlowStore()
+    name = "probe_learned"
+    # A recipe that names a button which is not there.
+    store.save(Flow(name, "com.apple.calculator", steps=[
+        Step("click", Selector(role="Button", identifier="WrongName",
+                               ancestor=KP),
+             intent_text="숫자 하나", on_uncertain=["target_missing"],
+             safety=SafetyContract(
+                 effects=["write_ephemeral"], reversibility="reversible",
+                 resource=Resource(object_type="계산기 입력", scope="entry")))]))
+    asked = []
+
+    def judge(why):
+        asked.append(why.kind)
+        return Resolution("use_selector",
+                          selector=Selector(role="Button", identifier="Seven",
+                                            ancestor=KP),
+                          reason="화면에 있는 이름으로 바꿉니다")
+
+    try:
+        agent = Agent(driver=d, store=store, judge=judge)
+        first = agent.handle(name, think=1)
+        if first.status != "done" or len(asked) != 1:
+            return False
+        # The fix is in the stored recipe now, not just in that one run.
+        if store.load(name).steps[0].selector.identifier != "Seven":
+            return False
+        second = agent.handle(name, think=1)
+        # Asked once, ever: the second run had nothing left to be unsure about.
+        return second.status == "done" and len(asked) == 1
+    finally:
+        try:
+            os.remove(store._file(name))
+        except OSError:
+            pass
+
+
+def scenario_shipped_recipes_are_not_quietly_patched():
+    """A fix to a recipe that ships with NLC belongs in the code.
+
+    Saving over it would be undone the next run, when the built-in is refreshed
+    from the library — so a learned selector for one of those is reported rather
+    than buried in a user's store."""
+    from nlc.agent import Agent
+    from nlc.flow import ReplayResult
+    from nlc.library import calc_arith
+    from nlc.store import FlowStore
+    store = FlowStore()
+    flow = calc_arith().bind(a="7", b="8", op="+")
+    before = store.load("calc_arith").to_json()
+    res = ReplayResult()
+    res.record(status="resolved", step=0, kind="target_missing",
+               learned={"selector": {"role": "Button", "identifier": "Hijacked"}})
+    said = []
+    Agent(driver=Driver(), store=store,
+          narrate=said.append)._keep_what_it_learned(flow, res)
+    return store.load("calc_arith").to_json() == before and any(
+        "함께 배포" in m for m in said)
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -1503,6 +1578,10 @@ SCENARIOS = [
      scenario_escalation_only_where_declared),
     ("escalation_clears_a_blocked_run (a surprise becomes a question)",
      scenario_escalation_clears_a_blocked_run),
+    ("learning_makes_it_free_next_time (an escalation pays for itself)",
+     scenario_learning_makes_it_free_next_time),
+    ("shipped_recipes_are_not_quietly_patched (a library fix belongs in code)",
+     scenario_shipped_recipes_are_not_quietly_patched),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

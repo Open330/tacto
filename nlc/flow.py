@@ -602,6 +602,19 @@ class Flow:
         return Flow(name=self.name, target=_render(self.target, ctx), steps=out,
                     schema=self.schema)
 
+    def with_learned(self, learned: list) -> "Flow":
+        """A copy of this recipe with the selectors an escalation worked out.
+
+        This is what makes an escalation pay for itself: the judgment came back
+        as a selector, so the recipe can keep it and never buy that answer
+        again. A recipe gets cheaper the more it has been surprised.
+        """
+        steps = list(self.steps)
+        for idx, sel in learned:
+            if 0 <= idx < len(steps):
+                steps[idx] = replace(steps[idx], selector=Selector(**sel))
+        return replace(self, steps=steps)
+
     def to_json(self) -> str:
         d = {"name": self.name, "target": self.target, "schema": self.schema,
              "steps": [{**asdict(s)} for s in self.steps]}
@@ -1016,6 +1029,21 @@ class ReplayResult:
     def __init__(self):
         self.ok = True
         self.log: list[dict] = []
+
+    @property
+    def learned(self) -> list[tuple[int, dict]]:
+        """Selector fixes this run discovered, as (step index, selector dict).
+
+        Only `use_selector` resolutions appear here, and the distinction is the
+        point. "The recipe named the wrong element, here is the right one" is
+        durable knowledge about the app. "Something was in the way this time" is
+        not — baking a Cancel step into a recipe would cancel dialogs that
+        should not be cancelled. Situational recovery stays in the log.
+        """
+        return [(e["step"], e["learned"]["selector"]) for e in self.log
+                if e.get("status") == "resolved"
+                and isinstance(e.get("learned"), dict)
+                and "selector" in e["learned"]]
 
     def record(self, **kw):
         self.log.append(kw)
