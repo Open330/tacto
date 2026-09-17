@@ -1893,6 +1893,67 @@ def scenario_a_read_sees_what_the_batch_did():
     return r.ok and r.said == ["54"]
 
 
+def scenario_two_of_the_same_name_are_told_apart():
+    """Re-finding by name has to survive two things sharing one.
+
+    Abandoning the batch whenever a label is not unique would give up on every
+    Save button in an app with two windows. Where it was is already part of the
+    candidate the question was asked about, so it is part of finding it again."""
+    from nlc.general import candidates, reacquire
+    before = ("0 Window  Title: 보고서\n"
+              "  1 Group  Identifier: left\n"
+              "    2 Button  Title: Save\n")
+    after = ("0 Window  Title: 보고서\n"
+             "  1 Group  Identifier: right\n"
+             "    2 Button  Title: Save\n"
+             "  3 Group  Identifier: left\n"
+             "    4 Button  Title: Save\n")
+    c = candidates(before)[0]
+    # Ambiguous on the name alone; the container it was in settles it.
+    return c["container"] == "left" and reacquire(c, after) == 4
+
+
+def scenario_a_sheet_appearing_cuts_the_batch():
+    """An element can survive a modal and still be the wrong thing to press.
+
+    It is there, named the same, the only one of its name — and the app is now
+    waiting for an answer to something else, so pressing it does not do what
+    the plan meant. Re-finding cannot see that; the sheet can."""
+    from nlc.general import blocking_sheet, run
+
+    plain = _fake_screen(["Alpha", "Beta"])
+    covered = (plain.rstrip("\n") +
+               "\n  9 Sheet  Title: 저장하시겠습니까?\n")
+
+    class Interrupted:
+        def __init__(self):
+            self.n, self.hit = 0, []
+
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": f"o{self.n}",
+                    "tree": plain if self.n == 0 else covered}
+
+        def act(self, obs_id, target, action, risk_class=None, intent_text="",
+                approved=False):
+            self.n += 1
+            self.hit.append(action["element_index"])
+            return {"type": "acted", "action": action["name"]}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    d = Interrupted()
+    r = _two_clicks(d)
+    cut = [v.cut_short for v in r.visits if v.cut_short]
+    return (blocking_sheet(covered) == "저장하시겠습니까?"
+            and not blocking_sheet(plain)
+            and d.hit == [1]                       # only the first landed
+            and len(cut) == 1 and "저장하시겠습니까?" in cut[0])
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -2187,6 +2248,10 @@ SCENARIOS = [
      scenario_a_vanished_target_cuts_the_batch),
     ("a_read_sees_what_the_batch_did (the answer is after, not before)",
      scenario_a_read_sees_what_the_batch_did),
+    ("two_of_the_same_name_are_told_apart (where it was finds it again)",
+     scenario_two_of_the_same_name_are_told_apart),
+    ("a_sheet_appearing_cuts_the_batch (still there is not still right)",
+     scenario_a_sheet_appearing_cuts_the_batch),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

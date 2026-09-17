@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 import re
 
 from . import safety
-from .flow import Selector, _same_role, _where
+from .flow import Selector, TargetAmbiguous, _same_role
 
 # What can be done to a thing depends on what it is, and saying so is what
 # stops "read the answer" from being offered as "click the answer". The first
@@ -78,6 +78,7 @@ def candidates(tree: str) -> list[dict]:
         # what it currently says, but a thing that is named by what it says
         # cannot be found again once it says something else. A calculator
         # display listed as "0" was unfindable the moment it became "54".
+        container, where = _place(lines, i)
         show = _pick(line, ("Title", "Description", "Value", "Identifier"))
         ident = _pick(line, ("Identifier", "Description", "Title")
                       if "click" not in can
@@ -86,9 +87,9 @@ def candidates(tree: str) -> list[dict]:
             continue
         bucket.append({"element_index": int(toks[0]), "role": toks[1],
                        "label": show[1][:80], "match": ident[1],
-                       "attr": ident[0], "where": _where(lines, i),
-                       "can": list(can), "disabled": "[disabled]" in line,
-                       "line": line})
+                       "attr": ident[0], "container": container,
+                       "where": where, "can": list(can),
+                       "disabled": "[disabled]" in line, "line": line})
     return act + read
 
 
@@ -100,6 +101,52 @@ def _pick(line: str, keys) -> tuple[str, str] | None:
     return None
 
 
+def _place(lines: list[str], i: int) -> tuple[str, str]:
+    """(nearest named container, text saying where this is).
+
+    The container is kept separately from the sentence built out of it, because
+    a name is what tells two identical labels apart and a sentence is not.
+    """
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    window = container = ""
+    for j in range(i - 1, -1, -1):
+        prev = lines[j]
+        if not prev.strip():
+            continue
+        pind = len(prev) - len(prev.lstrip())
+        if pind >= indent:
+            continue
+        indent = pind
+        toks = prev.strip().split()
+        role = toks[1] if len(toks) >= 2 else ""
+        got = _pick(prev, ("Identifier", "Title", "Description"))
+        name = got[1] if got else ""
+        if _same_role(role, "Window") and not window:
+            window = name or "(제목 없음)"
+            break
+        if name and not container:
+            container = name
+    bits = ([f"안: {container}"] if container else []) + \
+           ([f"창: {window}"] if window else [])
+    return container, " / ".join(bits)
+
+
+def blocking_sheet(tree: str) -> str:
+    """The title of a sheet or dialog sitting over this app, if there is one.
+
+    An element can survive a modal appearing: it is still there, still named
+    the same, still the only one of its name — and pressing it now does not do
+    what the plan meant, because the app is waiting for an answer to something
+    else. Re-finding an element cannot see that; the sheet itself can.
+    """
+    for line in tree.splitlines():
+        toks = line.strip().split()
+        if len(toks) >= 2 and _same_role(toks[1], "Sheet"):
+            got = _pick(line, ("Title", "Description", "Identifier"))
+            return got[1] if got else "(이름 없는 대화상자)"
+    return ""
+
+
 _ATTR_FIELD = {"Title": "title", "Description": "desc",
                "Value": "value", "Identifier": "identifier"}
 
@@ -109,7 +156,7 @@ def _line_for(tree: str, idx: int) -> str:
                  if re.match(rf"\s*{idx}\s", l)), "")
 
 
-def reacquire(c: dict, tree: str) -> int | None:
+def reacquire(c: dict, tree: str) -> int | None:  # noqa: C901
     """Where this candidate is NOW — or None if the screen moved under it.
 
     A batch is a list of things to do to named elements, and an index is not a
@@ -129,6 +176,18 @@ def reacquire(c: dict, tree: str) -> int | None:
     try:
         idx, _ = Selector(role=c["role"], **{field: c["match"]}).resolve(tree)
         return idx
+    except TargetAmbiguous:
+        # Two things of the same name is not a dead end if they are in
+        # different places, and where it was is already part of the candidate
+        # the question was asked about.
+        if not c.get("container"):
+            return None
+        try:
+            idx, _ = Selector(role=c["role"], ancestor=c["container"],
+                              **{field: c["match"]}).resolve(tree)
+            return idx
+        except LookupError:
+            return None
     except LookupError:
         return None
 
@@ -256,6 +315,9 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             return res
         seen[key] = plan
 
+        # A sheet that was already up when the plan was made is what the plan
+        # is about; one that appears partway through is not.
+        planned_over = bool(blocking_sheet(obs["tree"]))
         visit = Visit(screen=key, expect=answer.get("expect"))
         moved = False
         for n, a in enumerate(acts):
@@ -275,6 +337,13 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     res.visits.append(visit)
                     return res
                 obs = fresh
+                sheet = blocking_sheet(obs["tree"])
+                if sheet and not planned_over:
+                    say(f"  ('{sheet}' 가 열려서 '{c['label']}' 부터는 중단하고 "
+                        f"다시 봅니다)")
+                    visit.cut_short = f"{c['label']} 이후 — {sheet}"
+                    moved = True
+                    break
                 where = reacquire(c, obs["tree"])
                 if where is None:
                     say(f"  (화면이 바뀌어 '{c['label']}' 부터는 중단하고 "
