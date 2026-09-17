@@ -187,15 +187,26 @@ class Selector:
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
                   "Placeholder")
 
-    @staticmethod
-    def _stable_id(v: str) -> str:
+    # Suffixes after ';' that are known to be live state rather than identity.
+    # An allowlist, not a general rule: treating everything after a ';' as
+    # noise makes 'control;operation:preview' match 'control;operation:delete',
+    # which is two different commands compared equal (advisor finding).
+    _VOLATILE_SUFFIX = ("value:", "state:", "selected:", "index:", "count:")
+
+    @classmethod
+    def _stable_id(cls, v: str) -> str:
         """AXIdentifier can carry volatile state appended after ';' — a real
         device showed 'StandardInputView;value:408', where the identifier
-        changes with every keystroke. The part before the first ';' is the
-        stable identity; the rest is state. Splitting on this structured
-        separator does NOT reintroduce prefix matching ('Save' still never
-        matches 'SaveAs'), so exactness is preserved where it matters."""
-        return v.split(";", 1)[0].strip()
+        changes with every keystroke. Only a suffix whose key is known to be
+        state is dropped; anything else is part of the name and stays, because
+        an unrecognised suffix is as likely to BE the distinction as to hide it.
+        """
+        head, sep, tail = v.partition(";")
+        if not sep:
+            return v.strip()
+        if tail.strip().lower().startswith(cls._VOLATILE_SUFFIX):
+            return head.strip()
+        return v.strip()
 
     @classmethod
     def _attr(cls, line: str, key: str) -> str | None:
@@ -354,7 +365,13 @@ class Selector:
             if not (0 <= self.allow_nth < len(hits)):   # reject negatives too
                 raise TargetMissing(f"{self} allow_nth={self.allow_nth} out of "
                                     f"range 0..{len(hits)-1}")
-            return hits[self.allow_nth], f"{strat}[nth={self.allow_nth}]"
+            picked, how = hits[self.allow_nth], f"{strat}[nth={self.allow_nth}]"
+            # nth chooses WHICH match; click_ancestor says what to act on. They
+            # are independent, and returning early here handed back the leaf
+            # StaticText for a selector that asked for its Row (advisor finding).
+            if self.click_ancestor:
+                return self._climb(lines, picked), how + "^" + str(self.click_ancestor)
+            return picked, how
         if len(hits) > 1:
             raise TargetAmbiguous(f"어느 것인지 알 수 없어요 — {self.describe()} "
                                   f"{len(hits)}개가 화면에 있습니다")
@@ -392,16 +409,12 @@ def _same_number(expected: str, observed: str) -> bool:
     def canon(v):
         t = "".join(c for c in str(v) if c not in _GROUPING).strip()
         return t
-    a, b = canon(expected), canon(observed)
-    if a == b:
-        return True
-    # Decimal, not float: postconditions verify money and counts, and float()
-    # makes 9007199254740992 and ...93 compare equal (advisor finding).
-    from decimal import Decimal, InvalidOperation
-    try:
-        return Decimal(a) == Decimal(b)
-    except (InvalidOperation, ValueError):
-        return False
+    # Grouping only — NOT numeric equality. Parsing both sides as numbers made
+    # an account number '00123' verify against '123', and a postcondition is an
+    # assertion about what the screen says, not about a quantity (advisor
+    # finding). '5,535' still matches '5535' because those are the same
+    # characters once the separator a locale inserted is removed.
+    return canon(expected) == canon(observed)
 
 
 @dataclass
@@ -602,19 +615,6 @@ class Flow:
         return Flow(name=self.name, target=_render(self.target, ctx), steps=out,
                     schema=self.schema)
 
-    def with_learned(self, learned: list) -> "Flow":
-        """A copy of this recipe with the selectors an escalation worked out.
-
-        This is what makes an escalation pay for itself: the judgment came back
-        as a selector, so the recipe can keep it and never buy that answer
-        again. A recipe gets cheaper the more it has been surprised.
-        """
-        steps = list(self.steps)
-        for idx, sel in learned:
-            if 0 <= idx < len(steps):
-                steps[idx] = replace(steps[idx], selector=Selector(**sel))
-        return replace(self, steps=steps)
-
     def to_json(self) -> str:
         d = {"name": self.name, "target": self.target, "schema": self.schema,
              "steps": [{**asdict(s)} for s in self.steps]}
@@ -723,45 +723,90 @@ def _nearby(selector: "Selector", tree: str, limit: int = 8) -> str:
     return f"화면에 있는 것: {', '.join(names)}" if names else ""
 
 
-def _candidates(selector: "Selector", tree: str, limit: int = 12) -> list[str]:
-    """The things on screen that COULD have been meant, as a plain list.
+def _where(lines: list[str], i: int) -> str:
+    """The enclosing window and nearest named container of line `i`.
 
-    An escalation needs choices, not prose. Same source as the message a person
-    reads on failure — what is there, named the way the screen names it."""
+    Two Save buttons in two windows described themselves as ["Save", "Save"],
+    and no answer to "which one did you mean" can be given from that (advisor
+    finding). A candidate is only a choice if it can be told apart.
+    """
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    window = container = ""
+    for j in range(i - 1, -1, -1):
+        prev = lines[j]
+        if not prev.strip():
+            continue
+        pind = len(prev) - len(prev.lstrip())
+        if pind >= indent:
+            continue
+        indent = pind
+        toks = prev.strip().split()
+        role = toks[1] if len(toks) >= 2 else ""
+        name = (Selector._attr(prev, "Identifier")
+                or Selector._attr(prev, "Title")
+                or Selector._attr(prev, "Description") or "")
+        if _same_role(role, "Window") and not window:
+            window = name or "(제목 없음)"
+            break
+        if name and not container:
+            container = name
+    parts = []
+    if container:
+        parts.append(f"안: {container}")
+    if window:
+        parts.append(f"창: {window}")
+    return " / ".join(parts)
+
+
+def _candidates(selector: "Selector", tree: str, limit: int = 12) -> list[str]:
+    """The things on screen that COULD have been meant, each with where it is.
+
+    An escalation needs choices, not prose — and a choice that cannot be told
+    from another choice is not one. Scoped the same way the selector was: if it
+    asked inside a container or the front window, offering what is outside that
+    scope offers something the selector never could have matched.
+    """
     # With no selector to go on — a menu step has none — the useful answer is
     # not "every label on screen" but "what can actually be pressed right now".
     # That is what tells a reader a dialog is in the way.
     role = selector.role if selector is not None and selector.role else "Button"
+    lines = tree.splitlines()
     out = []
-    for line in tree.splitlines():
+    for i, line in enumerate(lines):
         toks = line.strip().split()
         if len(toks) < 2 or not _same_role(toks[1], role):
             continue
         if role == "Button" and "[disabled]" in line:
             continue
+        if selector is not None:
+            try:
+                if not selector._in_scope(lines, i):
+                    continue
+            except Exception:
+                pass
         for key in ("Title", "Description", "Value", "Identifier"):
             v = Selector._attr(line, key)
             if v:
-                out.append(v)
+                where = _where(lines, i)
+                out.append(f"{v} ({where})"[:120] if where else v[:120])
                 break
         if len(out) >= limit:
             break
     return out
 
 
-def _run_fix(driver, flow, steps, narrate) -> bool:
-    """Run the steps an escalation asked for, before retrying the real one.
+def _run_fix(driver, flow, recovery: str, narrate) -> bool:
+    """Run one of OUR recovery recipes, before retrying the step that failed.
 
-    A nested replay on purpose: the inserted steps face the same contracts, the
-    same gate and the same verification as any other. Nothing was pre-approved
-    for them, so a step whose meaning needs consent simply gates and the fix
-    fails — an escalation can clear a dialog out of the way, it cannot decide
-    that something may be sent.
+    Named, not described: the model picks a key of RECOVERIES, and what that key
+    does was written and verified here. Schema 2 regardless of the parent, so a
+    legacy recipe cannot lend a recovery its looser contract rules.
     """
-    if not steps:
+    build = RECOVERIES.get(recovery)
+    if build is None:
         return False
-    patch = Flow(name=f"{flow.name}:fix", target=flow.target, steps=list(steps),
-                 schema=flow.schema)
+    patch = build(flow)
+    patch = replace(patch, name=f"{flow.name}:{recovery}", schema=2)
     out = replay(driver, patch, narrate=narrate)
     if not out.ok and narrate:
         bad = next((e for e in out.log if e.get("status") in ("error", "gated")), {})
@@ -970,6 +1015,13 @@ class Uncertainty:
     step: int
     intent: str          # what the step was trying to do, in the user's words
     detail: str          # the engine's own account of the failure
+    # Whether the action may ALREADY have happened. A postcondition that is
+    # false at the deadline does not prove the effect did not land — the send
+    # can complete while the screen is still catching up. So the two questions
+    # an escalation can be about are kept apart: "what should I act on?" is
+    # asked before anything ran, "did it already happen?" after (advisor
+    # finding). Only the first may re-aim, and only the second forbids a re-run.
+    effect: str = "not_started"      # not_started | unknown
     options: list[str] = field(default_factory=list)   # what IS on screen
     tree_diff: str = ""  # what changed since the previous observation
 
@@ -978,27 +1030,62 @@ class Uncertainty:
 class Resolution:
     """The answer to an Uncertainty, expressed as IR rather than as prose.
 
-    A model that says "click the second one" has not helped; a model that hands
-    back a selector has. That is what makes an escalation something the recipe
-    can LEARN from — the resolution is the same kind of thing the recipe is
-    already made of.
+    Deliberately narrow. An earlier version let the answer be arbitrary steps
+    with their own contracts, and the safety argument for that — "the nested
+    replay gates them" — was wrong: the gate computes `policy(what the model
+    said this step means)`, so a step that clicks Send while declaring
+    `effects: ["read"]` passes (advisor finding). Nothing in the engine can
+    check a semantic claim against what the control actually does.
+
+    So a recovery is chosen from a vocabulary this code owns, by name. The model
+    decides WHICH recovery is called for; what each one means is not its to
+    state.
     """
-    kind: str                       # use_selector | insert_steps | give_up
+    kind: str                       # use_selector | recover | give_up
     selector: "Selector | None" = None
-    steps: list = field(default_factory=list)
+    recovery: str = ""              # a key of RECOVERIES
     reason: str = ""
 
 
-class _Budget:
-    """How many escalations this run may spend. Zero means "never ask"."""
+def _recovery_dismiss_dialog(flow: "Flow") -> "Flow":
+    from .library import close_dialog
+    return close_dialog().bind(app=flow.target)
 
-    def __init__(self, calls: int = 0):
+
+# Recoveries are code, not model output. Each is a whole recipe with its own
+# contract, written and verified here — which is the difference between "the
+# model may clear a dialog out of the way" and "the model may run whatever it
+# describes as harmless".
+RECOVERIES = {
+    "dismiss_dialog": _recovery_dismiss_dialog,
+}
+
+
+class _Budget:
+    """How many escalations this run may spend. Zero means "never ask".
+
+    Spent BEFORE the model is called, never after, so a timeout, unparseable
+    answer or `give_up` costs the same as a useful one — otherwise a provider
+    that always fails is a provider that asks forever (advisor finding).
+
+    Capped per (step, kind) as well as per run: without that, one step that
+    keeps getting the same wrong selector back can burn the whole budget
+    oscillating, and the run still ends in the same failure it started with.
+    """
+
+    def __init__(self, calls: int = 0, per_step: int = 1):
         self.left = calls
         self.spent = 0
+        self.per_step = per_step
+        self._asked: dict = {}
 
-    def take(self) -> bool:
+    def take(self, step: int = -1, kind: str = "") -> bool:
         if self.left <= 0:
             return False
+        key = (step, kind)
+        if self._asked.get(key, 0) >= self.per_step:
+            return False
+        self._asked[key] = self._asked.get(key, 0) + 1
         self.left -= 1
         self.spent += 1
         return True
@@ -1015,14 +1102,40 @@ def _escalate(escalate, budget: "_Budget", step: "Step", why: Uncertainty,
     """
     if escalate is None or why.kind not in (step.on_uncertain or ()):
         return None
-    if not budget.take():
+    if not budget.take(why.step, why.kind):
         return None
     if narrate:
         narrate(f"  ? 예상과 달라 판단이 필요합니다: {why.detail[:80]}")
     try:
-        return escalate(why)
+        fix = escalate(why)
     except Exception:
         return None
+    if fix is None:
+        return None
+    # Re-aiming is a question about what to act on, which only exists before
+    # anything ran. After that, pointing the step at a different element does
+    # not correct the first action — it adds a second one.
+    if fix.kind == "use_selector" and why.effect != "not_started":
+        if narrate:
+            narrate("  (이미 실행됐을 수 있어 대상 변경은 받지 않습니다)")
+        return None
+    return fix
+
+
+# Actions that mean the same thing done twice as done once. A second AXPress is
+# a second press; setting a field to the same value again is not a second edit.
+# This is a property of the action, not of what the model believes happened —
+# after an unclear outcome it is the only thing that can license a re-run.
+_IDEMPOTENT = ("read", "set_value")
+
+
+def _may_rerun(step: "Step") -> bool:
+    if step.action not in _IDEMPOTENT:
+        return False
+    if step.safety is None:
+        return False
+    return set(step.safety.effects) <= {"read", "write_ephemeral",
+                                        "write_persistent"}
 
 
 class ReplayResult:
@@ -1031,19 +1144,20 @@ class ReplayResult:
         self.log: list[dict] = []
 
     @property
-    def learned(self) -> list[tuple[int, dict]]:
-        """Selector fixes this run discovered, as (step index, selector dict).
+    def resolved(self) -> list[dict]:
+        """What this run had to ask about, for the caller to report.
 
-        Only `use_selector` resolutions appear here, and the distinction is the
-        point. "The recipe named the wrong element, here is the right one" is
-        durable knowledge about the app. "Something was in the way this time" is
-        not — baking a Cancel step into a recipe would cancel dialogs that
-        should not be cancelled. Situational recovery stays in the log.
+        NOT written back into the recipe. Persisting a fix looked like the way
+        to make escalation pay for itself, and it was wrong twice over: the flow
+        in hand is the BOUND one, so saving it would bake this run's filename,
+        recipient and text into the template — the feature meant to stop a model
+        hard-coding a window title would have hard-coded the entire run. And
+        whether a fix is durable is a property of the CONDITION it holds under,
+        not of its IR shape: a selector can name today's date, while "open that
+        panel first" can be structural (advisor finding, both). Learning needs a
+        validity condition the IR has nowhere to put yet.
         """
-        return [(e["step"], e["learned"]["selector"]) for e in self.log
-                if e.get("status") == "resolved"
-                and isinstance(e.get("learned"), dict)
-                and "selector" in e["learned"]]
+        return [e for e in self.log if e.get("status") == "resolved"]
 
     def record(self, **kw):
         self.log.append(kw)
@@ -1168,12 +1282,17 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     detail=f"{e}. {nearby}",
                     options=_candidates(step.selector, obs["tree"])), narrate)
                 if fix is not None and fix.kind == "use_selector" and fix.selector:
-                    # The judgment comes back as a selector, so it is the same
-                    # kind of thing the recipe is made of — which is what lets
-                    # the recipe keep it and stop paying for this next time.
+                    # Only where the step needs no approval. Re-aiming a step
+                    # that does would point the consent — already given, for a
+                    # described action — at something else, and the description
+                    # the person agreed to must be the thing that runs.
+                    if step.safety is not None and policy(step.safety).risk != "none":
+                        res.record(status="error", step=i, action=step.action,
+                                   error=kind,
+                                   detail="승인이 필요한 단계의 대상은 바꿀 수 없습니다")
+                        return res
                     step = replace(step, selector=fix.selector)
                     res.record(status="resolved", step=i, kind=kind,
-                               learned={"selector": asdict(fix.selector)},
                                reason=fix.reason)
                     continue
                 res.record(status="error", step=i, action=step.action,
@@ -1240,15 +1359,24 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                        reason=reason, detail=r)
             return res
         if r["type"] == "error":
+            # "The driver refused" and "the driver threw while acting" are not
+            # the same failure: the first is provably before any effect, the
+            # second is not. The driver says which, and only the first may be
+            # re-run without a witness.
+            effect = r.get("effect", "unknown")
             fix = _escalate(escalate, spend, step, Uncertainty(
                 kind="action_failed", step=i, intent=step.intent_text,
+                effect=effect,
                 detail=str(r.get("detail") or r.get("error")),
                 options=_candidates(step.selector, obs.get("tree", ""))), narrate)
-            if fix is not None and fix.kind == "insert_steps" and \
-                    _run_fix(driver, flow, fix.steps, narrate):
+            if effect != "not_started" and not _may_rerun(step):
+                if fix is not None and narrate:
+                    narrate("  (실행 여부가 불확실해 다시 실행하지 않습니다)")
+                fix = None
+            if fix is not None and fix.kind == "recover" and \
+                    _run_fix(driver, flow, fix.recovery, narrate):
                 res.record(status="resolved", step=i, kind="action_failed",
-                           learned={"insert_before": len(fix.steps)},
-                           reason=fix.reason)
+                           recovery=fix.recovery, reason=fix.reason)
                 # The screen moved, so everything derived from it is stale.
                 obs = driver.observe(flow.target, "tree_full", require_window=False)
                 if obs["type"] == "observation" and step.selector is not None:
@@ -1277,22 +1405,34 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                         seen = list(post._attr_values(_element_block(last["tree"], idx)))
                     except Exception:
                         seen = "field-not-found"
+                # The action was dispatched and returned without error. The
+                # only thing that failed is SEEING the result, so the effect is
+                # unknown, not absent.
                 fix = _escalate(escalate, spend, step, Uncertainty(
-                    kind="postcondition_timeout", step=i,
+                    kind="postcondition_timeout", step=i, effect="unknown",
                     intent=step.intent_text,
                     detail=f"기대값 {post.equals or post.contains!r}, "
                            f"화면에서 읽은 값 {seen!r}",
                     options=_candidates(post.field, last.get("tree", ""))),
                     narrate)
-                if fix is not None and fix.kind == "insert_steps" and \
-                        _run_fix(driver, flow, fix.steps, narrate):
-                    # The step may have needed something done first — a
-                    # selection, a focus, a dialog cleared — so do the whole
-                    # thing again now that it has been. A fresh observation is
-                    # required, not optional: the one in hand is the timeout,
-                    # which carries no obs_id to act against.
+                if fix is not None and fix.kind == "recover" and \
+                        _run_fix(driver, flow, fix.recovery, narrate):
+                    # Look again FIRST. A dialog in the way, or a screen that
+                    # had not caught up, is the common reason a postcondition
+                    # times out on an action that did land — and looking costs
+                    # nothing and cannot double an effect.
                     fresh = driver.observe(flow.target, "tree_full")
-                    if fresh["type"] == "observation":
+                    if fresh["type"] == "observation" and post.check(fresh["tree"]):
+                        obs = fresh
+                        res.record(status="resolved", step=i,
+                                   kind="postcondition_timeout",
+                                   recovery=fix.recovery, reason=fix.reason,
+                                   detail="복구 후 다시 보니 이미 되어 있었습니다")
+                    elif fresh["type"] == "observation" and _may_rerun(step):
+                        # Only now, and only for an action that means the same
+                        # thing done twice as done once. Clicking Send again
+                        # because the screen was slow is how a message is sent
+                        # twice (advisor finding).
                         retry = dict(action)
                         if step.selector is not None:
                             try:
@@ -1309,12 +1449,14 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             if obs["type"] == "observation":
                                 res.record(status="resolved", step=i,
                                            kind="postcondition_timeout",
-                                           learned={"insert_before":
-                                                    len(fix.steps)},
+                                           recovery=fix.recovery,
                                            reason=fix.reason)
                 if obs["type"] != "observation":
                     res.record(status="error", step=i, action=step.action,
                                error="postcondition_timeout",
+                               effect="unknown",
+                               detail="실행은 됐지만 결과를 확인하지 못했습니다 — "
+                                      "같은 동작을 다시 실행하지 않았습니다",
                                expected=post.equals, observed=seen)
                     return res
         else:

@@ -172,6 +172,64 @@ def _covers(scope: list[Evidence], contract: "SafetyContract") -> bool:
     return True
 
 
+# Severity order. Composing effects takes the MAXIMUM of what each one needs:
+# an early return per effect meant adding a destructive effect could REMOVE the
+# confirmation the others required — `write_persistent` alone asked for one,
+# `write_persistent` plus `delete` on a reversible entry asked for none at all
+# (advisor finding, reproduced). Authorization must never fall when the action
+# grows.
+_SEVERITY = {"none": 0, "preapproved": 1, "confirm": 2, "handoff": 3, "blocked": 4}
+
+
+def _worst(decisions: list[Decision]) -> Decision:
+    return max(decisions, key=lambda d: _SEVERITY[d.risk])
+
+
+def _for_effect(effect: str, c: SafetyContract, data: set) -> Decision:
+    """What ONE effect requires, judged on its own terms."""
+    if effect == "credential":
+        return Decision("handoff", "credential material — the user enters it")
+    if effect == "system_config":
+        return Decision("handoff", "changes OS/security configuration")
+    if effect == "financial":
+        # Never below confirm on the user's own say-so alone: money moving is
+        # the case where "the request mentioned it" is not enough. The
+        # commit_point distinction only says WHICH step stops, not whether one
+        # does — previously `commit_point=False` produced `preapproved` with no
+        # user evidence at all.
+        return Decision("confirm", "financial effect")
+    if effect == "install":
+        return Decision("confirm", "installs or runs new software")
+    if effect == "transmit":
+        if c.destination.kind == "third_party":
+            return Decision("confirm", f"sends {sorted(data)} to "
+                                       f"{c.destination.identity or 'a third party'}")
+        return Decision("confirm", "sends data out of this app")
+    if effect == "delete":
+        # Judged by WHAT is deleted and whether it can come back — not by the
+        # word on the button. This is what makes a calculator's AC and "delete
+        # account" different despite identical AX shape.
+        if c.resource.scope == "entry" and c.reversibility == "reversible":
+            return Decision("none", "clears an ephemeral entry; reversible")
+        if c.reversibility == "irreversible" or c.resource.scope in ("account", "all"):
+            return Decision("confirm", f"irreversible/wide deletion "
+                                       f"(scope={c.resource.scope}, {c.reversibility})")
+        if (c.resource.selection_count or 1) > 1:
+            return Decision("confirm", f"deletes {c.resource.selection_count} items")
+        return Decision("confirm", "deletes stored data")
+    if effect == "write_persistent":
+        if c.destination.kind in ("none", "same_app") and data <= {"none"}:
+            # `preapproved` exists only when the user's own words cover the
+            # action, so check the evidence rather than trusting the label.
+            if _covers(c.authorization_scope(), c):
+                return Decision("preapproved", "user's request covers this write")
+            return Decision("confirm", "stores data — the request did not name it")
+        return Decision("confirm", "persists data beyond the session")
+    if effect in ("read", "write_ephemeral"):
+        return Decision("none", "reads or edits an ephemeral entry")
+    return Decision("confirm", f"unclassified effect {effect!r}")
+
+
 def policy(c: SafetyContract) -> Decision:
     """SafetyContract -> authorization level. Deterministic; no model, no tokens."""
     problems = c.problems()
@@ -188,51 +246,14 @@ def policy(c: SafetyContract) -> Decision:
                                    "cannot describe the action well enough to run it")
 
     eff, data = set(c.effects), set(c.data_classes)
-
-    # The user must act themselves: secrets and security posture.
-    if "credential" in eff or "credential" in data:
-        return Decision("handoff", "credential material — the user enters it")
-    if "system_config" in eff:
-        return Decision("handoff", "changes OS/security configuration")
-
-    # Money and third-party transmission always stop at the commit point.
-    if "financial" in eff:
-        return Decision("confirm" if c.commit_point is not False else "preapproved",
-                        "financial effect")
-    if "transmit" in eff and c.destination.kind == "third_party":
-        return Decision("confirm", f"sends {sorted(data)} to {c.destination.identity or 'a third party'}")
-    # Everything below may reach `preapproved`; that level exists only when the
-    # user's own words cover the action, so check the evidence rather than
-    # trusting the label (advisor finding: provenance was decorative).
-    if "install" in eff:
-        return Decision("confirm", "installs or runs new software")
-
-    # Deletion is judged by WHAT is deleted and whether it can come back —
-    # not by the word on the button. This is what makes a calculator's AC and
-    # "delete account" different despite identical AX shape.
-    if "delete" in eff:
-        if c.resource.scope == "entry" and c.reversibility == "reversible":
-            return Decision("none", "clears an ephemeral entry; reversible")
-        if c.reversibility == "irreversible" or c.resource.scope in ("account", "all"):
-            return Decision("confirm", f"irreversible/wide deletion "
-                                       f"(scope={c.resource.scope}, {c.reversibility})")
-        if (c.resource.selection_count or 1) > 1:
-            return Decision("confirm", f"deletes {c.resource.selection_count} items")
-        return Decision("confirm", "deletes stored data")
-
-    if "write_persistent" in eff:
-        if c.destination.kind in ("none", "same_app") and data <= {"none"}:
-            if _covers(c.authorization_scope(), c):
-                return Decision("preapproved", "user's request covers this write")
-            return Decision("confirm", "stores data — the request did not name it")
-        return Decision("confirm", "persists data beyond the session")
-
-    if eff <= {"read"}:
-        return Decision("none", "read-only")
-    if eff <= {"read", "write_ephemeral"}:
-        return Decision("none", "edits an ephemeral entry")
-
-    return Decision("confirm", f"unclassified effects {sorted(eff)}")
+    # A credential in the DATA is as much the user's to enter as one in the
+    # effects; this used to be checked only alongside the effect.
+    decisions = [_for_effect(e, c, data) for e in sorted(eff)]
+    if "credential" in data:
+        decisions.append(Decision("handoff", "credential material — the user enters it"))
+    if not decisions:                      # `problems()` already rejects this
+        return Decision("blocked", "no effects stated")
+    return _worst(decisions)
 
 
 # ---------------------------------------------------------------- binding

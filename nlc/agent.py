@@ -304,31 +304,23 @@ class Agent:
             judge = model_judge(target=flow.target, narrate=self.narrate)
         res = replay(self.driver, flow, approvals=approvals,
                      narrate=self.narrate, escalate=judge, budget=think)
-        self._keep_what_it_learned(flow, res)
+        self._report_what_it_asked(flow, res)
         return self._to_turn(flow, res)
 
-    def _keep_what_it_learned(self, flow: Flow, res: ReplayResult) -> None:
-        """Write a resolved selector back into the recipe, so it is free next time.
+    def _report_what_it_asked(self, flow: Flow, res: ReplayResult) -> None:
+        """Say what the run had to ask about — and do not quietly keep it.
 
-        Only for recipes the store owns. One that ships with NLC is owned by the
-        code — saving over it would be undone on the next run, when the built-in
-        is refreshed from the library — so the fix is reported instead. That a
-        shipped recipe needed correcting on this machine is a fact about the
-        library, not something to bury in a user's store.
+        Persisting the fix looked like the way to make escalation pay for
+        itself. It was wrong twice: the flow in hand is the BOUND one, so saving
+        it would write this run's filename and text into the template, and
+        whether a fix is durable depends on the condition it holds under, not on
+        its IR shape. Until the IR can carry that condition, a fix that worked
+        once is news for the person, not knowledge for the recipe.
         """
-        if not res.learned:
-            return
-        from .library import builders
-        if flow.name in builders():
-            self.narrate(f"  ({flow.name} 은 함께 배포되는 레시피라 이번 보완을 "
-                         f"저장하지 않았습니다 — 코드 쪽을 고쳐야 합니다)")
-            return
-        try:
-            self.store.save(flow.with_learned(res.learned))
-            self.narrate(f"  (배운 것을 '{flow.name}' 에 넣어 두었습니다 — "
-                         f"다음부터는 묻지 않습니다)")
-        except Exception:
-            pass
+        for e in res.resolved:
+            what = e.get("recovery") or "대상을 다시 지목"
+            self.narrate(f"  ({flow.name}: '{what}' 로 이번 한 번 넘어갔습니다 — "
+                         f"레시피에 저장하지는 않았어요)")
 
     # ------------------------------------------------------------ L4 phrasing
 
