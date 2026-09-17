@@ -376,7 +376,11 @@ class Driver:
         AXUIElementSetAttributeValue(app_el, "AXFrontmost", True)
         running = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
         if running is not None:
-            running.activateWithOptions_(1 << 1)
+            # Plain activate: NSApplicationActivateIgnoringOtherApps was
+            # deprecated in macOS 14 and does nothing, so passing it only made
+            # the code look like it had more authority than it has. The
+            # AXFrontmost write above is what does the work.
+            running.activateWithOptions_(0)
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             if _attr(app_el, "AXFrontmost") is True:
