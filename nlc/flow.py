@@ -962,6 +962,16 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if narrate and step.intent_text:
             narrate(step.intent_text)
 
+        # Was the outcome already true before we acted? Then verifying it
+        # afterwards proves nothing. A model-authored recipe passed this way
+        # once — it clicked a control that does not respond, and the checkbox it
+        # checked had been on the whole time. Recorded, not refused: setting a
+        # value that already matches is legitimate, and a toggle should say so
+        # with skip_if instead.
+        pre_satisfied = bool(step.postcondition is not None
+                             and obs.get("tree")
+                             and step.postcondition.check(obs["tree"]))
+
         action = {"name": step.action, **step.params}
         trace = None
         target_line = ""
@@ -1127,7 +1137,9 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             captures[cap.name] = value
             shown = "[redacted]" if cap.sensitive else value
         res.record(status="ok", step=i, action=step.action, resolver=trace,
-                   risk=risk, verified=step.expect or (post and "postcond"),
+                   risk=risk,
+                   verified=("already_true" if pre_satisfied
+                             else step.expect or (post and "postcond")),
                    result=result_value, captured=shown)
 
     final = next((e.get("result") for e in reversed(res.log)

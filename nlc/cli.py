@@ -6,6 +6,7 @@ Usage:
   python -m nlc.cli list              # list saved flows (+ where the IR lives)
   python -m nlc.cli show <name>       # print a flow's IR (JSON)
   python -m nlc.cli compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
+      (--verify runs the result once and lets the model fix what failed)
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
@@ -167,12 +168,17 @@ def main(argv=None):
         # writes the recipe and stops. Nothing on screen is touched.
         if not rest:
             from .authoring import PROVIDER_ORDER
-            print('usage: compile "<intent>" [-o <flow.json>] '
-                  '[--compile-engine claude|codex|gemini|cxweb]')
+            print('usage: compile "<intent>" [-o <flow.json>] [--verify] '
+                  '[--compile-engine claude|codex|opencode|cxweb]')
+            print('  --verify: 만든 레시피를 한 번 실행해 보고, 실패하면 그 이유를 '
+                  '모델에 돌려주어 한 번 더 고칩니다 (화면을 조작합니다)')
             print('  기본 auto — 시도 순서: ' + ' -> '.join(PROVIDER_ORDER))
             return 2
         out = provider = None
-        words = list(rest)
+        # Verification RUNS the recipe, so it is opt-in: compile otherwise
+        # promises not to touch the screen.
+        verify = "--verify" in rest
+        words = [w for w in rest if w != "--verify"]
         for flag, setter in (("-o", "out"), ("--provider", "provider"),
                              ("--compile-engine", "provider"), ("--engine", "provider")):
             if flag in words:
@@ -188,7 +194,8 @@ def main(argv=None):
         from .authoring import author as _author
         from .store import FlowStore as _FS
         print(f"  🧠 '{intent}' 를 배우는 중… (엔진: {provider or 'auto'})")
-        flow = _author(intent, _D(), provider=provider or "auto")
+        flow = _author(intent, _D(), provider=provider or "auto", narrate=print,
+                       verify=verify)
         if out:
             with open(out, "w", encoding="utf-8") as fh:
                 fh.write(flow.to_json())
@@ -353,7 +360,7 @@ def main(argv=None):
             from .authoring import author as _author
             def author_hook(intent_text, drv):        # noqa: E306
                 print("  🧠 처음 보는 작업이라 배우는 중… (모델 사용)")
-                return _author(intent_text, drv, provider="auto")
+                return _author(intent_text, drv, provider="auto", narrate=print)
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook)
         # The person should be able to see their computer being driven, and

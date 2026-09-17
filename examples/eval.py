@@ -761,8 +761,11 @@ def scenario_large_tree_is_bounded():
     took = time.monotonic() - t0
     if o["type"] != "observation":
         return False
-    # Bounded in both senses: it finished, and it said what it left out.
-    return took < 25 and o["element_count"] <= 2500 and o.get("truncated") is True
+    # Bounded in both senses: it finished, and it said what it left out. The
+    # time ceiling is deliberately loose — the property is "answers instead of
+    # hanging", and a tight one turns this into a benchmark that fails whenever
+    # the machine is busy rather than when the driver is broken.
+    return took < 90 and o["element_count"] <= 2500 and o.get("truncated") is True
 
 
 def scenario_reads_a_list():
@@ -972,6 +975,137 @@ def scenario_authoring_produces_a_runnable_flow():
     return ok
 
 
+def _stub_author(reply: str, intent: str, target: str, d):
+    """Run the real authoring path with the model's reply supplied by hand.
+
+    Authoring costs tokens and needs a logged-in agent CLI, so the provider is
+    the one thing stubbed; the prompt, the parser, the selector validation and
+    the replay are all the real ones."""
+    import nlc.authoring as authoring
+    real = authoring._ask_model
+    authoring._ask_model = lambda prompt, provider="auto", timeout=180: reply
+    try:
+        return authoring.author(intent, d, target=target)
+    finally:
+        authoring._ask_model = real
+
+
+def _contract(object_type: str) -> dict:
+    return {"effects": ["write_ephemeral"], "data_classes": ["none"],
+            "resource": {"object_type": object_type, "scope": "entry"},
+            "destination": {"kind": "none"}, "reversibility": "reversible",
+            "commit_point": False, "unknowns": []}
+
+
+def scenario_authoring_handles_a_dialog():
+    """A recipe whose later steps act INSIDE a dialog.
+
+    A sheet's elements do not exist until it opens, so they cannot appear in the
+    one tree authoring was shown. Insisting every selector resolve against that
+    tree made every consequential task inexpressible — save, open, print,
+    preferences all happen in a sheet — and this is the case that proves it."""
+    import json as _json
+    from nlc.flow import replay
+    from nlc.library import textedit_new_document
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    _tidy_textedit(d)
+    if not replay(d, textedit_new_document()).ok:
+        return "빈 문서를 열지 못함"
+    name_field = {"role": "TextField", "identifier": "saveAsNameTextField",
+                  "in_focused_window": True}
+    reply = _json.dumps({
+        "name": "probe_dialog", "target": "com.apple.TextEdit",
+        "steps": [
+            {"action": "menu", "params": {"path": ["File", ["Save As…", "Save…"]]},
+             "intent_text": "저장 창을 엽니다",
+             "postcondition": {"contains": "save-panel"},
+             "safety": _contract("저장 대화상자")},
+            {"action": "set_value", "selector": name_field,
+             "params": {"value": "authoring-probe.rtf"},
+             "intent_text": "파일 이름을 적습니다",
+             "postcondition": {"field": name_field,
+                               "equals": "authoring-probe.rtf",
+                               "attribute": "Value"},
+             "safety": _contract("파일 이름")},
+            # Cancel, not Save: the point is that the dialog can be driven, not
+            # that the suite should leave a file behind.
+            {"action": "click",
+             "selector": {"role": "Button", "title": ["Cancel", "취소"],
+                          "in_focused_window": True},
+             "intent_text": "저장을 취소합니다",
+             "postcondition": {"absent": "save-panel"},
+             "safety": _contract("저장 대화상자")}]})
+    flow = _stub_author(reply, "이름 붙여 저장 창 열기", "com.apple.TextEdit", d)
+    ok = len(flow.steps) == 3 and replay(d, flow).ok
+    _tidy_textedit(d)
+    return ok
+
+
+def scenario_authoring_still_catches_invented_targets():
+    """Relaxing the check must not make it useless.
+
+    A selector the model invented about the screen it was actually shown is a
+    hallucination and still has to be refused; only the steps that point past a
+    screen change are left for replay to verify."""
+    import json as _json
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    reply = _json.dumps({
+        "name": "probe_invented", "target": "com.apple.calculator",
+        "steps": [{"action": "click",
+                   "selector": {"role": "Button",
+                                "identifier": "ThisButtonDoesNotExist"},
+                   "intent_text": "없는 버튼",
+                   "safety": _contract("계산기 입력")}]})
+    try:
+        _stub_author(reply, "없는 걸 눌러줘", "com.apple.calculator", d)
+    except ValueError:
+        return True
+    return False
+
+
+def scenario_already_true_is_not_proof():
+    """A postcondition that held BEFORE the action verifies nothing.
+
+    A model-authored recipe passed this way once: it clicked a control that does
+    not respond, and the checkbox it checked had been on the whole time. The run
+    is not refused — setting a value that already matches is legitimate — but
+    the log has to say which kind of pass it was."""
+    from nlc.contract import SafetyContract, Resource
+    from nlc.flow import Flow, Postcondition, Step, replay
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    KP = "CalculatorKeypadView"
+    entry = Resource(object_type="계산기 입력", scope="entry")
+    zeroed = Postcondition(field=Selector(role="ScrollArea",
+                                          identifier="StandardInputView"),
+                           equals="0", attribute="Value")
+    clear = Flow("probe_clear", "com.apple.calculator", steps=[
+        Step("click", Selector(role="Button", identifier=["AllClear", "Clear"],
+                               ancestor=KP), intent_text="지우기",
+             safety=SafetyContract(effects=["delete"], resource=entry,
+                                   reversibility="reversible"),
+             postcondition=zeroed)])
+    typed = Flow("probe_five", "com.apple.calculator", steps=[
+        Step("click", Selector(role="Button", identifier="Five", ancestor=KP),
+             intent_text="5",
+             safety=SafetyContract(effects=["write_ephemeral"], resource=entry,
+                                   reversibility="reversible"))])
+    if not replay(d, typed).ok:
+        return "계산기에 값을 넣지 못함"
+    first = replay(d, clear)          # display was 5 -> really became 0
+    second = replay(d, clear)         # display was already 0
+    if not (first.ok and second.ok):
+        return False
+    def verified(res):
+        return next(e.get("verified") for e in res.log if e.get("status") == "ok")
+    return verified(first) == "postcond" and verified(second) == "already_true"
+
+
 def scenario_authoring_teaches_the_real_vocabulary():
     """The prompt must describe the engine that exists, not the one that did.
 
@@ -1096,6 +1230,12 @@ SCENARIOS = [
      scenario_learning_is_reachable),
     ("authoring_produces_a_runnable_flow (a novel task, end to end)",
      scenario_authoring_produces_a_runnable_flow),
+    ("already_true_is_not_proof (a pass that proved nothing is labelled)",
+     scenario_already_true_is_not_proof),
+    ("authoring_handles_a_dialog (later steps act inside a sheet)",
+     scenario_authoring_handles_a_dialog),
+    ("authoring_still_catches_invented_targets (relaxed, not useless)",
+     scenario_authoring_still_catches_invented_targets),
     ("authoring_teaches_the_real_vocabulary (prompt matches the engine)",
      scenario_authoring_teaches_the_real_vocabulary),
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),

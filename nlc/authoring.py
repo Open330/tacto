@@ -12,6 +12,7 @@ this works headless in the muxa fleet without wiring an API key here.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -24,22 +25,30 @@ _SYSTEM = """You convert a user's intent into a deterministic UI automation reci
 You are given the app's accessibility tree (each line: "<index> <Role>  <attrs>").
 Output ONLY JSON of this shape, no prose:
 {"name": "<short_snake_case>", "target": "<bundle_id>",
- "steps": [
-   {"action": "click|set_value|type_text|scroll|menu|read",
-    "selector": {"role": "Button", "identifier": "<AXIdentifier or null>",
-                 "title": "<title or null>", "value": "<Value or null>",
-                 "ancestor": "<container id/title/description or null>",
-                 "in_focused_window": true, "click_ancestor": null},
-    "params": {},            // {"text":...}, {"value":...},
-                             // {"path":["File","Save As\u2026"]} for menu
+ "steps": [ ... ]}
+
+A step is one of two shapes. A MENU step carries a title path and NO selector:
+   {"action": "menu", "params": {"path": ["Format", ["Font"], ["Bold"]]},
+    "intent_text": "굵게 만듭니다",
+    "postcondition": {"field": {"role": "CheckBox", "desc": "bold",
+                                "in_focused_window": true},
+                      "equals": "1", "attribute": "Value"},
+    "safety": { ... }}
+An ELEMENT step names one element in the tree:
+   {"action": "click|set_value|type_text|scroll|secondary_action",
+    "selector": {"role": "Button", "identifier": "Equals",
+                 "ancestor": "CalculatorKeypadView", "in_focused_window": true},
+    "params": {},            // {"value": "..."} for set_value, {"text": "..."}
     "intent_text": "<one short Korean phrase for the user>",
     "answers": false,        // true only when this step's verified value IS the
                              // answer the user asked for
     "captures": [], "skip_if": null,
-    "safety": { ... }},
-   ...],
- "postcondition": {"field": {"identifier": "<id>"}, "equals": "<expected>",
-                   "attribute": "Value"}}
+    "safety": { ... }}
+`read` takes no selector and no params; it exists for a step that only captures.
+
+WRITE ONLY THE SELECTOR FIELDS YOU ACTUALLY KNOW. Omit the rest — do not write
+them as null, and never emit a selector that carries nothing but a role: "click
+a Button" is not an instruction, and such a step is refused.
 
 ## Choosing actions
 
@@ -141,11 +150,20 @@ tried to influence in `unknowns`."""
 # hosted path (cxweb) is a fallback for when no local CLI is usable — not a
 # default, because authoring should go through the tool the user has configured
 # and authenticated, on their terms.
-PROVIDER_ORDER = ("claude", "codex", "gemini", "cxweb")
+# Agent CLIs the user already runs and has authenticated, in the order they are
+# most likely to be set up. These are coding agents rather than bare model
+# endpoints on purpose: authoring is a reasoning task over a big tree, and the
+# agent CLI is the thing the user has already paid for and logged into.
+PROVIDER_ORDER = ("claude", "codex", "opencode", "cxweb")
 _CLI = {"claude": ["claude", "-p"], "codex": ["codex", "exec"],
+        "opencode": ["opencode", "run"],
         "gemini": ["gemini", "-p"], "cxweb": ["cxweb", "new", "--level", "3"]}
 
 
+# Authoring asks a reasoning agent to read a whole accessibility tree and write
+# a recipe; on this machine that took between four and six minutes. A short
+# timeout does not save anything — the provider keeps generating and the answer
+# is simply thrown away.
 def _try_muxa(provider: str, prompt: str, timeout: int):
     out = subprocess.run(
         ["muxa", "ask", "--agent", provider, "--timeout-secs", str(timeout), prompt],
@@ -169,7 +187,7 @@ def _try_cli(provider: str, prompt: str, timeout: int):
     return text
 
 
-def _ask_model(prompt: str, provider: str = "auto", timeout: int = 180) -> str:
+def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420) -> str:
     """Reach a model for the one token-spending step.
 
     `auto` walks PROVIDER_ORDER and uses the first that actually answers, trying
@@ -307,6 +325,48 @@ Answer with ONLY the bundle identifier, nothing else (e.g. com.apple.calculator)
 Pick from the list; if none fits, answer NONE."""
 
 
+_APP_ALIASES = {
+    "계산기": "com.apple.calculator", "메일": "com.apple.mail",
+    "캘린더": "com.apple.iCal", "일정": "com.apple.iCal",
+    "메모": "com.apple.Notes", "미리알림": "com.apple.reminders",
+    "할일": "com.apple.reminders", "메시지": "com.apple.MobileSMS",
+    "문자": "com.apple.MobileSMS", "사진": "com.apple.Photos",
+    "파인더": "com.apple.finder", "탐색기": "com.apple.finder",
+    "텍스트편집기": "com.apple.TextEdit", "safari": "com.apple.Safari",
+    "사파리": "com.apple.Safari", "지도": "com.apple.Maps",
+    "연락처": "com.apple.AddressBook", "시스템 설정": "com.apple.systempreferences",
+}
+
+
+def guess_target(intent: str, driver: Driver) -> str | None:
+    """The app the request plainly names, without asking a model.
+
+    Authoring costs two model calls — one to pick the app, one to write the
+    recipe — and the first is pure waste whenever the person already said which
+    app they mean. It is also a second thing that can time out, which is how a
+    compile failed before it ever saw the tree.
+
+    Only an unambiguous single match counts; anything else goes to the model.
+    """
+    said = intent.lower()
+    hits = []
+    # The system names its apps in its own language while people name them in
+    # theirs, so an English-locale Mac never matches "계산기" on its own.
+    for word, bundle in _APP_ALIASES.items():
+        if word in said:
+            hits.append(bundle)
+    for app in driver.list_targets()["apps"]:
+        for name in (app["displayName"], app["id"]):
+            if name and name.lower() in said:
+                hits.append(app["id"])
+                break
+    unique = sorted(set(hits))
+    if len(unique) != 1:
+        return None
+    # Only worth returning if the app can actually be driven right now.
+    return unique[0] if driver._resolve(unique[0], launch=False) else None
+
+
 def pick_target(intent: str, driver: Driver, provider: str = "auto") -> str:
     """Phase 1 of authoring: decide WHICH app the request is about.
 
@@ -323,42 +383,140 @@ def pick_target(intent: str, driver: Driver, provider: str = "auto") -> str:
 
 
 def author(intent: str, driver: Driver, target: str | None = None,
-           provider: str = "auto") -> Flow:
+           provider: str = "auto", narrate=None, verify: bool = False) -> Flow:
     """Observe `target`, ask the model for a recipe, return a validated Flow.
 
     Caller (Agent) saves it. This is the token-spending path; replay never is.
     """
     if target is None:
-        target = pick_target(intent, driver, provider)
+        target = guess_target(intent, driver) or pick_target(intent, driver, provider)
     # Not require_window: the recipes most worth authoring start from an app
     # with nothing open — Finder usually sits that way, and TextEdit launched
     # bare shows a file picker rather than a document. Menus belong to the app.
     obs = driver.observe(target, "tree_full", require_window=False)
     if obs["type"] != "observation":
         raise RuntimeError(f"cannot observe {target}: {obs}")
-    prompt = (f"{_SYSTEM}\n\n# 사용자 의도\n{intent}\n\n"
-              f"# 대상 앱 bundle id\n{target}\n\n# 접근성 트리\n{obs['tree']}")
-    spec = _extract_json(_ask_model(prompt, provider))
+    base = (f"{_SYSTEM}\n\n# 사용자 의도\n{intent}\n\n"
+            f"# 대상 앱 bundle id\n{target}\n\n# 접근성 트리\n{obs['tree']}")
+
+    # One repair round. A model reading a static tree cannot see the
+    # preconditions that only appear when the recipe runs — asked to italicize
+    # text, a real model wrote the Format > Font > Italic step and left out the
+    # selection, so the menu was disabled when it ran. Handing the failure back
+    # is what a person would do, and it costs one more call rather than a call
+    # per action the way a model-in-the-loop agent does.
+    complaint = ""
+    last_error = None
+    for attempt in range(2 if verify else 1):
+        try:
+            flow = _attempt(base + complaint, intent, target, provider, obs, narrate)
+        except (ValueError, KeyError) as e:
+            last_error = e
+            complaint = _complaint(f"레시피가 거부되었습니다: {e}")
+            continue
+        if not verify:
+            return flow
+        ran, why = _verify(driver, flow, narrate)
+        if ran:
+            return flow
+        last_error = RuntimeError(why)
+        complaint = _complaint(f"레시피는 만들어졌지만 실행에 실패했습니다: {why}")
+    raise last_error if last_error else RuntimeError("레시피를 만들지 못했습니다")
+
+
+def _complaint(what: str) -> str:
+    return (f"\n\n# 이전 시도의 결과\n{what}\n"
+            "같은 형식으로 다시 출력하되, 이 문제를 고치세요. 화면을 바꾸는 명령은 "
+            "그 전에 필요한 준비 단계(선택, 포커스, 창 열기)를 함께 넣으세요.")
+
+
+def _verify(driver: Driver, flow: Flow, narrate) -> tuple[bool, str]:
+    """Run the authored recipe once, to find out whether it actually works.
+
+    Only for steps the policy grants on its own authority: a recipe with a step
+    that needs the user's consent must not be run to satisfy a compile.
+    """
+    from .agent import Agent
+    from .flow import replay
+    approvals, blocked = Agent(driver=driver).authorize(flow, ask=None)
+    if blocked:
+        if narrate:
+            narrate("  (확인이 필요한 단계가 있어 자동 검증은 건너뜁니다: "
+                    + "; ".join(blocked[:2]) + ")")
+        return True, ""
+    if narrate:
+        narrate("  ▶ 만든 레시피를 한 번 실행해 확인합니다…")
+    res = replay(driver, flow, approvals=approvals)
+    if res.ok:
+        return True, ""
+    bad = next((e for e in res.log if e.get("status") == "error"), {})
+    detail = bad.get("detail")
+    if isinstance(detail, dict):
+        detail = detail.get("detail") or detail.get("error")
+    return False, f"{bad.get('error') or ''} {detail or ''}".strip()
+
+
+def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
+             narrate) -> Flow:
+    reply = _ask_model(prompt, provider)
+    # A rejected recipe is unreadable without the reply that produced it, and
+    # the reply is gone by the time the error surfaces.
+    debug = os.environ.get("NLC_AUTHOR_DEBUG")
+    if debug:
+        with open(debug, "w", encoding="utf-8") as fh:
+            fh.write(f"# prompt ({len(prompt)} chars)\n{prompt}\n\n# reply\n{reply}\n")
+    spec = _extract_json(reply)
     spec["_intent"] = intent          # provenance for the authorization scope
     flow = _to_flow(spec)
     # A recipe that cannot verify its own typing would be refused at run time,
     # which is a confusing way to learn the model forgot something. Give such a
     # step the obvious check — the typed text should appear — at compile time.
-    for st in flow.steps:
+    for i, st in enumerate(flow.steps):
         if st.action in ("type_text", "press_key", "menu") and \
                 st.postcondition is None and st.expect is None and not st.unverified_ok:
             typed = st.params.get("text")
             if st.action == "type_text" and isinstance(typed, str) and typed.strip():
-                st.expect = typed
+                st.expect = typed          # the obvious check: it should appear
+            elif st.action == "menu":
+                # NOT waived. A menu press returns success and changes nothing
+                # when the command has nothing to act on — measured, not
+                # supposed — so quietly marking it unverifiable here would undo
+                # at compile time the one guarantee replay enforces.
+                raise ValueError(
+                    f"authored step {i} ({st.intent_text or 'menu'}) has no way to "
+                    f"check it worked. A menu step needs a postcondition — name "
+                    f"the control whose value changes, or set unverified_ok "
+                    f"deliberately.")
             else:
                 st.unverified_ok = True
 
-    # sanity: every selector must resolve uniquely against the tree we showed
+    # Sanity-check selectors against the ONE tree the model was shown — while
+    # that tree still describes the screen.
+    #
+    # It only describes the opening state. A recipe that opens a dialog and then
+    # types into it names elements that do not exist yet, so demanding that all
+    # of them resolve made every multi-step task inexpressible: save, open,
+    # print, preferences — everything consequential happens in a sheet.
+    #
+    # So: a selector that does not resolve is a hallucination only while nothing
+    # has acted yet. After the first action the screen has moved on, and the
+    # honest thing is to say which steps could not be checked here. Replay
+    # checks them all anyway, and fails by name when one is wrong.
     from .flow import TargetMissing, TargetAmbiguous
+    acted = False
+    unchecked = []
     for i, st in enumerate(flow.steps):
         if st.selector is not None:
             try:
                 st.selector.resolve(obs["tree"])
             except (TargetMissing, TargetAmbiguous) as e:
-                raise ValueError(f"authored step {i} selector invalid: {e}")
+                if not acted:
+                    raise ValueError(f"authored step {i} selector invalid: {e}")
+                unchecked.append(i)
+        if st.action != "read":
+            acted = True
+    if unchecked and narrate:
+        narrate(f"  ({len(flow.steps)}단계 중 {len(unchecked)}개는 화면이 바뀐 뒤를 "
+                f"가리켜 지금 확인할 수 없어요 — 실행할 때 검증됩니다)")
     return flow
+
