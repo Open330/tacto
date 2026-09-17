@@ -966,7 +966,9 @@ def scenario_authoring_produces_a_runnable_flow():
                               "reversibility": "reversible",
                               "commit_point": False, "unknowns": []}}]})
     real_ask = authoring._ask_model
-    authoring._ask_model = lambda prompt, provider="auto", timeout=180: reply
+    # **kw so a new argument on _ask_model shows up as a real failure to fix,
+    # not as a stub that silently stopped matching.
+    authoring._ask_model = lambda prompt, provider="auto", **kw: reply
     try:
         flow = authoring.author("계산기 공학용으로", d,
                                 target="com.apple.calculator")
@@ -988,7 +990,9 @@ def _stub_author(reply: str, intent: str, target: str, d):
     the replay are all the real ones."""
     import nlc.authoring as authoring
     real = authoring._ask_model
-    authoring._ask_model = lambda prompt, provider="auto", timeout=180: reply
+    # **kw so a new argument on _ask_model shows up as a real failure to fix,
+    # not as a stub that silently stopped matching.
+    authoring._ask_model = lambda prompt, provider="auto", **kw: reply
     try:
         return authoring.author(intent, d, target=target)
     finally:
@@ -1109,6 +1113,39 @@ def scenario_already_true_is_not_proof():
     def verified(res):
         return next(e.get("verified") for e in res.log if e.get("status") == "ok")
     return verified(first) == "postcond" and verified(second) == "already_true"
+
+
+def scenario_broken_provider_falls_through():
+    """A CLI that fails while reporting success must not become the answer.
+
+    opencode prints a 401 and exits 0, and cxweb answered "추론 수준 컨트롤을
+    찾지 못했습니다" after the web UI moved. Both looked like replies. A reply
+    with no JSON in it is not an answer to a question that asked for JSON,
+    whatever the exit code said, and the next provider should get a turn."""
+    import nlc.authoring as authoring
+    real_cli, real_muxa = authoring._try_cli, authoring._try_muxa
+    seen = []
+
+    def fake_cli(provider, prompt, timeout):
+        seen.append(provider)
+        if provider == "claude":
+            return 'Error: "Authentication required: HTTP error: 401"'
+        if provider == "codex":
+            return "[cxweb] 추론 수준 컨트롤을 찾지 못했습니다"
+        return '{"name": "ok", "target": "x", "steps": []}'
+
+    authoring._try_cli = fake_cli
+    authoring._try_muxa = lambda *a, **k: None
+    try:
+        got = authoring._ask_model("p", provider="auto", expect_json=True)
+        # The two broken ones were tried and skipped, not accepted.
+        if "claude" not in seen or "codex" not in seen or "{" not in got:
+            return False
+        # Without expect_json the same junk IS returned — the caller decides.
+        loose = authoring._ask_model("p", provider="claude")
+        return "401" in loose
+    finally:
+        authoring._try_cli, authoring._try_muxa = real_cli, real_muxa
 
 
 def scenario_authored_steps_can_be_approved():
@@ -1297,6 +1334,8 @@ SCENARIOS = [
      scenario_authoring_produces_a_runnable_flow),
     ("already_true_is_not_proof (a pass that proved nothing is labelled)",
      scenario_already_true_is_not_proof),
+    ("broken_provider_falls_through (a 401 is not a model reply)",
+     scenario_broken_provider_falls_through),
     ("authored_steps_can_be_approved (consent has something to bind to)",
      scenario_authored_steps_can_be_approved),
     ("vacuous_pass_is_fed_back (the loop notices it proved nothing)",

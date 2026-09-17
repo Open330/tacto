@@ -187,12 +187,20 @@ def _try_cli(provider: str, prompt: str, timeout: int):
     return text
 
 
-def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420) -> str:
+def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
+               expect_json: bool = False) -> str:
     """Reach a model for the one token-spending step.
 
     `auto` walks PROVIDER_ORDER and uses the first that actually answers, trying
     muxa (fleet-managed) before the provider's own CLI. Naming a provider pins
-    it. Returns the reply; raises with what was attempted if nothing answered."""
+    it. Returns the reply; raises with what was attempted if nothing answered.
+
+    `expect_json` is what makes a broken provider fall through to the next one
+    rather than poison the result. An agent CLI can fail while reporting
+    success — opencode prints a 401 and exits 0 — and a reply with no JSON in it
+    is not an answer to a question that asked for JSON, whatever the exit code
+    said. The unusable text is carried into the error so the reason is visible.
+    """
     order = PROVIDER_ORDER if provider in ("auto", None) else (provider,)
     tried = []
     for name in order:
@@ -201,6 +209,10 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420) -> str:
                 reply = fn(name, prompt, timeout)
             except Exception as e:
                 tried.append(f"{name}/{how}: {type(e).__name__}")
+                continue
+            if reply and expect_json and "{" not in reply:
+                first = " ".join(reply.split())[:120]
+                tried.append(f"{name}/{how}: JSON 아님 — {first}")
                 continue
             if reply:
                 return reply
@@ -429,6 +441,14 @@ def author(intent: str, driver: Driver, target: str | None = None,
             last_error = e
             complaint = _complaint(f"레시피가 거부되었습니다: {e}")
             continue
+        except RuntimeError as e:
+            # The provider fell over mid-loop. Losing the attempt that already
+            # succeeded because a LATER call could not be made would throw away
+            # work the person paid for; stop here and hand back what we have.
+            last_error = e
+            if narrate:
+                narrate(f"  ⚠ 더 고치지 못했습니다 — {e}")
+            break
         if not verify:
             return flow
         last_flow = flow
@@ -505,7 +525,7 @@ def _verify(driver: Driver, flow: Flow, narrate) -> tuple[bool, str]:
 
 def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
              narrate) -> Flow:
-    reply = _ask_model(prompt, provider)
+    reply = _ask_model(prompt, provider, expect_json=True)
     # A rejected recipe is unreadable without the reply that produced it, and
     # the reply is gone by the time the error surfaces.
     debug = os.environ.get("NLC_AUTHOR_DEBUG")

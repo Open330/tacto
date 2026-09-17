@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-47%2F47_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-48%2F48_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -293,10 +293,10 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `47/47 PASS`
+## 검증 상태 — `48/48 PASS`
 
 ```bash
-./launcher/nlc eval      # 권한 경계까지 포함해 전부 (47/47)
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (48/48)
 uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
 ```
 
@@ -327,6 +327,7 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
   PASS  already_true_is_not_proof       이미 참이던 검증은 그렇게 표시
   PASS  authored_steps_can_be_approved  모델이 쓴 단계에도 동의가 붙음
   PASS  vacuous_pass_is_fed_back        헛된 통과를 수리 루프가 잡아냄
+  PASS  broken_provider_falls_through   401 을 모델 응답으로 받지 않음
   PASS  missing_target_says_what_is_there  고를 수 있는 것을 알려줌
   PASS  builtin_is_not_frozen   함께 배포되는 레시피는 저장본이 아니라 코드에서
   PASS  intent_parameters       값은 요청에서 뽑아냄 (폴더마다 레시피 X)
