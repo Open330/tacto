@@ -119,9 +119,11 @@ class TracingDriver:
                                   "result": r})
         return r
 
-    def act(self, obs_id, target, action, risk_class="none", intent_text="",
-            approved=False):
-        r = self._inner.act(obs_id, target, action, risk_class, intent_text, approved)
+    def act(self, obs_id, target, action, expect=None, risk_class="none",
+            intent_text="", approved=False):
+        r = self._inner.act(obs_id, target, action, expect=expect,
+                            risk_class=risk_class, intent_text=intent_text,
+                            approved=approved)
         self.trace.events.append({"kind": "act", "obs_id": obs_id, "target": target,
                                   "action": action, "risk_class": risk_class,
                                   "result": r})
@@ -172,8 +174,8 @@ class TraceDriver:
     def observe(self, target, mode="tree_full"):
         return self._next_observation()
 
-    def act(self, obs_id, target, action, risk_class="none", intent_text="",
-            approved=False):
+    def act(self, obs_id, target, action, expect=None, risk_class="none",
+            intent_text="", approved=False):
         # Honour the same gates as a live driver so safety behaviour is part of
         # what a trace reproduces.
         if risk_class == "handoff":

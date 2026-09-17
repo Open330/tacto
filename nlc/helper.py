@@ -235,18 +235,25 @@ class HelperDriver:
         return self._send({"type": "observe", "target": target,
                            "require_window": require_window})
 
-    def act(self, obs_id, target, action, risk_class="none", intent_text="",
-            approved=False):
+    def act(self, obs_id, target, action, expect=None, risk_class="none",
+            intent_text="", approved=False):
         if risk_class == "handoff":
             return {"type": "handoff_request", "reason": intent_text}
         if risk_class in ("confirm", "preapproved") and not approved:
             return {"type": "confirm_request", "what": intent_text,
                     "risk_class": risk_class}
-        r = self._send({"type": "act", "obs_id": obs_id, "target": target,
-                        "action": action})
+        msg = {"type": "act", "obs_id": obs_id, "target": target,
+               "action": action}
+        if expect:
+            msg["expect"] = expect
+        r = self._send(msg)
         if r.get("type") == "acted":
             self._last_action_at = time.time()
         return r
+
+    def probe(self, obs_id, target, element_index):
+        return self._send({"type": "probe", "obs_id": obs_id, "target": target,
+                           "element_index": element_index})
 
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
         deadline = time.monotonic() + timeout_ms / 1000
@@ -264,7 +271,8 @@ class HelperDriver:
 # The L2 surface is transport-independent: observe/act/wait_until only need a
 # `_send`, so the socket driver borrows the spawn driver's implementations
 # rather than keeping a second copy in step with the first.
-for _name in ("identity", "list_targets", "observe", "act", "wait_until"):
+for _name in ("identity", "list_targets", "observe", "act", "probe",
+              "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(SocketHelperDriver, _name, impl)
     setattr(InheritedHelperDriver, _name, impl)

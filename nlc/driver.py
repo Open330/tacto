@@ -567,7 +567,7 @@ class Driver:
 
     # ------------------------------------------------------------ act
 
-    def act(self, obs_id: str, target: str, action: dict,
+    def act(self, obs_id: str, target: str, action: dict, expect: dict | None = None,
             risk_class: str = "none", intent_text: str = "",
             approved: bool = False):
         # D6 gate. handoff -> user does it. confirm AND preapproved both require
@@ -590,6 +590,19 @@ class Driver:
                     "detail": "re-observe and re-derive element_index "
                               f"(latest is {obs.obs_id if obs else 'none'})"}
 
+        # What the caller believed it was acting on, checked against the
+        # element ITSELF rather than by re-reading the screen. A batch planned
+        # on one observation has to know its target is still that target, and
+        # walking the tree again costs 9.8 SECONDS in Mail — measured — while
+        # reading one element's own attributes costs about one millisecond.
+        # Checking here rather than beforehand also closes the gap between the
+        # check and the action, which a separate probe would leave open.
+        if expect:
+            why = self._mismatch(obs, action, expect)
+            if why:
+                return {"type": "error", "error": "target_changed",
+                        "effect": "not_started", "detail": why}
+
         name = action.get("name")
         try:
             result = self._perform(obs, action)
@@ -604,6 +617,40 @@ class Driver:
         return {"type": "acted", "action": name, "obs_id": obs_id,
                 "note": "not verified — observe again and check the result (D7)",
                 **(result or {})}
+
+    def _mismatch(self, obs, action: dict, expect: dict) -> str:
+        """Why this is no longer what the caller meant — or "" if it still is."""
+        if expect.get("no_modal") and self._modal_sheet(obs.pid):
+            return "화면에 대화상자가 열렸습니다"
+        idx = action.get("element_index")
+        if idx is None:
+            return ""                      # a menu step names no element
+        try:
+            el = self._element(obs, action)
+        except Exception as e:
+            return str(e)
+        seen = _elem_label(el)
+        if seen is None:
+            return "대상이 화면에서 사라졌습니다"
+        for key in ("role", "label"):
+            want = expect.get(key)
+            if want and want not in seen:
+                return f"대상이 달라졌습니다 (기대 {want!r}, 지금 {seen[:60]!r})"
+        return ""
+
+    def probe(self, obs_id: str, target: str, element_index: int) -> dict:
+        """One element's own attributes, with no tree walk.
+
+        A read late in a batch needs what the screen says NOW, and re-observing
+        to get it is what made Mail unaffordable."""
+        obs = self._latest.get(target.lower())
+        if obs is None or obs.obs_id != obs_id:
+            return {"type": "error", "error": "stale_observation"}
+        try:
+            el = self._element(obs, {"element_index": element_index})
+        except Exception as e:
+            return {"type": "error", "error": "target_missing", "detail": str(e)}
+        return {"type": "probe", "line": _elem_label(el) or ""}
 
     def _element(self, obs, action):
         idx = action.get("element_index")
@@ -809,10 +856,17 @@ class Driver:
         if mtype == "observe":
             return self.observe(msg["target"], msg.get("mode", "tree_diff"))
         if mtype == "act":
+            # Keywords, not positions: `expect` sits between `action` and
+            # `risk_class`, and a positional call would have quietly passed the
+            # risk class as the expectation.
             return self.act(msg["obs_id"], msg["target"], msg["action"],
-                            msg.get("risk_class", "none"),
-                            msg.get("intent_text", ""),
-                            msg.get("approved", False))
+                            expect=msg.get("expect"),
+                            risk_class=msg.get("risk_class", "none"),
+                            intent_text=msg.get("intent_text", ""),
+                            approved=msg.get("approved", False))
+        if mtype == "probe":
+            return self.probe(msg["obs_id"], msg["target"],
+                              msg["element_index"])
         if mtype == "act_batch":
             # A batch reuses one obs_id, so raw element_index values only stay
             # valid while the tree is unchanged. After each action we check the
@@ -826,7 +880,8 @@ class Driver:
             base_lines = list(base.lines) if base else None
             approvals = msg.get("approvals", {})   # {action_index: True}
             for i, action in enumerate(msg["actions"]):
-                r = self.act(obs_id, target, action, msg.get("risk_class", "none"),
+                r = self.act(obs_id, target, action,
+                             risk_class=msg.get("risk_class", "none"),
                              approved=bool(approvals.get(i) or approvals.get(str(i))))
                 results.append(r)
                 # Stop on an error OR a safety gate — never keep clicking past a

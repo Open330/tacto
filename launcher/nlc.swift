@@ -62,7 +62,8 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // and hand back the text. That is the whole reason the child's PATH is fixed —
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
-let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act", "ask"]
+let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
+                                 "probe", "ask"]
 // Per-action exact schemas, not a union of every field. A union let `click`
 // arrive carrying `text`, `action` and `pages` as well (advisor finding);
 // requiring an exact key set makes each action mean one thing.
@@ -123,7 +124,15 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
 let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode",
-                                 "require_window", "prompt", "json"]
+                                 "require_window", "prompt", "json",
+                                 "expect", "element_index"]
+
+// What a caller may claim its target still is. Reading one element's own
+// attributes is about a millisecond; re-walking Mail's tree to find out is
+// nine and a half SECONDS, measured. So the claim travels with the action and
+// the helper checks it there — which also leaves no gap between checking and
+// acting. It names attributes to compare, never a program or a permission.
+let expectKeys: Set<String> = ["role", "label", "no_modal"]
 
 // A question is a string and nothing else. No program, no arguments, no
 // environment — the child names none of those, here or anywhere.
@@ -142,6 +151,10 @@ func vetted(_ msg: [String: Any]) -> String? {
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
     }
+    if type == "probe" {
+        guard msg["obs_id"] is String, msg["target"] is String,
+              isInt(msg["element_index"] as Any) else { return "probe 형식 오류" }
+    }
     if type == "ask" {
         guard let p = msg["prompt"] as? String else { return "ask 에 prompt 없음" }
         guard !p.isEmpty else { return "빈 prompt" }
@@ -155,6 +168,15 @@ func vetted(_ msg: [String: Any]) -> String? {
         }
     }
     if type == "act" {
+        if let e = msg["expect"] {
+            guard let d = e as? [String: Any] else { return "expect 형식 오류" }
+            for k in d.keys where !expectKeys.contains(k) {
+                return "허용되지 않은 expect 필드: \(k)"
+            }
+            if let r = d["role"], !(r is String) { return "expect.role 형식 오류" }
+            if let l = d["label"], !(l is String) { return "expect.label 형식 오류" }
+            if let n = d["no_modal"], !(n is Bool) { return "expect.no_modal 형식 오류" }
+        }
         guard msg["obs_id"] is String, msg["target"] is String,
               let action = msg["action"] as? [String: Any],
               let name = action["name"] as? String else { return "act 형식 오류" }

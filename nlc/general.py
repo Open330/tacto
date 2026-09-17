@@ -156,6 +156,24 @@ def _line_for(tree: str, idx: int) -> str:
                  if re.match(rf"\s*{idx}\s", l)), "")
 
 
+def _probe(driver, obs_id: str, target: str, idx: int) -> str:
+    """What one element says right now, without walking the tree.
+
+    A read late in a batch has to answer with the screen AFTER the earlier
+    actions — "7 더하기 8" read its display back as 0 because the value came
+    off the line captured before a single key was pressed. Asking the element
+    is a millisecond; asking the screen is most of a minute in a big app.
+    """
+    probe = getattr(driver, "probe", None)
+    if probe is None:
+        return ""
+    try:
+        r = probe(obs_id, target, idx)
+    except Exception:
+        return ""
+    return r.get("line", "") if r.get("type") == "probe" else ""
+
+
 def reacquire(c: dict, tree: str) -> int | None:  # noqa: C901
     """Where this candidate is NOW — or None if the screen moved under it.
 
@@ -326,37 +344,22 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 res.why = f"'{c['label']}' 은 지금 누를 수 없습니다"
                 res.visits.append(visit)
                 return res
-            if n:
-                # Everything after the first action happens on a screen we have
-                # not been asked about. Find the element by name; if it is no
-                # longer exactly one thing, the rest of this batch is about a
-                # screen that no longer exists.
-                fresh = driver.observe(target, "tree_full", require_window=False)
-                if fresh["type"] != "observation":
-                    res.why = f"화면을 볼 수 없습니다: {fresh.get('error')}"
-                    res.visits.append(visit)
-                    return res
-                obs = fresh
-                sheet = blocking_sheet(obs["tree"])
-                if sheet and not planned_over:
-                    say(f"  ('{sheet}' 가 열려서 '{c['label']}' 부터는 중단하고 "
-                        f"다시 봅니다)")
-                    visit.cut_short = f"{c['label']} 이후 — {sheet}"
-                    moved = True
-                    break
-                where = reacquire(c, obs["tree"])
-                if where is None:
-                    say(f"  (화면이 바뀌어 '{c['label']}' 부터는 중단하고 "
-                        f"다시 봅니다)")
-                    visit.cut_short = f"{c['label']} 이후"
-                    moved = True
-                    break
-                # The line too, not just the index. A read takes its answer
-                # from the element's line, and the one captured at observation
-                # time is what the screen said BEFORE the batch ran — which is
-                # how "7 + 8" was read back as 0.
-                c = {**c, "element_index": where,
-                     "line": _line_for(obs["tree"], where) or c["line"]}
+            # The whole batch runs against ONE observation, so every index in
+            # it stays the index of the element it was planned for — an AX
+            # handle, not a position that other elements can shift. What the
+            # batch cannot assume is that the element still MEANS the same
+            # thing, so the claim travels with the action and the driver checks
+            # it against the element itself. Re-walking the tree between
+            # actions would answer the same question and cost 9.8 seconds per
+            # action in Mail, measured — 68 seconds for a batch of eight.
+            expect = {"label": c["match"], "role": c["role"]}
+            if not planned_over:
+                expect["no_modal"] = True
+            if a["do"] == "read":
+                probed = _probe(driver, obs["obs_id"], target,
+                                c["element_index"])
+                if probed:
+                    c = {**c, "line": probed}
             action = {"name": a["do"], "element_index": c["element_index"]}
             if a["do"] == "set_value":
                 action["value"] = a["value"]
@@ -371,8 +374,15 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     return res
                 approved = True
             say(f"  {c['label']}")
-            r = driver.act(obs["obs_id"], target, action, risk_class=risk,
-                           intent_text=what, approved=approved)
+            r = driver.act(obs["obs_id"], target, action, expect=expect,
+                           risk_class=risk, intent_text=what,
+                           approved=approved)
+            if r.get("error") == "target_changed":
+                say(f"  ({r.get('detail')} — '{c['label']}' 부터는 중단하고 "
+                    f"다시 봅니다)")
+                visit.cut_short = f"{c['label']} 이후 — {r.get('detail')}"
+                moved = True
+                break
             if r["type"] != "acted":
                 res.why = f"'{c['label']}' 실행 실패: {r.get('error')}"
                 visit.actions.append({**a, "result": r.get("error")})
