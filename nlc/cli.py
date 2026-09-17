@@ -170,14 +170,20 @@ def main(argv=None):
             from .authoring import PROVIDER_ORDER
             print('usage: compile "<intent>" [-o <flow.json>] [--verify] '
                   '[--compile-engine claude|codex|opencode|cxweb]')
-            print('  --verify: 만든 레시피를 한 번 실행해 보고, 실패하면 그 이유를 '
-                  '모델에 돌려주어 한 번 더 고칩니다 (화면을 조작합니다)')
+            print('  --verify[ --verify-rounds N]: 만든 레시피를 실행해 보고, 실패하면 '
+                  '그 이유를 모델에 돌려주어 N번까지 고칩니다 (화면을 조작합니다)')
             print('  기본 auto — 시도 순서: ' + ' -> '.join(PROVIDER_ORDER))
             return 2
         out = provider = None
         # Verification RUNS the recipe, so it is opt-in: compile otherwise
         # promises not to touch the screen.
         verify = "--verify" in rest
+        rounds = 1
+        if "--verify-rounds" in rest:
+            k = rest.index("--verify-rounds")
+            rounds = int(rest[k + 1]) if k + 1 < len(rest) else 1
+            verify = True
+            rest = rest[:k] + rest[k + 2:]
         words = [w for w in rest if w != "--verify"]
         for flag, setter in (("-o", "out"), ("--provider", "provider"),
                              ("--compile-engine", "provider"), ("--engine", "provider")):
@@ -195,7 +201,7 @@ def main(argv=None):
         from .store import FlowStore as _FS
         print(f"  🧠 '{intent}' 를 배우는 중… (엔진: {provider or 'auto'})")
         flow = _author(intent, _D(), provider=provider or "auto", narrate=print,
-                       verify=verify)
+                       verify=verify, rounds=rounds)
         if out:
             with open(out, "w", encoding="utf-8") as fh:
                 fh.write(flow.to_json())
