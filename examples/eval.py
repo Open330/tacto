@@ -8,6 +8,7 @@ Not a general benchmark; a focused check of the properties the design promises:
   - resolver honesty (ambiguous/missing targets fail loudly, never silent)
 """
 
+import os
 import sys
 import time
 
@@ -1115,6 +1116,139 @@ def scenario_already_true_is_not_proof():
     return verified(first) == "postcond" and verified(second) == "already_true"
 
 
+def _blocking_sheet(d):
+    """Leave a save dialog open, the way a run that stopped midway does."""
+    import time as _t
+    from nlc.flow import replay as _replay
+    from nlc.library import textedit_new_document
+    _tidy_textedit(d)
+    if not _replay(d, textedit_new_document()).ok:
+        return False
+    o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
+    d.act(o["obs_id"], "com.apple.TextEdit",
+          {"name": "menu", "path": ["File", ["Save As…", "Save…"]]})
+    _t.sleep(2)
+    o = d.observe("com.apple.TextEdit", "tree_full")
+    return o["type"] == "observation" and "save-panel" in o["tree"]
+
+
+def scenario_escalation_is_off_by_default():
+    """Replay stays free and deterministic unless a caller buys judgment.
+
+    A step may declare which surprises it expects, but declaring is not the same
+    as asking: with no escalate callback and no budget, a blocked run fails
+    exactly as it did before, having called nothing."""
+    from nlc.flow import replay
+    from nlc.library import textedit_save_as
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    if not _blocking_sheet(d):
+        return "저장 시트를 띄우지 못함"
+    calls = []
+    flow = textedit_save_as().bind(filename="차단.rtf", folder="Downloads")
+    plain = replay(d, flow)                      # no escalate, no budget
+    budgeted = replay(d, flow, escalate=lambda why: calls.append(why),
+                      budget=0)                  # a resolver, but nothing to spend
+    _tidy_textedit(d)
+    return (not plain.ok) and (not budgeted.ok) and not calls
+
+
+def scenario_escalation_only_where_declared():
+    """A recipe that escalates on anything is one that never fails honestly.
+
+    The step has to say which kind of surprise it expects; anything else ends
+    the run the way it always did."""
+    from nlc.contract import SafetyContract, Resource
+    from nlc.flow import Flow, Step, replay
+    asked = []
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    sc = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
+                        resource=Resource(object_type="입력", scope="entry"))
+    missing = Selector(role="Button", identifier="NoSuchButton",
+                       ancestor="CalculatorKeypadView")
+    quiet = Flow("probe_quiet", "com.apple.calculator",
+                 steps=[Step("click", missing, intent_text="없는 버튼", safety=sc)])
+    r = replay(d, quiet, escalate=lambda why: asked.append(why), budget=3)
+    if asked or r.ok:
+        return False
+    loud = Flow("probe_loud", "com.apple.calculator",
+                steps=[Step("click", missing, intent_text="없는 버튼", safety=sc,
+                            on_uncertain=["target_missing"])])
+    replay(d, loud, escalate=lambda why: asked.append(why) or None, budget=3)
+    # Declared, so it was asked — once, because that is what the budget bought.
+    return len(asked) == 1 and asked[0].kind == "target_missing"
+
+
+def scenario_escalation_clears_a_blocked_run():
+    """The point of the whole thing: a surprise becomes a question, not an end.
+
+    A dialog left open disables the menu the recipe needs. The resolver is
+    stubbed rather than model-backed — what is under test is the engine's
+    ability to take an answer, apply it and carry on, not the model's ability to
+    write one."""
+    from nlc.contract import SafetyContract, Resource
+    from nlc.flow import Flow, Postcondition, Resolution, Step, replay
+    from nlc.library import textedit_save_as
+    d = Driver()
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    if not _blocking_sheet(d):
+        return "저장 시트를 띄우지 못함"
+
+    def resolver(why):
+        # Exactly what a person would do: cancel the dialog that is in the way.
+        return Resolution(
+            "insert_steps",
+            steps=[Step("click",
+                        Selector(role="Button", title=["Cancel", "취소"]),
+                        intent_text="가로막은 대화상자를 닫습니다",
+                        safety=SafetyContract(
+                            effects=["write_ephemeral"],
+                            reversibility="reversible",
+                            resource=Resource(object_type="대화상자",
+                                              scope="entry")),
+                        postcondition=Postcondition(absent="Sheet"))],
+            reason="저장 창이 이미 열려 있었습니다")
+
+    # A fresh name every run: a leftover from a failed run makes the save raise
+    # its own "already exists, replace?" dialog, which is a different blockage
+    # than the one under test.
+    name = f"nlc-escal-{int(time.time())}.rtf"
+    flow = textedit_save_as().bind(filename=name, folder="Downloads")
+    # Only the first step may escalate; the consequential save still cannot.
+    r = replay(d, flow, approvals=_approve_all(d, flow),
+               escalate=resolver, budget=1)
+    resolved = [e for e in r.log if e.get("status") == "resolved"]
+    path = _saved_path(d, name)
+    _tidy_textedit(d)
+    if path and os.path.exists(path):
+        os.remove(path)
+    return r.ok and len(resolved) == 1 and bool(path)
+
+
+def _approve_all(d, flow):
+    from nlc.agent import Agent
+    approvals, blocked = Agent(driver=d).authorize(flow, ask=lambda _w: True)
+    return {} if blocked else approvals
+
+
+def _saved_path(d, name):
+    import urllib.parse
+    from ApplicationServices import AXUIElementCreateApplication
+    from nlc.driver import _attr
+    pid = d._resolve("com.apple.TextEdit", launch=False)
+    if pid is None:
+        return ""
+    app = AXUIElementCreateApplication(pid)
+    win = next((w for w in (_attr(app, "AXWindows") or [])
+                if _attr(w, "AXTitle") == name), None)
+    return urllib.parse.unquote((_attr(win, "AXDocument") or "")
+                                .replace("file://", "")) if win else ""
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -1363,6 +1497,12 @@ SCENARIOS = [
      scenario_authoring_produces_a_runnable_flow),
     ("already_true_is_not_proof (a pass that proved nothing is labelled)",
      scenario_already_true_is_not_proof),
+    ("escalation_is_off_by_default (replay stays free unless asked)",
+     scenario_escalation_is_off_by_default),
+    ("escalation_only_where_declared (a step names the surprise it expects)",
+     scenario_escalation_only_where_declared),
+    ("escalation_clears_a_blocked_run (a surprise becomes a question)",
+     scenario_escalation_clears_a_blocked_run),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

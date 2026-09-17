@@ -131,6 +131,14 @@ the sign that the step did not do what you thought. A recipe passed this way
 once by pressing a toolbar checkbox that does not respond at all. When the
 command is a toggle, say so with `skip_if` instead.
 
+**Name the surprises a step expects** with `"on_uncertain"`, when a step can
+meet a screen no recipe can predict — a dialog left open by an earlier run, a
+list whose rows are ambiguous. Given a budget (`nlc do --think`), such a step
+hands the surprise back for one judgment instead of ending the run; without one
+it fails exactly as before. Values: `target_ambiguous`, `target_missing`,
+`action_failed`, `postcondition_timeout`. Declare it only where judgment is
+genuinely needed — a recipe that escalates on everything never fails honestly.
+
 **Toggles need `skip_if`.** Many commands toggle rather than set, so replaying
 one undoes it. State the condition the step exists to bring about and it stands
 down when that already holds:

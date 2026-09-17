@@ -356,6 +356,10 @@ def textedit_new_document() -> Flow:
         steps=[
             Step("menu", params={"path": path},
                  intent_text="빈 문서를 엽니다", safety=_scratch("새 문서"),
+                 # A dialog left open by an earlier run disables the whole menu
+                 # bar, and clearing it is a decision about the screen rather
+                 # than about the task. Worth asking; not worth guessing.
+                 on_uncertain=["action_failed"],
                  binding=ContextBinding(bundle_id="com.apple.TextEdit",
                                         operation="menu",
                                         params_digest=pin_params({"path": path})),
@@ -399,6 +403,7 @@ def textedit_save_as() -> Flow:
         steps=[
             Step("menu", params={"path": save_as},
                  intent_text="저장 창을 엽니다", safety=_scratch("저장 대화상자"),
+                 on_uncertain=["action_failed"],
                  binding=ContextBinding(bundle_id="com.apple.TextEdit",
                                         operation="menu",
                                         params_digest=pin_params({"path": save_as})),

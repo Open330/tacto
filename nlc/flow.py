@@ -113,6 +113,18 @@ def _arith(expr: str):
     return int(v) if isinstance(v, float) and v.is_integer() else v
 
 
+def _same_role(token: str, want: str) -> bool:
+    """Do these name the same role, `AX` prefix or not?
+
+    The tree prints roles stripped ("Button"), the accessibility API spells them
+    "AXButton", and a model writes whichever it saw last. The difference carries
+    no meaning, so it should not be the reason a selector matches nothing —
+    which is exactly how one escalation's answer was thrown away.
+    """
+    a, b = token.lower(), want.lower()
+    return a.removeprefix("ax") == b.removeprefix("ax")
+
+
 def _alternatives(value) -> set[str]:
     """Accepted spellings of one selector field, normalized and lowercased."""
     items = [value] if isinstance(value, str) else list(value)
@@ -201,7 +213,7 @@ class Selector:
         if self.role:
             # role token is the 2nd field on the line: "<idx> <Role> ..."
             toks = line.strip().split()
-            if len(toks) < 2 or toks[1].lower() != self.role.lower():
+            if len(toks) < 2 or not _same_role(toks[1], self.role):
                 return False
         if self.identifier:
             ids = [self.identifier] if isinstance(self.identifier, str) else self.identifier
@@ -364,7 +376,7 @@ class Selector:
                 continue
             indent = pind
             toks = prev.strip().split()
-            if len(toks) >= 2 and toks[1].lower() in want:
+            if len(toks) >= 2 and any(_same_role(toks[1], w) for w in want):
                 return int(toks[0])
         raise TargetMissing(f"{self}: no enclosing {self.click_ancestor} above "
                             f"element {idx}")
@@ -543,6 +555,10 @@ class Step:
     # oscillate is not deterministic in any useful sense, so a step may state the
     # condition it exists to bring about and stand down when it already holds.
     skip_if: "Postcondition | None" = None
+    # Kinds of surprise this step is allowed to hand back for judgment instead
+    # of failing on. Empty — the default — keeps replay strictly deterministic:
+    # a run that may spend tokens has to say so, step by step.
+    on_uncertain: list[str] = field(default_factory=list)
     # Is the value this step verifies the ANSWER to the request, or just proof
     # that the step landed? A calculator's 408 is an answer; the bold checkbox's
     # "1" is not, and reporting it made "굵게 해줘" reply "결과는 1 입니다".
@@ -641,7 +657,8 @@ class Flow:
                               unverified_ok=s.get("unverified_ok", False),
                               for_each=s.get("for_each"),
                               captures=_captures_from(s),
-                              skip_if=skip_if, answers=s.get("answers", False)))
+                              skip_if=skip_if, answers=s.get("answers", False),
+                              on_uncertain=list(s.get("on_uncertain", []))))
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=d.get("schema", 1),   # older files predate contracts
                     params=d.get("params", {}), tables=d.get("tables", {}),
@@ -680,7 +697,8 @@ def _nearby(selector: "Selector", tree: str, limit: int = 8) -> str:
         return ""
     names = []
     for line in tree.splitlines():
-        if not re.match(rf"\s*\d+\s+{re.escape(selector.role)}\b", line.strip()):
+        toks = line.strip().split()
+        if len(toks) < 2 or not _same_role(toks[1], selector.role):
             continue
         for key in ("Title", "Description", "Value", "Identifier"):
             v = Selector._attr(line, key)
@@ -690,6 +708,53 @@ def _nearby(selector: "Selector", tree: str, limit: int = 8) -> str:
         if len(names) >= limit:
             break
     return f"화면에 있는 것: {', '.join(names)}" if names else ""
+
+
+def _candidates(selector: "Selector", tree: str, limit: int = 12) -> list[str]:
+    """The things on screen that COULD have been meant, as a plain list.
+
+    An escalation needs choices, not prose. Same source as the message a person
+    reads on failure — what is there, named the way the screen names it."""
+    # With no selector to go on — a menu step has none — the useful answer is
+    # not "every label on screen" but "what can actually be pressed right now".
+    # That is what tells a reader a dialog is in the way.
+    role = selector.role if selector is not None and selector.role else "Button"
+    out = []
+    for line in tree.splitlines():
+        toks = line.strip().split()
+        if len(toks) < 2 or not _same_role(toks[1], role):
+            continue
+        if role == "Button" and "[disabled]" in line:
+            continue
+        for key in ("Title", "Description", "Value", "Identifier"):
+            v = Selector._attr(line, key)
+            if v:
+                out.append(v)
+                break
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _run_fix(driver, flow, steps, narrate) -> bool:
+    """Run the steps an escalation asked for, before retrying the real one.
+
+    A nested replay on purpose: the inserted steps face the same contracts, the
+    same gate and the same verification as any other. Nothing was pre-approved
+    for them, so a step whose meaning needs consent simply gates and the fix
+    fails — an escalation can clear a dialog out of the way, it cannot decide
+    that something may be sent.
+    """
+    if not steps:
+        return False
+    patch = Flow(name=f"{flow.name}:fix", target=flow.target, steps=list(steps),
+                 schema=flow.schema)
+    out = replay(driver, patch, narrate=narrate)
+    if not out.ok and narrate:
+        bad = next((e for e in out.log if e.get("status") in ("error", "gated")), {})
+        why = bad.get("error") or bad.get("gate") or "?"
+        narrate(f"  (고치기가 실패했습니다: {why} {str(bad.get('detail'))[:90]})")
+    return out.ok
 
 
 def _payload_digest(params: dict) -> str:
@@ -781,7 +846,8 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 # "{{weekday_en}}" matched nothing and read as "no events".
                 captures=[replace(c, field=render_sel(c.field))
                           for c in st.captures],
-                skip_if=render_post(st.skip_if), answers=st.answers)
+                skip_if=render_post(st.skip_if), answers=st.answers,
+                on_uncertain=list(st.on_uncertain))
 
 
 def _live_binding(driver, flow, step, action, target_line,
@@ -879,6 +945,73 @@ def _approved(approvals, i, step, action) -> bool:
     return bool(tok)
 
 
+@dataclass
+class Uncertainty:
+    """What the recipe could not determine, and what the screen showed instead.
+
+    This is the whole context an escalation gets. Deliberately small: a diff and
+    a list of what is actually there, not the whole tree. Looking again has to
+    stay cheap, or "ask when the screen surprises you" becomes "pay every run".
+    """
+    kind: str            # target_ambiguous | target_missing | action_failed | postcondition_timeout
+    step: int
+    intent: str          # what the step was trying to do, in the user's words
+    detail: str          # the engine's own account of the failure
+    options: list[str] = field(default_factory=list)   # what IS on screen
+    tree_diff: str = ""  # what changed since the previous observation
+
+
+@dataclass
+class Resolution:
+    """The answer to an Uncertainty, expressed as IR rather than as prose.
+
+    A model that says "click the second one" has not helped; a model that hands
+    back a selector has. That is what makes an escalation something the recipe
+    can LEARN from — the resolution is the same kind of thing the recipe is
+    already made of.
+    """
+    kind: str                       # use_selector | insert_steps | give_up
+    selector: "Selector | None" = None
+    steps: list = field(default_factory=list)
+    reason: str = ""
+
+
+class _Budget:
+    """How many escalations this run may spend. Zero means "never ask"."""
+
+    def __init__(self, calls: int = 0):
+        self.left = calls
+        self.spent = 0
+
+    def take(self) -> bool:
+        if self.left <= 0:
+            return False
+        self.left -= 1
+        self.spent += 1
+        return True
+
+
+def _escalate(escalate, budget: "_Budget", step: "Step", why: Uncertainty,
+              narrate) -> "Resolution | None":
+    """Hand one surprise back to a caller that can look and decide.
+
+    Refused unless the step said it expects this kind of surprise. A recipe that
+    escalates on anything is a recipe that never fails, which is worse than one
+    that fails honestly — the point is to name where judgment is genuinely
+    needed, not to paper over every mistake.
+    """
+    if escalate is None or why.kind not in (step.on_uncertain or ()):
+        return None
+    if not budget.take():
+        return None
+    if narrate:
+        narrate(f"  ? 예상과 달라 판단이 필요합니다: {why.detail[:80]}")
+    try:
+        return escalate(why)
+    except Exception:
+        return None
+
+
 class ReplayResult:
     def __init__(self):
         self.ok = True
@@ -891,14 +1024,25 @@ class ReplayResult:
 
 
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
-           narrate=None) -> ReplayResult:
-    """Run a flow deterministically. Zero model tokens.
+           narrate=None, escalate=None, budget: int = 0) -> ReplayResult:
+    """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
     narrate:   optional callback(str) for the L4 user-facing narration.
+    escalate:  callback(Uncertainty) -> Resolution|None, for the moments the
+               recipe cannot decide by itself. `budget` caps how many times it
+               may be called, and both default to "never": replay stays free and
+               deterministic unless a caller deliberately buys judgment.
+
+    The escalation points are the places this engine ALREADY knows its
+    prediction broke — an ambiguous selector, an action the app refused, an
+    outcome that did not arrive. Today those end the run; given a budget they
+    become a question instead. Screen-granularity is not "call a model every
+    screen", it is "call one when the screen disagrees with the recipe".
     """
     approvals = approvals or {}
     res = ReplayResult()
+    spend = _Budget(budget if escalate is not None else 0)
     captures: dict = {}      # values read off the screen during this run
 
     obs = driver.observe(flow.target, "tree_full")
@@ -983,17 +1127,29 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             target_line = "menu: " + " > ".join(
                 p if isinstance(p, str) else "|".join(p)
                 for p in step.params.get("path", []))
-        if step.selector is not None:
+        while step.selector is not None:
             try:
                 action["element_index"], trace = step.selector.resolve(obs["tree"])
-            except TargetAmbiguous as e:
+                break
+            except (TargetAmbiguous, TargetMissing) as e:
+                kind = ("target_ambiguous" if isinstance(e, TargetAmbiguous)
+                        else "target_missing")
+                nearby = _nearby(step.selector, obs["tree"])
+                fix = _escalate(escalate, spend, step, Uncertainty(
+                    kind=kind, step=i, intent=step.intent_text,
+                    detail=f"{e}. {nearby}",
+                    options=_candidates(step.selector, obs["tree"])), narrate)
+                if fix is not None and fix.kind == "use_selector" and fix.selector:
+                    # The judgment comes back as a selector, so it is the same
+                    # kind of thing the recipe is made of — which is what lets
+                    # the recipe keep it and stop paying for this next time.
+                    step = replace(step, selector=fix.selector)
+                    res.record(status="resolved", step=i, kind=kind,
+                               learned={"selector": asdict(fix.selector)},
+                               reason=fix.reason)
+                    continue
                 res.record(status="error", step=i, action=step.action,
-                           error="target_ambiguous", detail=str(e))
-                return res
-            except TargetMissing as e:
-                res.record(status="error", step=i, action=step.action,
-                           error="target_missing",
-                           detail=f"{e}. {_nearby(step.selector, obs['tree'])}")
+                           error=kind, detail=f"{e}. {nearby}")
                 return res
             idx = action["element_index"]
             target_line = next((l for l in obs["tree"].splitlines()
@@ -1056,8 +1212,29 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                        reason=reason, detail=r)
             return res
         if r["type"] == "error":
-            res.record(status="error", step=i, action=step.action, detail=r)
-            return res
+            fix = _escalate(escalate, spend, step, Uncertainty(
+                kind="action_failed", step=i, intent=step.intent_text,
+                detail=str(r.get("detail") or r.get("error")),
+                options=_candidates(step.selector, obs.get("tree", ""))), narrate)
+            if fix is not None and fix.kind == "insert_steps" and \
+                    _run_fix(driver, flow, fix.steps, narrate):
+                res.record(status="resolved", step=i, kind="action_failed",
+                           learned={"insert_before": len(fix.steps)},
+                           reason=fix.reason)
+                # The screen moved, so everything derived from it is stale.
+                obs = driver.observe(flow.target, "tree_full", require_window=False)
+                if obs["type"] == "observation" and step.selector is not None:
+                    try:
+                        action["element_index"], trace = \
+                            step.selector.resolve(obs["tree"])
+                    except LookupError:
+                        pass
+                r = driver.act(obs["obs_id"], flow.target, action,
+                               risk_class=risk, intent_text=gate_desc,
+                               approved=_approved(approvals, i, step, action))
+            if r["type"] == "error":
+                res.record(status="error", step=i, action=step.action, detail=r)
+                return res
 
         # D7: verify by polling to a monotonic deadline, not a blind sleep.
         post = step.postcondition
@@ -1072,10 +1249,46 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                         seen = list(post._attr_values(_element_block(last["tree"], idx)))
                     except Exception:
                         seen = "field-not-found"
-                res.record(status="error", step=i, action=step.action,
-                           error="postcondition_timeout",
-                           expected=post.equals, observed=seen)
-                return res
+                fix = _escalate(escalate, spend, step, Uncertainty(
+                    kind="postcondition_timeout", step=i,
+                    intent=step.intent_text,
+                    detail=f"기대값 {post.equals or post.contains!r}, "
+                           f"화면에서 읽은 값 {seen!r}",
+                    options=_candidates(post.field, last.get("tree", ""))),
+                    narrate)
+                if fix is not None and fix.kind == "insert_steps" and \
+                        _run_fix(driver, flow, fix.steps, narrate):
+                    # The step may have needed something done first — a
+                    # selection, a focus, a dialog cleared — so do the whole
+                    # thing again now that it has been. A fresh observation is
+                    # required, not optional: the one in hand is the timeout,
+                    # which carries no obs_id to act against.
+                    fresh = driver.observe(flow.target, "tree_full")
+                    if fresh["type"] == "observation":
+                        retry = dict(action)
+                        if step.selector is not None:
+                            try:
+                                retry["element_index"], _ = \
+                                    step.selector.resolve(fresh["tree"])
+                            except LookupError:
+                                retry = None
+                        if retry is not None:
+                            driver.act(fresh["obs_id"], flow.target, retry,
+                                       risk_class=risk, intent_text=gate_desc,
+                                       approved=_approved(approvals, i, step,
+                                                          retry))
+                            obs = driver.wait_until(flow.target, post.check)
+                            if obs["type"] == "observation":
+                                res.record(status="resolved", step=i,
+                                           kind="postcondition_timeout",
+                                           learned={"insert_before":
+                                                    len(fix.steps)},
+                                           reason=fix.reason)
+                if obs["type"] != "observation":
+                    res.record(status="error", step=i, action=step.action,
+                               error="postcondition_timeout",
+                               expected=post.equals, observed=seen)
+                    return res
         else:
             obs = driver.observe(flow.target, "tree_full")
             if obs["type"] != "observation":
