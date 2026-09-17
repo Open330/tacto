@@ -215,6 +215,18 @@ class Driver:
         return {"type": "targets", "apps": apps}
 
     @staticmethod
+    def _running_apps():
+        """Every running application, as one overridable call.
+
+        A seam, not an abstraction: name resolution has to prefer the app a
+        person can see over a background extension that shares its name, and
+        that rule can only be tested when both are running. Being able to hand
+        in a pair makes the check deterministic instead of "whenever the machine
+        happens to have a collision".
+        """
+        return list(NSWorkspace.sharedWorkspace().runningApplications())
+
+    @staticmethod
     def _pump(seconds: float = 0.25):
         """Let NSWorkspace refresh its app list.
 
@@ -239,7 +251,7 @@ class Driver:
         # A bundle id is an exact answer; a name means the app a person can see,
         # so regular apps (activation policy 0) beat agents and extensions.
         by_bundle, by_name = [], []
-        for app in NSWorkspace.sharedWorkspace().runningApplications():
+        for app in self._running_apps():
             bid = (app.bundleIdentifier() or "").lower()
             name = (app.localizedName() or "").lower()
             if want == bid:

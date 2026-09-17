@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-39%2F39_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-47%2F47_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -184,6 +184,9 @@ uv run nlc doctor                       # 권한·화면세션 점검 (맨 처�
 # ① 배우기만 — 화면은 건드리지 않음 (모델 토큰 사용)
 uv run nlc compile "계산기로 9 빼기 4" -o flows/sub.json
 
+# ①+검증 — 만든 레시피를 실행해 보고, 실패하면 그 이유를 모델에 돌려줘 고침
+uv run nlc compile "TextEdit 글자를 기울임꼴로" --verify --verify-rounds 2
+
 # ②+③ 실행 — 모델 호출 없음
 uv run nlc run flows/sub.json           # 파일에서 바로
 uv run nlc replay calc_multiply         # 저장된 이름으로
@@ -209,6 +212,12 @@ uv run python -m nlc.voice              # 음성 세션
 uv run python examples/eval.py          # 평가 재현
 ```
 
+> **배우기는 권한 경계 밖에서 합니다.** 서명된 런처는 자식의 PATH를 시스템
+> 디렉터리로 고정해 — 무엇이 실행될지 아무도 바꿀 수 없게 하려고 — 모델 CLI가 닿지
+> 않습니다. 그래서 `nlc compile` 로 배우고 `./launcher/nlc run` 으로 실행합니다.
+> 학습 엔진은 사용자가 이미 로그인해 쓰는 에이전트 CLI입니다:
+> `claude → codex → opencode → cxweb` (`--compile-engine` 으로 지정).
+>
 > 실행 중에는 조작 대상 창에 **"NLC가 이 창을 조작 중입니다 · Esc로 중단"** 테두리가
 > 표시됩니다(`--no-indicator`로 끌 수 있음). 합성 입력에는 `NLC1` 마커가 붙어 사람
 > 입력과 구분됩니다. 처음 실행 시 macOS가 **손쉬운 사용** 권한을 요청합니다 —
@@ -284,10 +293,10 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `39/39 PASS`
+## 검증 상태 — `47/47 PASS`
 
 ```bash
-./launcher/nlc eval      # 권한 경계까지 포함해 전부 (39/39)
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (47/47)
 uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
 ```
 
@@ -311,6 +320,13 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
   PASS  save_chooses_its_folder 파일이 시킨 폴더에 떨어짐
   PASS  dialog_recovery         막힌 실행에서 빠져나오는 길
   PASS  absence_is_verifiable   '사라짐'도 증거
+  PASS  learning_is_reachable   --learn 이 실제로 학습 경로에 닿음
+  PASS  authoring_handles_a_dialog      나중 단계가 다이얼로그 안을 조작
+  PASS  authoring_still_catches_invented_targets  없는 걸 지어내면 거부
+  PASS  authoring_teaches_the_real_vocabulary     프롬프트가 엔진과 일치
+  PASS  already_true_is_not_proof       이미 참이던 검증은 그렇게 표시
+  PASS  authored_steps_can_be_approved  모델이 쓴 단계에도 동의가 붙음
+  PASS  vacuous_pass_is_fed_back        헛된 통과를 수리 루프가 잡아냄
   PASS  missing_target_says_what_is_there  고를 수 있는 것을 알려줌
   PASS  builtin_is_not_frozen   함께 배포되는 레시피는 저장본이 아니라 코드에서
   PASS  intent_parameters       값은 요청에서 뽑아냄 (폴더마다 레시피 X)
