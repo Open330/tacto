@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-49%2F49_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-52%2F52_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -82,6 +82,7 @@ $ nlc do "“보고서.rtf” 로 저장해줘"
 | 🛡️ **4단계 안전 게이트** | 읽기 / 사전승인 / 확인 / 핸드오프. 위험 액션은 승인 없이 실행 안 됨 |
 | 🔁 **행동 후 검증** | "클릭했다"가 아니라 "결과가 화면에 보인다"로 완료 판정 (monotonic 폴링) |
 | 🗣️ **초보자 대화 레이어** | 실시간 내레이션, 일상어 확인, 자연스러운 핸드오프 |
+| 🤔 **놀랐을 때만 묻기** | 화면이 레시피와 어긋나는 **그 지점에서만** 모델 1회 (`--think`). 나머지는 여전히 토큰 0 |
 
 <br>
 
@@ -293,10 +294,10 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 
 <br>
 
-## 검증 상태 — `49/49 PASS`
+## 검증 상태 — `52/52 PASS`
 
 ```bash
-./launcher/nlc eval      # 권한 경계까지 포함해 전부 (49/49)
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (52/52)
 uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
 ```
 
@@ -329,6 +330,9 @@ uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
   PASS  vacuous_pass_is_fed_back        헛된 통과를 수리 루프가 잡아냄
   PASS  broken_provider_falls_through   401 을 모델 응답으로 받지 않음
   PASS  provider_env_is_not_the_session  띄운 CLI 가 자기 계정으로 붙음
+  PASS  escalation_is_off_by_default     재생은 요청 없으면 토큰 0
+  PASS  escalation_only_where_declared   스텝이 예상한 놀람에서만 물음
+  PASS  escalation_clears_a_blocked_run  막힌 실행이 질문 1회로 풀림
   PASS  missing_target_says_what_is_there  고를 수 있는 것을 알려줌
   PASS  builtin_is_not_frozen   함께 배포되는 레시피는 저장본이 아니라 코드에서
   PASS  intent_parameters       값은 요청에서 뽑아냄 (폴더마다 레시피 X)

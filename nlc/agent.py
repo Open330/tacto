@@ -233,7 +233,8 @@ class Agent:
     # ------------------------------------------------------------ run
 
     def handle(self, intent: str, approvals: dict[int, bool] | None = None,
-               ask: Callable[[str], bool] | None = None) -> Turn:
+               ask: Callable[[str], bool] | None = None,
+               think: int = 0) -> Turn:
         match = self.resolve(intent)
         values: dict = {}
         if match is None:
@@ -290,7 +291,15 @@ class Agent:
         plan = self._plan_text(flow)
         self.narrate(plan)
 
-        res = replay(self.driver, flow, approvals=approvals, narrate=self.narrate)
+        # `think` is how many times this run may stop and ask. Zero — the
+        # default — keeps it strictly deterministic and free; the cost is paid
+        # per surprise, not per run, and only where a step said it expects one.
+        judge = None
+        if think:
+            from .judge import model_judge
+            judge = model_judge(target=flow.target, narrate=self.narrate)
+        res = replay(self.driver, flow, approvals=approvals,
+                     narrate=self.narrate, escalate=judge, budget=think)
         return self._to_turn(flow, res)
 
     # ------------------------------------------------------------ L4 phrasing

@@ -8,6 +8,7 @@ Usage:
   python -m nlc.cli compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
       (--verify runs the result once and lets the model fix what failed)
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
+      (--think [N] lets a run stop and ask when the screen disagrees; N calls, default 1)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
   python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
@@ -341,6 +342,17 @@ def main(argv=None):
         # Flags are not part of what the user asked for. Left in, `nlc do "..."
         # --helper` sends "… --helper" to the intent matcher as if it were words
         # the person said.
+        # `--think [N]`: let the run stop and ask when the screen disagrees with
+        # the recipe. Off by default, because `do` otherwise costs nothing.
+        think = 0
+        if "--think" in rest:
+            k = rest.index("--think")
+            nxt = rest[k + 1] if k + 1 < len(rest) else ""
+            think = int(nxt) if nxt.isdigit() else 1
+            rest = [w for j, w in enumerate(rest)
+                    if j != k and not (j == k + 1 and nxt.isdigit())]
+            intent = " ".join(rest)
+
         intent = " ".join(w for w in intent.split() if not w.startswith("--")).strip()
 
         driver = _make_driver(rest)
@@ -386,7 +398,7 @@ def main(argv=None):
         except Exception:
             guess = None
         with KeepAwake(), _indicator_for(guess or "", rest):
-            turn = agent.handle(intent, ask=_confirmer(rest))
+            turn = agent.handle(intent, ask=_confirmer(rest), think=think)
         if tracer is not None:
             tracer.trace.flow = turn.flow or "(unresolved)"
             print(f"\n트레이스 저장: {tracer.trace.save(trace_path)}"
