@@ -85,17 +85,22 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     "read":             (["name"], []),
 ]
 
+// The vetting helpers below run on the connection thread as well as the main
+// one, so they are @Sendable: without it this is a warning today and an error
+// under the Swift 6 language mode. They hold no state, which is what makes the
+// annotation honest rather than a silencer.
+
 /// Text that is inserted must stay text. A newline or carriage return is what
 /// turns an insertion into a submission, and control characters are not
 /// something a person types into a form.
-func isPlainText(_ s: String) -> Bool {
+@Sendable func isPlainText(_ s: String) -> Bool {
     !s.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
 }
 
 /// A menu path: up to six levels, each one title or a few localized
 /// alternatives. Bounded because the path is the whole address of the command —
 /// it is to `menu` what element_index is to `click`.
-func isMenuPath(_ v: Any) -> Bool {
+@Sendable func isMenuPath(_ v: Any) -> Bool {
     guard let path = v as? [Any], !path.isEmpty, path.count <= 6 else { return false }
     func title(_ t: Any) -> Bool {
         guard let s = t as? String else { return false }
@@ -115,7 +120,7 @@ let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
 let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode",
                                  "require_window"]
 
-func isInt(_ v: Any) -> Bool {
+@Sendable func isInt(_ v: Any) -> Bool {
     // CFBoolean bridges to NSNumber, so a bare NSNumber test would let `true`
     // through where an index is expected.
     guard let n = v as? NSNumber else { return false }
@@ -172,7 +177,7 @@ func vetted(_ msg: [String: Any]) -> String? {
 
 // MARK: - Socket plumbing
 
-func fillAddr(_ path: String) -> sockaddr_un? {
+@Sendable func fillAddr(_ path: String) -> sockaddr_un? {
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let maxPath = MemoryLayout.size(ofValue: addr.sun_path) - 1
@@ -197,7 +202,7 @@ let helperRequirement =
 /// running as this same user — which can unlink and rebind the socket and
 /// answer as a fake helper. Authentication has to run both ways, so the
 /// launcher checks the helper's audit token exactly as the helper checks ours.
-func peerSatisfies(_ fd: Int32, _ requirement: String) -> Bool {
+@Sendable func peerSatisfies(_ fd: Int32, _ requirement: String) -> Bool {
     var token = audit_token_t()
     var len = socklen_t(MemoryLayout<audit_token_t>.size)
     let got = withUnsafeMutablePointer(to: &token) { ptr -> Bool in

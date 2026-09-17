@@ -26,12 +26,12 @@ let interactableRoles: Set<String> = [
     "AXStaticText", "AXCell", "AXRow", "AXScrollArea", "AXGroup", "AXImage",
 ]
 
-func attr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
+@Sendable func attr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
     var value: CFTypeRef?
     return AXUIElementCopyAttributeValue(el, name as CFString, &value) == .success ? value : nil
 }
 
-func str(_ el: AXUIElement, _ name: String) -> String? {
+@Sendable func str(_ el: AXUIElement, _ name: String) -> String? {
     guard let v = attr(el, name) else { return nil }
     if let s = v as? String { return s.isEmpty ? nil : s }
     if let n = v as? NSNumber { return n.stringValue }
@@ -55,7 +55,7 @@ let labelNames = ["Title", "Description", "Value", "Help",
 /// The element's label attributes in ONE round trip. Some apps compute these
 /// lazily per element — a Mail row costs 20ms read one at a time and 3ms read
 /// together — and a mailbox has thousands of rows.
-func label(_ el: AXUIElement) -> String {
+@Sendable func label(_ el: AXUIElement) -> String {
     var raw: CFArray?
     var parts: [String] = []
     if AXUIElementCopyMultipleAttributeValues(
@@ -135,7 +135,7 @@ var latestTargetName: String = ""
 
 /// Children of a menu node, stepping through the AXMenu wrapper that nests
 /// under every menu bar item and submenu.
-func menuChildren(_ el: AXUIElement) -> [AXUIElement] {
+@Sendable func menuChildren(_ el: AXUIElement) -> [AXUIElement] {
     let kids = (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
     if let menu = kids.first(where: { str($0, kAXRoleAttribute as String) == "AXMenu" }) {
         return (attr(menu, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
@@ -145,7 +145,7 @@ func menuChildren(_ el: AXUIElement) -> [AXUIElement] {
 
 /// Resolve a menu command by title path. Each element is a list of acceptable
 /// titles, so one recipe survives a localized menu ("Format" / "서식").
-func menuItem(pid p: pid_t, path: [[String]]) -> (AXUIElement, [String])? {
+@Sendable func menuItem(pid p: pid_t, path: [[String]]) -> (AXUIElement, [String])? {
     let app = AXUIElementCreateApplication(p)
     guard var node = attr(app, "AXMenuBar") as! AXUIElement? else { return nil }
     var walked: [String] = []
@@ -169,13 +169,17 @@ func menuItem(pid p: pid_t, path: [[String]]) -> (AXUIElement, [String])? {
 /// change which app is active. Setting frontmost is the assistive-technology
 /// path, which is exactly the grant this helper holds — and it is asked and
 /// answered through the same API, so the wait cannot disagree with the request.
-func activate(pid p: pid_t, timeout: TimeInterval = 2.0) -> Bool {
+@Sendable func activate(pid p: pid_t, timeout: TimeInterval = 2.0) -> Bool {
     let app = AXUIElementCreateApplication(p)
     if (attr(app, kAXFrontmostAttribute as String) as? Bool) == true { return true }
     AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString,
                                  kCFBooleanTrue)
-    NSRunningApplication(processIdentifier: p)?
-        .activate(options: [.activateIgnoringOtherApps])
+    // No .activateIgnoringOtherApps: macOS 14 deprecated it and it has no
+    // effect, which fits what the cooperative-activation rules already implied —
+    // a background process does not get to override who is frontmost. The
+    // AXFrontmost write above is what actually raises the app; this is a nudge
+    // for the case where the system is willing to honour it.
+    NSRunningApplication(processIdentifier: p)?.activate()
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if (attr(app, kAXFrontmostAttribute as String) as? Bool) == true { return true }
@@ -722,7 +726,7 @@ func serveSocket(at path: String) -> Never {
 
 /// Write the whole frame: a single write() can be partial, and without the loop
 /// a long reply would be silently truncated into invalid JSON.
-func writeAll(_ fd: Int32, _ data: Data) {
+@Sendable func writeAll(_ fd: Int32, _ data: Data) {
     var sent = 0
     data.withUnsafeBytes { raw in
         while sent < data.count {
@@ -733,7 +737,7 @@ func writeAll(_ fd: Int32, _ data: Data) {
     }
 }
 
-func serve(connection fd: Int32) {
+@Sendable func serve(connection fd: Int32) {
     let input = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     var buffer = Data()
     while true {
