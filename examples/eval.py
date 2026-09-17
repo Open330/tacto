@@ -1115,6 +1115,35 @@ def scenario_already_true_is_not_proof():
     return verified(first) == "postcond" and verified(second) == "already_true"
 
 
+def scenario_provider_env_is_not_the_session():
+    """A provider CLI must not inherit the session that spawned it.
+
+    Authoring usually runs inside an agent session, and that session exports
+    `CLAUDE_CONFIG_DIR`. The `claude` shim reads any such variable as "the
+    caller already chose a backend", skips its account routing, and the child
+    looks at the parent session's config — reporting itself logged out while the
+    user is signed in. The provider looked broken and was not."""
+    import os
+    import nlc.authoring as authoring
+    before = dict(os.environ)
+    os.environ.update({"CLAUDECODE": "1", "CLAUDE_CONFIG_DIR": "/tmp/x",
+                       "CLAUDE_CODE_SESSION_ID": "abc", "CLAUDE_PID": "1"})
+    os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test-kept")
+    try:
+        env = authoring._provider_env()
+        gone = not any(k in env for k in ("CLAUDECODE", "CLAUDE_CONFIG_DIR",
+                                          "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"))
+        # A credential the user exported on purpose is a real choice; keep it.
+        kept = env.get("ANTHROPIC_API_KEY") == os.environ["ANTHROPIC_API_KEY"]
+        # Outside a session there is nothing to undo.
+        os.environ.pop("CLAUDECODE")
+        untouched = "CLAUDE_CONFIG_DIR" in authoring._provider_env()
+        return gone and kept and untouched
+    finally:
+        os.environ.clear()
+        os.environ.update(before)
+
+
 def scenario_broken_provider_falls_through():
     """A CLI that fails while reporting success must not become the answer.
 
@@ -1334,6 +1363,8 @@ SCENARIOS = [
      scenario_authoring_produces_a_runnable_flow),
     ("already_true_is_not_proof (a pass that proved nothing is labelled)",
      scenario_already_true_is_not_proof),
+    ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
+     scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
      scenario_broken_provider_falls_through),
     ("authored_steps_can_be_approved (consent has something to bind to)",

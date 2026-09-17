@@ -164,10 +164,34 @@ _CLI = {"claude": ["claude", "-p"], "codex": ["codex", "exec"],
 # a recipe; on this machine that took between four and six minutes. A short
 # timeout does not save anything — the provider keeps generating and the answer
 # is simply thrown away.
+def _provider_env() -> dict:
+    """The environment a FRESH agent CLI should see.
+
+    Authoring is usually invoked from inside an agent session, and that session
+    exports its own plumbing — `CLAUDE_CONFIG_DIR` above all. The `claude` shim
+    treats any such variable as "the caller already chose a backend" and skips
+    the account routing, so the child looked at the parent session's config
+    directory and reported itself logged out while the user was signed in. The
+    result was a provider that appeared broken and was not.
+
+    Only session-scoped variables are dropped. A credential the user exported on
+    purpose (ANTHROPIC_API_KEY and friends) is a real choice and stays.
+    """
+    env = dict(os.environ)
+    if not env.get("CLAUDECODE"):
+        return env                      # not inside a session; nothing to undo
+    for key in list(env):
+        if key.startswith("CLAUDE_CODE_") or key in (
+                "CLAUDECODE", "CLAUDE_CONFIG_DIR", "CLAUDE_PID"):
+            env.pop(key, None)
+    return env
+
+
 def _try_muxa(provider: str, prompt: str, timeout: int):
     out = subprocess.run(
         ["muxa", "ask", "--agent", provider, "--timeout-secs", str(timeout), prompt],
-        capture_output=True, text=True, timeout=timeout + 30)
+        capture_output=True, text=True, timeout=timeout + 30,
+        env=_provider_env())
     return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
 
 
@@ -176,7 +200,7 @@ def _try_cli(provider: str, prompt: str, timeout: int):
     if argv is None or shutil.which(argv[0]) is None:
         return None
     out = subprocess.run(argv + [prompt], capture_output=True, text=True,
-                         timeout=timeout + 60)
+                         timeout=timeout + 60, env=_provider_env())
     text = out.stdout.strip()
     if out.returncode != 0 or not text:
         return None
