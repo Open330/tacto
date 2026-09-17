@@ -2038,7 +2038,7 @@ def scenario_the_reading_cannot_let_it_back_in():
     # A goal a rule can only do half of is not a goal that rule answers.
     simple, _ = Agent(interpret=lambda q: (
         q.check({"goal": "12 곱하기 34 계산하기", "negated": False,
-                 "quote": "12 곱하기 34", "excluded": []})
+                 "quote": "12 곱하기 34", "excluded": ["메일"]})
         if q.kind == "what_was_asked" else None)
     ).read_request("메일 말고 12 곱하기 34 계산해줘")
     return (match is None                      # falls through to the screen loop
@@ -2097,6 +2097,106 @@ def scenario_a_batch_observes_once():
     # One look to plan on, one to see where it led, one to ask again: never one
     # per action.
     return r.ok and d.acts == 5 and d.observes <= 3
+
+
+def scenario_a_check_covers_only_what_it_checked():
+    """Provenance is not meaning: a real quote can be read back as its opposite.
+
+    `quote ∈ utterance` verifies where the words came from and nothing else,
+    and this passed:
+
+        {"quote": "굵게 하지 마", "goal": "굵게 해줘", "negated": false}
+
+    A real quote of a refusal, turned into the instruction it refused. Nothing
+    here can judge Korean, but it can require the slots to agree with what is
+    lexically in the quote — and with what is in the utterance, since quoting
+    only the agreeable half is the same bypass wearing a shorter quote."""
+    from nlc.ask import what_was_asked
+    q = what_was_asked("굵게 하지 마")
+    flipped = q.check({"quote": "굵게 하지 마", "goal": "굵게 해줘",
+                       "negated": False, "excluded": []})
+    trimmed = q.check({"quote": "굵게", "goal": "굵게 해줘",
+                       "negated": False, "excluded": []})
+    honest = q.check({"quote": "굵게 하지 마", "goal": "굵게 하지 않기",
+                      "negated": True, "excluded": []})
+    e = what_was_asked("메일 말고 문서 폴더 열어줘")
+    ruled_out = e.check({"quote": "문서 폴더 열어줘", "goal": "메일 열기",
+                         "negated": False, "excluded": ["메일"]})
+    fine = e.check({"quote": "문서 폴더 열어줘", "goal": "문서 폴더 열기",
+                    "negated": False, "excluded": ["메일"]})
+    return (flipped is None and trimmed is None and ruled_out is None
+            and honest is not None and honest["negated"]
+            and fine is not None and fine["goal"] == "문서 폴더 열기")
+
+
+def scenario_a_handoff_is_not_one_more_yes():
+    """Not everything above `none` is the same question.
+
+    A confirm asks the person to agree; a handoff is the person doing it
+    themselves, and blocked means we could not say what would happen. The screen
+    loop sent all three to the one approval callback, so a yes there covered a
+    step nobody is allowed to approve."""
+    from nlc.general import run
+
+    class Sensitive:
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": "o",
+                    "tree": ("0 Window  Title: T\n"
+                             "  1 TextField  Title: 비밀번호\n")}
+
+        def act(self, *a, **k):
+            raise AssertionError("실행되면 안 됩니다")
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    def ask_here(goal, cands, done):
+        return {"done": False, "expect": None,
+                "actions": [{"pick": 0, "do": "set_value", "value": "hunter2",
+                             "candidate": cands[0], "why": "로그인"}]}
+
+    # Yes to everything: it still must not carry a handoff.
+    r = run(Sensitive(), "x", "로그인해줘", ask_here, approve=lambda _w: True)
+    return not r.ok and "직접" in r.why
+
+
+def scenario_done_is_where_it_stopped_not_that_it_worked():
+    """The model saying "done" ends the run; it does not verify it.
+
+    Something has to have been SEEN: a value read, or a stated expectation that
+    showed up. Without that this is a run that ended, and the report says so."""
+    from nlc.general import run
+
+    class Blank:
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": "o",
+                    "tree": _fake_screen(["Go"])}
+
+        def act(self, *a, **k):
+            return {"type": "acted", "action": "click"}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return {"type": "timeout", "last_obs": self.observe(target)}
+
+    plans = [{"done": False, "expect": None,
+              "actions": [{"pick": 0, "do": "click", "candidate": None,
+                           "why": "누름"}]},
+             {"done": True, "actions": [], "expect": None}]
+
+    def ask_here(goal, cands, done):
+        p = plans.pop(0)
+        for a in p.get("actions", []):
+            a["candidate"] = cands[a["pick"]]
+        return p
+
+    r = run(Blank(), "x", "무언가 해줘", ask_here)
+    return r.ok and not r.verified and "확인" in r.why
 
 
 def scenario_provider_env_is_not_the_session():
@@ -2403,6 +2503,12 @@ SCENARIOS = [
      scenario_the_reading_cannot_let_it_back_in),
     ("a_batch_observes_once (eight actions, one look)",
      scenario_a_batch_observes_once),
+    ("a_check_covers_only_what_it_checked (a quote is not its meaning)",
+     scenario_a_check_covers_only_what_it_checked),
+    ("a_handoff_is_not_one_more_yes (three questions, not one)",
+     scenario_a_handoff_is_not_one_more_yes),
+    ("done_is_where_it_stopped_not_that_it_worked (ended is not succeeded)",
+     scenario_done_is_where_it_stopped_not_that_it_worked),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
