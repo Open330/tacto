@@ -118,8 +118,15 @@ def main(argv=None):
         # see the signed launcher in their ancestry.
         import runpy, os as _os
         root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-        runpy.run_path(_os.path.join(root, "examples", "eval.py"),
-                       run_name="__main__")
+        # runpy keeps OUR argv, and the suite reads it to narrow the run — so
+        # hand it the arguments meant for it, not the ones meant for us.
+        argv = sys.argv
+        sys.argv = ["eval.py", *rest]
+        try:
+            runpy.run_path(_os.path.join(root, "examples", "eval.py"),
+                           run_name="__main__")
+        finally:
+            sys.argv = argv
         return 0
 
     if cmd == "apps":

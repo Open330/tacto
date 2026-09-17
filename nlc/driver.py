@@ -84,6 +84,18 @@ TRUNCATION_MARK = "… (트리가 커서 여기서 잘렸습니다 — 더 좁�
 AX_CANNOT_COMPLETE = -25204
 
 
+class NotStarted(RuntimeError):
+    """A refusal that provably precedes any effect.
+
+    The engine treats an ordinary failure as "the action may or may not have
+    happened", because a thrown exception cannot say how far it got. That is the
+    safe default, but it is also wrong for the common cases — a menu that is
+    disabled, an app that would not come forward, an index out of range — where
+    nothing was dispatched at all. Those raise this instead, and only those may
+    be retried without a witness.
+    """
+
+
 def _line_attr(line: str, key: str):
     """One attribute out of a tree line, without importing the flow layer."""
     import re as _re
@@ -574,6 +586,7 @@ class Driver:
         obs = self._latest.get(target.lower())
         if obs is None or obs.obs_id != obs_id:
             return {"type": "error", "error": "stale_observation",
+                    "effect": "not_started",
                     "detail": "re-observe and re-derive element_index "
                               f"(latest is {obs.obs_id if obs else 'none'})"}
 
@@ -581,8 +594,12 @@ class Driver:
         try:
             result = self._perform(obs, action)
         except Exception as e:  # surface, never swallow
-            return {"type": "error", "error": "action_failed",
-                    "action": name, "detail": str(e)}
+            # An exception says where it was raised, not how far the action
+            # got. Only the raises that provably precede dispatch claim so.
+            return {"type": "error", "error": "action_failed", "action": name,
+                    "effect": ("not_started" if isinstance(e, NotStarted)
+                               else "unknown"),
+                    "detail": str(e)}
         self._last_action_at = time.time()
         return {"type": "acted", "action": name, "obs_id": obs_id,
                 "note": "not verified — observe again and check the result (D7)",
@@ -591,7 +608,8 @@ class Driver:
     def _element(self, obs, action):
         idx = action.get("element_index")
         if idx is None or not (0 <= idx < len(obs.elements)):
-            raise ValueError(f"element_index {idx} out of range 0..{len(obs.elements)-1}")
+            raise NotStarted(f"element_index {idx} out of range "
+                             f"0..{len(obs.elements)-1}")
         return obs.elements[idx]
 
     def _perform(self, obs, action):
@@ -610,7 +628,7 @@ class Driver:
             if err != 0:  # coordinate fallback per D3
                 frame = _elem_frame(el)
                 if frame is None:
-                    raise RuntimeError(f"AXPress failed ({err}) and no frame for fallback")
+                    raise NotStarted(f"AXPress failed ({err}) and no frame for fallback")
                 self._mouse_click(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2, obs.pid)
                 return {"fallback": "coordinate_click"}
         elif name == "set_value":
@@ -626,7 +644,7 @@ class Driver:
             el = self._element(obs, action)
             frame = _elem_frame(el)
             if frame is None:
-                raise RuntimeError("no frame for scroll target")
+                raise NotStarted("no frame for scroll target")
             self._scroll_at(frame[0] + frame[2] / 2, frame[1] + frame[3] / 2,
                             action.get("direction", "down"), action.get("pages", 1),
                             obs.pid)
@@ -641,8 +659,11 @@ class Driver:
             # this is a precondition for reading `enabled` correctly, not a
             # cosmetic raise-to-front.
             if not self._activate(obs.pid):
-                raise RuntimeError("앱을 앞으로 가져오지 못해 메뉴를 쓸 수 없습니다")
-            item, walked = self._menu_item(obs.pid, action["path"])
+                raise NotStarted("앱을 앞으로 가져오지 못해 메뉴를 쓸 수 없습니다")
+            try:
+                item, walked = self._menu_item(obs.pid, action["path"])
+            except Exception as e:
+                raise NotStarted(str(e)) from e
             # Menu items are validated lazily by the app, so a disabled item is
             # a real precondition failure worth reporting by name rather than a
             # silent no-op press.
@@ -652,11 +673,11 @@ class Driver:
                 # waiting". An earlier run that stopped mid-flow leaves exactly
                 # that state behind, so this is the common case, not an exotic one.
                 if self._modal_sheet(obs.pid):
-                    raise RuntimeError(
+                    raise NotStarted(
                         f"앱에 열린 대화상자가 있어 '{' > '.join(walked)}' 메뉴를 "
                         f"쓸 수 없습니다. 대화상자를 닫고 다시 시도해 주세요")
-                raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 가 지금은 "
-                                   f"비활성 상태입니다.{self._blocking_hint(obs)}")
+                raise NotStarted(f"메뉴 '{' > '.join(walked)}' 가 지금은 "
+                                 f"비활성 상태입니다.{self._blocking_hint(obs)}")
             err = AXUIElementPerformAction(item, "AXPress")
             if err != 0:
                 raise RuntimeError(f"메뉴 '{' > '.join(walked)}' 실행 실패 ({err})")
@@ -671,7 +692,7 @@ class Driver:
             if err != 0:
                 raise RuntimeError(f"secondary action {action['action']!r} failed ({err})")
         else:
-            raise ValueError(f"unknown action {name!r}")
+            raise NotStarted(f"unknown action {name!r}")
 
     # ------------------------------------------------------------ input synthesis
     #

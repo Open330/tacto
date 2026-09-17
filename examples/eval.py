@@ -101,6 +101,41 @@ def scenario_contract_policy():
     return all(policy(c).risk == exp for c, exp in cases)
 
 
+def scenario_authorization_never_falls():
+    """Adding an effect must never REMOVE the approval the others required.
+
+    It did: `write_persistent` alone asked for confirmation, and
+    `write_persistent` plus `delete` on a reversible entry asked for nothing,
+    because each effect returned early and the first match won. An action that
+    grows cannot become freer, so the check is the property itself rather than
+    the handful of pairs that happened to be wrong."""
+    from itertools import combinations
+    from nlc.contract import (EFFECTS, Decision, Destination, Resource,
+                              SafetyContract, policy)
+    rank = {"none": 0, "preapproved": 1, "confirm": 2, "handoff": 3, "blocked": 4}
+    shapes = [
+        dict(resource=Resource(object_type="항목", scope="entry"),
+             reversibility="reversible"),
+        dict(resource=Resource(object_type="계정", scope="account"),
+             reversibility="irreversible"),
+        dict(resource=Resource(object_type="문서", scope="item"),
+             reversibility="recoverable",
+             destination=Destination(kind="third_party", identity="someone")),
+    ]
+    effects = sorted(EFFECTS)
+    for shape in shapes:
+        for size in (1, 2):
+            for base in combinations(effects, size):
+                low = policy(SafetyContract(effects=list(base), **shape))
+                for extra in effects:
+                    if extra in base:
+                        continue
+                    high = policy(SafetyContract(effects=[*base, extra], **shape))
+                    if rank[high.risk] < rank[low.risk]:
+                        return False
+    return True
+
+
 def scenario_approval_binding():
     """Consent is bound to the described action, not to a step number."""
     from nlc.contract import (SafetyContract, ContextBinding, Destination,
@@ -1189,8 +1224,7 @@ def scenario_escalation_clears_a_blocked_run():
     stubbed rather than model-backed — what is under test is the engine's
     ability to take an answer, apply it and carry on, not the model's ability to
     write one."""
-    from nlc.contract import SafetyContract, Resource
-    from nlc.flow import Flow, Postcondition, Resolution, Step, replay
+    from nlc.flow import Resolution, replay
     from nlc.library import textedit_save_as
     d = Driver()
     if not _textedit_ready(d):
@@ -1199,19 +1233,11 @@ def scenario_escalation_clears_a_blocked_run():
         return "저장 시트를 띄우지 못함"
 
     def resolver(why):
-        # Exactly what a person would do: cancel the dialog that is in the way.
-        return Resolution(
-            "insert_steps",
-            steps=[Step("click",
-                        Selector(role="Button", title=["Cancel", "취소"]),
-                        intent_text="가로막은 대화상자를 닫습니다",
-                        safety=SafetyContract(
-                            effects=["write_ephemeral"],
-                            reversibility="reversible",
-                            resource=Resource(object_type="대화상자",
-                                              scope="entry")),
-                        postcondition=Postcondition(absent="Sheet"))],
-            reason="저장 창이 이미 열려 있었습니다")
+        # A recovery is NAMED, not described: what dismiss_dialog does is
+        # written in this repo, so a resolution cannot smuggle in a step whose
+        # declared meaning differs from what the control really does.
+        return Resolution("recover", recovery="dismiss_dialog",
+                          reason="저장 창이 이미 열려 있었습니다")
 
     # A fresh name every run: a leftover from a failed run makes the save raise
     # its own "already exists, replace?" dialog, which is a different blockage
@@ -1249,13 +1275,16 @@ def _saved_path(d, name):
                                 .replace("file://", "")) if win else ""
 
 
-def scenario_learning_makes_it_free_next_time():
-    """An escalation that pays for itself.
+def scenario_a_fix_is_not_quietly_kept():
+    """What an escalation worked out is reported, never written into the recipe.
 
-    The judgment came back as a selector, so the recipe can keep it — and a
-    recipe that keeps what it was told stops having to ask. That is the whole
-    argument for answering in IR rather than in prose: the second run of the
-    same task costs nothing."""
+    Persisting it looked like the way to make escalation pay for itself, and it
+    was wrong twice over. The flow in hand is the BOUND one, so saving it would
+    write this run's filename and text into the template — the feature meant to
+    stop a model hard-coding a window title would have hard-coded the whole run.
+    And durability is a property of the condition a fix holds under, not of its
+    IR shape: a selector can name today's date, while "open that panel first"
+    can be structural."""
     from nlc.agent import Agent
     from nlc.contract import Resource, SafetyContract
     from nlc.flow import Flow, Resolution, Step
@@ -1264,16 +1293,16 @@ def scenario_learning_makes_it_free_next_time():
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
     KP = "CalculatorKeypadView"
-    store = FlowStore()
-    name = "probe_learned"
-    # A recipe that names a button which is not there.
-    store.save(Flow(name, "com.apple.calculator", steps=[
+    store, name = FlowStore(), "probe_notkept"
+    wrong = Flow(name, "com.apple.calculator", params={"n": "7"}, steps=[
         Step("click", Selector(role="Button", identifier="WrongName",
                                ancestor=KP),
-             intent_text="숫자 하나", on_uncertain=["target_missing"],
+             intent_text="숫자 {{n}}", on_uncertain=["target_missing"],
              safety=SafetyContract(
                  effects=["write_ephemeral"], reversibility="reversible",
-                 resource=Resource(object_type="계산기 입력", scope="entry")))]))
+                 resource=Resource(object_type="계산기 입력", scope="entry")))])
+    store.save(wrong)
+    before = store.load(name).to_json()
     asked = []
 
     def judge(why):
@@ -1281,19 +1310,15 @@ def scenario_learning_makes_it_free_next_time():
         return Resolution("use_selector",
                           selector=Selector(role="Button", identifier="Seven",
                                             ancestor=KP),
-                          reason="화면에 있는 이름으로 바꿉니다")
+                          reason="화면에 있는 이름으로")
 
     try:
-        agent = Agent(driver=d, store=store, judge=judge)
-        first = agent.handle(name, think=1)
-        if first.status != "done" or len(asked) != 1:
+        turn = Agent(driver=d, store=store, judge=judge).handle(name, think=1)
+        if turn.status != "done" or len(asked) != 1:
             return False
-        # The fix is in the stored recipe now, not just in that one run.
-        if store.load(name).steps[0].selector.identifier != "Seven":
-            return False
-        second = agent.handle(name, think=1)
-        # Asked once, ever: the second run had nothing left to be unsure about.
-        return second.status == "done" and len(asked) == 1
+        # The run succeeded using the fix; the recipe is untouched, params and
+        # all, so the next run asks again rather than replaying this one's data.
+        return store.load(name).to_json() == before
     finally:
         try:
             os.remove(store._file(name))
@@ -1301,27 +1326,196 @@ def scenario_learning_makes_it_free_next_time():
             pass
 
 
-def scenario_shipped_recipes_are_not_quietly_patched():
-    """A fix to a recipe that ships with NLC belongs in the code.
+def scenario_consent_cannot_be_re_aimed():
+    """A step that needed approval cannot have its target swapped by a model.
 
-    Saving over it would be undone the next run, when the built-in is refreshed
-    from the library — so a learned selector for one of those is reported rather
-    than buried in a user's store."""
-    from nlc.agent import Agent
-    from nlc.flow import ReplayResult
-    from nlc.library import calc_arith
-    from nlc.store import FlowStore
-    store = FlowStore()
-    flow = calc_arith().bind(a="7", b="8", op="+")
-    before = store.load("calc_arith").to_json()
-    res = ReplayResult()
-    res.record(status="resolved", step=0, kind="target_missing",
-               learned={"selector": {"role": "Button", "identifier": "Hijacked"}})
-    said = []
-    Agent(driver=Driver(), store=store,
-          narrate=said.append)._keep_what_it_learned(flow, res)
-    return store.load("calc_arith").to_json() == before and any(
-        "함께 배포" in m for m in said)
+    Consent is given for a described action. Letting an escalation point that
+    same consent at a different element would make the description the person
+    agreed to stop being the thing that runs."""
+    from nlc.contract import Resource, SafetyContract
+    from nlc.flow import Flow, Resolution, Step, replay
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    KP = "CalculatorKeypadView"
+    consequential = SafetyContract(
+        effects=["write_persistent"], reversibility="recoverable",
+        resource=Resource(object_type="문서", scope="item"))
+    flow = Flow("probe_reaim", "com.apple.calculator", steps=[
+        Step("click", Selector(role="Button", identifier="WrongName",
+                               ancestor=KP),
+             intent_text="승인이 필요한 무언가", on_uncertain=["target_missing"],
+             safety=consequential)])
+    r = replay(d, flow, escalate=lambda why: Resolution(
+        "use_selector",
+        selector=Selector(role="Button", identifier="Seven", ancestor=KP),
+        reason="다른 것으로"), budget=1)
+    bad = next((e for e in r.log if e.get("status") == "error"), {})
+    return (not r.ok) and "승인이 필요한" in str(bad.get("detail"))
+
+
+class _Deaf:
+    """A driver that does every action successfully and never shows the result.
+
+    The shape of the dangerous case: the app got the click, the screen does not
+    say so yet, and the postcondition runs out of time. Nothing here is broken —
+    that is the point.
+    """
+
+    def __init__(self, tree="0 Window Title: t\n  1 Button Title: Send\n"):
+        self.tree = tree
+        self.acts = []
+        self.n = 0
+
+    def identity(self, target):
+        return target
+
+    def observe(self, target, mode="tree_full", require_window=True):
+        self.n += 1
+        return {"type": "observation", "obs_id": f"o{self.n}", "tree": self.tree}
+
+    def act(self, obs_id, target, action, risk_class=None, intent_text="",
+            approved=False):
+        self.acts.append(action.get("name"))
+        return {"type": "acted", "action": action.get("name")}
+
+    def wait_until(self, target, pred, timeout_ms=8000):
+        if pred(self.tree):
+            return {"type": "observation", "obs_id": f"o{self.n}",
+                    "tree": self.tree}
+        return {"type": "error", "error": "postcondition_timeout",
+                "last_obs": {"tree": self.tree}}
+
+
+def _unclear_outcome(action_name):
+    """One step that lands but cannot be seen to have landed. Returns the acts."""
+    import nlc.flow as F
+    from nlc.contract import Resource, SafetyContract
+    benign = SafetyContract(effects=["write_ephemeral"],
+                            reversibility="reversible",
+                            resource=Resource(object_type="메시지", scope="item"))
+    step = F.Step(action_name,
+                  F.Selector(role="Button", title="Send"),
+                  intent_text="보내기",
+                  params={"value": "x"} if action_name == "set_value" else {},
+                  postcondition=F.Postcondition(contains="보냄"),
+                  on_uncertain=["postcondition_timeout"],
+                  safety=benign)
+    flow = F.Flow("probe_unclear", "com.example.app", steps=[step])
+    d = _Deaf()
+    real = F._run_fix
+    F._run_fix = lambda *a, **k: True      # the recovery works; that is not the question
+    try:
+        r = F.replay(d, flow, escalate=lambda why: F.Resolution(
+            "recover", recovery="dismiss_dialog", reason="가리는 창"), budget=2)
+    finally:
+        F._run_fix = real
+    return d.acts, r
+
+
+def scenario_an_unclear_outcome_is_not_retried():
+    """A postcondition that timed out does not mean the action did not happen.
+
+    The send can complete while the screen is still catching up. Clearing a
+    dialog and running the step again "to be sure" is how a message is sent
+    twice — so after an unclear outcome the engine looks again, and re-runs only
+    an action that means the same thing done twice as done once."""
+    clicks, r = _unclear_outcome("click")
+    sets, _ = _unclear_outcome("set_value")
+    bad = next((e for e in r.log if e.get("status") == "error"), {})
+    return (clicks == ["click"]                    # pressed once, never again
+            and sets == ["set_value", "set_value"]  # safe to repeat, so repeated
+            and bad.get("effect") == "unknown"
+            and not r.ok)
+
+
+def scenario_re_aiming_is_refused_after_the_fact():
+    """Choosing a different target is a question that only exists beforehand.
+
+    Before anything ran, "you named the wrong button" is a correction. After the
+    action went out, the same answer adds a second action instead of fixing the
+    first, whatever the step's risk level is."""
+    from nlc.contract import Resource, SafetyContract
+    from nlc.flow import (Resolution, Selector, Step, Uncertainty, _Budget,
+                          _escalate)
+    benign = SafetyContract(effects=["write_ephemeral"],
+                            reversibility="reversible",
+                            resource=Resource(object_type="입력", scope="entry"))
+    step = Step("click", Selector(role="Button", identifier="A"),
+                on_uncertain=["target_missing", "postcondition_timeout"],
+                safety=benign)
+    answer = lambda why: Resolution(
+        "use_selector", selector=Selector(role="Button", identifier="B"))
+    def ask(kind, effect):
+        return _escalate(answer, _Budget(3), step,
+                         Uncertainty(kind=kind, step=0, intent="", detail="",
+                                     effect=effect), None)
+    before = ask("target_missing", "not_started")
+    after = ask("postcondition_timeout", "unknown")
+    return before is not None and before.kind == "use_selector" and after is None
+
+
+def scenario_one_step_cannot_spend_the_budget():
+    """A step that keeps getting the same wrong answer must not ask forever.
+
+    Without a per-step cap, one oscillating step burns a budget meant for the
+    whole run and the run still ends in the failure it started with."""
+    from nlc.flow import _Budget
+    b = _Budget(5)
+    first = b.take(0, "target_missing")
+    again = b.take(0, "target_missing")      # same step, same surprise
+    other_kind = b.take(0, "action_failed")  # a different surprise is its own
+    other_step = b.take(1, "target_missing")
+    return first and not again and other_kind and other_step and b.spent == 3
+
+
+def scenario_an_identifier_keeps_what_distinguishes_it():
+    """Only a KNOWN volatile suffix is state; the rest of a name is the name.
+
+    A calculator's 'StandardInputView;value:408' really does change with every
+    keystroke. Treating every ';' suffix that way makes 'control;operation:
+    preview' and 'control;operation:delete' the same control."""
+    from nlc.flow import Selector, TargetMissing
+    stable = Selector._stable_id("StandardInputView;value:408") == "StandardInputView"
+    kept = Selector._stable_id("control;operation:delete") == "control;operation:delete"
+    tree = "0 Window Title: w\n  1 Button Identifier: control;operation:delete\n"
+    try:
+        Selector(role="Button",
+                 identifier="control;operation:preview").resolve(tree)
+        crossed = True
+    except TargetMissing:
+        crossed = False
+    return stable and kept and not crossed
+
+
+def scenario_a_postcondition_compares_text_not_quantity():
+    """`equals` asserts what the screen says, not how much it means.
+
+    Reading both sides as numbers verified an account number '00123' against
+    '123'. Digit grouping is still ignored, because '5,535' and '5535' are the
+    same characters once a locale's separator is removed."""
+    from nlc.flow import Postcondition, Selector
+    acct = "0 Window Title: w\n  1 StaticText Identifier: out, Value: 00123\n"
+    money = "0 Window Title: w\n  1 StaticText Identifier: out, Value: 5,535\n"
+    field = Selector(role="StaticText", identifier="out")
+    return (not Postcondition(field=field, equals="123",
+                              attribute="Value").check(acct)
+            and Postcondition(field=field, equals="5535",
+                              attribute="Value").check(money))
+
+
+def scenario_a_candidate_says_where_it_is():
+    """Two identical labels are not two choices.
+
+    A Save button in each of two windows described itself as 'Save' both times,
+    and no answer to "which one did you mean" can be given from that."""
+    from nlc.flow import _candidates
+    tree = ("0 Window Title: 보고서\n"
+            "  1 Button Title: Save\n"
+            "2 Window Title: 메모\n"
+            "  3 Button Title: Save\n")
+    got = _candidates(None, tree)
+    return len(got) == 2 and got[0] != got[1] and "보고서" in got[0]
 
 
 def scenario_provider_env_is_not_the_session():
@@ -1523,6 +1717,8 @@ SCENARIOS = [
     ("safety_gate (block w/o approval, run w/ approval)", scenario_safety_block),
     ("batch_invalidation (stale index stopped mid-batch)", scenario_batch_invalidation),
     ("contract_policy (meaning decides, not keywords)", scenario_contract_policy),
+    ("authorization_never_falls (adding an effect cannot free the action)",
+     scenario_authorization_never_falls),
     ("approval_binding (consent tied to the action)", scenario_approval_binding),
     ("input_verification (typed input must verify effect)", scenario_input_verification),
     ("volatile_identifier (state-carrying AXIdentifier resolves)", scenario_volatile_identifier),
@@ -1578,10 +1774,22 @@ SCENARIOS = [
      scenario_escalation_only_where_declared),
     ("escalation_clears_a_blocked_run (a surprise becomes a question)",
      scenario_escalation_clears_a_blocked_run),
-    ("learning_makes_it_free_next_time (an escalation pays for itself)",
-     scenario_learning_makes_it_free_next_time),
-    ("shipped_recipes_are_not_quietly_patched (a library fix belongs in code)",
-     scenario_shipped_recipes_are_not_quietly_patched),
+    ("a_fix_is_not_quietly_kept (a one-off fix is news, not knowledge)",
+     scenario_a_fix_is_not_quietly_kept),
+    ("consent_cannot_be_re_aimed (an approved step keeps its target)",
+     scenario_consent_cannot_be_re_aimed),
+    ("an_unclear_outcome_is_not_retried (a slow screen is not a failed send)",
+     scenario_an_unclear_outcome_is_not_retried),
+    ("re_aiming_is_refused_after_the_fact (a new target is a new action)",
+     scenario_re_aiming_is_refused_after_the_fact),
+    ("one_step_cannot_spend_the_budget (asking has a per-step limit)",
+     scenario_one_step_cannot_spend_the_budget),
+    ("an_identifier_keeps_what_distinguishes_it (only known state is stripped)",
+     scenario_an_identifier_keeps_what_distinguishes_it),
+    ("a_postcondition_compares_text_not_quantity (00123 is not 123)",
+     scenario_a_postcondition_compares_text_not_quantity),
+    ("a_candidate_says_where_it_is (two Save buttons are told apart)",
+     scenario_a_candidate_says_where_it_is),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
@@ -1603,9 +1811,14 @@ SCENARIOS = [
 
 
 def main():
+    # An argument narrows the run to scenarios whose name contains it. A failure
+    # in one scenario used to mean sitting through all sixty to see it again.
+    only = [a for a in sys.argv[1:] if not a.startswith("-")]
     print("NLC evaluation\n" + "=" * 48)
     passed = required = 0
     for name, fn in SCENARIOS:
+        if only and not any(o in name for o in only):
+            continue
         t0 = time.monotonic()
         try:
             ok = fn()

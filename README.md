@@ -13,7 +13,7 @@ _Talk to your computer. It clicks so you don't have to._
 ![platform](https://img.shields.io/badge/platform-macOS_·_Web-1a2330?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.11+-3b5fa0?style=flat-square)
 ![uv](https://img.shields.io/badge/managed_by-uv-de5fe9?style=flat-square)
-![eval](https://img.shields.io/badge/eval-54%2F54_passing-2ea44f?style=flat-square)
+![eval](https://img.shields.io/badge/eval-61%2F61_passing-2ea44f?style=flat-square)
 ![tokens](https://img.shields.io/badge/replay-0_model_tokens-0e7a6b?style=flat-square)
 ![license](https://img.shields.io/badge/license-proprietary-b3403a?style=flat-square)
 
@@ -297,7 +297,7 @@ Trace 하나면 **앱·GUI 세션·권한 없이** 그 실행을 다른 컴퓨�
 ## 검증 상태 — `54/54 PASS`
 
 ```bash
-./launcher/nlc eval      # 권한 경계까지 포함해 전부 (54/54)
+./launcher/nlc eval      # 권한 경계까지 포함해 전부 (61/61)
 uv run python examples/eval.py   # 헬퍼 없이 (경계 시나리오는 SKIP)
 ```
 

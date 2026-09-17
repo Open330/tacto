@@ -137,7 +137,18 @@ list whose rows are ambiguous. Given a budget (`nlc do --think`), such a step
 hands the surprise back for one judgment instead of ending the run; without one
 it fails exactly as before. Values: `target_ambiguous`, `target_missing`,
 `action_failed`, `postcondition_timeout`. Declare it only where judgment is
-genuinely needed — a recipe that escalates on everything never fails honestly.
+genuinely needed — a recipe that escalates on everything never fails honestly,
+and each step gets one question per surprise, so a wrong answer cannot be
+retried into the whole budget.
+
+The first two are asked **before** anything ran, so the answer may be a
+different target. The last two may be asked **after** the action went out:
+`postcondition_timeout` means the app took the click and the screen has not said
+so yet — which is not proof that nothing happened. There the engine looks again
+rather than acting again, and re-runs the step only when the action means the
+same thing done twice as done once (`read`, `set_value`). A `click` or `menu`
+whose outcome is unclear stops and says so; nothing about it is retried, because
+a Send button pressed twice sends twice.
 
 **Toggles need `skip_if`.** Many commands toggle rather than set, so replaying
 one undoes it. State the condition the step exists to bring about and it stands
@@ -268,7 +279,7 @@ nlc parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
 | `target_missing` / `target_ambiguous` | selector matched 0 / >1 — re-observe and tighten it |
 | `unverifiable_input_step` | a typing step has no `expect` |
 | `contract_invalidated` | the recorded facts changed; re-author, don't force it |
-| `postcondition_timeout` | reports the value actually read — usually the wrong field or format |
+| `postcondition_timeout` | reports the value actually read — usually the wrong field or format. The action itself was delivered, so this never means "nothing happened" |
 | `no_window_content` | app has no window (minimised, or the screen is locked) |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
