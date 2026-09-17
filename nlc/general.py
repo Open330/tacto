@@ -32,6 +32,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
+import re
+
 from . import safety
 from .flow import Selector, _same_role, _where
 
@@ -71,17 +73,64 @@ def candidates(tree: str) -> list[dict]:
         cap = MAX_CANDIDATES if bucket is act else MAX_READABLE
         if len(bucket) >= cap:
             continue
-        label = (Selector._attr(line, "Title")
-                 or Selector._attr(line, "Description")
-                 or Selector._attr(line, "Value")
-                 or Selector._attr(line, "Identifier"))
-        if not label:
+        # What to CALL it and what it IS are different questions, and a
+        # display answers them differently: the useful name for a readout is
+        # what it currently says, but a thing that is named by what it says
+        # cannot be found again once it says something else. A calculator
+        # display listed as "0" was unfindable the moment it became "54".
+        show = _pick(line, ("Title", "Description", "Value", "Identifier"))
+        ident = _pick(line, ("Identifier", "Description", "Title")
+                      if "click" not in can
+                      else ("Title", "Description", "Identifier", "Value"))
+        if not show or not ident:
             continue
         bucket.append({"element_index": int(toks[0]), "role": toks[1],
-                       "label": label[:80], "where": _where(lines, i),
+                       "label": show[1][:80], "match": ident[1],
+                       "attr": ident[0], "where": _where(lines, i),
                        "can": list(can), "disabled": "[disabled]" in line,
                        "line": line})
     return act + read
+
+
+def _pick(line: str, keys) -> tuple[str, str] | None:
+    for k in keys:
+        v = Selector._attr(line, k)
+        if v:
+            return k, v
+    return None
+
+
+_ATTR_FIELD = {"Title": "title", "Description": "desc",
+               "Value": "value", "Identifier": "identifier"}
+
+
+def _line_for(tree: str, idx: int) -> str:
+    return next((l for l in tree.splitlines()
+                 if re.match(rf"\s*{idx}\s", l)), "")
+
+
+def reacquire(c: dict, tree: str) -> int | None:
+    """Where this candidate is NOW — or None if the screen moved under it.
+
+    A batch is a list of things to do to named elements, and an index is not a
+    name. Acting on the index the candidate HAD, against a tree the app has
+    since rebuilt, is how a plan of "Alpha then Beta" pressed Alpha twice while
+    reporting success: a dialog appeared, everything shifted down one, and the
+    index that used to mean Beta meant Alpha. Nothing failed, so nothing caught
+    it.
+
+    So each action re-finds its element by what it is called, and a name that no
+    longer picks out exactly one thing means the rest of the batch is about a
+    screen that is gone.
+    """
+    field = _ATTR_FIELD.get(c.get("attr") or "")
+    if field is None:
+        return None
+    try:
+        idx, _ = Selector(role=c["role"], **{field: c["match"]}).resolve(tree)
+        return idx
+    except LookupError:
+        return None
 
 
 def screen_key(cands: list[dict]) -> str:
@@ -124,6 +173,9 @@ class Visit:
     next_screen: str = ""
     expect: str | None = None
     verified: bool | None = None
+    # Set when the screen moved mid-batch and the rest was abandoned rather
+    # than aimed at elements that had shifted underneath it.
+    cut_short: str = ""
 
 
 @dataclass
@@ -166,7 +218,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
     say = narrate or (lambda _s: None)
     res = GeneralResult()
     done_so_far: list[str] = []
-    seen: dict[str, int] = {}
+    seen: dict[str, tuple] = {}      # screen -> the plan last run on it
 
     for _ in range(max_screens):
         obs = driver.observe(target, "tree_full", require_window=False)
@@ -179,12 +231,10 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             return res
         key = screen_key(cands)
 
-        # The same screen twice means the last batch changed nothing that
-        # matters. Asking again gets the same answer and the same nothing.
-        seen[key] = seen.get(key, 0) + 1
-        if seen[key] > 2:
-            res.why = "같은 화면에서 진전이 없습니다"
-            return res
+        # Standing on the same screen is not being stuck: a calculator's
+        # keypad never changes, so counting visits ended every arithmetic run
+        # at the third question — including ones that had already worked out
+        # the answer. Doing the SAME THING on the same screen is being stuck.
 
         answer = ask_here(goal, cands, done_so_far)
         res.asked += 1
@@ -200,13 +250,44 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             res.why = "이 화면에서 할 수 있는 일이 없습니다"
             return res
 
+        plan = tuple((a["do"], a["candidate"]["match"]) for a in acts)
+        if seen.get(key) == plan:
+            res.why = "같은 화면에서 같은 일을 되풀이하고 있습니다"
+            return res
+        seen[key] = plan
+
         visit = Visit(screen=key, expect=answer.get("expect"))
-        for a in acts:
+        moved = False
+        for n, a in enumerate(acts):
             c = a["candidate"]
             if c["disabled"]:
                 res.why = f"'{c['label']}' 은 지금 누를 수 없습니다"
                 res.visits.append(visit)
                 return res
+            if n:
+                # Everything after the first action happens on a screen we have
+                # not been asked about. Find the element by name; if it is no
+                # longer exactly one thing, the rest of this batch is about a
+                # screen that no longer exists.
+                fresh = driver.observe(target, "tree_full", require_window=False)
+                if fresh["type"] != "observation":
+                    res.why = f"화면을 볼 수 없습니다: {fresh.get('error')}"
+                    res.visits.append(visit)
+                    return res
+                obs = fresh
+                where = reacquire(c, obs["tree"])
+                if where is None:
+                    say(f"  (화면이 바뀌어 '{c['label']}' 부터는 중단하고 "
+                        f"다시 봅니다)")
+                    visit.cut_short = f"{c['label']} 이후"
+                    moved = True
+                    break
+                # The line too, not just the index. A read takes its answer
+                # from the element's line, and the one captured at observation
+                # time is what the screen said BEFORE the batch ran — which is
+                # how "7 + 8" was read back as 0.
+                c = {**c, "element_index": where,
+                     "line": _line_for(obs["tree"], where) or c["line"]}
             action = {"name": a["do"], "element_index": c["element_index"]}
             if a["do"] == "set_value":
                 action["value"] = a["value"]
@@ -232,12 +313,15 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             done_so_far.append(f"{c['label']} ({a['do']})")
             if a["do"] == "read":
                 res.said.append(_value_of(c))
-            # Each action is derived from the observation we are holding, and
-            # acting invalidates it. Re-observe rather than reuse indices that
-            # the app has already moved.
-            obs2 = driver.observe(target, "tree_full", require_window=False)
-            if obs2["type"] == "observation":
-                obs = obs2
+
+        if moved:
+            # Not a failure: the screen advanced, which is often exactly what
+            # the batch was for. Look again and ask about what is there now.
+            after = driver.observe(target, "tree_full", require_window=False)
+            visit.next_screen = (screen_key(candidates(after["tree"]))
+                                 if after["type"] == "observation" else "")
+            res.visits.append(visit)
+            continue
 
         if visit.expect:
             got = driver.wait_until(target, lambda t: visit.expect in t)
