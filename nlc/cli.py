@@ -373,16 +373,6 @@ def main(argv=None):
         # STAGE 1+2+3. Learning an unknown task spends model tokens, so it is
         # opt-in: without --learn an unknown request is reported, not billed.
         author_hook = None
-        if learning and _os.environ.get("NLC_LAUNCHER"):
-            # The signed launcher gives its child a fixed PATH so nobody can
-            # redirect what runs — which is exactly right, and also means the
-            # model CLIs (installed in user directories) are unreachable from
-            # here. Learning and running are separate stages for this reason;
-            # say so now instead of after four provider timeouts.
-            print("  배우기는 권한 경계 밖에서 합니다 (모델 호출이 필요해서요):\n"
-                  f'    uv run nlc compile "{intent}"\n'
-                  "    ./launcher/nlc run flows/<이름>.json")
-            learning = False
         if learning:
             from .authoring import author as _author
             def author_hook(intent_text, drv):        # noqa: E306
@@ -406,7 +396,7 @@ def main(argv=None):
         # Same boundary problem as learning, and worth saying up front rather
         # than after four provider timeouts.
         general_hook = None
-        if interpret is not None and not _os.environ.get("NLC_LAUNCHER"):
+        if interpret is not None:
             from .ask import ask as _ask2, what_to_do_here
 
             def general_hook(target, goal, confirm):   # noqa: F811
@@ -417,8 +407,6 @@ def main(argv=None):
                                  narrate=lambda m: print(f"  {m}"))
                 return _run(driver, target, goal, here,
                             approve=confirm, narrate=lambda m: print(f"  {m}"))
-        elif interpret is not None:
-            print("  (처음 하는 작업을 화면 보며 하기는 권한 경계 밖에서만 됩니다)")
 
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook, interpret=interpret,

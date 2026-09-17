@@ -57,7 +57,12 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 
 // MARK: - Message vetting
 
-let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act"]
+// `ask` is answered by this process, never forwarded: the child asks a
+// question, we put it to a model out here where the user's PATH still exists,
+// and hand back the text. That is the whole reason the child's PATH is fixed —
+// it holds screen content, which is exactly what must not be able to choose
+// what runs. Asking needs neither the helper channel nor a program name.
+let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act", "ask"]
 // Per-action exact schemas, not a union of every field. A union let `click`
 // arrive carrying `text`, `action` and `pages` as well (advisor finding);
 // requiring an exact key set makes each action mean one thing.
@@ -118,7 +123,11 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
 let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode",
-                                 "require_window"]
+                                 "require_window", "prompt", "json"]
+
+// A question is a string and nothing else. No program, no arguments, no
+// environment — the child names none of those, here or anywhere.
+let maxPromptBytes = 400_000
 
 @Sendable func isInt(_ v: Any) -> Bool {
     // CFBoolean bridges to NSNumber, so a bare NSNumber test would let `true`
@@ -132,6 +141,12 @@ func vetted(_ msg: [String: Any]) -> String? {
     guard allowedTypes.contains(type) else { return "허용되지 않은 type: \(type)" }
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
+    }
+    if type == "ask" {
+        guard let p = msg["prompt"] as? String else { return "ask 에 prompt 없음" }
+        guard !p.isEmpty else { return "빈 prompt" }
+        guard p.utf8.count <= maxPromptBytes else { return "prompt 가 너무 깁니다" }
+        if let j = msg["json"], !(j is Bool) { return "json 형식 오류" }
     }
     if type == "observe" {
         guard msg["target"] is String else { return "observe 에 target 없음" }
@@ -342,6 +357,34 @@ guard spawned == 0 else {
     FileHandle.standardError.write(Data("nlc: 실행 실패\n".utf8)); exit(1)
 }
 
+// MARK: - Asking a model, out here
+//
+// Run OUR python, with OUR environment, so the provider table and the account
+// routing live in one place instead of being restated in Swift. The asking
+// process gets no helper channel and no fd 3: it sees a prompt and returns
+// text, and cannot touch the screen whatever the prompt says.
+
+func askModel(_ prompt: String, _ wantJSON: Bool) -> String? {
+    let proc = Process()
+    proc.executableURL = python
+    proc.arguments = ["-I", "-m", "nlc.ask_provider"] + (wantJSON ? ["--json"] : [])
+    proc.currentDirectoryURL = root
+    proc.environment = ProcessInfo.processInfo.environment
+    let inPipe = Pipe(), outPipe = Pipe()
+    proc.standardInput = inPipe
+    proc.standardOutput = outPipe
+    proc.standardError = FileHandle.standardError
+    do { try proc.run() } catch { return nil }
+    inPipe.fileHandleForWriting.write(Data(prompt.utf8))
+    try? inPipe.fileHandleForWriting.close()
+    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
+    proc.waitUntilExit()
+    guard proc.terminationStatus == 0 else { return nil }
+    let text = String(decoding: data, as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.isEmpty ? nil : text
+}
+
 // MARK: - Relay
 //
 // Runs only while the child asks for it. The helper is started lazily, so a
@@ -355,6 +398,17 @@ relayQueue.async {
         if let why = vetted(msg) {
             writeJSONLine(relayEnd, ["type": "error", "error": "rejected_by_launcher",
                                      "detail": why])
+            continue
+        }
+        if msg["type"] as? String == "ask" {
+            let prompt = msg["prompt"] as! String
+            let wantJSON = (msg["json"] as? Bool) ?? false
+            if let text = askModel(prompt, wantJSON) {
+                writeJSONLine(relayEnd, ["type": "answer", "text": text])
+            } else {
+                writeJSONLine(relayEnd, ["type": "error", "error": "no_answer",
+                                         "detail": "모델에서 답을 받지 못했습니다"])
+            }
             continue
         }
         if helperFD < 0 {

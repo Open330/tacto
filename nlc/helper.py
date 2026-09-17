@@ -77,6 +77,16 @@ class InheritedHelperDriver:
             raise HelperUnavailable(
                 "도우미에 접근성 권한이 없습니다 — 시스템 설정에서 'NLC Helper' 를 켜주세요")
 
+    def ask_launcher(self, prompt: str, want_json: bool = False) -> str | None:
+        """Put a question to a model through the launcher, which is outside.
+
+        The same channel, a different destination: the launcher answers this
+        one itself rather than passing it to the helper, because asking needs
+        the user's PATH and touching the screen must not have it.
+        """
+        r = self._send({"type": "ask", "prompt": prompt, "json": want_json})
+        return r.get("text") if r.get("type") == "answer" else None
+
     def close(self):
         # Deliberately does not close the descriptor: the channel belongs to the
         # process, not to one driver object, and the launcher tears it down when

@@ -1001,16 +1001,20 @@ def scenario_authoring_produces_a_runnable_flow():
                               "destination": {"kind": "none"},
                               "reversibility": "reversible",
                               "commit_point": False, "unknowns": []}}]})
-    real_ask = authoring._ask_model
-    # **kw so a new argument on _ask_model shows up as a real failure to fix,
-    # not as a stub that silently stopped matching.
+    real_ask, real_reach = authoring._ask_model, authoring.reach_model
+    # **kw so a new argument shows up as a real failure to fix, not as a stub
+    # that silently stopped matching. BOTH have to be stubbed: inside the signed
+    # launcher `reach_model` goes out over the relay instead of calling
+    # `_ask_model`, so stubbing only the latter silently reached a real provider
+    # and these scenarios started billing tokens to fail.
     authoring._ask_model = lambda prompt, provider="auto", **kw: reply
+    authoring.reach_model = lambda prompt, provider="auto", **kw: reply
     try:
         flow = authoring.author("계산기 공학용으로", d,
                                 target="com.apple.calculator")
         ok = replay(d, flow).ok
     finally:
-        authoring._ask_model = real_ask
+        authoring._ask_model, authoring.reach_model = real_ask, real_reach
         back = d.observe("com.apple.calculator", "tree_full", require_window=False)
         if back["type"] == "observation":
             d.act(back["obs_id"], "com.apple.calculator",
@@ -1025,14 +1029,14 @@ def _stub_author(reply: str, intent: str, target: str, d):
     the one thing stubbed; the prompt, the parser, the selector validation and
     the replay are all the real ones."""
     import nlc.authoring as authoring
-    real = authoring._ask_model
-    # **kw so a new argument on _ask_model shows up as a real failure to fix,
-    # not as a stub that silently stopped matching.
+    real, real_reach = authoring._ask_model, authoring.reach_model
+    # Both: see the note in scenario_authoring_produces_a_runnable_flow.
     authoring._ask_model = lambda prompt, provider="auto", **kw: reply
+    authoring.reach_model = lambda prompt, provider="auto", **kw: reply
     try:
         return authoring.author(intent, d, target=target)
     finally:
-        authoring._ask_model = real
+        authoring._ask_model, authoring.reach_model = real, real_reach
 
 
 def _contract(object_type: str) -> dict:
@@ -1954,6 +1958,60 @@ def scenario_a_sheet_appearing_cuts_the_batch():
             and len(cut) == 1 and "저장하시겠습니까?" in cut[0])
 
 
+def scenario_matching_a_prefix_is_not_answering():
+    """A rule that matched part of a request has not answered the request.
+
+    Both of these ran on a real machine and reported success:
+
+        "1351 곱하기 59913 하고 123123 을 더한다음 계산해줘"
+            matched `1351 곱하기 59913`, dropped the `+ 123123`, and said
+            80,942,463 — the product alone — was the answer.
+        "메일 보내줘"
+            matched `메일` and resolved to the recipe that OPENS the inbox.
+
+    So what a rule did NOT consume is checked for things that would be another
+    instruction: a number it is not using, a verb for something it is not
+    doing."""
+    from nlc.agent import Agent
+    a = Agent()
+    dropped = ["1351 곱하기 59913 하고 123123 을 더한다음 계산해줘", "메일 보내줘"]
+    kept = {"메일 읽어줘": "mail_inbox", "12 곱하기 34 계산해줘": "calc_arith",
+            "문서 폴더 열어줘": "finder_open_folder",
+            "다운로드 폴더에 몇 개 있어": "finder_count_items",
+            "오늘 일정 알려줘": "calendar_today", "굵게 해줘": "textedit_emphasize"}
+    return (all(a.resolve(u) is None and a.unrepresented(u) for u in dropped)
+            and all(a.resolve(u) is not None and a.resolve(u).name == n
+                    for u, n in kept.items()))
+
+
+def scenario_the_reading_cannot_let_it_back_in():
+    """The guard has to hold on the cleaned-up goal too.
+
+    It did not, and that is how the dropped `+ 123123` came back: the fast path
+    held the request, the reading reduced it to a goal, and the goal went
+    through the very same rules with no such check — answering with the product
+    alone a second time."""
+    from nlc.agent import Agent
+
+    def interpret(q):
+        if q.kind == "what_was_asked":
+            return q.check({"goal": "1351 곱하기 59913 한 뒤 123123 더하기",
+                            "negated": False, "quote": "1351 곱하기 59913",
+                            "excluded": []})
+        return {"pick": None, "why": "한 번에 못 하는 계산"}
+
+    a = Agent(interpret=interpret)
+    match, _ = a.read_request("1351 곱하기 59913 하고 123123 을 더한다음 계산해줘")
+    # A goal a rule can only do half of is not a goal that rule answers.
+    simple, _ = Agent(interpret=lambda q: (
+        q.check({"goal": "12 곱하기 34 계산하기", "negated": False,
+                 "quote": "12 곱하기 34", "excluded": []})
+        if q.kind == "what_was_asked" else None)
+    ).read_request("메일 말고 12 곱하기 34 계산해줘")
+    return (match is None                      # falls through to the screen loop
+            and simple is not None and simple.name == "calc_arith")
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -2252,6 +2310,10 @@ SCENARIOS = [
      scenario_two_of_the_same_name_are_told_apart),
     ("a_sheet_appearing_cuts_the_batch (still there is not still right)",
      scenario_a_sheet_appearing_cuts_the_batch),
+    ("matching_a_prefix_is_not_answering (the leftover is still instructions)",
+     scenario_matching_a_prefix_is_not_answering),
+    ("the_reading_cannot_let_it_back_in (the guard holds on the goal too)",
+     scenario_the_reading_cannot_let_it_back_in),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
