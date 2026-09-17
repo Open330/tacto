@@ -140,6 +140,29 @@ def _markers(intent: str) -> set[str]:
     return {tag for tag, words in _MARKERS if any(w in low for w in words)}
 
 
+# Things that would be ANOTHER instruction if they turn up in the part of a
+# request a rule did not consume: a number it is not using, or a verb for
+# something it is not doing. Measured, not imagined — on a real machine:
+#
+#   "1351 곱하기 59913 하고 123123 을 더한다음 계산해줘"
+#       matched `1351 곱하기 59913`, dropped `+ 123123`, and reported
+#       80,942,463 — the product alone — as the answer.
+#   "메일 보내줘"
+#       matched `메일` and resolved to the recipe that OPENS the inbox.
+#
+# Both succeeded. A rule matching a prefix of what was said is not the same as
+# a rule answering it, and the leftover is where the difference shows.
+_STILL_WORK = re.compile(
+    r"\d"                                        # a number it is not using
+    r"|곱하|더하|빼기|나누|제곱|퍼센트"              # another operation
+    r"|저장|보내|전송|지워|삭제|버려"                # another consequential verb
+    r"|열어|닫아|써|적어|입력|굵게|복사|붙여")
+
+
+def _leftover(intent: str, m: "re.Match") -> str:
+    return intent[:m.start()] + intent[m.end():]
+
+
 _INTENT_RULES: list[tuple[re.Pattern, str, object, set]] = [
     (re.compile(r"(\d+)\s*(곱하기|더하기|빼기|나누기|[-+x×*/÷])\s*(\d+)"),
      "calc_arith", _calc, set()),
@@ -221,6 +244,8 @@ class Agent:
                 continue
             if said - covers:                 # said more than this rule can hold
                 continue
+            if _STILL_WORK.search(_leftover(intent, m)):
+                continue                      # matched a prefix, not the request
             try:
                 return Match(name, extract(m))
             except KeyError:
@@ -247,6 +272,13 @@ class Agent:
         for rx, name, extract, _covers in _INTENT_RULES:
             m = rx.search(goal)
             if m is None:
+                continue
+            # The same guard as the raw request, and for the same reason: a
+            # cleaned-up goal is still a sentence a rule can match half of.
+            # Without it here, "1351 곱하기 59913 하고 123123 을 더한다음" was
+            # held back by the fast path and then let straight back in by the
+            # reading — and answered with the product alone.
+            if _STILL_WORK.search(_leftover(goal, m)):
                 continue
             try:
                 return Match(name, extract(m))
@@ -338,11 +370,14 @@ class Agent:
         request needs reading, not a new recipe.
         """
         said = _markers(intent)
-        if not said:
-            return set()
         for rx, _name, _extract, covers in _INTENT_RULES:
-            if rx.search(intent) is not None and (said - covers):
+            m = rx.search(intent)
+            if m is None:
+                continue
+            if said - covers:
                 return said - covers
+            if _STILL_WORK.search(_leftover(intent, m)):
+                return {"unconsumed"}
         return set()
 
     # ------------------------------------------------------------ consent

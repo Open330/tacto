@@ -32,7 +32,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .authoring import _ask_model, _extract_json
+from .authoring import _extract_json, reach_model
 
 
 @dataclass
@@ -53,7 +53,7 @@ def ask(q: Q, provider: str = "auto", narrate=None) -> dict | None:
     malformed answer is the ordinary case, not an exception to propagate.
     """
     try:
-        raw = _extract_json(_ask_model(q.prompt, provider, expect_json=True))
+        raw = _extract_json(reach_model(q.prompt, provider, expect_json=True))
         if not isinstance(raw, dict):
             raise ValueError(f"expected an object, got {type(raw).__name__}")
         out = q.check(raw)
