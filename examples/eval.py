@@ -1717,33 +1717,180 @@ def scenario_a_general_run_leaves_a_graph():
 
 
 def scenario_a_general_run_stops_going_nowhere():
-    """A screen that keeps coming back means the last batch changed nothing.
+    """Being on the same screen again is not being stuck; doing the same thing is.
 
-    Asking again gets the same answer and the same nothing, so the run says so
-    instead of spending the rest of its budget proving it."""
+    Counting visits looked right and was wrong: a calculator's keypad never
+    changes, so every arithmetic run hit the limit at its third question — some
+    of them after they had already worked out the answer. What actually means
+    no progress is running the same plan on the same screen a second time."""
     from nlc.general import run
 
-    class Stuck:
+    class Fixed:
+        """A screen that never changes, whatever you press."""
+        def __init__(self):
+            self.acted = 0
+
         def identity(self, t):
             return t
 
         def observe(self, target, mode="tree_full", require_window=True):
             return {"type": "observation", "obs_id": "o",
-                    "tree": _fake_screen(["Go"])}
+                    "tree": _fake_screen(["Go", "Other"])}
 
         def act(self, *a, **k):
+            self.acted += 1
             return {"type": "acted", "action": "click"}
 
         def wait_until(self, target, pred, timeout_ms=8000):
             return self.observe(target)
 
-    def ask_here(goal, cands, done):
+    def same_every_time(goal, cands, done):
         return {"done": False, "expect": None,
                 "actions": [{"pick": 0, "do": "click", "candidate": cands[0],
                              "why": "또"}]}
 
-    r = run(Stuck(), "x", "무언가", ask_here, max_screens=20)
-    return not r.ok and "진전" in r.why and r.asked <= 3
+    stuck = run(Fixed(), "x", "무언가", same_every_time, max_screens=20)
+
+    # The same screen with something DIFFERENT to try is progress, not a loop.
+    plans = [0, 1, 0]
+
+    def varies(goal, cands, done):
+        if not plans:
+            return {"done": True, "actions": [], "expect": None}
+        p = plans.pop(0)
+        return {"done": False, "expect": None,
+                "actions": [{"pick": p, "do": "click", "candidate": cands[p],
+                             "why": "다른 것"}]}
+
+    d2 = Fixed()
+    varied = run(d2, "x", "무언가", varies, max_screens=20)
+    return (not stuck.ok and "되풀이" in stuck.why and stuck.asked == 2
+            and varied.ok and d2.acted == 3)
+
+
+class _Shifting:
+    """An app whose screen moves the moment you touch it.
+
+    The shape of the real hazard: a dialog opens, a row is inserted, a list
+    re-sorts. Nothing is broken and nothing errors — everything simply moved
+    down one.
+    """
+
+    def __init__(self, before, after):
+        self.before, self.after, self.n, self.hit = before, after, 0, []
+
+    def identity(self, t):
+        return t
+
+    def observe(self, target, mode="tree_full", require_window=True):
+        self.cur = self.before if self.n == 0 else self.after
+        return {"type": "observation", "obs_id": f"o{self.n}",
+                "tree": _fake_screen(self.cur)}
+
+    def act(self, obs_id, target, action, risk_class=None, intent_text="",
+            approved=False):
+        self.n += 1
+        self.hit.append(self.cur[action["element_index"] - 1])
+        return {"type": "acted", "action": action["name"]}
+
+    def wait_until(self, target, pred, timeout_ms=8000):
+        return self.observe(target)
+
+
+def _two_clicks(driver):
+    """Plan two clicks from one question, then say done."""
+    from nlc.general import run
+    plans = [{"done": False, "expect": None, "actions": [
+        {"pick": 0, "do": "click", "candidate": None, "why": "1"},
+        {"pick": 1, "do": "click", "candidate": None, "why": "2"}]},
+        {"done": True, "actions": [], "expect": None},
+        {"done": True, "actions": [], "expect": None}]
+
+    def ask_here(goal, cands, done):
+        p = plans.pop(0)
+        for a in p.get("actions", []):
+            a["candidate"] = cands[a["pick"]]
+        return p
+
+    return run(driver, "x", "Alpha 누르고 Beta 누르기", ask_here)
+
+
+def scenario_a_batch_acts_on_names_not_indexes():
+    """A plan names elements; an index is not a name.
+
+    Reproduced before the fix: a plan of "Alpha then Beta" pressed Alpha TWICE
+    and reported `ok=True`. A dialog had appeared between the two actions,
+    everything shifted down one, and the index that meant Beta now meant Alpha.
+    The driver's staleness guard exists for exactly this and was defeated by the
+    loop's own re-observation — refreshing `obs_id` while keeping indices from
+    the observation before it is the one combination that passes the check and
+    is wrong.
+
+    So each action after the first re-finds its element by what it is called."""
+    d = _Shifting(["Alpha", "Beta"], ["Popup", "Alpha", "Beta"])
+    r = _two_clicks(d)
+    return d.hit == ["Alpha", "Beta"] and r.ok
+
+
+def scenario_a_vanished_target_cuts_the_batch():
+    """When the named element is gone, the rest of the batch is about a screen
+    that no longer exists.
+
+    Abandoning and looking again is the answer — not pressing whatever is at
+    that index now, and not failing the run either, because a screen advancing
+    is often exactly what the batch was for."""
+    d = _Shifting(["Alpha", "Beta"], ["전혀", "다른", "화면"])
+    r = _two_clicks(d)
+    cut = [v.cut_short for v in r.visits if v.cut_short]
+    return (d.hit == ["Alpha"]          # the second never landed anywhere
+            and len(cut) == 1 and "Beta" in cut[0]
+            and r.ok)                   # and the run carried on from there
+
+
+def scenario_a_read_sees_what_the_batch_did():
+    """A read late in a batch answers with the screen AFTER the batch, not before.
+
+    Same class of mistake as acting on a stale index, and it reached a real run:
+    `7 더하기 8` planned press-press-press-read from one question and read the
+    display back as 0, because the value came off the line captured when the
+    candidates were listed — before a single key was pressed. Re-finding the
+    element has to refresh what it says, not only where it is."""
+    from nlc.general import run
+
+    class Counts:
+        """A display that only shows the total once Equals has been pressed."""
+        def __init__(self):
+            self.n = 0
+
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            shown = "0" if self.n == 0 else "54"
+            return {"type": "observation", "obs_id": f"o{self.n}",
+                    "tree": _fake_screen(["Equals"], readable=[("out", shown)])}
+
+        def act(self, obs_id, target, action, risk_class=None, intent_text="",
+                approved=False):
+            self.n += 1
+            return {"type": "acted", "action": action["name"]}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    plans = [{"done": False, "expect": None, "actions": [
+        {"pick": 0, "do": "click", "candidate": None, "why": "계산"},
+        {"pick": 1, "do": "read", "candidate": None, "why": "결과"}]},
+        {"done": True, "actions": [], "expect": None}]
+
+    def ask_here(goal, cands, done):
+        p = plans.pop(0)
+        for a in p.get("actions", []):
+            a["candidate"] = cands[a["pick"]]
+        return p
+
+    r = run(Counts(), "x", "결과를 읽어줘", ask_here)
+    return r.ok and r.said == ["54"]
 
 
 def scenario_provider_env_is_not_the_session():
@@ -2034,6 +2181,12 @@ SCENARIOS = [
      scenario_a_general_run_leaves_a_graph),
     ("a_general_run_stops_going_nowhere (the same screen twice is an answer)",
      scenario_a_general_run_stops_going_nowhere),
+    ("a_batch_acts_on_names_not_indexes (a shifted screen is not a free click)",
+     scenario_a_batch_acts_on_names_not_indexes),
+    ("a_vanished_target_cuts_the_batch (the rest was about a screen that is gone)",
+     scenario_a_vanished_target_cuts_the_batch),
+    ("a_read_sees_what_the_batch_did (the answer is after, not before)",
+     scenario_a_read_sees_what_the_batch_did),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
