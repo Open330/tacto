@@ -341,9 +341,18 @@ class Agent:
         except Exception as e:
             return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
         said = "\n".join(f"결과는 {v} 입니다" for v in r.said) if r.said else ""
+        if r.ok and not r.verified:
+            # It stopped, which is not the same as it worked. Saying "다 됐어요"
+            # here is the report someone who cannot check for themselves has no
+            # way to catch being wrong.
+            return Turn("done", (said + "\n" if said else "")
+                        + "다만 제대로 됐는지는 확인하지 못했어요.",
+                        detail={"screens": r.path, "asked": r.asked,
+                                "verified": False})
         if r.ok:
             return Turn("done", said or "끝냈어요.",
-                        detail={"screens": r.path, "asked": r.asked})
+                        detail={"screens": r.path, "asked": r.asked,
+                                "verified": True})
         return Turn("failed", f"{r.why}." + (f"\n{said}" if said else ""),
                     detail={"screens": r.path, "asked": r.asked})
 

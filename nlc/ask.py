@@ -68,6 +68,13 @@ def ask(q: Q, provider: str = "auto", narrate=None) -> dict | None:
 
 # ------------------------------------------------------------------ 발화 해석
 
+# Words that make a quote a refusal. Shared with the fast path's own guard, so
+# "the rule cannot represent this" and "the reading must not drop it" are the
+# same list rather than two that drift apart.
+_NEGATORS = ("하지 마", "하지마", "하지말", "말고", "말아", "빼고", "제외",
+             "아니라", "아니고", "안 해", "안해")
+
+
 _ASKED = """사용자가 컴퓨터에게 한 말을 구조로 옮기십시오. JSON만, 설명 없이:
 
 {"goal": "<사용자가 원하는 결과, 짧은 한국어 한 줄>",
@@ -105,15 +112,36 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
 
     def check(a: dict) -> dict | None:
         quote = str(a.get("quote", "")).strip()
-        # The one thing that can be verified without understanding Korean: the
-        # model must have read this out of the utterance, not invented it.
+        # The one thing verifiable without understanding Korean: the model read
+        # this out of the utterance rather than inventing it.
         if not quote or quote not in utterance:
             return None
         goal = str(a.get("goal", "")).strip()[:200]
         if not goal:
             return None
+        negated = bool(a.get("negated"))
+        # A passed check is only good for the proposition it checked (advisor
+        # finding). Provenance is not meaning: this was accepted —
+        #
+        #     {"quote": "굵게 하지 마", "goal": "굵게 해줘", "negated": false}
+        #
+        # — a real quote of a refusal, read back as the opposite instruction.
+        # Nothing here can judge Korean, but it can require the slots to agree
+        # with what is lexically IN the quote, which settles this case.
+        said_no = any(w in quote for w in _NEGATORS)
+        if said_no != negated:
+            return None
         excluded = [str(x)[:60] for x in (a.get("excluded") or [])][:8]
-        out = {"goal": goal, "negated": bool(a.get("negated")),
+        # Quoting only the agreeable half is the same bypass wearing a shorter
+        # quote: "굵게 하지 마" answered with quote "굵게" carries no negator at
+        # all. A refusal anywhere in the utterance has to be ACCOUNTED for —
+        # either this is a refusal, or it named what was ruled out.
+        if any(w in utterance for w in _NEGATORS) and not (negated or excluded):
+            return None
+        # Nor may the goal be the thing the user ruled out.
+        if any(x and x in goal for x in excluded):
+            return None
+        out = {"goal": goal, "negated": negated,
                "quote": quote, "excluded": excluded}
         for k in ("date_from", "date_to"):
             v = a.get(k)

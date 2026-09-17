@@ -262,6 +262,10 @@ class GeneralResult:
     visits: list[Visit] = field(default_factory=list)
     said: list[str] = field(default_factory=list)   # values read out
     asked: int = 0                                  # model calls spent
+    # Whether anything was actually SEEN to be true — a value read, or a stated
+    # expectation that showed up. `ok` says the run reached its end; this says
+    # there is evidence it got somewhere, and they are different claims.
+    verified: bool = False
 
     @property
     def path(self) -> list[str]:
@@ -319,8 +323,14 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             res.why = "다음에 할 일을 정하지 못했습니다"
             return res
         if answer.get("done"):
+            # The model saying it is done is where the run STOPS, not proof it
+            # succeeded (advisor finding). Something has to have been seen: a
+            # value read, or an `expect` that showed up. Without that this is a
+            # run that ended, and saying so is the honest report.
             res.ok = True
-            res.why = "목표에 도달했습니다"
+            res.verified = bool(res.said) or any(v.verified for v in res.visits)
+            res.why = ("목표에 도달했습니다" if res.verified else
+                       "끝났다고 하는데, 확인할 수 있는 결과는 못 봤습니다")
             return res
         acts = answer.get("actions") or []
         if not acts:
@@ -367,6 +377,16 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             risk, reason = safety.classify(action, c["line"])
             what = f"{c['label']} — {a.get('why') or goal}"
             approved = False
+            if risk in ("handoff", "blocked"):
+                # Not everything above `none` is the same question. A handoff
+                # is the person doing it themselves; treating it as one more
+                # thing to say yes to made it approvable by the same callback
+                # that approves a confirm (advisor finding).
+                res.why = (f"{what} — 이 단계는 직접 해주셔야 해요 ({reason})"
+                           if risk == "handoff" else
+                           f"{what} — 무슨 일이 일어날지 확정할 수 없어 멈췄습니다")
+                res.visits.append(visit)
+                return res
             if risk != "none":
                 if approve is None or not approve(what):
                     res.why = f"{what} — 진행하지 않았습니다"
