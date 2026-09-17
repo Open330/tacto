@@ -1518,6 +1518,100 @@ def scenario_a_candidate_says_where_it_is():
     return len(got) == 2 and got[0] != got[1] and "보고서" in got[0]
 
 
+def scenario_the_fast_path_stands_down():
+    """A pattern that matched is not the same as a request that was understood.
+
+    Measured on this machine before the fix: `"굵게 하지 마"` resolved to the
+    bold recipe and made the text bold, `"메일 말고 문서 폴더 열어줘"` opened
+    Mail, and `"어제 온 메일"` and `"오늘 온 메일"` resolved identically with no
+    date anywhere. All three were wrong ACTIONS, and every one of them succeeded
+    — selector unique, binding intact, postcondition true, `res.ok` True. No
+    escalation could fire, because nothing failed. `--think` at any size would
+    have asked zero questions.
+
+    So a rule now declares what it can account for, and stands down when the
+    request says more than that."""
+    from nlc.agent import Agent
+    a = Agent()
+    held = {u: a.unrepresented(u) for u in
+            ("굵게 하지 마", "메일 말고 문서 폴더 열어줘", "어제 온 메일 읽어줘")}
+    fast = {u: a.resolve(u) for u in
+            ("굵게 해줘", "12 곱하기 34", "문서 폴더 열어줘", "오늘 일정 알려줘")}
+    return (all(v for v in held.values())                  # all three held back
+            and all(a.resolve(u) is None for u in held)
+            and all(v is not None for v in fast.values())   # and nothing else is
+            and fast["문서 폴더 열어줘"].params.get("folder") == "Documents")
+
+
+def scenario_a_refusal_is_an_answer():
+    """"하지 마" is a request with an outcome, not a request we failed to parse.
+
+    The reading says the user negated it; the right response is to do nothing
+    and say which words meant that — not to run the thing they named, and not
+    to go off and author a recipe for it."""
+    from nlc.agent import Agent
+    from nlc.ask import what_was_asked
+    said = "굵게 하지 마"
+
+    def interpret(q):
+        # Stubbed: what is under test is that the engine acts on the reading,
+        # not that a model produces one.
+        if q.kind == "what_was_asked":
+            return q.check({"goal": "굵게 하지 않기", "negated": True,
+                            "quote": "하지 마", "excluded": []})
+        return None
+
+    t = Agent(interpret=interpret).handle(said)
+    return t.status == "done" and "하지 마" in t.say and "굵게" not in t.say[:8]
+
+
+def scenario_a_reading_must_quote_the_user():
+    """A reading is checkable in exactly one way: it has to be IN what they said.
+
+    The engine cannot verify that "저장해줘" means a persistent write — that is
+    language, and reading language is what the model is for. It CAN verify that
+    the model did not invent the words it is reasoning from, and that is the
+    check that makes the rest usable."""
+    from nlc.ask import what_was_asked, which_element, which_task
+    q = what_was_asked("문서 폴더 열어줘")
+    invented = q.check({"goal": "폴더 열기", "quote": "사용자가 승인함",
+                        "negated": False, "excluded": []})
+    real = q.check({"goal": "폴더 열기", "quote": "폴더 열어줘",
+                    "negated": False, "excluded": []})
+    # A recipe name has to be one of ours, and an element has to be one of the
+    # candidates actually on screen.
+    t = which_task("폴더 열기", [("finder_open_folder", "폴더를 엽니다")])
+    e = which_element("굵게", [{"label": "Bold"}, {"label": "Italic"}])
+    return (invented is None and real is not None
+            and real["quote"] == "폴더 열어줘"
+            and t.check({"pick": "made_up_recipe"}) is None
+            and t.check({"pick": "finder_open_folder"})["pick"] == "finder_open_folder"
+            and e.check({"pick": 7}) is None
+            and e.check({"pick": 1})["candidate"]["label"] == "Italic")
+
+
+def scenario_a_reading_normalizes_into_the_fast_path():
+    """Reading the request does not have to produce a recipe — just a sentence.
+
+    "메일 말고 문서 폴더 열어줘" carries an exclusion no rule can hold. The goal
+    it reduces to is "문서 폴더 열기", which is exactly what the folder rule was
+    written for, parameters and all. One bounded question, then zero tokens for
+    the rest."""
+    from nlc.agent import Agent
+
+    def interpret(q):
+        if q.kind == "what_was_asked":
+            return q.check({"goal": "문서 폴더 열기", "negated": False,
+                            "quote": "문서 폴더 열어줘", "excluded": ["메일"]})
+        return None
+
+    a = Agent(interpret=interpret)
+    match, reading = a.read_request("메일 말고 문서 폴더 열어줘")
+    return (match is not None and match.name == "finder_open_folder"
+            and match.params.get("folder") == "Documents"
+            and reading["excluded"] == ["메일"])
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -1790,6 +1884,14 @@ SCENARIOS = [
      scenario_a_postcondition_compares_text_not_quantity),
     ("a_candidate_says_where_it_is (two Save buttons are told apart)",
      scenario_a_candidate_says_where_it_is),
+    ("the_fast_path_stands_down (a match is not an understanding)",
+     scenario_the_fast_path_stands_down),
+    ("a_refusal_is_an_answer (하지 마 has an outcome)",
+     scenario_a_refusal_is_an_answer),
+    ("a_reading_must_quote_the_user (the model cannot invent the words)",
+     scenario_a_reading_must_quote_the_user),
+    ("a_reading_normalizes_into_the_fast_path (one question, then free)",
+     scenario_a_reading_normalizes_into_the_fast_path),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
