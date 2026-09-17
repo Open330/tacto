@@ -102,7 +102,10 @@ verifiable through the control itself. (`press_key` exists in the in-process
 driver only; the signed helper does not implement it, so do not author with it.)
 
 **Use `menu` for commands that live in the menu bar** — save, copy, open a
-folder, new window. It takes a title path instead of a selector, and each level
+folder, new window. It takes a title path and **no selector at all**; a real
+model attached one anyway, containing nothing but a role, and the step was
+refused. Write only the selector fields you know, and never a selector that
+carries just a role — "click a Button" is not an instruction. Each level
 may list alternatives, because menu titles are localized *and* state-dependent
 (an unsaved document shows `Save…`, a saved one shows `Save`):
 
@@ -119,7 +122,14 @@ items), so they are addressed by title, and the app is raised to the front first
 **A step whose success is not self-evident must be verifiable.** `type_text`,
 `press_key` and `menu` each need a `postcondition`/`expect`, or an explicit
 `"unverified_ok": true`. This is measured, not cautious: `Format > Font > Bold`
-with no selection returns success and changes nothing.
+with no selection returns success and changes nothing. A `menu` step with
+neither is refused at authoring time rather than quietly waived.
+
+**A postcondition that already held proves nothing.** If the value you assert
+was true before the step ran, the run is recorded as `already_true` — which is
+the sign that the step did not do what you thought. A recipe passed this way
+once by pressing a toolbar checkbox that does not respond at all. When the
+command is a toggle, say so with `skip_if` instead.
 
 **Toggles need `skip_if`.** Many commands toggle rather than set, so replaying
 one undoes it. State the condition the step exists to bring about and it stands

@@ -723,27 +723,32 @@ def scenario_app_name_is_the_app():
     com.apple.messages.AssistantExtension is also called Messages and has no
     windows and no menu bar, so whichever the system listed first decided
     whether the app could be driven at all."""
-    from AppKit import NSWorkspace
-    running = list(NSWorkspace.sharedWorkspace().runningApplications())
-    # Find a name that a visible app and a background process actually share
-    # right now, rather than naming apps that may or may not be open.
-    by_name: dict = {}
-    for a in running:
-        by_name.setdefault((a.localizedName() or "").lower(), []).append(a)
-    collisions = {n: apps for n, apps in by_name.items()
-                  if n and len(apps) > 1
-                  and any(a.activationPolicy() == 0 for a in apps)
-                  and any(a.activationPolicy() != 0 for a in apps)}
-    if not collisions:
-        return "이름이 겹치는 앱/확장이 지금 없음"
+    class Fake:
+        def __init__(self, name, bundle, pid, policy):
+            self._n, self._b, self._p, self._pol = name, bundle, pid, policy
+        def localizedName(self):
+            return self._n
+        def bundleIdentifier(self):
+            return self._b
+        def processIdentifier(self):
+            return self._p
+        def activationPolicy(self):
+            return self._pol
+
     d = Driver()
-    for name, apps in collisions.items():
-        pid = d._resolve(name, launch=False)
-        want = {int(a.processIdentifier()) for a in apps
-                if a.activationPolicy() == 0}
-        if pid not in want:
-            return False
-    return True
+    # The extension listed FIRST, which is the order that used to decide it.
+    pair = [Fake("Messages", "com.apple.messages.AssistantExtension", 111, 2),
+            Fake("Messages", "com.apple.MobileSMS", 222, 0)]
+    d._running_apps = lambda: pair
+    if d._resolve("Messages", launch=False) != 222:
+        return False
+    # A bundle id is explicit and may name anything, including the extension.
+    if d._resolve("com.apple.messages.AssistantExtension", launch=False) != 111:
+        return False
+    # With only the extension running, the NAME does not resolve at all —
+    # reporting the app absent beats handing back a process with no windows.
+    d._running_apps = lambda: [pair[0]]
+    return d._resolve("Messages", launch=False) is None
 
 
 def scenario_large_tree_is_bounded():
@@ -1106,6 +1111,66 @@ def scenario_already_true_is_not_proof():
     return verified(first) == "postcond" and verified(second) == "already_true"
 
 
+def scenario_authored_steps_can_be_approved():
+    """A step a model wrote must be one the user can actually say yes to.
+
+    Consent binds to a described action, so a step with no binding can never be
+    approved — and authoring only built one when a step had a selector. A menu
+    step has none, which made every consequential command a model authored
+    permanently stuck: the gate asked, and there was nothing to answer with."""
+    import json as _json
+    import nlc.authoring as authoring
+    from nlc.agent import Agent
+    spec = {"name": "probe_binding", "target": "com.apple.TextEdit",
+            "steps": [{"action": "menu",
+                       "params": {"path": ["File", ["Save", "Save…"]]},
+                       "intent_text": "저장합니다",
+                       "unverified_ok": True,
+                       "safety": {"effects": ["write_persistent"],
+                                  "data_classes": ["none"],
+                                  "resource": {"object_type": "문서",
+                                               "scope": "item"},
+                                  "destination": {"kind": "none"},
+                                  "reversibility": "recoverable",
+                                  "commit_point": True, "unknowns": []}}],
+            "_intent": "문서를 저장해줘"}
+    flow = authoring._to_flow(_json.loads(_json.dumps(spec)))
+    if flow.steps[0].binding is None:
+        return False
+    approvals, blocked = Agent(driver=Driver()).authorize(flow, ask=lambda _w: True)
+    return not blocked and 0 in approvals
+
+
+def scenario_vacuous_pass_is_fed_back():
+    """The repair loop must not accept a run that proved nothing.
+
+    A one-step recipe clicking a control that does not respond passed here once,
+    because the checkbox it asserted had been on since an earlier run. For a
+    loop whose whole job is catching recipes that do not work, that is the case
+    it most needs to notice."""
+    import nlc.authoring as authoring
+    from nlc.contract import SafetyContract, Resource
+    from nlc.flow import Flow, Postcondition, Step
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    KP = "CalculatorKeypadView"
+    entry = Resource(object_type="계산기 입력", scope="entry")
+    # Clear twice: the second run's postcondition is true before it acts.
+    clear = Flow("probe_vacuous", "com.apple.calculator", steps=[
+        Step("click", Selector(role="Button", identifier=["AllClear", "Clear"],
+                               ancestor=KP), intent_text="지우기",
+             safety=SafetyContract(effects=["delete"], resource=entry,
+                                   reversibility="reversible"),
+             postcondition=Postcondition(
+                 field=Selector(role="ScrollArea",
+                                identifier="StandardInputView"),
+                 equals="0", attribute="Value"))])
+    replay(d, clear)                      # leaves the display at 0
+    ok, why = authoring._verify(d, clear, None)
+    return (not ok) and "증명" in why
+
+
 def scenario_authoring_teaches_the_real_vocabulary():
     """The prompt must describe the engine that exists, not the one that did.
 
@@ -1232,6 +1297,10 @@ SCENARIOS = [
      scenario_authoring_produces_a_runnable_flow),
     ("already_true_is_not_proof (a pass that proved nothing is labelled)",
      scenario_already_true_is_not_proof),
+    ("authored_steps_can_be_approved (consent has something to bind to)",
+     scenario_authored_steps_can_be_approved),
+    ("vacuous_pass_is_fed_back (the loop notices it proved nothing)",
+     scenario_vacuous_pass_is_fed_back),
     ("authoring_handles_a_dialog (later steps act inside a sheet)",
      scenario_authoring_handles_a_dialog),
     ("authoring_still_catches_invented_targets (relaxed, not useless)",

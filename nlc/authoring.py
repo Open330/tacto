@@ -19,7 +19,7 @@ import subprocess
 from .contract import (SafetyContract, Resource, Destination, Evidence,
                        ContextBinding)
 from .driver import Driver
-from .flow import Capture, Flow, Step, Selector, Postcondition
+from .flow import Capture, Flow, Step, Selector, Postcondition, pin_params
 
 _SYSTEM = """You convert a user's intent into a deterministic UI automation recipe.
 You are given the app's accessibility tree (each line: "<index> <Role>  <attrs>").
@@ -292,15 +292,23 @@ def _to_flow(spec: dict) -> Flow:
         # re-observe. Pinning a field with no live resolver would make every
         # run fail as unverifiable; pinning nothing would mean the contract is
         # never re-checked at all (advisor found both failure modes).
-        binding = None
-        if sel is not None:
-            ident = sel.identifier
-            binding = ContextBinding(
-                bundle_id=spec.get("target"),
-                role=sel.role,
-                identifier=(ident[0] if isinstance(ident, list) and ident else ident),
-                ancestor=sel.ancestor,
-                operation=s["action"])
+        # Every step gets a binding, not only the ones with a selector. Consent
+        # is bound to a described action, so a step WITHOUT one can never be
+        # approved — and a menu step has no selector, which made every
+        # consent-requiring command a model authored permanently unapprovable.
+        # What is pinned is what replay can re-derive: the app and the operation
+        # always, the element when there is one, and the payload — which for a
+        # menu step is the path, the only thing separating File > Save from
+        # File > Move to Trash.
+        ident = sel.identifier if sel is not None else None
+        params = s.get("params", {})
+        binding = ContextBinding(
+            bundle_id=spec.get("target"),
+            role=sel.role if sel is not None else None,
+            identifier=(ident[0] if isinstance(ident, list) and ident else ident),
+            ancestor=sel.ancestor if sel is not None else None,
+            operation=s["action"],
+            params_digest=pin_params(params) if params else None)
         steps.append(Step(action=s["action"], selector=sel, binding=binding,
                           params=s.get("params", {}),
                           intent_text=s.get("intent_text", ""),
@@ -408,6 +416,7 @@ def author(intent: str, driver: Driver, target: str | None = None,
     # per action the way a model-in-the-loop agent does.
     complaint = ""
     last_error = None
+    last_flow = None
     # One repair is often not enough. Asked to italicize, a model needed the
     # first round to learn it had skipped the selection, and would have needed a
     # second to learn that the toolbar checkbox it then chose does not respond
@@ -422,11 +431,20 @@ def author(intent: str, driver: Driver, target: str | None = None,
             continue
         if not verify:
             return flow
+        last_flow = flow
         ran, why = _verify(driver, flow, narrate)
         if ran:
             return flow
         last_error = RuntimeError(why)
-        complaint = _complaint(f"레시피는 만들어졌지만 실행에 실패했습니다: {why}")
+        complaint = _complaint(f"레시피는 만들어졌지만 확인에 실패했습니다: {why}")
+    if last_flow is not None:
+        # A recipe that parsed and validated is worth handing back even when the
+        # rounds ran out: it can be read, edited and run. Refusing to produce
+        # anything would throw away work the person already paid for — but it is
+        # handed over labelled, not as if it had passed.
+        if narrate:
+            narrate(f"  ⚠ 확인하지 못한 채로 저장합니다 — {last_error}")
+        return last_flow
     raise last_error if last_error else RuntimeError("레시피를 만들지 못했습니다")
 
 
@@ -446,14 +464,37 @@ def _verify(driver: Driver, flow: Flow, narrate) -> tuple[bool, str]:
     from .flow import replay
     approvals, blocked = Agent(driver=driver).authorize(flow, ask=None)
     if blocked:
+        # Not a pass. Saying "verified" here was how a recipe that declared
+        # write_persistent for a formatting change sailed through unchecked —
+        # and the loop never got to tell the model that the control it chose
+        # does nothing. An over-declared effect is itself worth reporting: it is
+        # usually a mistake, and it is always the reason the check stopped.
         if narrate:
-            narrate("  (확인이 필요한 단계가 있어 자동 검증은 건너뜁니다: "
-                    + "; ".join(blocked[:2]) + ")")
-        return True, ""
+            narrate("  (확인이 필요한 단계가 있어 자동 실행은 못 했습니다)")
+        return False, (
+            "확인이 필요한 단계가 있어 자동으로 실행해 볼 수 없었습니다: "
+            + "; ".join(blocked[:2])
+            + ". 그 단계가 정말 저장·전송처럼 세션 밖에 남는 효과를 내는지 다시 "
+              "보세요. 열려 있는 문서의 서식을 바꾸는 것뿐이라면 effects 는 "
+              "write_persistent 가 아니라 write_ephemeral 입니다.")
     if narrate:
         narrate("  ▶ 만든 레시피를 한 번 실행해 확인합니다…")
     res = replay(driver, flow, approvals=approvals)
     if res.ok:
+        # A run can succeed while proving nothing: if a step's postcondition
+        # already held before it acted, the step was never tested. That is how a
+        # one-step recipe clicking a control that does not respond passed here —
+        # the checkbox it asserted had been on since an earlier run. For the
+        # repair loop this is a failure, because it is precisely the case the
+        # loop exists to catch.
+        vacuous = [e for e in res.log if e.get("verified") == "already_true"]
+        if vacuous:
+            steps = ", ".join(str(e.get("step")) for e in vacuous)
+            return False, (
+                f"{steps}번 단계는 실행 전에 이미 조건이 참이어서 아무것도 증명하지 "
+                "못했습니다. 그 컨트롤이 실제로 반응하는지 확인하고, 토글이라면 "
+                "skip_if 로 선언하세요. 반응하지 않는 컨트롤이라면 같은 일을 하는 "
+                "메뉴 명령을 쓰세요.")
         return True, ""
     bad = next((e for e in res.log if e.get("status") == "error"), {})
     detail = bad.get("detail")
