@@ -329,6 +329,7 @@ class Agent:
         폴더 열기" it reduces to.
         """
         from .authoring import guess_target
+        from .contract import Envelope
         goal = reading.get("goal") or intent
         target = guess_target(intent, self.driver) or _frontmost()
         if not target:
@@ -336,8 +337,18 @@ class Agent:
                         "어느 앱에서 할 일인지 알 수 없어요. 앱 이름을 같이 "
                         "말씀해 주시겠어요?")
         self.narrate(f"처음 하는 일이라 화면을 보면서 해볼게요: {goal}")
+        # What the request authorizes, from the user's own words. Without a
+        # reading there is none, and the loop falls back to looking and typing
+        # into what is in front of it — never saving, sending or deleting.
+        env = None
+        if reading.get("allows"):
+            env = Envelope(quote=reading.get("quote", ""),
+                           allows=frozenset(reading["allows"]),
+                           scope=reading.get("scope", "entry"),
+                           reversibility=reading.get("reversibility",
+                                                     "reversible"))
         try:
-            r = self.general(target, goal, ask)
+            r = self.general(target, goal, ask, env)
         except Exception as e:
             return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
         said = "\n".join(f"결과는 {v} 입니다" for v in r.said) if r.said else ""
@@ -353,8 +364,12 @@ class Agent:
             return Turn("done", said or "끝냈어요.",
                         detail={"screens": r.path, "asked": r.asked,
                                 "verified": True})
-        return Turn("failed", f"{r.why}." + (f"\n{said}" if said else ""),
-                    detail={"screens": r.path, "asked": r.asked})
+        did = ("여기까지 했어요: " + ", ".join(r.did[:8])
+               + (" …" if len(r.did) > 8 else "")) if r.did else ""
+        return Turn("failed",
+                    "\n".join(x for x in (f"{r.why}.", did, said) if x),
+                    detail={"screens": r.path, "asked": r.asked,
+                            "did": r.did})
 
     def _known_tasks(self) -> list[tuple[str, str]]:
         from .library import builders

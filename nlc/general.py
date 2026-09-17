@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 import re
 
 from . import safety
+from .contract import Envelope, describe, policy
 from .flow import Selector, TargetAmbiguous, _same_role
 
 # What can be done to a thing depends on what it is, and saying so is what
@@ -268,6 +269,18 @@ class GeneralResult:
     verified: bool = False
 
     @property
+    def did(self) -> list[str]:
+        """What actually happened, whether or not the run got where it meant to.
+
+        A batch is not a transaction: a run that stops at its fifth action has
+        still done four, and "작성창까지 열었고, 전송은 하지 않았습니다" is the
+        report — not a bare failure that leaves someone guessing what state
+        their computer is in (advisor finding).
+        """
+        return [a["label"] for v in self.visits for a in v.actions
+                if a.get("label")]
+
+    @property
     def path(self) -> list[str]:
         """Every screen this run stood on, the one it finished at included.
 
@@ -289,13 +302,17 @@ class GeneralResult:
 
 
 def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
-        approve=None, narrate=None) -> GeneralResult:
+        approve=None, narrate=None, envelope: Envelope | None = None
+        ) -> GeneralResult:
     """Drive `target` toward `goal`, one question per screen.
 
     `ask_here(goal, candidates, done_so_far)` returns a checked answer or None.
-    `approve(what)` is consulted for any action the classifier does not call
-    free; without it such an action stops the run rather than proceeding.
+    `envelope` is what the request authorizes, issued from the user's words
+    before any of this was seen; without one, only looking and typing into the
+    thing in front of you is on the table.
+    `approve(what)` is consulted where the policy asks for confirmation.
     """
+    env = envelope or Envelope.minimal()
     say = narrate or (lambda _s: None)
     res = GeneralResult()
     done_so_far: list[str] = []
@@ -373,22 +390,40 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             action = {"name": a["do"], "element_index": c["element_index"]}
             if a["do"] == "set_value":
                 action["value"] = a["value"]
-            # The control decides the risk, not the model's account of it.
-            risk, reason = safety.classify(action, c["line"])
+            # The control says what the action IS; the envelope says what the
+            # request covers; `policy()` says what that needs. One executor for
+            # both modes — a recipe's authored contract and this derived one go
+            # through the same function, instead of the screen loop keeping a
+            # private notion of "risky" that nothing else understands.
+            effects, why_eff = safety.effects_of(action, c["line"])
             what = f"{c['label']} — {a.get('why') or goal}"
+            decision = policy(env.contract_for(effects, c["label"]))
+            risk = decision.risk
             approved = False
+            # Handoff and blocked come first because they are about the effect
+            # itself, not about scope: "you have to type this yourself" is what
+            # a person can act on, where "outside what you asked" tells them
+            # nothing about a password field.
+            if risk not in ("handoff", "blocked") and not env.admits(effects):
+                # Not a risky action — a different request. Nothing the screen
+                # says can widen what the person asked for.
+                res.why = (f"{what} — 부탁하신 일의 범위를 벗어납니다 "
+                           f"({why_eff}: {', '.join(sorted(effects))})")
+                res.visits.append(visit)
+                return res
             if risk in ("handoff", "blocked"):
                 # Not everything above `none` is the same question. A handoff
                 # is the person doing it themselves; treating it as one more
                 # thing to say yes to made it approvable by the same callback
                 # that approves a confirm (advisor finding).
-                res.why = (f"{what} — 이 단계는 직접 해주셔야 해요 ({reason})"
+                res.why = (f"{what} — 이 단계는 직접 해주셔야 해요 ({decision.reason})"
                            if risk == "handoff" else
-                           f"{what} — 무슨 일이 일어날지 확정할 수 없어 멈췄습니다")
+                           f"{what} — {decision.reason}")
                 res.visits.append(visit)
                 return res
-            if risk != "none":
-                if approve is None or not approve(what):
+            if risk == "confirm":
+                if approve is None or not approve(describe(
+                        env.contract_for(effects, c["label"]), decision)):
                     res.why = f"{what} — 진행하지 않았습니다"
                     res.visits.append(visit)
                     return res
@@ -410,6 +445,14 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 return res
             visit.actions.append({"do": a["do"], "label": c["label"]})
             done_so_far.append(f"{c['label']} ({a['do']})")
+            if approved:
+                # A batch is not a transaction, and the screen after a
+                # consequential step is not the screen the rest was planned on.
+                # Stop here and look, rather than carry seven more actions past
+                # the one thing someone had to think about (advisor finding).
+                visit.cut_short = f"{c['label']} 다음 — 승인된 단계 뒤"
+                moved = True
+                break
             if a["do"] == "read":
                 res.said.append(_value_of(c))
 

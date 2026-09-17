@@ -72,6 +72,12 @@ class Evidence:
     source: str          # one of PROVENANCE
     field: str           # e.g. "bundle_id", "AXHelp", "user said"
     value: str
+    # Which effects the user's own words cover, when something has read them
+    # and said so in this vocabulary. Matching the words themselves was the
+    # original plan and it never once fired: it compared a Korean sentence
+    # against the string "write_persistent", so `preapproved` was unreachable
+    # by anyone who did not happen to say a Python identifier out loud.
+    covers: tuple = ()
 
     def authorizes(self) -> bool:
         """Only the user's own stated intent can ground authorization."""
@@ -164,7 +170,13 @@ def _covers(scope: list[Evidence], contract: "SafetyContract") -> bool:
     # EVERY effect must be covered — approving "save" should not also license
     # the "transmit" the same contract declares (advisor finding: any() let one
     # match cover the rest).
-    if not all(mentioned(eff) for eff in contract.effects):
+    declared = set()
+    for e in scope:
+        declared |= {str(c) for c in (e.covers or ())}
+    if declared:
+        if not set(contract.effects) <= declared:
+            return False
+    elif not all(mentioned(eff) for eff in contract.effects):
         return False
     dest = contract.destination.identity
     if contract.destination.kind == "third_party" and dest:
@@ -395,3 +407,62 @@ def describe(contract: SafetyContract, decision: Decision) -> str:
     if contract.reversibility == "irreversible":
         line += ". 되돌릴 수 없습니다"
     return line
+
+
+# ---------------------------------------------------------------- envelope
+
+# What effects a vocabulary knows about, so a request cannot ask for one that
+# has no policy.
+EFFECTS = {"read", "write_ephemeral", "write_persistent", "delete", "transmit",
+           "financial", "credential", "install", "system_config"}
+SCOPES = {"entry", "item", "collection", "account", "all"}
+REVERSIBILITY = {"reversible", "recoverable", "irreversible", "unknown"}
+
+
+@dataclass
+class Envelope:
+    """What one request authorizes, issued before any screen has been seen.
+
+    A task with no recipe cannot be approved step by step in advance, because
+    nobody knows the steps. What CAN be settled in advance is the shape of what
+    the user asked for: which effects it covers, on what scale, and how
+    recoverable. The path is what is unknown, not the range (advisor finding).
+
+    So this is issued from the utterance alone — the user's own words, which is
+    the only evidence that may authorize anything — and every action worked out
+    against the screen is then judged twice: `policy()` says what the effect
+    needs, and `admits()` says whether the request covered it at all. An effect
+    outside the envelope is not a risky action, it is a different request.
+    """
+    quote: str = ""                      # the user's words this rests on
+    allows: frozenset = frozenset()      # effects the request covers
+    scope: str = "entry"
+    reversibility: str = "reversible"
+
+    @classmethod
+    def minimal(cls) -> "Envelope":
+        """Looking and typing into the thing in front of you, nothing more.
+
+        The default when no reading produced one: enough to work a calculator,
+        never enough to save, send or delete.
+        """
+        return cls(allows=frozenset({"read", "write_ephemeral"}))
+
+    def admits(self, effects: set) -> bool:
+        return set(effects) <= set(self.allows)
+
+    def contract_for(self, effects: set, object_type: str) -> SafetyContract:
+        """A contract for one concrete action, judged by the usual policy.
+
+        The effects come from the control, which is untrusted and therefore only
+        ever says what an action IS. The scope and the user's words come from
+        the envelope, which is why this can reach `preapproved` without the
+        screen having voted on it.
+        """
+        return SafetyContract(
+            effects=sorted(effects),
+            reversibility=self.reversibility,
+            resource=Resource(object_type=object_type, scope=self.scope),
+            evidence=([Evidence(source="user_intent", field="asked",
+                                value=self.quote, covers=tuple(sorted(self.allows)))]
+                      if self.quote else []))
