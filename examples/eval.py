@@ -1691,8 +1691,8 @@ def scenario_a_general_run_leaves_a_graph():
                     else _fake_screen(["Back"], readable=[("out", "42")]))
             return {"type": "observation", "obs_id": f"o{self.at}", "tree": tree}
 
-        def act(self, obs_id, target, action, risk_class=None, intent_text="",
-                approved=False):
+        def act(self, obs_id, target, action, expect=None, risk_class=None,
+                intent_text="", approved=False):
             self.acted.append(action["name"])
             self.at = 1
             return {"type": "acted", "action": action["name"]}
@@ -1776,8 +1776,13 @@ class _Shifting:
     """An app whose screen moves the moment you touch it.
 
     The shape of the real hazard: a dialog opens, a row is inserted, a list
-    re-sorts. Nothing is broken and nothing errors — everything simply moved
-    down one.
+    re-sorts. Nothing is broken and nothing errors — everything simply moved.
+
+    An index into a fresh tree moves with it. An AX handle does NOT: the element
+    the batch was planned against is still that element, wherever it now sits.
+    So this models both, separately — `observe` hands back the new tree, while
+    a handle keeps reporting whatever its element is called now, or nothing once
+    that element is gone.
     """
 
     def __init__(self, before, after):
@@ -1787,14 +1792,25 @@ class _Shifting:
         return t
 
     def observe(self, target, mode="tree_full", require_window=True):
-        self.cur = self.before if self.n == 0 else self.after
         return {"type": "observation", "obs_id": f"o{self.n}",
-                "tree": _fake_screen(self.cur)}
+                "tree": _fake_screen(self.before if self.n == 0 else self.after)}
 
-    def act(self, obs_id, target, action, risk_class=None, intent_text="",
-            approved=False):
+    def _handle(self, idx):
+        """What the element at that ORIGINAL index is called now."""
+        was = self.before[idx - 1]
+        if self.n == 0:
+            return was
+        return was if was in self.after else None
+
+    def act(self, obs_id, target, action, expect=None, risk_class=None,
+            intent_text="", approved=False):
+        here = self._handle(action["element_index"])
+        if expect and expect.get("label") and expect["label"] != here:
+            return {"type": "error", "error": "target_changed",
+                    "effect": "not_started",
+                    "detail": f"기대 {expect['label']!r}, 지금 {here!r}"}
         self.n += 1
-        self.hit.append(self.cur[action["element_index"] - 1])
+        self.hit.append(here)
         return {"type": "acted", "action": action["name"]}
 
     def wait_until(self, target, pred, timeout_ms=8000):
@@ -1820,7 +1836,7 @@ def _two_clicks(driver):
 
 
 def scenario_a_batch_acts_on_names_not_indexes():
-    """A plan names elements; an index is not a name.
+    """A plan names elements, and the claim travels with the action.
 
     Reproduced before the fix: a plan of "Alpha then Beta" pressed Alpha TWICE
     and reported `ok=True`. A dialog had appeared between the two actions,
@@ -1830,7 +1846,12 @@ def scenario_a_batch_acts_on_names_not_indexes():
     the observation before it is the one combination that passes the check and
     is wrong.
 
-    So each action after the first re-finds its element by what it is called."""
+    The loop no longer re-observes at all: one observation holds the whole
+    batch, so every index stays the index of the element it was planned for.
+    What cannot be assumed is that the element still MEANS the same thing, so
+    each action carries what the plan believed it was and the driver compares
+    that against the element itself. A dialog appearing does not move a handle,
+    so Beta is still Beta and is still pressed."""
     d = _Shifting(["Alpha", "Beta"], ["Popup", "Alpha", "Beta"])
     r = _two_clicks(d)
     return d.hit == ["Alpha", "Beta"] and r.ok
@@ -1842,7 +1863,9 @@ def scenario_a_vanished_target_cuts_the_batch():
 
     Abandoning and looking again is the answer — not pressing whatever is at
     that index now, and not failing the run either, because a screen advancing
-    is often exactly what the batch was for."""
+    is often exactly what the batch was for. The check costs one element read;
+    answering the same question by re-walking the tree costs 9.8 seconds in
+    Mail, measured, which is 68 for a batch of eight."""
     d = _Shifting(["Alpha", "Beta"], ["전혀", "다른", "화면"])
     r = _two_clicks(d)
     cut = [v.cut_short for v in r.visits if v.cut_short]
@@ -1874,10 +1897,15 @@ def scenario_a_read_sees_what_the_batch_did():
             return {"type": "observation", "obs_id": f"o{self.n}",
                     "tree": _fake_screen(["Equals"], readable=[("out", shown)])}
 
-        def act(self, obs_id, target, action, risk_class=None, intent_text="",
-                approved=False):
+        def act(self, obs_id, target, action, expect=None, risk_class=None,
+                intent_text="", approved=False):
             self.n += 1
             return {"type": "acted", "action": action["name"]}
+
+        def probe(self, obs_id, target, element_index):
+            shown = "0" if self.n == 0 else "54"
+            return {"type": "probe",
+                    "line": f"  2 StaticText  Identifier: out, Value: {shown}"}
 
         def wait_until(self, target, pred, timeout_ms=8000):
             return self.observe(target)
@@ -1940,8 +1968,13 @@ def scenario_a_sheet_appearing_cuts_the_batch():
             return {"type": "observation", "obs_id": f"o{self.n}",
                     "tree": plain if self.n == 0 else covered}
 
-        def act(self, obs_id, target, action, risk_class=None, intent_text="",
-                approved=False):
+        def act(self, obs_id, target, action, expect=None, risk_class=None,
+                intent_text="", approved=False):
+            # A sheet is up from the second observation on, and the claim the
+            # batch travels with says it expected none.
+            if expect and expect.get("no_modal") and self.n > 0:
+                return {"type": "error", "error": "target_changed",
+                        "effect": "not_started", "detail": "저장하시겠습니까?"}
             self.n += 1
             self.hit.append(action["element_index"])
             return {"type": "acted", "action": action["name"]}
@@ -2010,6 +2043,60 @@ def scenario_the_reading_cannot_let_it_back_in():
     ).read_request("메일 말고 12 곱하기 34 계산해줘")
     return (match is None                      # falls through to the screen loop
             and simple is not None and simple.name == "calc_arith")
+
+
+def scenario_a_batch_observes_once():
+    """A batch of eight is one look at the screen, not eight.
+
+    Keeping a batch aimed at the elements it was planned against used to mean
+    re-walking the tree before every action. Measured on this machine, one
+    observation costs 54ms in Calculator, 335ms in Finder and **6.5 seconds in
+    Mail** — so a batch of eight spent 45 seconds in Mail deciding it was still
+    allowed to proceed.
+
+    Reading the one element the action is about answers the same question in
+    2.8ms. So the claim travels with the action and the driver checks it there,
+    which also leaves no gap between checking and acting."""
+    from nlc.general import run
+
+    class Counting:
+        def __init__(self):
+            self.observes = 0
+            self.acts = 0
+
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            self.observes += 1
+            return {"type": "observation", "obs_id": "o",
+                    "tree": _fake_screen(["A", "B", "C", "D", "E"])}
+
+        def act(self, obs_id, target, action, expect=None, risk_class=None,
+                intent_text="", approved=False):
+            assert expect and expect.get("label"), "행동이 기대를 들고 가지 않음"
+            self.acts += 1
+            return {"type": "acted", "action": action["name"]}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    plans = [{"done": False, "expect": None, "actions": [
+        {"pick": i, "do": "click", "candidate": None, "why": str(i)}
+        for i in range(5)]},
+        {"done": True, "actions": [], "expect": None}]
+
+    def ask_here(goal, cands, done):
+        p = plans.pop(0)
+        for a in p.get("actions", []):
+            a["candidate"] = cands[a["pick"]]
+        return p
+
+    d = Counting()
+    r = run(d, "x", "다섯 개 누르기", ask_here)
+    # One look to plan on, one to see where it led, one to ask again: never one
+    # per action.
+    return r.ok and d.acts == 5 and d.observes <= 3
 
 
 def scenario_provider_env_is_not_the_session():
@@ -2314,6 +2401,8 @@ SCENARIOS = [
      scenario_matching_a_prefix_is_not_answering),
     ("the_reading_cannot_let_it_back_in (the guard holds on the goal too)",
      scenario_the_reading_cannot_let_it_back_in),
+    ("a_batch_observes_once (eight actions, one look)",
+     scenario_a_batch_observes_once),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
