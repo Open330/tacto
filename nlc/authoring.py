@@ -383,7 +383,8 @@ def pick_target(intent: str, driver: Driver, provider: str = "auto") -> str:
 
 
 def author(intent: str, driver: Driver, target: str | None = None,
-           provider: str = "auto", narrate=None, verify: bool = False) -> Flow:
+           provider: str = "auto", narrate=None, verify: bool = False,
+           rounds: int = 1) -> Flow:
     """Observe `target`, ask the model for a recipe, return a validated Flow.
 
     Caller (Agent) saves it. This is the token-spending path; replay never is.
@@ -407,7 +408,12 @@ def author(intent: str, driver: Driver, target: str | None = None,
     # per action the way a model-in-the-loop agent does.
     complaint = ""
     last_error = None
-    for attempt in range(2 if verify else 1):
+    # One repair is often not enough. Asked to italicize, a model needed the
+    # first round to learn it had skipped the selection, and would have needed a
+    # second to learn that the toolbar checkbox it then chose does not respond
+    # to a press at all. Each round is one more model call, so the count is the
+    # caller's to spend.
+    for attempt in range(1 + rounds if verify else 1):
         try:
             flow = _attempt(base + complaint, intent, target, provider, obs, narrate)
         except (ValueError, KeyError) as e:
