@@ -15,3 +15,8 @@ ms-playwright/
 # Local flow recipes are runtime artifacts (keep the example, ignore the rest)
 flows/*.json
 !flows/calc_12x34.json
+
+# Proposals the screen loop filed after a run. Machine output about
+# one person's screen, not source — and deliberately not where
+# anything replays from.
+flows/_candidates/

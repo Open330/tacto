@@ -17,6 +17,9 @@ Usage:
       (--helper routes through the signed Swift helper that holds the permissions)
       (add --no-indicator to suppress the on-screen "being controlled" outline)
   python -m nlc.cli replay <name>     # replay a saved flow by name
+  python -m nlc.cli candidates        # what a screen-loop run would like to
+                                      # become a recipe, and why it is not yet
+  python -m nlc.cli promote <name>    # make one a recipe, if its gate is clean
 
   A step the policy will not run on its own authority (saving a file, sending a
   message) asks first. Answer at the prompt, or pass --yes for scripts; with no
@@ -159,6 +162,52 @@ def main(argv=None):
             print("usage: show <flow-name>")
             return 2
         print(FlowStore().load(rest[0]).to_json())
+        return 0
+
+    if cmd == "candidates":
+        # What the screen loop worked out and would like to become a recipe,
+        # with the reasons it is not one yet. Nothing here replays.
+        from .promote import CandidateStore
+        cs = CandidateStore()
+        names = cs.list()
+        if not names:
+            print("  (아직 제안된 것이 없습니다)")
+            return 0
+        print(f"  제안 위치: {cs.path}\n")
+        for n in names:
+            rec = cs.get(n) or {}
+            why = rec.get("blocked_by") or []
+            mark = "준비됨" if not why else "아직"
+            print(f"  [{mark}] {n}  ({rec.get('runs', 1)}회)  "
+                  f"{rec.get('candidate', {}).get('goal', '')[:40]}")
+            for w in why:
+                print(f"           · {w}")
+            params = rec.get("parameters") or {}
+            if params:
+                print(f"           부탁에서 온 값: {', '.join(params)}")
+        print("\n  레시피로 만들려면:  nlc promote <이름>")
+        return 0
+
+    if cmd == "promote":
+        from .flow import Flow
+        from .promote import CandidateStore
+        if not rest:
+            print("사용법: nlc promote <이름>"); return 2
+        name = rest[0]
+        rec = CandidateStore().get(name)
+        if rec is None:
+            print(f"  '{name}' 제안을 찾지 못했습니다"); return 1
+        why = rec.get("blocked_by") or []
+        if why or not rec.get("flow"):
+            print(f"  '{name}' 은 아직 레시피가 될 수 없습니다:")
+            for w in why:
+                print(f"    · {w}")
+            return 1
+        import json as _json
+        flow = Flow.from_json(_json.dumps(rec["flow"]))
+        path = FlowStore().save(flow)
+        print(f"  '{name}' 을 레시피로 만들었습니다 → {path}")
+        print(f"  이제 토큰 없이 재생됩니다:  nlc run {path}")
         return 0
 
     if cmd == "list":

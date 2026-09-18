@@ -2353,6 +2353,129 @@ def scenario_a_role_is_not_a_word_in_a_label():
             and "대화상자" in covered)
 
 
+def _walked_run(verified=True, read=True):
+    """A general run that arrived, as the screen loop would leave it."""
+    from nlc.general import GeneralResult, Visit
+    acts = [{"do": "click", "label": "1", "match": "One", "role": "Button",
+             "attr": "Identifier", "container": "Keypad",
+             "line": "  1 Button  Identifier: One"}]
+    if read:
+        acts.append({"do": "read", "label": "408", "match": "Display",
+                     "role": "StaticText", "attr": "Identifier",
+                     "container": "Keypad",
+                     "line": "  9 StaticText  Identifier: Display, Value: 408"})
+    r = GeneralResult(ok=True, verified=verified, said=["408"] if read else [])
+    r.visits = [Visit(screen="s1", next_screen="s1", actions=acts)]
+    return r
+
+
+def _calc_envelope():
+    from nlc.contract import Envelope
+    return Envelope(quote="12 곱하기 34 계산해줘", scope="entry",
+                    reversibility="reversible",
+                    allows=frozenset({"read", "write_ephemeral"}))
+
+
+def scenario_a_walked_path_is_a_proposal():
+    """What a run leaves is a candidate, and a candidate is not a recipe.
+
+    A recipe replays with no model call, so nobody is watching it and a wrong
+    one keeps being wrong every time. That asymmetry is why promotion is a gate
+    with reasons rather than a counter: "it worked twice" is a fact about two
+    afternoons, not a property of the recipe."""
+    from nlc import promote
+    env = _calc_envelope()
+    req = "12 곱하기 34 계산해줘"
+    good = promote.candidate_from(_walked_run(), "com.apple.calculator", req,
+                                  env.quote, env)
+    # A run that never confirmed anything proposes nothing at all.
+    unsure = promote.candidate_from(_walked_run(verified=False), "x", req,
+                                    env.quote, env)
+    flow, why = promote.deployable(good, "probe", req)
+    # Nothing to check the result with is not a recipe either.
+    blind = promote.candidate_from(_walked_run(read=False),
+                                   "com.apple.calculator", req, env.quote, env)
+    _, blind_why = promote.deployable(blind, "probe", req)
+    return (good is not None and unsure is None and flow is not None
+            and not why and any("확인" in w for w in blind_why))
+
+
+def scenario_what_generalizes_comes_from_the_request():
+    """Which literals are parameters is settled by where they came from.
+
+    Not by diffing two runs: that calls whatever happened to repeat a constant
+    and whatever happened to differ a variable, neither of which is about the
+    user. A value the user supplied is what changes next time; a value read off
+    the screen is this run's data, and writing it into a template is exactly
+    how write-back went wrong."""
+    from nlc import promote
+    req = "12 곱하기 34 계산해줘"
+    return (promote.provenance("12", req) == "request"
+            and promote.provenance("34", req) == "request"
+            and promote.provenance("408", req) == "screen"
+            and promote.provenance("~/Documents/보고서.rtf", req) == "screen"
+            # and the digits a run pressed one key at a time are still the
+            # number that was asked for
+            and promote.parameters(promote.candidate_from(
+                _walked_run(), "com.apple.calculator", req,
+                "", _calc_envelope())) == {"1": [0]})
+
+
+def scenario_the_gate_is_tried_before_it_is_trusted():
+    """A gate nobody has tried to get past is a gate of unknown height.
+
+    Promotion runs knowingly broken versions of the recipe through the same
+    gate. If one passes, the gate measured nothing — and then nothing is
+    deployed, including the version that looked fine."""
+    from nlc import promote
+    env = _calc_envelope()
+    req = "12 곱하기 34 계산해줘"
+    c = promote.candidate_from(_walked_run(), "com.apple.calculator", req,
+                               env.quote, env)
+    flow = promote.to_flow(c, "probe")
+    caught = {label: promote.gate(c, broken, r)
+              for label, broken, r in promote.counterexamples(c, flow, req)}
+    every_one = all(v for v in caught.values()) and len(caught) == 3
+    # Distinct reasons, not one rule doing all the work.
+    distinct = len({tuple(v) for v in caught.values()}) == 3
+
+    # And when the gate stops catching them, promotion stops too.
+    real_gate = promote.gate
+    promote.gate = lambda *a, **k: []
+    try:
+        out, why = promote.deployable(c, "probe", req)
+    finally:
+        promote.gate = real_gate
+    return (every_one and distinct and out is None
+            and any("아무것도 재고 있지 않" in w for w in why))
+
+
+def scenario_a_candidate_stays_out_of_the_store():
+    """Candidates live where nothing replays from.
+
+    The repeat count is recorded and not gated on: what decides deployment is
+    whether the claims are checkable, and that does not change with the tally."""
+    import tempfile
+    from nlc import promote
+    env = _calc_envelope()
+    req = "12 곱하기 34 계산해줘"
+    c = promote.candidate_from(_walked_run(), "com.apple.calculator", req,
+                               env.quote, env)
+    with tempfile.TemporaryDirectory() as d:
+        cs = promote.CandidateStore(path=d)
+        first = cs.record(c, req, "probe")
+        again = cs.record(c, req, "probe")          # the same path, walked again
+        elsewhere = promote.candidate_from(
+            _walked_run(read=False), "com.apple.calculator", req, env.quote, env)
+        other = cs.record(elsewhere, req, "other")
+        return (first["runs"] == 1 and again["runs"] == 2
+                and not again["blocked_by"] and again["flow"] is not None
+                # a different path does not inherit the tally, and this one
+                # cannot be deployed at all
+                and other["runs"] == 1 and other["flow"] is None
+                and cs.list() == ["other", "probe"])
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -2671,6 +2794,14 @@ SCENARIOS = [
      scenario_an_expectation_that_holds_does_not_refuse),
     ("a_role_is_not_a_word_in_a_label (the comparison, without a screen)",
      scenario_a_role_is_not_a_word_in_a_label),
+    ("a_walked_path_is_a_proposal (a candidate is not a recipe)",
+     scenario_a_walked_path_is_a_proposal),
+    ("what_generalizes_comes_from_the_request (provenance, not diffing)",
+     scenario_what_generalizes_comes_from_the_request),
+    ("the_gate_is_tried_before_it_is_trusted (broken versions must fail it)",
+     scenario_the_gate_is_tried_before_it_is_trusted),
+    ("a_candidate_stays_out_of_the_store (nothing replays a proposal)",
+     scenario_a_candidate_stays_out_of_the_store),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

@@ -33,6 +33,15 @@ class Turn:
     detail: dict | None = None
 
 
+def _candidate_name(goal: str) -> str:
+    """A stable name for a proposal, so the same job files under one entry."""
+    import hashlib
+    import re as _re
+    words = _re.findall(r"[가-힣A-Za-z]+", goal)[:3]
+    stem = "_".join(words) or "task"
+    return f"{stem}_{hashlib.sha1(goal.encode()).hexdigest()[:6]}"
+
+
 def _readable(value) -> str:
     """A captured value as a person would read it, not as Python prints it.
 
@@ -351,6 +360,20 @@ class Agent:
             r = self.general(target, goal, ask, env)
         except Exception as e:
             return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
+        # A run that arrived is a proposal for a recipe. Filed, never deployed:
+        # a recipe replays with no model call, so nobody is watching it, and a
+        # wrong one keeps being wrong. What it would take to deploy is written
+        # down beside it.
+        if r.ok and r.verified:
+            try:
+                from .promote import CandidateStore, candidate_from
+                cand = candidate_from(r, target, goal,
+                                      reading.get("quote", ""), env)
+                if cand is not None:
+                    CandidateStore().record(
+                        cand, intent, _candidate_name(goal))
+            except Exception:
+                pass                    # proposing is never worth failing over
         said = "\n".join(f"결과는 {v} 입니다" for v in r.said) if r.said else ""
         if r.ok and not r.verified:
             # It stopped, which is not the same as it worked. Saying "다 됐어요"
