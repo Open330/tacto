@@ -39,6 +39,8 @@ from .contract import EFFECTS, REVERSIBILITY, SCOPES
 # a gap with no name is a gap nothing can ask about.
 SLOTS = {"target", "recipient", "amount", "location", "when"}
 
+from .outcome import TASK_KINDS      # noqa: E402  (vocabulary, not behaviour)
+
 
 @dataclass
 class Q:
@@ -101,7 +103,16 @@ _ASKED = """사용자가 컴퓨터에게 한 말을 구조로 옮기십시오. J
  "allows": ["read", "write_ephemeral"],
  "scope": "entry",
  "reversibility": "reversible",
- "missing": []}
+ "missing": [],
+ "kind": null}
+
+`kind` 는 **이 요청이 어떤 종류의 작업인지** 입니다. 아래에 맞는 것이 없으면
+null 이 정답입니다 — 비슷해 보이는 것을 고르면 그 종류가 요구하는 조건들로
+검사받게 되고, 맞지 않는 조건은 통과할 수 없습니다.
+
+  save_file      파일·문서를 저장하거나 만들기
+  send_message   메일·메시지를 보내기
+  read_value     화면의 값을 읽어서 알려주기
 
 `missing` 은 **사용자가 말하지 않아서 실행할 수 없는 것**입니다. "보내줘" 는
 누구에게인지 없고, "저장해줘" 는 무엇을 저장할지 없습니다. 아래에서만 고르고,
@@ -208,10 +219,14 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
         missing = a.get("missing") or []
         if not isinstance(missing, list) or not set(missing) <= SLOTS:
             return None
+        kind = a.get("kind")
+        if kind is not None and kind not in TASK_KINDS:
+            return None
         out = {"goal": goal, "negated": negated, "quote": quote,
                "excluded": excluded, "allows": sorted(allows),
                "scope": scope, "reversibility": rev,
-               "missing": sorted({str(m) for m in missing})}
+               "missing": sorted({str(m) for m in missing}),
+               "kind": kind}
         for k in ("date_from", "date_to"):
             v = a.get(k)
             if isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):

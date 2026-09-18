@@ -305,7 +305,9 @@ def _scripted_reading(case: Case):
     allows, _ = TASKS[case.task]
     text = case.utterance
     base = {"scope": "item", "reversibility": "recoverable",
-            "allows": sorted(allows)}
+            "allows": sorted(allows),
+            "kind": {"save": "save_file", "send": "send_message",
+                     "read": "read_value"}[case.task]}
     if case.kind == "negated":
         neg = "저장하지 마" if case.task == "save" else (
             "보내지 마" if case.task == "send" else "읽지 마")
