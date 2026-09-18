@@ -389,8 +389,27 @@ class Agent:
         # receipt is issued by something that did not run the task, and its
         # `unchecked` list is what stops "we did not look" from being reported
         # as "it was fine".
-        from .outcome import DONE, OutcomeSpec, verify
-        receipt = verify(OutcomeSpec.for_envelope(env or Envelope.minimal()), r)
+        from .outcome import DONE, OutcomeSpec, spec_for, verify
+        # A task kind says what it takes to know this worked. Everything it
+        # requires that the request did not supply stays unfilled, and an
+        # unfilled requirement is reported as unchecked rather than assumed —
+        # so a send whose recipient nobody confirmed comes back "보내긴 했는데
+        # 확인 못 했다" instead of "다 됐어요".
+        spec = OutcomeSpec.for_envelope(env or Envelope.minimal())
+        kind = reading.get("kind")
+        if kind:
+            supplied, where = {}, {}
+            for field_name, value in (("받는 사람", reading.get("recipient")),
+                                      ("저장한 이름", reading.get("target")),
+                                      ("보낸 내용", reading.get("body"))):
+                if value:
+                    supplied[field_name] = value
+                    where[field_name] = "request"
+            try:
+                spec = spec_for(kind, env or Envelope.minimal(), supplied, where)
+            except (KeyError, ValueError):
+                pass                    # an unknown kind checks what it can
+        receipt = verify(spec, r)
         did = ("여기까지 했어요: " + ", ".join(r.did[:8])
                + (" …" if len(r.did) > 8 else "")) if r.did else ""
         detail = {"screens": r.path, "asked": r.asked, "did": r.did,

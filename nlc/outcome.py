@@ -48,6 +48,19 @@ class OutcomeSpec:
     must_read: list = field(default_factory=list)   # values the run must report
     must_not_change: list = field(default_factory=list)  # literals to still see
     forbidden: frozenset = frozenset()              # effects that must not occur
+    kind: str = ""                                  # which task kind, if any
+    required: tuple = ()                            # the checks that kind needs
+    expected: dict = field(default_factory=dict)    # what each one expects
+
+    def unfilled(self) -> list:
+        """Checks this kind requires that nobody supplied a value for.
+
+        Named rather than dropped: a condition with no expected value has not
+        been satisfied, it has been skipped, and the difference is the whole
+        reason a receipt carries an `unchecked` list.
+        """
+        return [c.name for c in self.required
+                if c.needs_value and c.name not in self.expected]
 
     @classmethod
     def for_envelope(cls, envelope) -> "OutcomeSpec":
@@ -125,13 +138,18 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
     # G — is the wanted thing there? Only answerable when the spec named
     # something to look for. Saying so beats guessing.
     said = list(getattr(result, "said", ()) or [])
+    wants_any = any(c.kind == "any_value" for c in spec.required)
+    if wants_any:
+        if not said:
+            problems.append("사람에게 전달된 값이 없습니다")
+        checked.append("값이 사람에게 전달됐는가")
     if spec.must_read:
         missing = [v for v in spec.must_read
                    if not any(v in str(s) for s in said)]
         if missing:
             problems.append("읽어야 할 값을 못 봤습니다: " + ", ".join(missing))
         checked.append("원한 값이 결과에 있는가")
-    else:
+    elif not wants_any:
         unchecked.append("원한 결과가 맞는지")
 
     # F — is what should not have moved still there?
@@ -145,11 +163,25 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
         else:
             unchecked.append("건드리지 말아야 할 것")
 
+    # A required condition nobody supplied a value for has not been satisfied;
+    # it has been skipped. For a task kind that says what it needs, skipping
+    # one is the difference between "it worked" and "we did not look".
+    skipped = spec.unfilled()
+    if skipped:
+        unchecked.extend(skipped)
+        checked.append(f"'{spec.kind}' 이 요구하는 조건 "
+                       f"{len(spec.required) - len(skipped)}/{len(spec.required)}")
+
     if problems:
         state = PARTIAL if getattr(result, "verified", False) else UNVERIFIED
     elif not getattr(result, "ok", False):
         state = REFUSED
         problems = [getattr(result, "why", "") or "진행하지 않았습니다"]
+    elif spec.kind and skipped:
+        # The kind said what it takes to know this worked, and some of it was
+        # never looked at. Calling that success would be the machine grading
+        # its own paper on the questions it chose to answer.
+        state = UNVERIFIED
     elif getattr(result, "verified", False) and not unchecked:
         state = DONE
     elif getattr(result, "verified", False):
@@ -160,3 +192,96 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
         state = UNVERIFIED
     return TaskReceipt(state=state, checked=checked, unchecked=unchecked,
                        problems=problems, said=said)
+
+
+# --------------------------------------------------- what each task requires
+
+# Where an expected value may come from. `result` is deliberately absent: an
+# expectation read back out of the run that produced it is a consistency check
+# wearing a verifier's clothes (advisor finding). "We selected 엄마, and the
+# recipient was 엄마" proves the code can remember a variable.
+SOURCES = {"request", "prior", "relationship"}
+
+
+@dataclass(frozen=True)
+class Check:
+    """One thing that has to be true, and how anyone would know.
+
+    Four fields because "verify the result" is not a specification: a condition
+    with no stated source can be filled from whatever is convenient, and one
+    with no stated moment gets checked after the effect it was supposed to
+    prevent.
+    """
+    name: str
+    source: str        # where the expected value comes from — never the result
+    when: str          # before_commit | after
+    kind: str          # reports | any_value | unchanged | exactly_once | absent
+
+    @property
+    def needs_value(self) -> bool:
+        """Whether an expected value has to be supplied for this check.
+
+        A read's answer is what the run went to find out, so "the value equals
+        X" cannot be sourced from the request without inventing X. What CAN be
+        required is that a value reached the person at all — `any_value` — and
+        conflating the two is how a check ends up expecting whatever the run
+        produced.
+        """
+        return self.kind in ("reports", "unchanged")
+
+    def __post_init__(self):
+        if self.source not in SOURCES:
+            raise ValueError(f"기대값 출처가 아닙니다: {self.source!r}")
+
+
+# The conditions a task kind must satisfy, written by a person per KIND — not
+# by a model per run. Asking a model to "write good success conditions"
+# produces whatever it finds convenient, and the point of a verifier is to be
+# the part that was not convinced.
+TASK_KINDS = {
+    "save_file": [
+        Check("저장 위치", "request", "before_commit", "reports"),
+        Check("저장한 이름", "request", "before_commit", "reports"),
+        Check("다시 읽은 내용", "prior", "after", "reports"),
+        Check("요청하지 않은 덮어쓰기 없음", "prior", "before_commit", "absent"),
+        Check("이번 작업의 저장 1회", "request", "after", "exactly_once"),
+    ],
+    "send_message": [
+        Check("받는 사람", "relationship", "before_commit", "reports"),
+        Check("보내는 계정", "prior", "before_commit", "reports"),
+        Check("숨은 참조 없음", "request", "before_commit", "absent"),
+        Check("보낸 내용", "request", "before_commit", "reports"),
+        Check("이번 작업의 전송 1회", "request", "after", "exactly_once"),
+        Check("원본 보존", "prior", "after", "unchanged"),
+    ],
+    "read_value": [
+        Check("값을 사람에게 전달함", "request", "after", "any_value"),
+        Check("아무것도 바뀌지 않음", "prior", "after", "unchanged"),
+    ],
+}
+
+
+def spec_for(kind: str, envelope, expected: dict, provenance: dict) -> "OutcomeSpec":
+    """The spec for one run of a task kind, with its expectations filled in.
+
+    `provenance` says where each value came from, and a value that came from
+    the run's own result is refused rather than quietly accepted — that is the
+    rule this function exists to enforce. Everything else here is bookkeeping.
+    """
+    checks = TASK_KINDS.get(kind)
+    if checks is None:
+        raise KeyError(f"정의되지 않은 작업 유형: {kind!r}")
+    for key, value in expected.items():
+        src = provenance.get(key)
+        if src not in SOURCES:
+            raise ValueError(
+                f"'{key}' 의 기대값 출처가 {src!r} 입니다 — 실행 결과에서 "
+                f"가져온 기대값은 일관성 검사이지 검증이 아닙니다")
+    base = OutcomeSpec.for_envelope(envelope)
+    reports = [str(expected[c.name]) for c in checks
+               if c.kind == "reports" and c.name in expected]
+    keep = [str(expected[c.name]) for c in checks
+            if c.kind == "unchanged" and c.name in expected]
+    return OutcomeSpec(must_read=reports, must_not_change=keep,
+                       forbidden=base.forbidden, kind=kind,
+                       required=tuple(checks), expected=dict(expected))

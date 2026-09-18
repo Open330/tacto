@@ -2630,6 +2630,68 @@ def scenario_the_corpus_measures_tasks_not_properties():
             and lines.get("독립") >= 95.0)      # 독립 작업 성공률
 
 
+def scenario_a_kind_says_what_it_takes_to_know():
+    """"Verify the result" is not a specification.
+
+    A condition with no stated source can be filled from whatever is
+    convenient, and one with no stated moment gets checked after the effect it
+    was meant to prevent. So each task kind lists what it needs, written by a
+    person per KIND rather than by a model per run — asking a model for good
+    success conditions produces whatever it finds convenient, and the point of
+    a verifier is to be the part that was not convinced (advisor finding).
+
+    The rule this enforces: an expected value may come from the request, from
+    prior state, or from a relationship the user set up — never from the run
+    that produced it. "We selected 엄마, and the recipient was 엄마" proves the
+    code can remember a variable."""
+    from nlc.contract import Envelope
+    from nlc.general import GeneralResult
+    from nlc.outcome import DONE, PARTIAL, UNVERIFIED, spec_for, verify
+    env = Envelope(quote="엄마한테 보내줘", scope="item",
+                   reversibility="irreversible",
+                   allows=frozenset({"read", "transmit"}))
+    try:
+        spec_for("send_message", env, {"받는 사람": "mom@x"},
+                 {"받는 사람": "result"})
+        circular = False
+    except ValueError as e:
+        circular = "일관성 검사" in str(e)
+
+    sent = GeneralResult(ok=True, verified=True, said=["보냄"])
+    sent.effects = {"read", "transmit"}
+    partial = spec_for("send_message", env, {"받는 사람": "mom@x"},
+                       {"받는 사람": "relationship"})
+    r1 = verify(partial, sent)
+
+    # A kind that says what it takes, with everything it takes supplied.
+    read_env = Envelope(quote="읽어줘", allows=frozenset({"read"}),
+                        scope="item", reversibility="reversible")
+    got = GeneralResult(ok=True, verified=True, said=["408"])
+    got.effects = {"read"}
+    full = spec_for("read_value", read_env, {"아무것도 바뀌지 않음": "408"},
+                    {"아무것도 바뀌지 않음": "prior"})
+    r2 = verify(full, got, after_tree="Value: 408")
+    # And one that reported nothing at all cannot have told anyone anything.
+    silent = GeneralResult(ok=True, verified=True, said=[])
+    silent.effects = {"read"}
+    r3 = verify(full, silent, after_tree="Value: 408")
+
+    return (circular
+            # A required condition that nobody supplied is skipped, and one
+            # that was supplied and did not hold has failed. Neither is
+            # success, and they are not the same answer: this run never showed
+            # the recipient it was told to send to, so it is `partial` and the
+            # accounts it never looked at are named as unchecked.
+            and r1.state == PARTIAL
+            and "보내는 계정" in r1.unchecked
+            and any("mom@x" in p for p in r1.problems)
+            and r2.state == DONE
+            # Reporting nothing is a condition that FAILED, not one that was
+            # skipped — the run had a value to pass on and did not.
+            and r3.state == PARTIAL
+            and any("전달된 값이 없" in p for p in r3.problems))
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -2962,6 +3024,8 @@ SCENARIOS = [
      scenario_a_receipt_is_issued_by_someone_else),
     ("the_corpus_measures_tasks_not_properties (144 cases, world's own books)",
      scenario_the_corpus_measures_tasks_not_properties),
+    ("a_kind_says_what_it_takes_to_know (a condition needs a source and a moment)",
+     scenario_a_kind_says_what_it_takes_to_know),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
