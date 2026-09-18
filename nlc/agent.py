@@ -349,7 +349,7 @@ class Agent:
         # What the request authorizes, from the user's own words. Without a
         # reading there is none, and the loop falls back to looking and typing
         # into what is in front of it — never saving, sending or deleting.
-        env = None
+        env: Envelope | None = None
         if reading.get("allows"):
             env = Envelope(quote=reading.get("quote", ""),
                            allows=frozenset(reading["allows"]),
@@ -374,25 +374,23 @@ class Agent:
                         cand, intent, _candidate_name(goal))
             except Exception:
                 pass                    # proposing is never worth failing over
-        said = "\n".join(f"결과는 {v} 입니다" for v in r.said) if r.said else ""
-        if r.ok and not r.verified:
-            # It stopped, which is not the same as it worked. Saying "다 됐어요"
-            # here is the report someone who cannot check for themselves has no
-            # way to catch being wrong.
-            return Turn("done", (said + "\n" if said else "")
-                        + "다만 제대로 됐는지는 확인하지 못했어요.",
-                        detail={"screens": r.path, "asked": r.asked,
-                                "verified": False})
-        if r.ok:
-            return Turn("done", said or "끝냈어요.",
-                        detail={"screens": r.path, "asked": r.asked,
-                                "verified": True})
+        # What the run says about itself is evidence, not the verdict. The
+        # receipt is issued by something that did not run the task, and its
+        # `unchecked` list is what stops "we did not look" from being reported
+        # as "it was fine".
+        from .outcome import DONE, OutcomeSpec, verify
+        receipt = verify(OutcomeSpec.for_envelope(env or Envelope.minimal()), r)
         did = ("여기까지 했어요: " + ", ".join(r.did[:8])
                + (" …" if len(r.did) > 8 else "")) if r.did else ""
+        detail = {"screens": r.path, "asked": r.asked, "did": r.did,
+                  "state": receipt.state, "checked": receipt.checked,
+                  "unchecked": receipt.unchecked}
+        if r.ok:
+            return Turn("done" if receipt.state == DONE else "done",
+                        receipt.say(), detail=detail)
         return Turn("failed",
-                    "\n".join(x for x in (f"{r.why}.", did, said) if x),
-                    detail={"screens": r.path, "asked": r.asked,
-                            "did": r.did})
+                    "\n".join(x for x in (f"{r.why}.", did, receipt.say())
+                               if x), detail=detail)
 
     def _known_tasks(self) -> list[tuple[str, str]]:
         from .library import builders

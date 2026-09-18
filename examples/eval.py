@@ -2476,6 +2476,122 @@ def scenario_a_candidate_stays_out_of_the_store():
                 and cs.list() == ["other", "probe"])
 
 
+def scenario_the_button_is_not_what_it_falls_on():
+    """A control's identity says nothing about what a consequential action hits.
+
+    The same Delete button stays exactly where it is while the selected message
+    changes underneath it, so role and label agreeing proves only that the
+    button is the button (advisor finding). What the delete would fall on is the
+    selection, so a consequential action carries the selection it was planned
+    under and the driver re-reads it — two or three AX reads on the front
+    window, not a tree walk.
+
+    Two layers, tested where each lives: the driver refuses when the selection
+    moved, and the loop only attaches the witness where it means something. A
+    calculator has no selection, and demanding one would refuse every digit for
+    a fact that does not exist."""
+    import types
+    import nlc.driver as D
+    from nlc.contract import Envelope
+    from nlc.general import run
+
+    # --- the driver's side: a moved selection is a different target ---------
+    d = Driver()
+    obs = types.SimpleNamespace(pid=1, elements=["<el>"], obs_id="o")
+    real_attr, real_label = D._attr, D._elem_label
+    real_modal, real_sel = Driver._modal_sheet, Driver.selection_digest
+    D._attr = lambda el, k: "AXButton" if k == "AXRole" else None
+    D._elem_label = lambda el: "Title: 삭제"
+    Driver._modal_sheet = staticmethod(lambda pid: False)
+    Driver.selection_digest = staticmethod(lambda pid: "sel-B")
+    try:
+        act = {"element_index": 0}
+        same_button = {"role": "Button", "label": "삭제"}
+        held = d._mismatch(obs, act, {**same_button, "selection": "sel-B"})
+        moved = d._mismatch(obs, act, {**same_button, "selection": "sel-A"})
+    finally:
+        D._attr, D._elem_label = real_attr, real_label
+        Driver._modal_sheet, Driver.selection_digest = real_modal, real_sel
+
+    # --- the loop's side: the witness goes on what it is about -------------
+    carried = []
+
+    class Watching:
+        def __init__(self, label):
+            self.label = label
+
+        def identity(self, t):
+            return t
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": "o",
+                    "tree": f"0 Window  Title: T\n  1 Button  Title: {self.label}\n"}
+
+        def selection(self, target):
+            return {"type": "selection", "digest": "sel-A"}
+
+        def act(self, obs_id, target, action, expect=None, risk_class=None,
+                intent_text="", approved=False):
+            carried.append(dict(expect or {}))
+            return {"type": "acted", "action": action["name"]}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            return self.observe(target)
+
+    def one_click(goal, cands, done):
+        return ({"done": True, "actions": [], "expect": None} if done else
+                {"done": False, "expect": None,
+                 "actions": [{"pick": 0, "do": "click", "candidate": cands[0],
+                              "why": "한 번"}]})
+
+    env = Envelope(quote="메일 지워줘", scope="item",
+                   reversibility="recoverable",
+                   allows=frozenset({"read", "write_ephemeral", "delete"}))
+    run(Watching("삭제"), "x", "메일 지워줘", one_click, envelope=env,
+        approve=lambda _w: True)
+    run(Watching("7"), "x", "7 눌러줘", one_click, envelope=env)
+    consequential, cheap = carried[0], carried[-1]
+    return (held == "" and "고른 것" in moved
+            and consequential.get("selection") == "sel-A"
+            and "selection" not in cheap)
+
+
+def scenario_a_receipt_is_issued_by_someone_else():
+    """`ok` is evidence the loop ended; it is the input to the question.
+
+    Three separate checks (advisor's formulation): is the wanted thing there,
+    is what should not have moved still there, and did anything happen that was
+    not allowed to. The third is the one a final screenshot could never answer —
+    a message sent halfway through leaves no trace in the final picture."""
+    from nlc.general import GeneralResult
+    from nlc.contract import Envelope
+    from nlc.outcome import DONE, PARTIAL, UNVERIFIED, OutcomeSpec, verify
+    env = Envelope(quote="읽어줘", allows=frozenset({"read"}), scope="item",
+                   reversibility="reversible")
+    spec = OutcomeSpec.for_envelope(env)
+
+    def run_of(effects, verified, said):
+        r = GeneralResult(ok=True, verified=verified, said=said)
+        r.effects = set(effects)
+        return r
+
+    fine = verify(spec, run_of({"read"}, True, ["408"]))
+    # The screen may look perfect; something still happened that was not asked
+    # for, and only the effect history knows.
+    stray = verify(spec, run_of({"read", "transmit"}, True, ["408"]))
+    blind = verify(spec, run_of({"read"}, False, []))
+    # A spec that names what to read can actually answer the first question.
+    strict = OutcomeSpec(must_read=["408"], forbidden=spec.forbidden)
+    wrong = verify(strict, run_of({"read"}, True, ["409"]))
+    return (fine.state == DONE and stray.state == PARTIAL
+            and "transmit" in stray.problems[0]
+            and blind.state == UNVERIFIED and "확인하지 못했" in blind.say()
+            and wrong.state == PARTIAL and "408" in wrong.problems[0]
+            # a caveat on every success is a caveat nobody reads
+            and "확인하지 못한 것" not in fine.say()
+            and "확인하지 못한 것" in blind.say())
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -2802,6 +2918,10 @@ SCENARIOS = [
      scenario_the_gate_is_tried_before_it_is_trusted),
     ("a_candidate_stays_out_of_the_store (nothing replays a proposal)",
      scenario_a_candidate_stays_out_of_the_store),
+    ("the_button_is_not_what_it_falls_on (the selection is the target)",
+     scenario_the_button_is_not_what_it_falls_on),
+    ("a_receipt_is_issued_by_someone_else (ok is evidence, not the verdict)",
+     scenario_a_receipt_is_issued_by_someone_else),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

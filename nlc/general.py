@@ -157,6 +157,18 @@ def _line_for(tree: str, idx: int) -> str:
                  if re.match(rf"\s*{idx}\s", l)), "")
 
 
+def _selection(driver, target: str) -> str:
+    """What the app has selected right now, if it can say."""
+    fn = getattr(driver, "selection", None)
+    if fn is None:
+        return ""
+    try:
+        r = fn(target)
+    except Exception:
+        return ""
+    return r.get("digest", "") if r.get("type") == "selection" else ""
+
+
 def _probe(driver, obs_id: str, target: str, idx: int) -> str:
     """What one element says right now, without walking the tree.
 
@@ -267,6 +279,9 @@ class GeneralResult:
     # expectation that showed up. `ok` says the run reached its end; this says
     # there is evidence it got somewhere, and they are different claims.
     verified: bool = False
+    # Every effect this run actually caused, for a verifier that does not take
+    # the run's word for how it went.
+    effects: set = field(default_factory=set)
 
     @property
     def did(self) -> list[str]:
@@ -363,6 +378,10 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         # A sheet that was already up when the plan was made is what the plan
         # is about; one that appears partway through is not.
         planned_over = bool(blocking_sheet(obs["tree"]))
+        # What was selected when this batch was planned. Only consequential
+        # actions carry it: a calculator has no selection, and demanding one
+        # would refuse every keypress for a fact that does not exist.
+        selected = _selection(driver, target)
         visit = Visit(screen=key, expect=answer.get("expect"))
         moved = False
         for n, a in enumerate(acts):
@@ -397,6 +416,15 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             # private notion of "risky" that nothing else understands.
             effects, why_eff = safety.effects_of(action, c["line"])
             what = f"{c['label']} — {a.get('why') or goal}"
+            res.effects |= effects
+            if selected and not effects <= {"read", "write_ephemeral"}:
+                # The button being the button says nothing about what it would
+                # fall on. A Delete that stays exactly where it is while the
+                # selected message changes underneath is the case this catches.
+                # Only consequential actions carry it: a calculator has no
+                # selection and every keypress would be refused for a fact that
+                # does not exist.
+                expect["selection"] = selected
             decision = policy(env.contract_for(effects, c["label"]))
             risk = decision.risk
             approved = False
