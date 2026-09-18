@@ -33,6 +33,11 @@ class Turn:
     detail: dict | None = None
 
 
+# The unfilled slots, in the words a person would use for them.
+_SLOT_KO = {"target": "무엇을", "recipient": "누구에게", "amount": "얼마나",
+            "location": "어디에", "when": "언제"}
+
+
 def _candidate_name(goal: str) -> str:
     """A stable name for a proposal, so the same job files under one entry."""
     import hashlib
@@ -136,8 +141,9 @@ def _today(_m: re.Match) -> dict:
 # Each rule declares the meanings it accounts for. Anything else the utterance
 # carries makes the fast path stand down and say so, rather than answer.
 _MARKERS: list[tuple[str, tuple[str, ...]]] = [
-    ("negation", ("하지 마", "하지마", "하지말", "말고", "말아", "빼고", "제외",
-                  "아니라", "아니고", "대신", "안 해", "안해")),
+    # Negation is matched by the shared rule in `ask`, because a word list
+    # only ever knew 하다 — "읽지 마" and "보내지 마" walked straight past it.
+    ("negation", ()),
     ("time:today", ("오늘", "today", "지금")),
     ("time:other", ("어제", "그제", "내일", "모레", "지난", "저번", "이번 주",
                     "이번주", "아까", "최근", "yesterday", "tomorrow")),
@@ -145,8 +151,13 @@ _MARKERS: list[tuple[str, tuple[str, ...]]] = [
 
 
 def _markers(intent: str) -> set[str]:
+    from .ask import _refuses
     low = intent.lower()
-    return {tag for tag, words in _MARKERS if any(w in low for w in words)}
+    found = {tag for tag, words in _MARKERS if words and any(w in low
+                                                             for w in words)}
+    if _refuses(intent) or "대신" in intent:
+        found.add("negation")
+    return found
 
 
 # Things that would be ANOTHER instruction if they turn up in the part of a
@@ -480,15 +491,38 @@ class Agent:
         match = self.resolve(intent)
         values: dict = {}
         reading: dict = {}
-        if match is None and self.unrepresented(intent):
-            # A rule DID match and was held back because the request said more
-            # than it could hold. That is a reading problem, not a missing
-            # recipe — authoring a new one here would learn the wrong task.
+        if match is None:
+            # Read it whenever the patterns could not answer — not only when
+            # one was held back. A request the patterns simply do not know went
+            # to the screen loop with no reading, and therefore with no
+            # envelope, and therefore unable to do anything consequential: the
+            # first corpus run could not save a file because nobody had
+            # established that saving was what was asked for.
+            #
+            # `unrepresented()` still says WHICH of the two it was, because a
+            # rule that matched and was held back is a reading problem while
+            # nothing matching at all may be a missing recipe.
             match, reading = self.read_request(intent)
             if match is None and reading.get("negated"):
                 return Turn("done", f"'{reading['quote']}' 라고 하셔서 "
                                     f"아무것도 하지 않았어요.")
+            if reading.get("missing"):
+                # An unfinished instruction is the user's to finish. Measured:
+                # "저장해줘" with no object saved SOMETHING and reported success
+                # in 16 of 144 corpus cases — a wrong success, and the kind
+                # this product's users cannot catch. Guessing which thing they
+                # meant is not a smaller version of asking; it is a different
+                # answer to a question nobody asked.
+                return Turn("needs_confirm", "말씀 중에 " + ", ".join(
+                    _SLOT_KO.get(m, m) for m in reading["missing"])
+                    + " 를 못 들었어요. 알려주시면 바로 할게요.",
+                    detail={"missing": reading["missing"]})
             if match is None and self.general is None and self.author is None:
+                return Turn("unknown_task",
+                            "말씀을 정확히 이해하지 못했어요. 조금 다르게 "
+                            "말씀해 주시겠어요?")
+            if match is None and reading and self.unrepresented(intent) \
+                    and self.general is None:
                 return Turn("unknown_task",
                             "말씀을 정확히 이해하지 못했어요. 조금 다르게 "
                             "말씀해 주시겠어요?")
