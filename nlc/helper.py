@@ -255,6 +255,9 @@ class HelperDriver:
         return self._send({"type": "probe", "obs_id": obs_id, "target": target,
                            "element_index": element_index})
 
+    def selection(self, target):
+        return self._send({"type": "selection", "target": target})
+
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
         deadline = time.monotonic() + timeout_ms / 1000
         last = None
@@ -272,7 +275,7 @@ class HelperDriver:
 # `_send`, so the socket driver borrows the spawn driver's implementations
 # rather than keeping a second copy in step with the first.
 for _name in ("identity", "list_targets", "observe", "act", "probe",
-              "wait_until"):
+              "selection", "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(SocketHelperDriver, _name, impl)
     setattr(InheritedHelperDriver, _name, impl)

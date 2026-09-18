@@ -618,10 +618,52 @@ class Driver:
                 "note": "not verified — observe again and check the result (D7)",
                 **(result or {})}
 
+    @staticmethod
+    def selection_digest(pid: int) -> str:
+        """What this app currently has selected and focused, as one short string.
+
+        A control's identity is not what a consequential action is ABOUT. The
+        same Delete button stays exactly where it is while the selected message
+        changes underneath it, so role and label agreeing proves only that the
+        button is the button (advisor finding). What the delete would fall on is
+        the selection, and that is read here.
+
+        Two or three AX reads on the front window — not a tree walk, which is
+        the whole point: nine and a half seconds in Mail buys nothing a caller
+        could not have got for a millisecond.
+        """
+        app = AXUIElementCreateApplication(pid)
+        parts = []
+        focused = _attr(app, "AXFocusedUIElement")
+        if focused is not None:
+            parts.append("focus:" + (_elem_label(focused) or "?")[:80])
+        win = _attr(app, "AXFocusedWindow")
+        if win is not None:
+            for key in ("AXSelectedRows", "AXSelectedChildren",
+                        "AXSelectedTextRange"):
+                v = _attr(win, key)
+                if isinstance(v, list):
+                    parts.append(f"{key}:{len(v)}:" + "|".join(
+                        (_elem_label(x) or "?")[:40] for x in v[:8]))
+                elif v is not None:
+                    parts.append(f"{key}:{v}")
+        import hashlib
+        return hashlib.sha1("\n".join(parts).encode()).hexdigest()[:12]
+
+    def selection(self, target: str) -> dict:
+        """The current selection digest, for a caller about to plan against it."""
+        pid = self._resolve(target, launch=False)
+        if pid is None:
+            return {"type": "error", "error": "target_not_found"}
+        return {"type": "selection", "digest": self.selection_digest(pid)}
+
     def _mismatch(self, obs, action: dict, expect: dict) -> str:
         """Why this is no longer what the caller meant — or "" if it still is."""
         if expect.get("no_modal") and self._modal_sheet(obs.pid):
             return "화면에 대화상자가 열렸습니다"
+        want_sel = expect.get("selection")
+        if want_sel and want_sel != self.selection_digest(obs.pid):
+            return "고른 것이 바뀌었습니다 — 같은 버튼이라도 대상이 다릅니다"
         idx = action.get("element_index")
         if idx is None:
             return ""                      # a menu step names no element
@@ -879,6 +921,8 @@ class Driver:
         if mtype == "probe":
             return self.probe(msg["obs_id"], msg["target"],
                               msg["element_index"])
+        if mtype == "selection":
+            return self.selection(msg["target"])
         if mtype == "act_batch":
             # A batch reuses one obs_id, so raw element_index values only stay
             # valid while the tree is unchanged. After each action we check the

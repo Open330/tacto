@@ -63,7 +63,7 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
-                                 "probe", "ask"]
+                                 "probe", "selection", "ask"]
 // Per-action exact schemas, not a union of every field. A union let `click`
 // arrive carrying `text`, `action` and `pages` as well (advisor finding);
 // requiring an exact key set makes each action mean one thing.
@@ -132,7 +132,7 @@ let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode",
 // nine and a half SECONDS, measured. So the claim travels with the action and
 // the helper checks it there — which also leaves no gap between checking and
 // acting. It names attributes to compare, never a program or a permission.
-let expectKeys: Set<String> = ["role", "label", "no_modal"]
+let expectKeys: Set<String> = ["role", "label", "no_modal", "selection"]
 
 // A question is a string and nothing else. No program, no arguments, no
 // environment — the child names none of those, here or anywhere.
@@ -150,6 +150,9 @@ func vetted(_ msg: [String: Any]) -> String? {
     guard allowedTypes.contains(type) else { return "허용되지 않은 type: \(type)" }
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
+    }
+    if type == "selection" {
+        guard msg["target"] is String else { return "selection 에 target 없음" }
     }
     if type == "probe" {
         guard msg["obs_id"] is String, msg["target"] is String,
@@ -176,6 +179,11 @@ func vetted(_ msg: [String: Any]) -> String? {
             if let r = d["role"], !(r is String) { return "expect.role 형식 오류" }
             if let l = d["label"], !(l is String) { return "expect.label 형식 오류" }
             if let n = d["no_modal"], !(n is Bool) { return "expect.no_modal 형식 오류" }
+            if let sd = d["selection"] {
+                guard let t = sd as? String, t.count <= 64 else {
+                    return "expect.selection 형식 오류"
+                }
+            }
         }
         guard msg["obs_id"] is String, msg["target"] is String,
               let action = msg["action"] as? [String: Any],
