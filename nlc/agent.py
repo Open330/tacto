@@ -246,6 +246,11 @@ class Agent:
         # Doing a task no recipe covers, by asking about each screen. The other
         # half of the product: a recipe answers "again", this answers "at all".
         self.general = general
+        # The last thing this agent did, kept so "방금 것 취소해줘" has
+        # something to mean. The person should not have to find the app's Undo
+        # menu — that is one more computer task, and finding it is the part
+        # they cannot do (advisor finding).
+        self._last = None
 
     # ------------------------------------------------------------ intent
 
@@ -396,7 +401,8 @@ class Agent:
         # receipt is issued by something that did not run the task, and its
         # `unchecked` list is what stops "we did not look" from being reported
         # as "it was fine".
-        from .outcome import DONE, OutcomeSpec, spec_for, verify
+        from .outcome import (DONE, RECOVERED, OutcomeSpec, replace_state,
+                              spec_for, verify)
         # A task kind says what it takes to know this worked. Everything it
         # requires that the request did not supply stays unfilled, and an
         # unfilled requirement is reported as unchecked rather than assumed —
@@ -422,17 +428,54 @@ class Agent:
             except (KeyError, ValueError):
                 pass                    # an unknown kind checks what it can
         receipt = verify(spec, r)
+        # An automatic verifier that finds a problem should put things back
+        # inside the window where that is possible, rather than wait for
+        # someone who cannot work their computer to ask (advisor finding).
+        # Remembered whether or not anything went wrong: "방금 것 취소해줘"
+        # is usually said about a run that went exactly as asked.
+        if r.effects - {"read"}:
+            self._last = {"effects": set(r.effects), "certainty": r.certainty,
+                          "witnessed": dict(r.witnessed), "goal": goal}
+        undone = None
+        if receipt.problems and r.effects - {"read"}:
+            undone = self._put_it_back(r)
+            if undone is not None and undone.ok:
+                receipt = replace_state(receipt, RECOVERED)
         did = ("여기까지 했어요: " + ", ".join(r.did[:8])
                + (" …" if len(r.did) > 8 else "")) if r.did else ""
         detail = {"screens": r.path, "asked": r.asked, "did": r.did,
                   "state": receipt.state, "checked": receipt.checked,
-                  "unchecked": receipt.unchecked}
+                  "unchecked": receipt.unchecked,
+                  "undone": undone.__dict__ if undone else None}
+        if undone is not None and not undone.ok and undone.why:
+            receipt.problems.append(f"되돌리지 못했습니다 — {undone.why}")
         if r.ok:
             return Turn("done" if receipt.state == DONE else "done",
                         receipt.say(), detail=detail)
         return Turn("failed",
                     "\n".join(x for x in (f"{r.why}.", did, receipt.say())
                                if x), detail=detail)
+
+    def _put_it_back(self, r):
+        """Undo what this run caused, where we actually hold the means.
+
+        Three ways this returns without acting, and each is the right answer:
+        we have no inverse for that effect, the inverse needed something nobody
+        captured before the effect, or the effect may not have happened at all.
+        The last one is the one that looks like caution and is not: reversing
+        is itself an action, and "probably sent, so unsend it" deletes a
+        message that may be the only copy.
+        """
+        from .undo import capability_for, may_reverse, reverse
+        cap = capability_for(r.effects)
+        ok, why = may_reverse(r.certainty, cap, r.witnessed)
+        if not ok:
+            from .undo import Reversal
+            return Reversal(why=why, inverse=cap.inverse if cap else "")
+        out = reverse(cap, r.witnessed)
+        self.narrate("하던 일을 되돌렸어요." if out.ok
+                     else f"되돌리려 했지만 실패했어요: {out.why}")
+        return out
 
     def _known_tasks(self) -> list[tuple[str, str]]:
         from .library import builders
@@ -516,9 +559,34 @@ class Agent:
 
     # ------------------------------------------------------------ run
 
+    # What a person says when they want the last thing undone. Matched before
+    # anything else, because "그거 아니야" while a save is on screen must not
+    # resolve to some recipe that happens to mention a file.
+    _TAKE_IT_BACK = re.compile(
+        r"(방금|아까|그거|그것|저거).{0,8}(취소|되돌|무르|아니)"
+        r"|^(취소해|되돌려|무르기|아니야|아니에요)")
+
+    def take_it_back(self) -> Turn:
+        """Undo the last task, if we held the means when it ran."""
+        from .undo import capability_for, may_reverse, reverse
+        last = self._last
+        if last is None:
+            return Turn("done", "되돌릴 만한 게 없어요. 아직 아무것도 안 했어요.")
+        cap = capability_for(last["effects"])
+        ok, why = may_reverse(last["certainty"], cap, last["witnessed"])
+        if not ok:
+            return Turn("needs_handoff", f"되돌릴 수 없어요 — {why}")
+        out = reverse(cap, last["witnessed"])
+        self._last = None if out.ok else self._last
+        return Turn("done" if out.ok else "failed",
+                    "되돌렸어요. 부탁하셨던 일은 안 된 상태예요." if out.ok
+                    else f"되돌리려 했지만 실패했어요: {out.why}")
+
     def handle(self, intent: str, approvals: dict[int, bool] | None = None,
                ask: Callable[[str], bool] | None = None,
                think: int = 0) -> Turn:
+        if self._TAKE_IT_BACK.search(intent.strip()):
+            return self.take_it_back()
         match = self.resolve(intent)
         values: dict = {}
         reading: dict = {}

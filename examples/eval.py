@@ -2778,6 +2778,121 @@ def scenario_an_invariant_can_be_argued_from_what_happened():
             and "아무것도 바뀌지 않음" in not_argued.unchecked)
 
 
+def scenario_an_undo_is_a_capability_not_a_word():
+    """`reversibility` is what somebody believed; this is what we can do.
+
+    A recipe that declares `recoverable` and a system with no way to put the
+    file back are indistinguishable at the point it matters. So a reversal
+    exists only when the inverse is written here, whatever it needs was
+    captured BEFORE the effect, and there is a way to tell it worked.
+
+    Two rules that are easy to get backwards, both tested here: an effect that
+    may not have happened is never undone, and undoing a save that OVERWROTE
+    something is not the same operation as undoing one that created it."""
+    import os
+    import tempfile
+    from nlc.undo import capability_for, may_reverse, reverse
+
+    cap = capability_for({"read", "write_persistent"})
+    # We hold no inverse for a send, and saying so beats a hopeful attempt.
+    no_send = capability_for({"transmit"})
+    # Two effects at once is not "undo the one we know": leaving the other is
+    # not undoing the task.
+    mixed = capability_for({"write_persistent", "transmit"})
+
+    unknown = may_reverse("unknown", cap,
+                          {"저장 위치": "/tmp/x", "저장 전 있었는가": False})
+    unprepared = may_reverse("confirmed", cap, {"저장 위치": "/tmp/x"})
+
+    d = tempfile.mkdtemp()
+    made = os.path.join(d, "새로 만든 것.txt")
+    open(made, "w").write("x")
+    took_back = reverse(cap, {"저장 위치": made, "저장 전 있었는가": False})
+
+    kept = os.path.join(d, "원래 있던 것.txt")
+    open(kept, "w").write("소중한 내용")
+    refused = reverse(cap, {"저장 위치": kept, "저장 전 있었는가": True})
+    survived = open(kept).read() == "소중한 내용"
+    import shutil
+    shutil.rmtree(d)
+
+    return (no_send is None and mixed is None
+            and not unknown[0] and "확실하지 않" in unknown[1]
+            and not unprepared[0] and "미리 확보" in unprepared[1]
+            and took_back.ok and not os.path.exists(made)
+            and not refused.ok and refused.attempted is False and survived)
+
+
+def scenario_recovered_is_not_done():
+    """Putting things back means the harm was avoided, not that the task ran.
+
+    A run whose verifier found a problem gets undone where that is possible,
+    without waiting for someone who cannot work their computer to ask. What
+    comes back says so: `recovered`, with the problems still on the record
+    rather than cleared along with their effects."""
+    from nlc.contract import Envelope
+    from nlc.general import GeneralResult
+    from nlc.outcome import (DONE, PARTIAL, RECOVERED, replace_state,
+                             spec_for, verify)
+    env = Envelope(quote="메모를 저장해줘", scope="item",
+                   reversibility="recoverable",
+                   allows=frozenset({"read", "write_persistent"}))
+    r = GeneralResult(ok=True, verified=True, said=["다른 이름 저장됨"])
+    r.effects = {"read", "write_persistent"}
+    r.witnessed = {"저장한 이름": "엉뚱한 파일"}
+    spec = spec_for("save_file", env, {"저장한 이름": "메모"},
+                    {"저장한 이름": "request"})
+    before = verify(spec, r)
+    after = replace_state(before, RECOVERED)
+    return (before.state == PARTIAL
+            and any("메모" in p for p in before.problems)
+            and after.state == RECOVERED
+            # the problems survive the recovery; only the verdict changes
+            and after.problems == before.problems
+            and "되돌렸" in after.say() and "부탁하신 일은 아직" in after.say())
+
+
+def scenario_the_user_asks_the_system_not_the_app():
+    """"방금 것 취소해줘" has to mean something.
+
+    The app's Undo menu is one more computer task, and finding it is the part
+    this product's users cannot do. So the agent remembers what it last did and
+    what would be needed to take it back, and the request is matched before
+    anything else — "그거 아니야" while a save is on screen must not resolve to
+    some recipe that happens to mention a file.
+
+    It is remembered whether or not anything went wrong, because that sentence
+    is usually said about a run that did exactly what was asked."""
+    import os
+    import tempfile
+    from nlc.agent import Agent
+    a = Agent()
+    nothing_yet = a.handle("방금 것 취소해줘")
+
+    d = tempfile.mkdtemp()
+    made = os.path.join(d, "메모.txt")
+    open(made, "w").write("x")
+    a._last = {"effects": {"write_persistent"}, "certainty": "confirmed",
+               "witnessed": {"저장 위치": made, "저장 전 있었는가": False},
+               "goal": "저장"}
+    took_back = a.handle("그거 아니야")
+    gone = not os.path.exists(made)
+    # Asking twice does not undo something else.
+    again = a.handle("방금 것 취소해줘")
+
+    a._last = {"effects": {"transmit"}, "certainty": "confirmed",
+               "witnessed": {}, "goal": "전송"}
+    cannot = a.handle("방금 거 취소해줘")
+    import shutil
+    shutil.rmtree(d)
+    return ("되돌릴 만한 게 없" in nothing_yet.say
+            and took_back.status == "done" and gone
+            and "안 된 상태" in took_back.say
+            and "되돌릴 만한 게 없" in again.say
+            and cannot.status == "needs_handoff"
+            and "되돌릴 방법을 갖고 있지 않" in cannot.say)
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -3116,6 +3231,12 @@ SCENARIOS = [
      scenario_the_screen_is_read_before_the_commit),
     ("an_invariant_can_be_argued_from_what_happened (nothing could have)",
      scenario_an_invariant_can_be_argued_from_what_happened),
+    ("an_undo_is_a_capability_not_a_word (what we can do, not what was declared)",
+     scenario_an_undo_is_a_capability_not_a_word),
+    ("recovered_is_not_done (harm avoided is not the task done)",
+     scenario_recovered_is_not_done),
+    ("the_user_asks_the_system_not_the_app (방금 것 취소해줘)",
+     scenario_the_user_asks_the_system_not_the_app),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

@@ -308,6 +308,10 @@ class GeneralResult:
     # What the screen said, just before a commit, for each fact the task kind
     # requires. Observations only — never expectations.
     witnessed: dict = field(default_factory=dict)
+    # Whether the consequential effects this run caused are known to have
+    # landed. "unknown" is what a driver reports when it dispatched and could
+    # not see the result, and it is the state in which nothing may be undone.
+    certainty: str = "confirmed"
 
     @property
     def did(self) -> list[str]:
@@ -502,6 +506,11 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             r = driver.act(obs["obs_id"], target, action, expect=expect,
                            risk_class=risk, intent_text=what,
                            approved=approved)
+            if r.get("unverified") and not effects <= {"read",
+                                                       "write_ephemeral"}:
+                # Delivered, and the screen never said so. Undoing from here
+                # would be a second action taken on a guess.
+                res.certainty = "unknown"
             if r.get("error") == "target_changed":
                 say(f"  ({r.get('detail')} — '{c['label']}' 부터는 중단하고 "
                     f"다시 봅니다)")
