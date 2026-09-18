@@ -325,3 +325,14 @@ def spec_for(kind: str, envelope, expected: dict, provenance: dict) -> "OutcomeS
     return OutcomeSpec(must_read=reports, must_not_change=keep,
                        forbidden=base.forbidden, kind=kind,
                        required=tuple(checks), expected=dict(expected))
+
+
+def replace_state(receipt: "TaskReceipt", state: str) -> "TaskReceipt":
+    """The same receipt with a different verdict.
+
+    Used when a run's problems were undone: the harm was avoided, and the task
+    still did not happen, so the state moves to `recovered` and the problems
+    stay on the record rather than being cleared along with their effects.
+    """
+    from dataclasses import replace as _replace
+    return _replace(receipt, state=state)
