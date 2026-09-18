@@ -2692,6 +2692,92 @@ def scenario_a_kind_says_what_it_takes_to_know():
             and any("전달된 값이 없" in p for p in r3.problems))
 
 
+def scenario_the_screen_is_read_before_the_commit():
+    """The recipient is checked while it can still change the outcome.
+
+    Afterwards it is a post-mortem. So just before a consequential action the
+    loop reads the facts the task kind requires off the screen, and the
+    verifier compares them against what the REQUEST said — one side observed,
+    the other stated in advance, and neither allowed to be the other.
+
+    A slot value comes back from the reading only if it occurs in the utterance,
+    the same check the quote gets: an invented one would have the run confirming
+    a fact nobody stated."""
+    from nlc.ask import what_was_asked, where_is
+    from nlc.contract import Envelope
+    from nlc.general import GeneralResult
+    from nlc.outcome import DONE, PARTIAL, spec_for, verify
+
+    q = what_was_asked("엄마한테 메모를 보내줘")
+    base = {"goal": "메모 보내기", "quote": "보내줘", "negated": False,
+            "excluded": [], "allows": ["read", "transmit"], "scope": "item",
+            "reversibility": "irreversible", "kind": "send_message"}
+    honest = q.check({**base, "values": {"recipient": "엄마"}})
+    invented = q.check({**base, "values": {"recipient": "아빠"}})
+
+    env = Envelope(quote="보내줘", scope="item", reversibility="irreversible",
+                   allows=frozenset({"read", "transmit"}))
+    spec = spec_for("send_message", env, {"받는 사람": "엄마"},
+                    {"받는 사람": "request"})
+
+    def run_that_saw(value):
+        r = GeneralResult(ok=True, verified=True, said=["보냄"])
+        r.effects = {"read", "transmit"}
+        r.witnessed = {"받는 사람": value} if value else {}
+        return r
+
+    agrees = verify(spec, run_that_saw("엄마"))
+    differs = verify(spec, run_that_saw("아빠"))
+    blind = verify(spec, run_that_saw(None))
+
+    # And the question that finds where to read from can only name a candidate
+    # it was given.
+    w = where_is("받는 사람", [{"label": "엄마", "role": "Row"}])
+    return (honest is not None and honest["values"]["recipient"] == "엄마"
+            and invented is None                    # 아빠 is not in what was said
+            and not any("받는 사람" in p for p in agrees.problems)
+            and any("아빠" in p for p in differs.problems)
+            and differs.state == PARTIAL
+            and any("확인 못 함" in u for u in blind.unchecked)
+            and w.check({"pick": 5}) is None
+            and w.check({"pick": 0})["candidate"]["label"] == "엄마")
+
+
+def scenario_an_invariant_can_be_argued_from_what_happened():
+    """"Nothing changed" is provable without looking, when nothing could have.
+
+    A request that permits only reading, in a run where only reading occurred,
+    did not change anything — and saying so is the difference between an
+    honest `done` and an `unverified` on every read the product ever performs.
+    It is stated as an ARGUMENT: it shows that WE changed nothing, and says
+    nothing about the app moving on its own.
+
+    Measured: this is 44.4% → 5.6% of the corpus's unconfirmed successes."""
+    from nlc.contract import Envelope
+    from nlc.general import GeneralResult
+    from nlc.outcome import DONE, UNVERIFIED, spec_for, verify
+    read_only = Envelope(quote="읽어줘", allows=frozenset({"read"}),
+                         scope="item", reversibility="reversible")
+    can_write = Envelope(quote="저장해줘", scope="item",
+                         reversibility="recoverable",
+                         allows=frozenset({"read", "write_persistent"}))
+
+    def run_of(effects):
+        r = GeneralResult(ok=True, verified=True, said=["408"])
+        r.effects = set(effects)
+        return r
+
+    argued = verify(spec_for("read_value", read_only, {}, {}), run_of({"read"}))
+    # The same missing check is NOT argued when the request allowed something
+    # that could have changed things.
+    not_argued = verify(spec_for("read_value", can_write, {}, {}),
+                        run_of({"read"}))
+    return (argued.state == DONE
+            and any("허용되지도" in c for c in argued.checked)
+            and not_argued.state == UNVERIFIED
+            and "아무것도 바뀌지 않음" in not_argued.unchecked)
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -3026,6 +3112,10 @@ SCENARIOS = [
      scenario_the_corpus_measures_tasks_not_properties),
     ("a_kind_says_what_it_takes_to_know (a condition needs a source and a moment)",
      scenario_a_kind_says_what_it_takes_to_know),
+    ("the_screen_is_read_before_the_commit (while it can still matter)",
+     scenario_the_screen_is_read_before_the_commit),
+    ("an_invariant_can_be_argued_from_what_happened (nothing could have)",
+     scenario_an_invariant_can_be_argued_from_what_happened),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",

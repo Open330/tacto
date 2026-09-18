@@ -30,6 +30,10 @@ from dataclasses import dataclass, field
 
 # A receipt's state. `done` is the only one that means the task succeeded, and
 # it is deliberately hard to reach.
+EVERY_EFFECT = frozenset({"read", "write_ephemeral", "write_persistent",
+                          "delete", "transmit", "financial", "credential",
+                          "install", "system_config"})
+
 DONE = "done"              # wanted thing observed, nothing forbidden happened
 PARTIAL = "partial"        # some of it, and we can say which
 UNVERIFIED = "unverified"  # it ran; nothing confirmed the result
@@ -124,6 +128,8 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
     reached its end, which is the input to this question and not the answer.
     """
     checked, unchecked, problems = [], [], []
+    # The facts read off the screen just before the commit. Observations only.
+    seen = dict(getattr(result, "witnessed", {}) or {})
 
     # H — what actually happened, against what the request covered. This is the
     # one check that does not depend on the screen, and the one a final picture
@@ -144,8 +150,10 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
             problems.append("사람에게 전달된 값이 없습니다")
         checked.append("값이 사람에게 전달됐는가")
     if spec.must_read:
+        witnessed_values = [str(v) for v in seen.values()]
         missing = [v for v in spec.must_read
-                   if not any(v in str(s) for s in said)]
+                   if not any(v in str(s) for s in said)
+                   and not any(v in w for w in witnessed_values)]
         if missing:
             problems.append("읽어야 할 값을 못 봤습니다: " + ", ".join(missing))
         checked.append("원한 값이 결과에 있는가")
@@ -163,10 +171,42 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
         else:
             unchecked.append("건드리지 말아야 할 것")
 
+    # Each against what the request said it should be. This is the comparison
+    # the whole `source` rule exists to make possible: one side observed, the
+    # other stated in advance, and neither allowed to be the other.
+    for check in spec.required:
+        if check.when != "before_commit" or check.kind != "reports":
+            continue
+        want = spec.expected.get(check.name)
+        got = seen.get(check.name)
+        if want is None:
+            continue                       # nothing to compare against
+        if got is None:
+            unchecked.append(f"{check.name} (커밋 전 화면에서 확인 못 함)")
+            continue
+        if str(want) not in str(got):
+            problems.append(f"{check.name}: {want!r} 를 기대했는데 화면은 "
+                            f"{got!r} 입니다")
+        checked.append(f"{check.name} (커밋 직전)")
+
+    # "Nothing changed" can be ARGUED rather than observed, when the request
+    # permitted nothing that could change anything and nothing else occurred.
+    # Stated as an argument, not folded in as if it had been looked at: it
+    # shows that WE changed nothing, and says nothing about the app moving on
+    # its own.
+    argued = set()
+    read_only = set(spec.forbidden) >= (EVERY_EFFECT - {"read"})
+    if read_only and happened <= {"read"}:
+        for check in spec.required:
+            if check.kind == "unchanged" and check.name not in spec.expected:
+                argued.add(check.name)
+        if argued:
+            checked.append("바꿀 수 있는 일은 허용되지도, 일어나지도 않음")
+
     # A required condition nobody supplied a value for has not been satisfied;
     # it has been skipped. For a task kind that says what it needs, skipping
     # one is the difference between "it worked" and "we did not look".
-    skipped = spec.unfilled()
+    skipped = [n for n in spec.unfilled() if n not in argued]
     if skipped:
         unchecked.extend(skipped)
         checked.append(f"'{spec.kind}' 이 요구하는 조건 "

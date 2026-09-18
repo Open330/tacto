@@ -109,7 +109,7 @@ class World:
                         "unverified": "cannot_complete"}
         elif label == "저장":
             self.saved.append(self.env)
-            self.display = "저장됨"
+            self.display = "메모 저장됨"
         return {"type": "acted", "action": action["name"]}
 
     def _label(self, idx):
@@ -313,6 +313,13 @@ def _scripted_reading(case: Case):
             "보내지 마" if case.task == "send" else "읽지 마")
         return {**base, "goal": "하지 않기", "quote": neg,
                 "negated": True, "excluded": []}
+    # What the user actually named, as a reading would report it.
+    values = {}
+    if "엄마" in text:
+        values["recipient"] = "엄마"
+    if "메모" in text:
+        values["target"] = "메모"
+    base["values"] = values
     if case.kind == "corrected":
         goal, quote, drop = {
             "save": ("메모 저장하기", "저장해줘", ["보내기"]),
@@ -372,6 +379,25 @@ def _scripted_plan(world: World, case: Case):
     return here
 
 
+def _scripted_where(world: World):
+    """Where each fact is shown on this world's screen.
+
+    Standing in for the model's answer to "which of these shows the recipient",
+    so that what gets measured is the comparison — observed against expected —
+    rather than the model's ability to point at a row.
+    """
+    def where(field, candidates):
+        want = {"받는 사람": "Row", "보내는 계정": None,
+                "저장한 이름": "display", "보낸 내용": "display"}.get(field)
+        if want is None:
+            return {"pick": None, "why": "이 화면에 없습니다"}
+        for i, c in enumerate(candidates):
+            if want in (c.get("role"), c.get("match"), c.get("label")):
+                return {"pick": i, "candidate": c, "why": ""}
+        return {"pick": None, "why": "이 화면에 없습니다"}
+    return where
+
+
 def run_case(case: Case, use_model: bool = False):
     from nlc.agent import Agent
     from nlc.ask import ask, what_to_do_here, what_was_asked
@@ -383,10 +409,13 @@ def run_case(case: Case, use_model: bool = False):
         def interpret(q):
             return ask(q)
 
-        def general(target, goal, confirm, env=None):
+        def general(target, goal, confirm, env=None, need=None):
+            from nlc.ask import where_is
             def here(g, cands, done):
                 return ask(what_to_do_here(g, cands, done))
             return screen_run(world, target, goal, here, envelope=env,
+                              witnesses=need,
+                              ask_where=lambda f, c: ask(where_is(f, c)),
                               approve=confirm)
     else:
         reading = _scripted_reading(case)
@@ -394,9 +423,10 @@ def run_case(case: Case, use_model: bool = False):
         def interpret(q):
             return q.check(reading) if q.kind == "what_was_asked" else None
 
-        def general(target, goal, confirm, env=None):
+        def general(target, goal, confirm, env=None, need=None):
             return screen_run(world, target, goal, _scripted_plan(world, case),
-                              envelope=env, approve=confirm)
+                              envelope=env, approve=confirm,
+                              witnesses=need, ask_where=_scripted_where(world))
 
     agent = Agent(driver=world, interpret=interpret, general=general)
     # One app, and it is this world. Guessing which app a request is about is a
