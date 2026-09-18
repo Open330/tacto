@@ -35,6 +35,10 @@ from typing import Callable
 from .authoring import _extract_json, reach_model
 from .contract import EFFECTS, REVERSIBILITY, SCOPES
 
+# Slots a request can leave empty. Closed, like every other vocabulary here:
+# a gap with no name is a gap nothing can ask about.
+SLOTS = {"target", "recipient", "amount", "location", "when"}
+
 
 @dataclass
 class Q:
@@ -69,11 +73,21 @@ def ask(q: Q, provider: str = "auto", narrate=None) -> dict | None:
 
 # ------------------------------------------------------------------ 발화 해석
 
-# Words that make a quote a refusal. Shared with the fast path's own guard, so
-# "the rule cannot represent this" and "the reading must not drop it" are the
-# same list rather than two that drift apart.
-_NEGATORS = ("하지 마", "하지마", "하지말", "말고", "말아", "빼고", "제외",
-             "아니라", "아니고", "안 해", "안해")
+# What makes a quote a refusal. A word list only ever knew 하다: "저장하지 마"
+# was caught and "읽지 마", "보내지 마", "지우지 마" were not, so eight corpus
+# cases read the screen after being told not to (and several more passed only
+# because the request happened to be refused for an unrelated reason).
+#
+# Korean negates a verb with the -지 마/말- suffix on whatever the verb is, so
+# that is what this matches, plus the standalone forms that are not suffixes.
+_NEGATION = re.compile(
+    r"지\s*마(?![가-힣])"      # 읽지 마 · 보내지 마 · 저장하지 마
+    r"|지\s*말"                # 하지 말고 · 보내지 말아요
+    r"|말고|빼고|제외|아니라|아니고|안\s*해")
+
+
+def _refuses(text: str) -> bool:
+    return _NEGATION.search(text) is not None
 
 
 _ASKED = """사용자가 컴퓨터에게 한 말을 구조로 옮기십시오. JSON만, 설명 없이:
@@ -86,7 +100,19 @@ _ASKED = """사용자가 컴퓨터에게 한 말을 구조로 옮기십시오. J
  "date_to": "YYYY-MM-DD 또는 null",
  "allows": ["read", "write_ephemeral"],
  "scope": "entry",
- "reversibility": "reversible"}
+ "reversibility": "reversible",
+ "missing": []}
+
+`missing` 은 **사용자가 말하지 않아서 실행할 수 없는 것**입니다. "보내줘" 는
+누구에게인지 없고, "저장해줘" 는 무엇을 저장할지 없습니다. 아래에서만 고르고,
+발화에 이미 있는 것은 넣지 마십시오. 이건 권한 문제가 아니라 **지시가 덜 끝난
+것**이라, 채워 넣지 말고 이름만 대십시오.
+
+  target      무엇에 대한 일인지 (어느 문서·어느 파일)
+  recipient   누구에게 보내는지
+  amount      얼마나·몇 개
+  location    어디에 (어느 폴더)
+  when        언제
 
 `allows` 는 **이 요청을 수행하는 데 필요한 효과**입니다. 아래에서만 고르고,
 필요한 것보다 넓게 고르지 마십시오 — 넓힌 만큼 사용자가 부탁하지 않은 일이
@@ -152,7 +178,7 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
         # — a real quote of a refusal, read back as the opposite instruction.
         # Nothing here can judge Korean, but it can require the slots to agree
         # with what is lexically IN the quote, which settles this case.
-        said_no = any(w in quote for w in _NEGATORS)
+        said_no = _refuses(quote)
         if said_no != negated:
             return None
         excluded = [str(x)[:60] for x in (a.get("excluded") or [])][:8]
@@ -160,7 +186,7 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
         # quote: "굵게 하지 마" answered with quote "굵게" carries no negator at
         # all. A refusal anywhere in the utterance has to be ACCOUNTED for —
         # either this is a refusal, or it named what was ruled out.
-        if any(w in utterance for w in _NEGATORS) and not (negated or excluded):
+        if _refuses(utterance) and not (negated or excluded):
             return None
         # Nor may the goal be the thing the user ruled out.
         if any(x and x in goal for x in excluded):
@@ -179,9 +205,13 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
         rev = str(a.get("reversibility", ""))
         if scope not in SCOPES or rev not in REVERSIBILITY:
             return None
+        missing = a.get("missing") or []
+        if not isinstance(missing, list) or not set(missing) <= SLOTS:
+            return None
         out = {"goal": goal, "negated": negated, "quote": quote,
                "excluded": excluded, "allows": sorted(allows),
-               "scope": scope, "reversibility": rev}
+               "scope": scope, "reversibility": rev,
+               "missing": sorted({str(m) for m in missing})}
         for k in ("date_from", "date_to"):
             v = a.get(k)
             if isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):

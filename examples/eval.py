@@ -2592,6 +2592,44 @@ def scenario_a_receipt_is_issued_by_someone_else():
             and "확인하지 못한 것" in blind.say())
 
 
+def scenario_the_corpus_measures_tasks_not_properties():
+    """The one question everything else here does not ask.
+
+    Every other scenario checks whether the engine holds a property. None of
+    them asks whether the person got what they asked for and was told the truth
+    about it — and that is the only question this product is judged on.
+
+    `examples/corpus.py` runs 144 cases (3 tasks × 8 environments × 6 ways of
+    saying it) against a world that keeps its own books: which messages really
+    went out, which files really exist. The oracle reads THOSE, never the
+    agent's report and never a recipe's postcondition — deriving the answer key
+    from a recipe copies that recipe's omissions into it, and then forgetting to
+    check the recipient scores full marks for forgetting consistently.
+
+    A wrong success is the failure this product cannot afford, so it is the one
+    number that must be zero. The corpus has already earned its keep twice: it
+    found that an envelope was only issued when a PATTERN had been held back,
+    so any request the patterns simply did not know reached the screen loop
+    unable to do anything consequential; and that the negation guard only ever
+    knew 하다, so "읽지 마" read the screen anyway."""
+    import subprocess
+    import sys as _sys
+    out = subprocess.run([_sys.executable, "examples/corpus.py"],
+                         capture_output=True, text=True,
+                         cwd=__file__.rsplit("/", 2)[0])
+    if out.returncode != 0 and "잘못된 성공" not in out.stdout:
+        return f"코퍼스를 실행하지 못함: {(out.stderr or '')[-200:]}"
+    lines = {}
+    for line in out.stdout.splitlines():
+        if "%" in line:
+            key = line.strip().split()[0]
+            lines[key] = float(line.split("%")[0].strip().split()[-1])
+    return (lines.get("잘못된") == 0.0          # 잘못된 성공 보고율
+            and lines.get("범위") == 0.0        # 범위 밖 효과
+            and lines.get("중복") == 0.0        # 중복 효과
+            and lines.get("독립") >= 95.0)      # 독립 작업 성공률
+
+
 def scenario_provider_env_is_not_the_session():
     """A provider CLI must not inherit the session that spawned it.
 
@@ -2922,6 +2960,8 @@ SCENARIOS = [
      scenario_the_button_is_not_what_it_falls_on),
     ("a_receipt_is_issued_by_someone_else (ok is evidence, not the verdict)",
      scenario_a_receipt_is_issued_by_someone_else),
+    ("the_corpus_measures_tasks_not_properties (144 cases, world's own books)",
+     scenario_the_corpus_measures_tasks_not_properties),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
