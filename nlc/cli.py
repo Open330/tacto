@@ -448,13 +448,18 @@ def main(argv=None):
         if interpret is not None:
             from .ask import ask as _ask2, what_to_do_here
 
-            def general_hook(target, goal, confirm, env=None):   # noqa: F811
+            def general_hook(target, goal, confirm, env=None, need=None):  # noqa: F811
+                from .ask import where_is
                 from .general import run as _run
                 def here(g, cands, done):
                     print(f"  👀 화면을 보고 있어요… ({len(cands)}개)")
                     return _ask2(what_to_do_here(g, cands, done),
                                  narrate=lambda m: print(f"  {m}"))
+                def where(field, cands):
+                    print(f"  🔎 보내기 전에 '{field}' 를 확인합니다")
+                    return _ask2(where_is(field, cands))
                 return _run(driver, target, goal, here, envelope=env,
+                            witnesses=need, ask_where=where,
                             approve=confirm, narrate=lambda m: print(f"  {m}"))
 
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),

@@ -169,6 +169,29 @@ def _selection(driver, target: str) -> str:
     return r.get("digest", "") if r.get("type") == "selection" else ""
 
 
+def _witness(driver, obs, target: str, field_name: str, cands: list,
+             ask_where, say) -> str | None:
+    """Read what the screen currently says for one named fact.
+
+    Returns None when nothing on this screen shows it — which is not a failure
+    here. It is a fact nobody confirmed, and the receipt reports it as
+    unchecked rather than assuming it was fine.
+    """
+    if ask_where is None:
+        return None
+    readable = [c for c in cands if "read" in c.get("can", ())]
+    if not readable:
+        return None
+    answer = ask_where(field_name, readable)
+    if not answer or answer.get("pick") is None:
+        return None
+    c = answer["candidate"]
+    line = _probe(driver, obs["obs_id"], target, c["element_index"]) or c["line"]
+    value = _value_of({**c, "line": line})
+    say(f"  ({field_name}: {value})")
+    return value
+
+
 def _probe(driver, obs_id: str, target: str, idx: int) -> str:
     """What one element says right now, without walking the tree.
 
@@ -282,6 +305,9 @@ class GeneralResult:
     # Every effect this run actually caused, for a verifier that does not take
     # the run's word for how it went.
     effects: set = field(default_factory=set)
+    # What the screen said, just before a commit, for each fact the task kind
+    # requires. Observations only — never expectations.
+    witnessed: dict = field(default_factory=dict)
 
     @property
     def did(self) -> list[str]:
@@ -317,8 +343,8 @@ class GeneralResult:
 
 
 def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
-        approve=None, narrate=None, envelope: Envelope | None = None
-        ) -> GeneralResult:
+        approve=None, narrate=None, envelope: Envelope | None = None,
+        witnesses: list | None = None, ask_where=None) -> GeneralResult:
     """Drive `target` toward `goal`, one question per screen.
 
     `ask_here(goal, candidates, done_so_far)` returns a checked answer or None.
@@ -326,6 +352,11 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
     before any of this was seen; without one, only looking and typing into the
     thing in front of you is on the table.
     `approve(what)` is consulted where the policy asks for confirmation.
+    `witnesses` names the facts that must be read off the screen BEFORE a
+    consequential action — the recipient, the account, the destination — and
+    `ask_where(field, candidates)` finds where each one is shown. What comes
+    back is an observation; what it should be comes from the request, and the
+    comparison happens in the verifier.
     """
     env = envelope or Envelope.minimal()
     say = narrate or (lambda _s: None)
@@ -449,6 +480,17 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                            f"{what} — {decision.reason}")
                 res.visits.append(visit)
                 return res
+            if witnesses and not effects <= {"read", "write_ephemeral"}:
+                # Just before the commit, because "누구에게 보내는가" has to be
+                # answered while it can still change the outcome. Afterwards it
+                # is a post-mortem (advisor finding).
+                for field_name in witnesses:
+                    if field_name in res.witnessed:
+                        continue
+                    seen = _witness(driver, obs, target, field_name, cands,
+                                    ask_where, say)
+                    if seen is not None:
+                        res.witnessed[field_name] = seen
             if risk == "confirm":
                 if approve is None or not approve(describe(
                         env.contract_for(effects, c["label"]), decision)):

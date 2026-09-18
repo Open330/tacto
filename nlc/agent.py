@@ -367,8 +367,15 @@ class Agent:
                            scope=reading.get("scope", "entry"),
                            reversibility=reading.get("reversibility",
                                                      "reversible"))
+        # What this kind of task must confirm before it commits — read off the
+        # screen while it can still change the outcome.
+        need = []
+        if reading.get("kind"):
+            from .outcome import TASK_KINDS
+            need = [c.name for c in TASK_KINDS.get(reading["kind"], ())
+                    if c.when == "before_commit" and c.kind == "reports"]
         try:
-            r = self.general(target, goal, ask, env)
+            r = self.general(target, goal, ask, env, need)
         except Exception as e:
             return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
         # A run that arrived is a proposal for a recipe. Filed, never deployed:
@@ -398,13 +405,18 @@ class Agent:
         spec = OutcomeSpec.for_envelope(env or Envelope.minimal())
         kind = reading.get("kind")
         if kind:
+            # What the user said, under the names the task kind checks by.
+            # Only slots they actually filled — a value nobody stated is not an
+            # expectation, it is a guess with a confident label on it.
+            said_slots = reading.get("values") or {}
+            by_check = {"recipient": "받는 사람", "target": "저장한 이름",
+                        "location": "저장 위치", "amount": "보낸 내용"}
             supplied, where = {}, {}
-            for field_name, value in (("받는 사람", reading.get("recipient")),
-                                      ("저장한 이름", reading.get("target")),
-                                      ("보낸 내용", reading.get("body"))):
-                if value:
-                    supplied[field_name] = value
-                    where[field_name] = "request"
+            for slot, value in said_slots.items():
+                name = by_check.get(slot)
+                if name and value:
+                    supplied[name] = value
+                    where[name] = "request"
             try:
                 spec = spec_for(kind, env or Envelope.minimal(), supplied, where)
             except (KeyError, ValueError):
