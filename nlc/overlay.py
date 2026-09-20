@@ -62,8 +62,16 @@ def _target_frame(pid: int):
     return (p.x, p.y, s.width, s.height)
 
 
-def run_indicator(pid: int):
-    """Own the main run loop and keep an outline on `pid`'s window."""
+def run_indicator(pid: int, heartbeat: str | None = None, ttl: float = 4.0):
+    """Own the main run loop and keep an outline on `pid`'s window.
+
+    With a `heartbeat` file, the outline lives only as long as somebody keeps
+    touching it. A driver that can act at any moment is not the same as one
+    that IS acting, and an outline that never goes away stops being read — so
+    the driver touches the file on every observe and every act, and this exits
+    once the touches stop. Without a heartbeat it stays up until killed, which
+    is what a single bounded run wants.
+    """
     from AppKit import (NSApplication, NSPanel, NSColor, NSView, NSScreen,
                         NSMakeRect, NSBezierPath, NSFont, NSString,
                         NSForegroundColorAttributeName, NSFontAttributeName,
@@ -126,6 +134,15 @@ def run_indicator(pid: int):
 
     class Ticker(objc.lookUpClass("NSObject")):
         def tick_(self, _timer):
+            if heartbeat is not None:
+                try:
+                    idle = time.time() - os.stat(heartbeat).st_mtime
+                except OSError:
+                    idle = ttl + 1          # the file went away: so do we
+                if idle > ttl:
+                    panel.orderOut_(None)
+                    NSApplication.sharedApplication().terminate_(None)
+                    return
             f = _target_frame(pid)
             if f is None:
                 panel.orderOut_(None)
@@ -146,21 +163,29 @@ def run_indicator(pid: int):
 class Indicator:
     """Context manager: show the outline for the duration of a run.
 
+    `heartbeat` hands the lifetime to whoever keeps touching that file — see
+    `Driver._showing_control`, which is where this now comes from for every
+    entry point rather than only the two CLI commands that remembered to ask.
+
     Failing to draw the indicator must never take down the task, but it is
     reported — silently controlling someone's screen is the thing we are trying
     not to do."""
 
-    def __init__(self, pid: int | None, enabled: bool = True, notify=None):
+    def __init__(self, pid: int | None, enabled: bool = True, notify=None,
+                 heartbeat: str | None = None, ttl: float = 4.0):
         self.pid, self.enabled, self._proc = pid, enabled, None
+        self.heartbeat, self.ttl = heartbeat, ttl
         self._notify = notify or (lambda m: None)
 
     def __enter__(self):
         if not (self.enabled and self.pid):
             return self
         try:
+            command = [sys.executable, "-m", "nlc.overlay", str(self.pid)]
+            if self.heartbeat is not None:
+                command += [self.heartbeat, str(self.ttl)]
             self._proc = subprocess.Popen(
-                [sys.executable, "-m", "nlc.overlay", str(self.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
         except Exception as e:
             self._notify(f"(조작 중 표시를 띄우지 못했습니다: {e})")
@@ -175,5 +200,11 @@ class Indicator:
         return False
 
 
+    def alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
+
 if __name__ == "__main__":
-    run_indicator(int(sys.argv[1]))
+    run_indicator(int(sys.argv[1]),
+                  sys.argv[2] if len(sys.argv) > 2 else None,
+                  float(sys.argv[3]) if len(sys.argv) > 3 else 4.0)
