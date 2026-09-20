@@ -16,6 +16,11 @@
 import Foundation
 import ApplicationServices
 import AppKit
+import ScreenCaptureKit
+import CryptoKit
+import os
+import ImageIO
+import UniformTypeIdentifiers
 
 // A failed call is not generally proof of no effect. Only unsupported is
 // classified as definitely not started; uncertain failures must not be retried.
@@ -1656,6 +1661,169 @@ func hideOverlay() {
     overlay = nil
 }
 
+// Capture lives beside the outline on purpose: both are about what this
+// helper may see of someone's screen, and both are refused when the other
+// cannot be arranged.
+func sha256Hex(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+}
+
+/// A picture of ONE observed window — never the desktop, never a region.
+///
+/// The screen-recording grant lives on this helper for the same reason the
+/// accessibility grant does: a permission held by a shared Python interpreter
+/// is a permission held by every script that runs on it, and a screenshot
+/// reaches further than a click. `ai.callabo.nlc.helper` is one identity the
+/// person can see in System Settings and revoke by itself.
+///
+/// Pixels are written to a file this process creates and owns, not returned
+/// inline: a window-sized PNG does not belong in a JSON frame, and a path the
+/// CLIENT chose would let a client make this process write wherever it liked.
+func captureWindow(_ obsID: String, _ target: String,
+                   windowIndex: Int?, deadline: Double) -> [String: Any] {
+    func refuse(_ error: String, _ detail: String) -> [String: Any] {
+        ["type": "error", "error": error, "effect": "not_started", "detail": detail]
+    }
+    guard obsID == latestObsID, let p = pid(forBundle: target), p == latestTargetPID else {
+        return refuse("stale_observation", "observe again before capturing")
+    }
+    guard !abortState.isStopped else {
+        return refuse("aborted_by_user", "사용자가 중단했습니다")
+    }
+    guard let start = nativeProcessStartIdentity(p) else {
+        return refuse("target_changed", "process identity unavailable")
+    }
+
+    // Which window the caller means, decided from the ACCESSIBILITY tree —
+    // the same window the observation described. Matching by title alone
+    // would hand back whatever else happened to be called that.
+    let app = AXUIElementCreateApplication(p)
+    let windows = (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
+    guard !windows.isEmpty else {
+        return refuse("no_window_content", "this app has no AX window to capture")
+    }
+    let index = windowIndex ?? 0
+    guard index >= 0, index < windows.count else {
+        return refuse("window_index_out_of_range", "\(windows.count) window(s)")
+    }
+    guard windows.count == 1 || windowIndex != nil else {
+        return refuse("ambiguous_window",
+                      "\(windows.count) windows: name window_index")
+    }
+    guard let windowID = nativeWindowID(windows[index]) else {
+        return refuse("window_id_unavailable", "cannot correlate the AX window")
+    }
+
+    guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+        return refuse("indicator_unavailable", "조작 표시를 띄울 수 없어 중단했습니다")
+    }
+
+    // ScreenCaptureKit answers asynchronously; the wait is bounded and a late
+    // answer is discarded rather than written.
+    let gate = DispatchSemaphore(value: 0)
+    var picked: SCWindow?
+    var failure: String?
+    SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: false) { content, error in
+        if let error { failure = "shareable_content: \(error.localizedDescription)" }
+        picked = content?.windows.first { $0.windowID == windowID }
+        gate.signal()
+    }
+    let budget = max(0.2, min(10, deadline - ProcessInfo.processInfo.systemUptime))
+    guard gate.wait(timeout: .now() + budget) == .success else {
+        return refuse("capture_timeout", "screen content did not answer in time")
+    }
+    if let failure {
+        // A refused permission is not a broken capture. ScreenCaptureKit says
+        // "declined TCCs" and a caller that reads that as a failure will keep
+        // asking; a person who reads it as a failure will look at the app
+        // instead of at System Settings.
+        // What THIS process thinks it is allowed, so a report can tell a
+        // granted-but-not-to-me from a not-granted-at-all. TCC attributes a
+        // spawned binary to a responsible process, which is not always the
+        // identity someone ticked in System Settings.
+        let preflight = CGPreflightScreenCaptureAccess()
+        if failure.lowercased().contains("tcc")
+            || failure.lowercased().contains("declined")
+            || failure.lowercased().contains("permission") {
+            return ["type": "error", "error": "screen_capture_permission_missing",
+                    "effect": "not_started", "detail": failure,
+                    "grant_holder": "NLC Helper",
+                    "helper_preflight": preflight,
+                    "helper_binary": Bundle.main.executablePath ?? "unknown",
+                    "helper_bundle_id": Bundle.main.bundleIdentifier ?? "none",
+                    "fix": "시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 "
+                         + "'NLC Helper' 를 켜주세요"]
+        }
+        return refuse("visual_read_failed", failure)
+    }
+    guard let window = picked else {
+        return refuse("window_not_shareable",
+                      "the observed window is not in shareable content "
+                      + "(권한은 있는데 창이 사라졌을 수 있습니다)")
+    }
+    guard window.owningApplication?.processID == p else {
+        return refuse("target_changed", "that window belongs to another process now")
+    }
+
+    let filter = SCContentFilter(desktopIndependentWindow: window)
+    let configuration = SCStreamConfiguration()
+    configuration.width = Int(window.frame.width * 2)
+    configuration.height = Int(window.frame.height * 2)
+    configuration.showsCursor = false      // ours is not the person's pointer
+    var image: CGImage?
+    var shotFailure: String?
+    let shot = DispatchSemaphore(value: 0)
+    SCScreenshotManager.captureImage(contentFilter: filter,
+                                     configuration: configuration) { made, error in
+        if let error { shotFailure = error.localizedDescription }
+        image = made
+        shot.signal()
+    }
+    let remaining = max(0.2, min(10, deadline - ProcessInfo.processInfo.systemUptime))
+    guard shot.wait(timeout: .now() + remaining) == .success else {
+        return refuse("capture_timeout", "the screenshot did not arrive in time")
+    }
+    if let shotFailure { return refuse("visual_read_failed", shotFailure) }
+    guard let image else { return refuse("visual_read_failed", "no image") }
+
+    // Nothing is written until the target is still the target: an image taken
+    // of one app must not be handed over labelled as another.
+    guard pid(forBundle: target) == p, nativeProcessStartIdentity(p) == start,
+          !abortState.isStopped else {
+        return refuse("target_changed", "the app changed while capturing")
+    }
+
+    let directory = NSTemporaryDirectory() + "nlc-capture-\(getpid())"
+    try? FileManager.default.createDirectory(atPath: directory,
+        withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    let path = directory + "/\(UUID().uuidString).png"
+    guard let destination = CGImageDestinationCreateWithURL(
+            URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil) else {
+        return refuse("visual_read_failed", "cannot open the destination")
+    }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        return refuse("visual_read_failed", "cannot write the image")
+    }
+    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+    let bytes = (try? Data(contentsOf: URL(fileURLWithPath: path))) ?? Data()
+
+    return ["type": "capture", "obs_id": obsID, "target": target, "pid": Int(p),
+            "window_id": Int(windowID), "window_index": index,
+            "path": path, "bytes": bytes.count,
+            "sha256": sha256Hex(bytes),
+            "width": image.width, "height": image.height,
+            "viewport": ["x": window.frame.origin.x, "y": window.frame.origin.y,
+                         "width": window.frame.width, "height": window.frame.height],
+            "capture_kind": "native_window", "coordinate_space": "window_pixels",
+            // A picture is something to READ. It does not authorize an action
+            // and it does not witness a commit — the same rule the Python
+            // driver and the browser path state, so one transport cannot
+            // quietly mean more than another.
+            "evidence_kind": "visual_read", "authorizes_action": false,
+            "commit_witness": false]
+}
+
 // The stop, and the moment this run began, behind one lock. They are read and
 // written from two places — the event monitor on the main run loop, and the
 // serving thread — and they only mean anything together: an Esc is this run's
@@ -1762,7 +1930,7 @@ let helperCapabilities: [String] = [
     "effect",                       // errors say whether an effect is possible
     "action.click.deadline_uptime", "action.prepare_window", "action.click", "action.set_value", "action.type_text", "action.read",
     "action.menu", "action.scroll", "action.secondary_action",
-    "action.select_option",
+    "action.select_option", "evidence.visual",
     // Native menu items have a title and nothing behind it, so `value` must
     // agree with `option_label` rather than name something else.
     "select_option.label_only",
@@ -2425,7 +2593,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     // exactly as `observe` does.
     let reaching: Set<String> = ["menu_state", "menu_items", "probe",
                                  "selection", "document_text"]
-    if let kind, reaching.contains(kind),
+    if let kind, reaching.contains(kind) || kind == "capture",
        let target = msg["target"] as? String, let p = pid(forBundle: target) {
         guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
             return ["type": "error", "error": "indicator_unavailable",
@@ -2455,6 +2623,24 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
             .map { ["id": $0.bundleIdentifier ?? "", "displayName": $0.localizedName ?? "",
                     "pid": Int($0.processIdentifier), "isRunning": true] as [String: Any] }
         return ["type": "targets", "apps": apps]
+    case "capture":
+        guard Set(msg.keys).isSubset(of: ["type", "target", "obs_id", "window_index"]),
+              let target = msg["target"] as? String, !target.isEmpty,
+              let obsID = msg["obs_id"] as? String, !obsID.isEmpty else {
+            return ["type": "error", "error": "invalid_capture_request",
+                    "effect": "not_started"]
+        }
+        var windowIndex: Int?
+        if let raw = msg["window_index"] {
+            guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.intValue >= 0, number.intValue < 64 else {
+                return ["type": "error", "error": "invalid_capture_request",
+                        "effect": "not_started", "detail": "window_index"]
+            }
+            windowIndex = number.intValue
+        }
+        return captureWindow(obsID, target, windowIndex: windowIndex,
+                             deadline: ProcessInfo.processInfo.systemUptime + 10)
     case "menu_state", "menu_items":
         return readMenuState(msg)
     case "observe":
@@ -2523,9 +2709,84 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // launcher starts IS such a descendant, so it could spawn this helper itself
 // and reach handle() without passing through the launcher's message vetting
 // (advisor finding: a bypass of the boundary we had just built). No fallback.
-guard CommandLine.arguments.contains("--listen") else {
+// `--request-accessibility`: ask for the grant in this process's own name.
+//
+// It has to be opened through LaunchServices to mean anything. The prompt names
+// the identity the request is ATTRIBUTED to, and for a spawned child that is
+// whoever spawned it — which is how the helper came to be running on the
+// terminal's accessibility grant while believing the grant was its own.
+if CommandLine.arguments.contains("--request-accessibility") {
+    let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue()
+                     as String: true] as CFDictionary
+    let trusted = AXIsProcessTrustedWithOptions(options)
+    let answer = "{\"accessibility_trusted\": \(trusted), "
+        + "\"bundle_id\": \"\(Bundle.main.bundleIdentifier ?? "none")\", "
+        + "\"pid\": \(getpid()), \"ppid\": \(getppid())}"
+    print(answer)
+    if let index = CommandLine.arguments.firstIndex(of: "--request-accessibility"),
+       index + 1 < CommandLine.arguments.count,
+       !CommandLine.arguments[index + 1].hasPrefix("-") {
+        try? answer.write(toFile: CommandLine.arguments[index + 1],
+                          atomically: true, encoding: .utf8)
+    }
+    // The switch is thrown in System Settings, not here, and the process that
+    // asked has to still exist when it is — TCC records the grant against the
+    // identity that is asking. Stay up long enough for that to happen.
+    if !trusted { Thread.sleep(forTimeInterval: 120) }
+    exit(trusted ? 0 : 3)
+}
+
+// `--screen-capture-preflight`: say what THIS process is allowed to see and
+// exit. TCC attributes a request to the RESPONSIBLE process, which for a
+// posix_spawn child is its parent — so a grant ticked against this helper's
+// own identity may not be the identity being asked about. Running the same
+// binary two ways and comparing is the only way to tell those apart.
+if CommandLine.arguments.contains("--screen-capture-preflight") {
+    // Both services, side by side. Screen Recording is the one that broke, but
+    // "does Accessibility answer the same way under the same launch?" is the
+    // question that says whether attribution is one rule or two — and it is the
+    // question a grant that silently moved would otherwise hide.
+    let allowed = CGPreflightScreenCaptureAccess()
+    let answer = "{\"screen_capture_preflight\": \(allowed), "
+        + "\"accessibility_trusted\": \(AXIsProcessTrusted()), "
+        + "\"binary\": \"\(Bundle.main.executablePath ?? "unknown")\", "
+        + "\"bundle_id\": \"\(Bundle.main.bundleIdentifier ?? "none")\", "
+        + "\"pid\": \(getpid()), \"ppid\": \(getppid())}"
+    print(answer)
+    // `open` shows no stdout, and the question is precisely what happens when
+    // LaunchServices — not a shell — is what started this.
+    if let index = CommandLine.arguments.firstIndex(of: "--screen-capture-preflight"),
+       index + 1 < CommandLine.arguments.count {
+        try? answer.write(toFile: CommandLine.arguments[index + 1],
+                          atomically: true, encoding: .utf8)
+    }
+    // `launchctl procinfo` needs a live pid, and the answer to "which identity
+    // is this attributed to" is only observable while the process exists.
+    if let index = CommandLine.arguments.firstIndex(of: "--hold"),
+       index + 1 < CommandLine.arguments.count,
+       let seconds = Double(CommandLine.arguments[index + 1]) {
+        Thread.sleep(forTimeInterval: min(600, max(1, seconds)))
+    }
+    exit(allowed ? 0 : 3)
+}
+
+// `--connect <path>`: the launcher is the listening end. It binds the
+// rendezvous before it opens us, so there is no moment at which that path
+// exists unclaimed for someone else to bind in its place — which is what the
+// old direction, where we listened and the launcher waited for our socket to
+// appear, left open to a process running as this same user.
+//
+// LaunchServices may append arguments of its own, so the flag is looked up by
+// name rather than read off a fixed position.
+let connectPath: String? = {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--connect"), i + 1 < args.count else { return nil }
+    return args[i + 1]
+}()
+
+guard connectPath != nil else {
     FileHandle.standardError.write(Data(
-        "nlc-helper: --listen 이 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
+        "nlc-helper: --connect 가 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
     exit(3)
 }
 
@@ -2619,37 +2880,66 @@ let parentPID = getppid()
 // Telemetry only: we record what the OS says launched us. We do NOT check
 // validity, team or a requirement, so this is not an identity check and is
 // never used to authorize anything (advisor finding: do not overclaim).
+//
+// Under LaunchServices this reads 1, and a watchdog used to stand here that
+// exited when it did. It has to go, and not because it was inconvenient: it was
+// never the guarantee it looked like. `getppid() == 1` is what you see both
+// when your parent has died and when launchd started you on purpose, and a
+// process reparented to launchd is not a process whose client has gone away.
+// The connection is the thing that actually says whether anyone is still
+// asking, so the connection owns the lifetime — see `connectToLauncher` and
+// `rendezvousDeadline` below.
 let parentSigningID = parentSigningTelemetry(parentPID) ?? "unknown"
-DispatchQueue.global().async {
-    while true {
-        Thread.sleep(forTimeInterval: 1.0)
-        if getppid() != parentPID || parentPID <= 1 { exit(0) }
-    }
-}
 
 if !AXIsProcessTrusted() {
     respond(["type": "error", "error": "accessibility_permission_missing",
-             "detail": "System Settings > Privacy & Security > Accessibility 에서 NLCHelper 를 켜주세요"])
+             "detail": "System Settings > Privacy & Security > Accessibility "
+                       + "(macOS 27: Device Control and Data Access) 에서 "
+                       + "'NLC Helper' 를 켜주세요"])
 }
 
 // MARK: - Socket mode (peer-authenticated)
 //
-// With `--listen <path>` the helper serves one connection at a time over a unix
-// socket and authenticates the CONNECTING PROCESS via its audit token, rather
-// than inferring trust from ancestry. That distinction matters: ancestry admits
-// anything descended from the signed launcher, so one attacker-controlled link
-// in the chain was enough; a peer check names the process actually talking.
+// The helper serves exactly one client and authenticates it by its AUDIT TOKEN,
+// not by ancestry. That distinction matters: ancestry admits anything descended
+// from the signed launcher, so one attacker-controlled link in the chain was
+// enough; a peer check names the process actually talking.
 
-func serveSocket(at path: String) -> Never {
-    unlink(path)
-    let listener = socket(AF_UNIX, SOCK_STREAM, 0)
-    guard listener >= 0 else {
-        FileHandle.standardError.write(Data("nlc-helper: socket() 실패\n".utf8)); exit(4)
-    }
+/// Say something where it can still be heard.
+///
+/// LaunchServices hands a launched app no stdout and no stderr, so everything
+/// this process said about why it refused a client used to go into a void —
+/// the launcher saw only that we had gone. The unified log is the one channel
+/// that survives having no parent:
+///
+///     log stream --predicate 'subsystem == "ai.callabo.nlc"'
+///     log show --last 5m --predicate 'subsystem == "ai.callabo.nlc"'
+let rendezvousLog = Logger(subsystem: "ai.callabo.nlc", category: "rendezvous")
+
+@Sendable func note(_ message: String) {
+    rendezvousLog.notice("\(message, privacy: .public)")
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
+/// How long we wait to be claimed. LaunchServices gives our client no way to
+/// tell us it gave up, so an unclaimed helper would otherwise sit holding an
+/// accessibility grant with nobody on the other end.
+let rendezvousDeadline: TimeInterval = 20
+
+/// Connect back to the launcher and prove each side to the other.
+///
+/// Whoever is listening on that path has to be our signed launcher, in this
+/// same login session. The path is unguessable and inside a directory only its
+/// creator can enter, but that is secrecy, not authentication, and the process
+/// answering there is the one about to be handed an accessibility grant.
+@Sendable func connectToLauncher(_ path: String) -> Int32? {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let maxPath = MemoryLayout.size(ofValue: addr.sun_path) - 1
-    let bytes = Array(path.utf8.prefix(maxPath)) + [0]
+    guard path.utf8.count <= maxPath else { close(fd); return nil }
+    let bytes = Array(path.utf8) + [0]
     withUnsafeMutableBytes(of: &addr.sun_path) { dst in
         bytes.withUnsafeBytes { src in
             dst.copyMemory(from: UnsafeRawBufferPointer(
@@ -2657,61 +2947,73 @@ func serveSocket(at path: String) -> Never {
         }
     }
     let size = socklen_t(MemoryLayout<sockaddr_un>.size)
-    let bound = withUnsafePointer(to: &addr) { p in
-        p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, size) }
-    }
-    guard bound == 0, listen(listener, 1) == 0 else {
-        FileHandle.standardError.write(Data("nlc-helper: bind/listen 실패\n".utf8)); exit(4)
-    }
-    // Only this user may reach the socket; the peer check does the rest.
-    chmod(path, 0o600)
-
-    while true {
-        let conn = accept(listener, nil, nil)
-        if conn < 0 { continue }
-        let (ok, why) = PeerAuth.satisfies(fd: conn, requirement: clientRequirement)
-        if !ok {
-            let refusal = ["type": "error", "error": "peer_not_authorized",
-                           "detail": why] as [String: Any]
-            // Through the same full-write loop as everything else: a refusal
-            // truncated by a short write is a refusal the client cannot read,
-            // and it would be reading it as the start of the next frame.
-            if var d = try? JSONSerialization.data(withJSONObject: refusal) {
-                d.append(0x0A)
-                writeAll(conn, d)
+    // The launcher binds before it opens us, so one attempt should be enough;
+    // retry briefly rather than race the moment it calls listen().
+    let giveUp = ProcessInfo.processInfo.systemUptime + rendezvousDeadline
+    var connected = false
+    repeat {
+        connected = withUnsafePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                connect(fd, $0, size)
             }
-            close(conn)
-            continue
-        }
-        FileHandle.standardError.write(Data(
-            "nlc-helper: peer \(PeerAuth.describe(fd: conn)) 인증됨\n".utf8))
-        // Fresh state per connection, and the abort is part of that state: it
-        // holds for the rest of the run the user stopped, and a NEW launcher
-        // run — a new person, a new intention — starts clean. That is the whole
-        // scope of it, and it is not a client's to shorten.
-        //
-        // `abortEpoch` moves with it so that an Esc delivered from the previous
-        // run's queue cannot land on this one: events reach the run loop after
-        // the fact, and one arriving late would stop something nobody aimed it
-        // at.
-        latestObsID = ""
-        latestElements = []
-        latestProcessStart = nil
-        latestTargetPID = -1
-        latestTargetName = ""
-        // A menu left standing by the previous run is not this one's to
-        // press into: the caller that opened it is gone, and nothing here
-        // saw the screen it was opened on.
-        pendingSelect = nil
-        spentMenu = nil
-        // Document pins belong to the client that made them. A new
-        // authenticated connection is a new client, and inheriting someone
-        // else's token would let it read a document it never selected.
-        documentTokens.removeAll()
-        abortState.begin()
-        serve(connection: conn)
-        close(conn)
+        } == 0
+        if !connected { usleep(100_000) }
+    } while !connected && ProcessInfo.processInfo.systemUptime < giveUp
+    guard connected else { close(fd); return nil }
+
+    let (ok, why) = PeerAuth.satisfies(fd: fd, requirement: clientRequirement)
+    guard ok else {
+        note("nlc-helper: \(why)")
+        close(fd); return nil
     }
+    // A same-audit-session check stood here and was wrong. The launcher and
+    // this helper are in DIFFERENT login sessions whenever the user drives the
+    // screen from a remote shell, which is a thing this project is for:
+    // measured on 2026-09-21, an ssh-side launcher had asid 100228 while the
+    // helper LaunchServices started for it had 100018, the console session. The
+    // helper has to be in the console session — that is where the screen is —
+    // so equality could never have held. Signing identity is the check; the
+    // rendezvous path only has to stay secret, and it is, inside a directory
+    // whose name the launcher made and whose mode admits nobody else.
+    note("nlc-helper: peer \(PeerAuth.describe(fd: fd)) 인증됨")
+    return fd
+}
+
+@Sendable func serveLauncher(at path: String) -> Never {
+    guard let conn = connectToLauncher(path) else {
+        note("nlc-helper: 런처에 연결하지 못했습니다")
+        exit(4)
+    }
+    // Fresh state for the one connection we serve, and the abort is part of
+    // that state: it holds for the rest of the run the user stopped, and a NEW
+    // launcher run — a new person, a new intention — starts clean. That is the
+    // whole scope of it, and it is not a client's to shorten.
+    //
+    // `abortEpoch` moves with it so that an Esc delivered from a previous run's
+    // queue cannot land on this one: events reach the run loop after the fact,
+    // and one arriving late would stop something nobody aimed it at.
+    latestObsID = ""
+    latestElements = []
+    latestProcessStart = nil
+    latestTargetPID = -1
+    latestTargetName = ""
+    // A menu left standing by a previous run is not this one's to press into:
+    // the caller that opened it is gone, and nothing here saw the screen it was
+    // opened on.
+    pendingSelect = nil
+    spentMenu = nil
+    // Document pins belong to the client that made them. A new authenticated
+    // connection is a new client, and inheriting someone else's token would let
+    // it read a document it never selected.
+    documentTokens.removeAll()
+    abortState.begin()
+    serve(connection: conn)
+    // Serving returned, so the client's end is gone. One client, one lifetime:
+    // a helper that outlived its client would be a process holding an
+    // accessibility grant that nothing is asking anything of, and under
+    // LaunchServices there is no parent whose death would have said so.
+    close(conn)
+    exit(0)
 }
 
 /// Write the whole frame: a single write() can be partial, and without the loop
@@ -2755,13 +3057,7 @@ let nsApp = NSApplication.shared
 nsApp.setActivationPolicy(.accessory)
 watchForAbort()
 
-let listenPath: String? = {
-    let args = CommandLine.arguments
-    guard let i = args.firstIndex(of: "--listen"), i + 1 < args.count else { return nil }
-    return args[i + 1]
-}()
-
 DispatchQueue.global().async {
-    serveSocket(at: listenPath!)   // peer-authenticated; never returns
+    serveLauncher(at: connectPath!)   // peer-authenticated; never returns
 }
 nsApp.run()

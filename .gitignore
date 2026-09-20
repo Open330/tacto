@@ -20,3 +20,8 @@ flows/*.json
 # one person's screen, not source — and deliberately not where
 # anything replays from.
 flows/_candidates/
+
+# Probe output: run logs, JSON reports and screenshots of one person's screen.
+# Machine output about a machine, not source. The findings that mattered are
+# written up in PROTOCOL.md instead, where they stay readable without 126MB.
+reviews/

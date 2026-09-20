@@ -6,6 +6,7 @@
 # name in a temp dir rather than renaming the source.
 set -euo pipefail
 cd "$(dirname "$0")"
+. ../signing.sh
 SWIFTC=/Library/Developer/CommandLineTools/usr/bin/swiftc
 SDK=$(/bin/ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk | /usr/bin/tail -1)
 
@@ -20,7 +21,12 @@ cp WindowInput.swift "$STAGE/WindowInput.swift"
 IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
   | grep -v CSSMERR | head -1 | sed -E 's/.*"(.*)"/\1/')}
 if [ -n "$IDENTITY" ]; then
-  codesign --force --sign "$IDENTITY" --options runtime --timestamp=none nlc-helper
+  # Same identifier and requirement as the bundled copy: the launcher
+  # authenticates whichever one answers, and a name only it uses would fail.
+  codesign --force --sign "$IDENTITY" --identifier "$NLC_HELPER_ID" \
+           -r="designated => $(nlc_requirement "$NLC_HELPER_ID")" \
+           --options runtime --timestamp=none nlc-helper
+  codesign --verify -R="$(nlc_requirement "$NLC_HELPER_ID")" nlc-helper
   echo "signed with: $IDENTITY"
 else
   echo "no signing identity found — built unsigned (grant will not survive rebuilds)"

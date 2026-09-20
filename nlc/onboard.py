@@ -36,7 +36,11 @@ def check_all() -> list[Check]:
     ax = AXIsProcessTrusted()
     sr = _screen_recording_ok()
     return [
-        Check("accessibility", ax, "앱 조작 권한(손쉬운 사용)",
+        # macOS 27 renamed this pane: Privacy & Security > Accessibility is now
+        # "Device Control and Data Access". The deep link below still resolves,
+        # but a person reading only the old name cannot find it (measured on
+        # 26A428), so both are said.
+        Check("accessibility", ax, "앱 조작 권한(손쉬운 사용 / Device Control and Data Access)",
               "목록에서 이 앱을 켜주세요. 그러면 버튼을 대신 눌러드릴 수 있어요.",
               "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"),
         Check("screen_recording", sr, "화면 읽기 권한(화면 기록)",
@@ -181,8 +185,9 @@ def run_helper_onboarding(narrate=print) -> bool:
     if st["trusted"]:
         narrate(f"✓ '{name}' 에 권한이 있어요. 파이썬에는 권한이 필요 없습니다.")
         return True
-    narrate(f"✕ '{name}' 에 손쉬운 사용 권한이 필요해요.")
+    narrate(f"✕ '{name}' 에 앱 조작 권한이 필요해요.")
     narrate("   시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용 에서 켜주세요.")
+    narrate("   (macOS 27 에서는 같은 자리가 'Device Control and Data Access' 입니다.)")
     if st.get("why"):
         narrate(f"   ({st['why'].splitlines()[0]})")
     open_settings("x-apple.systempreferences:com.apple.preference.security"

@@ -6,13 +6,13 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock
-from nlc.helper import HelperDriver, SocketHelperDriver, InheritedHelperDriver
+from nlc.helper import HelperDriver, InheritedHelperDriver
 
 ROOT = Path(__file__).resolve().parents[1]
 
 class MenuTransportTests(unittest.TestCase):
     def test_all_transports_forward_read_without_acting(self):
-        for cls in (HelperDriver, SocketHelperDriver, InheritedHelperDriver):
+        for cls in (HelperDriver, InheritedHelperDriver):
             d = object.__new__(cls)
             d._send = Mock(return_value={'type':'menu_state','enabled':False})
             result = d.menu_state('fixture', [['Probe','검사'], 'Command'])
