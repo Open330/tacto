@@ -88,7 +88,11 @@ let maxDocumentUTF16Units = 1_000_000
 // people reached for it to do — save, copy, open — is a named menu command, and
 // `menu` expresses those without a keystroke primitive at all.
 let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
-    "click":            (["name", "element_index"], []),
+    // `element_index` OR `point`: a coordinate is an address that has not been
+    // resolved to an element yet, which is how a control that draws itself and
+    // exposes no AX element becomes reachable. Exactly one of the two, checked
+    // below — both would be two answers to one question.
+    "click":            (["name"], ["element_index", "point", "window_index"]),
     "prepare_window":   (["name", "element_index"], []),
     "set_value":        (["name", "element_index", "value"], []),
     "type_text":        (["name", "element_index", "text"], []),
@@ -329,6 +333,27 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "\(name) 에 허용되지 않은 필드: "
                  + "\(keys.subtracting(schema.required.union(schema.optional)))"
         }
+        if name == "click" {
+            let byIndex = action["element_index"] != nil
+            let byPoint = action["point"] != nil
+            guard byIndex != byPoint else {
+                return "click 은 element_index 또는 point 중 하나만 받습니다"
+            }
+            if byPoint {
+                guard let raw = action["point"] as? [String: Any],
+                      Set(raw.keys) == Set(["x", "y"]),
+                      let x = raw["x"] as? NSNumber, let y = raw["y"] as? NSNumber,
+                      CFGetTypeID(x) != CFBooleanGetTypeID(),
+                      CFGetTypeID(y) != CFBooleanGetTypeID(),
+                      x.doubleValue.isFinite, y.doubleValue.isFinite,
+                      x.doubleValue >= 0, y.doubleValue >= 0,
+                      x.doubleValue <= 100_000, y.doubleValue <= 100_000 else {
+                    return "point 은 {x, y} 의 유한한 0 이상 숫자여야 합니다"
+                }
+            } else if action["window_index"] != nil {
+                return "window_index 는 point 와 함께만 씁니다"
+            }
+        }
         if name == "press_key" {
             guard let key = action["key"] as? String else { return "key 형식 오류" }
             guard navigationKeys.contains(key) else {
@@ -352,6 +377,13 @@ func vetted(_ msg: [String: Any]) -> String? {
             case "key", "option_label":
                 if !(v is String) { return "\(k) 형식 오류" }
             case "name", "direction": if !(v is String) { return "\(k) 형식 오류" }
+            case "point":
+                if !(v is [String: Any]) { return "point 형식 오류" }
+            case "window_index":
+                guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+                      n.intValue >= 0, n.intValue <= 63 else {
+                    return "window_index 형식 오류"
+                }
             case "value": if !(v is String) { return "value 형식 오류" }
             case "text":
                 guard let t = v as? String, isPlainText(t) else {

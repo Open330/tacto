@@ -818,6 +818,58 @@ private func processForWindowTarget(_ target: String) -> pid_t? { pid(forBundle:
 /// window can answer. The frontmost requirement stays: this picks which window
 /// of an app the person is already in becomes key, and is not a way to bring an
 /// app forward.
+/// The app's real windows, in order, with nothing else in the list.
+///
+/// `AXWindows` is not a list of windows. Measured on Calculator with a tooltip
+/// up, index 0 was an `AXHelpTag` 85x20 and the actual window was index 1 —
+/// so a `window_index` meant different things depending on whether the mouse
+/// happened to be resting on a button. An index into a list that changes shape
+/// under you is worse than a wrong index: it is one that is right sometimes.
+func realWindows(of app: AXUIElement) -> [AXUIElement] {
+    let all = (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
+    return all.filter { str($0, kAXRoleAttribute as String) == kAXWindowRole as String }
+}
+
+// MARK: - A point is an element we have not looked up yet
+//
+// Every action here has needed an `element_index` from an accessibility
+// observation, and controls that draw themselves expose no such element — so
+// canvases, custom-drawn widgets and anything an app renders without telling
+// AX about it were simply unreachable, and got `needs_pointer` and a handoff.
+//
+// The way out is not synthetic input. Codex Computer Use does not post mouse
+// events on macOS at all: its service imports the whole AXUIElement surface —
+// `AXUIElementPerformAction`, `AXUIElementSetAttributeValue`,
+// `AXUIElementCopyElementAtPosition` — and not one event-posting symbol, no
+// `CGEventPost`, no `CGEventPostToPid`, no `CGWarpMouseCursorPosition`
+// (verified with `nm -u` on all three of its binaries, 2026-09-21). That is
+// WHY it does not take focus, and the "virtual pointer" it appears to have is
+// this: a coordinate, read off a screenshot, translated into the real element
+// underneath it, which is then pressed like any other.
+//
+// So a point is not a place to click. It is an address we have not resolved
+// yet, and resolving it is what keeps every promise the rest of this file
+// makes: the thing that gets pressed is a real element, belonging to the app
+// the caller named, and the press is the app's own action.
+
+/// The element at a screen point, if it belongs to `pid`.
+///
+/// The pid check is the boundary. `AXUIElementCopyElementAtPosition` on the
+/// system-wide element will happily answer about ANY app's window that happens
+/// to be under that coordinate — including one the caller never named and the
+/// user never offered. A point over someone else's window resolves to nothing
+/// here.
+func elementAtPoint(_ point: CGPoint, pid p: pid_t) -> AXUIElement? {
+    let systemWide = AXUIElementCreateSystemWide()
+    var found: AXUIElement?
+    guard AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y),
+                                           &found) == .success,
+          let element = found else { return nil }
+    var owner: pid_t = 0
+    guard AXUIElementGetPid(element, &owner) == .success, owner == p else { return nil }
+    return element
+}
+
 func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                    _ pid: pid_t, deadline: Double) -> [String: Any] {
     func refuse(_ error: String, _ detail: String, foreground: Bool = false) -> [String: Any] {
@@ -910,9 +962,34 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
     }
     let name = action["name"] as? String ?? ""
 
+    /// The element this action is about — named by index, or by a point that
+    /// has not been resolved into one yet.
+    ///
+    /// `point` is in WINDOW coordinates of `window_index` (default 0), the same
+    /// space `capture` reports its viewport in, so a coordinate read off a
+    /// screenshot can be handed straight back. It is bounds-checked against
+    /// that window: a point outside it is not this app's to press, and
+    /// `elementAtPoint` refuses anything belonging to another process anyway.
     func element() -> AXUIElement? {
-        guard let i = action["element_index"] as? Int, i >= 0, i < elements.count else { return nil }
-        return elements[i]
+        if let i = action["element_index"] as? Int, i >= 0, i < elements.count {
+            return elements[i]
+        }
+        guard let raw = action["point"] as? [String: Any],
+              let x = (raw["x"] as? NSNumber)?.doubleValue,
+              let y = (raw["y"] as? NSNumber)?.doubleValue,
+              x.isFinite, y.isFinite else { return nil }
+        let app = AXUIElementCreateApplication(p)
+        let windows = realWindows(of: app)
+        let index = action["window_index"] as? Int ?? 0
+        guard index >= 0, index < windows.count,
+              let positionValue = attr(windows[index], kAXPositionAttribute as String),
+              let sizeValue = attr(windows[index], kAXSizeAttribute as String)
+        else { return nil }
+        var origin = CGPoint.zero, size = CGSize.zero
+        AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin)
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        guard x >= 0, y >= 0, x < size.width, y < size.height else { return nil }
+        return elementAtPoint(CGPoint(x: origin.x + x, y: origin.y + y), pid: p)
     }
 
     // Before anything is performed, and after the indicator so the check sees
@@ -1834,7 +1911,7 @@ func captureWindow(_ obsID: String, _ target: String,
     // the same window the observation described. Matching by title alone
     // would hand back whatever else happened to be called that.
     let app = AXUIElementCreateApplication(p)
-    let windows = (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
+    let windows = realWindows(of: app)
     guard !windows.isEmpty else {
         return refuse("no_window_content", "this app has no AX window to capture")
     }
@@ -1843,8 +1920,15 @@ func captureWindow(_ obsID: String, _ target: String,
         return refuse("window_index_out_of_range", "\(windows.count) window(s)")
     }
     guard windows.count == 1 || windowIndex != nil else {
+        // Name them. "2 windows" tells a caller that it must choose and
+        // nothing about how, and it tells whoever is debugging even less.
+        let described = windows.enumerated().map { index, window -> String in
+            let title = str(window, kAXTitleAttribute as String) ?? ""
+            let subrole = str(window, kAXSubroleAttribute as String) ?? "?"
+            return "\(index)=\(subrole)\(title.isEmpty ? "" : " '\(title)'")"
+        }.joined(separator: ", ")
         return refuse("ambiguous_window",
-                      "\(windows.count) windows: name window_index")
+                      "\(windows.count) windows: name window_index (\(described))")
     }
     guard let windowID = nativeWindowID(windows[index]) else {
         return refuse("window_id_unavailable", "cannot correlate the AX window")
@@ -2078,6 +2162,11 @@ let helperCapabilities: [String] = [
     // Said separately because the browser's `press_key` includes Escape and
     // this one does not. A client that needs Escape should see the difference
     // rather than discover it.
+    // A coordinate can be an address. `capture` reports a viewport in window
+    // points, and a point in that space resolves to the real element under it
+    // — which is how a control that draws itself and exposes no AX element of
+    // its own becomes reachable without synthesising anything.
+    "action.click.by_point",
     // No press_key capability is announced. Keys are not synthesised at
     // all now, so naming one would be advertising a refusal — and a caller
     // reading "navigation_only" plans around a Tab that never arrives.

@@ -12,6 +12,7 @@ Implements the PROTOCOL.md v0.1 decisions:
 from __future__ import annotations
 
 import difflib
+import math
 import os
 import subprocess
 import threading
@@ -339,6 +340,11 @@ class Driver:
         "custom_select.label_only",
         # Said separately because the browser's `press_key` includes Escape and
         # this one does not.
+        # A coordinate can be an address: `capture` reports a viewport in
+        # window points, and a point in that space resolves to the real
+        # element under it — which is how a control that draws itself and
+        # exposes no AX element of its own becomes reachable.
+        "action.click.by_point",
         # No press_key capability is announced. Keys are not synthesised at
         # all now, so naming one would be advertising a refusal — and a
         # caller reading "navigation_only" plans around a Tab that never
@@ -1274,11 +1280,71 @@ class Driver:
         return {"type": "probe", "line": _elem_label(el) or ""}
 
     def _element(self, obs, action):
+        """The element this action is about — by index, or by a point.
+
+        A coordinate is an address nobody has resolved yet. Controls that draw
+        themselves expose no AX element of their own, so an index cannot reach
+        them and they used to get `needs_pointer` and a handoff. Resolving the
+        point is what reaches them WITHOUT synthesising anything: the thing
+        pressed is still a real element, still belonging to the named app, and
+        the press is still the app's own action.
+
+        `point` is in window coordinates of `window_index` (default 0) — the
+        same space `capture` reports its viewport in, so a coordinate read off
+        a screenshot can be handed straight back.
+        """
         idx = action.get("element_index")
-        if type(idx) is not int or not (0 <= idx < len(obs.elements)):
-            raise NotStarted(f"element_index {idx} out of range "
-                             f"0..{len(obs.elements)-1}")
-        return obs.elements[idx]
+        if idx is not None or "point" not in action:
+            if type(idx) is not int or not (0 <= idx < len(obs.elements)):
+                raise NotStarted(f"element_index {idx} out of range "
+                                 f"0..{len(obs.elements)-1}")
+            return obs.elements[idx]
+        return self._element_at_point(obs, action)
+
+    def _element_at_point(self, obs, action):
+        from ApplicationServices import (AXUIElementCreateSystemWide,
+                                         AXUIElementCopyElementAtPosition,
+                                         AXUIElementGetPid)
+        point = action.get("point")
+        if not isinstance(point, dict) or set(point) != {"x", "y"}:
+            raise NotStarted("point 은 {x, y} 여야 합니다")
+        try:
+            x, y = float(point["x"]), float(point["y"])
+        except (TypeError, ValueError):
+            raise NotStarted("point 의 x, y 는 숫자여야 합니다")
+        if not (math.isfinite(x) and math.isfinite(y)):
+            raise NotStarted("point 의 x, y 는 유한해야 합니다")
+
+        # Real windows only. `AXWindows` is not a list of windows: measured on
+        # Calculator with a tooltip up, index 0 was an AXHelpTag 85x20 and the
+        # window was index 1, so a window_index meant different things
+        # depending on where the mouse was resting.
+        windows = [w for w in (_attr(AXUIElementCreateApplication(obs.pid), "AXWindows") or [])
+                   if _attr(w, "AXRole") == "AXWindow"]
+        index = action.get("window_index", 0)
+        if type(index) is not int or not (0 <= index < len(windows)):
+            raise NotStarted(f"window_index {index} out of range 0..{len(windows)-1}")
+        frame = _elem_frame(windows[index])
+        if frame is None:
+            raise NotStarted("창의 위치를 읽지 못했습니다")
+        wx, wy, ww, wh = frame
+        # Bounds-checked against that window. A point outside it is not this
+        # app's to press, and the pid check below refuses anything that turns
+        # out to belong to someone else's window anyway.
+        if not (0 <= x < ww and 0 <= y < wh):
+            raise NotStarted(f"point ({x}, {y}) 가 창 밖입니다 ({ww}x{wh})")
+        found = AXUIElementCopyElementAtPosition(
+            AXUIElementCreateSystemWide(), wx + x, wy + y, None)
+        error, element = found if isinstance(found, tuple) else (0, found)
+        if error != 0 or element is None:
+            raise NotStarted(f"({x}, {y}) 위치에 접근성 요소가 없습니다")
+        owner = AXUIElementGetPid(element, None)
+        owner = owner[1] if isinstance(owner, tuple) else owner
+        if owner != obs.pid:
+            # The system-wide element answers about whatever is under that
+            # coordinate, including an app the caller never named.
+            raise NotStarted(f"({x}, {y}) 위치의 요소는 다른 앱의 것입니다")
+        return element
 
     def _perform(self, obs, action, *, before_pointer=None):
         name = action["name"]
