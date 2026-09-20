@@ -14,14 +14,32 @@ import json
 import os
 
 from .flow import Flow
+from .storage import write_private
 
-DEFAULT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "flows")
+def default_directory() -> str:
+    """Source checkout keeps its recipes; installed packages use user data.
+
+    A wheel contains no bundled recipe directory and must not create mutable
+    data next to site-packages. Ignore relative XDG paths, as required by XDG's
+    absolute-path convention.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    source_flows = os.path.join(root, "flows")
+    if os.path.isfile(os.path.join(root, "pyproject.toml")) and os.path.isdir(source_flows):
+        return source_flows
+    data = os.environ.get("XDG_DATA_HOME", "")
+    if not data or not os.path.isabs(data):
+        data = os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(data, "nlc", "flows")
+
+
+DEFAULT_DIR = default_directory()
 
 
 class FlowStore:
-    def __init__(self, path: str = DEFAULT_DIR):
-        self.path = path
-        os.makedirs(path, exist_ok=True)
+    def __init__(self, path: str | None = None):
+        self.path = default_directory() if path is None else os.fspath(path)
+        os.makedirs(self.path, exist_ok=True)
 
     def _file(self, name: str) -> str:
         safe = "".join(c for c in name if c.isalnum() or c in "_-")
@@ -29,17 +47,33 @@ class FlowStore:
 
     def save(self, flow: Flow) -> str:
         p = self._file(flow.name)
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(flow.to_json())
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    existing = json.load(f)
+            except ValueError:
+                existing = {}
+            if isinstance(existing, dict) and existing.get("schema") == 1:
+                raise self.MigrationRequired(f"{p}: migrate schema 1 explicitly; not overwritten")
+        write_private(p, flow.to_json())
         return p
 
     class Corrupt(ValueError):
         """A file exists under the flow name but is not a usable Flow IR."""
 
+    class MigrationRequired(ValueError):
+        """A valid legacy artifact is neither missing nor disposable."""
+
     def load(self, name: str) -> Flow:
         path = self._file(name)
         with open(path, encoding="utf-8") as f:
             text = f.read()
+        try:
+            legacy = json.loads(text).get("schema") == 1
+        except (ValueError, AttributeError):
+            legacy = False
+        if legacy:
+            raise self.MigrationRequired(f"{path}: schema 1 requires explicit migration")
         try:
             return Flow.from_json(text)
         except Exception as e:
@@ -57,9 +91,10 @@ class FlowStore:
         if not os.path.exists(path):
             return False
         try:
-            with open(path, encoding="utf-8") as f:
-                Flow.from_json(f.read())
+            self.load(name)
             return True
+        except self.MigrationRequired:
+            raise
         except Exception:
             return False
 

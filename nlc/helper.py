@@ -14,6 +14,9 @@ a shared Python interpreter that every other script on the machine also uses
 from __future__ import annotations
 
 import json
+import math
+import socket
+import threading
 import os
 import subprocess
 import time
@@ -31,6 +34,24 @@ HELPER = _BUNDLED if os.path.exists(_BUNDLED) else _BARE
 
 class HelperUnavailable(RuntimeError):
     pass
+
+
+# What this client sends and therefore needs honoured. A helper that does not
+# name all of these is one whose refusals and preconditions cannot be relied
+# on, and silence is not agreement.
+# Every risk class this transport knows how to honour. A value outside it is
+# not a weaker one — it is one this code has no rule for, and passing it
+# through let `blocked` act as though it had said `none` (peer request).
+# Module level rather than a class attribute, because the L2 methods are copied
+# onto the other transports and a class attribute would not travel with them.
+RISK_CLASSES = ("none", "preapproved", "confirm", "handoff", "blocked")
+
+REQUIRED_CAPABILITIES = {
+    "observe", "act", "probe", "selection", "effect",
+    "action.click.deadline_uptime",
+    "expect.role", "expect.label", "expect.attribute", "expect.enabled",
+    "expect.no_modal", "expect.selection",
+}
 
 
 class InheritedHelperDriver:
@@ -58,6 +79,8 @@ class InheritedHelperDriver:
         return cls._shared
 
     def __init__(self):
+        if getattr(self, "_poisoned", False):
+            raise HelperUnavailable("모델 시간 초과로 권한 채널이 종료되었습니다")
         if getattr(self, "_ready", False):
             return                      # already connected on this channel
         fd = os.environ.get(self.FD_ENV)
@@ -68,24 +91,133 @@ class InheritedHelperDriver:
         self._sock = _s.socket(fileno=int(fd))
         self._sock.setblocking(True)
         self._f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
-        self._ready = True
         self._last_action_at = 0.0
-        pong = self._send({"type": "ping"})
-        if pong.get("type") != "pong":
-            raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
-        if not pong.get("trusted"):
-            raise HelperUnavailable(
-                "도우미에 접근성 권한이 없습니다 — 시스템 설정에서 'NLC Helper' 를 켜주세요")
+        # `_ready` is set at the END, and only on the way out of a successful
+        # handshake. Setting it before the checks made the refusal last exactly
+        # one construction: this class shares one instance, `__init__` returns
+        # early when `_ready` is set, and so the SECOND `InheritedHelperDriver()`
+        # got a driver whose handshake had failed — with the failure already
+        # reported and forgotten (peer finding, with a regression that proves
+        # it). A check that can be retried past is not a check.
+        try:
+            pong = self._send({"type": "ping"})
+            if pong.get("type") != "pong":
+                raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
+            if not pong.get("trusted"):
+                raise HelperUnavailable(
+                    "도우미에 접근성 권한이 없습니다 — "
+                    "시스템 설정에서 'NLC Helper' 를 켜주세요")
+            caps = set(pong.get("capabilities") or ())
+            missing = REQUIRED_CAPABILITIES - caps
+            if missing:
+                # An ignored precondition looks exactly like a satisfied one,
+                # which is how `expect` held in-process and did nothing here for
+                # several commits. Refusing is the only honest answer: the
+                # alternative is a client that thinks its checks ran.
+                raise HelperUnavailable(
+                    "도우미가 오래된 판입니다 — 다시 빌드해 주세요 "
+                    f"(./helper/build.sh). 빠진 기능: {', '.join(sorted(missing))}")
+        except Exception:
+            # Leave nothing a later construction could mistake for a working
+            # channel, and drop the shared instance so the next attempt starts
+            # over rather than inheriting this one.
+            for attr in ("_sock", "_f", "capabilities"):
+                if hasattr(self, attr):
+                    delattr(self, attr)
+            self._ready = False
+            type(self)._shared = None
+            raise
+        self.capabilities = caps
+        self._ready = True
 
-    def ask_launcher(self, prompt: str, want_json: bool = False) -> str | None:
+    def _ask_launcher_response(self, prompt: str, want_json: bool = False,
+                               provider: str = "auto", *, timeout_seconds=420) -> dict:
         """Put a question to a model through the launcher, which is outside.
 
         The same channel, a different destination: the launcher answers this
         one itself rather than passing it to the helper, because asking needs
         the user's PATH and touching the screen must not have it.
         """
-        r = self._send({"type": "ask", "prompt": prompt, "json": want_json})
-        return r.get("text") if r.get("type") == "answer" else None
+        if (type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds)
+                or not 0 < timeout_seconds <= 420):
+            raise ValueError("timeout_seconds must be finite, positive, and at most 420")
+        if getattr(self, "_poisoned", False):
+            raise HelperUnavailable("model channel is permanently closed")
+        expired = threading.Event()
+        deadline = time.monotonic() + timeout_seconds
+        def expire():
+            expired.set()
+            self._poisoned = True
+            try:
+                self._sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            self._sock.close()
+        timer = threading.Timer(timeout_seconds, expire)
+        timer.daemon = True
+        timer.start()
+        r = None
+        def timeout_error():
+            error = TimeoutError("model channel deadline exceeded")
+            if isinstance(r, dict) and r.get("error") == "model_timeout":
+                error.provider_response = r
+            return error
+        try:
+            r = self._send({"type": "ask", "prompt": prompt, "json": want_json,
+                            "provider": provider, "timeout_seconds": timeout_seconds})
+            if r.get("error") == "model_timeout":
+                expire()
+                raise timeout_error()
+            return r
+        finally:
+            timer.cancel()
+            timer.join()
+            if expired.is_set() or time.monotonic() >= deadline:
+                expire()
+                try:
+                    self._f.close()
+                except (OSError, ValueError):
+                    pass
+                raise timeout_error()
+
+    def ask_launcher(self, prompt: str, want_json: bool = False,
+                     provider: str = "auto", *, timeout_seconds=420) -> str | None:
+        response = self._ask_launcher_response(prompt, want_json, provider,
+                                               timeout_seconds=timeout_seconds)
+        return response.get("text") if response.get("type") == "answer" else None
+
+    def ask_launcher_result(self, prompt: str, want_json: bool = False,
+                            provider: str = "auto", *, timeout_seconds=420):
+        import uuid
+        from dataclasses import replace
+        from .provider_result import ProviderError, ProviderResult, parse_provider_result
+        started = time.monotonic()
+        try:
+            response = self._ask_launcher_response(prompt, want_json, provider,
+                                                   timeout_seconds=timeout_seconds)
+        except TimeoutError as exc:
+            response = getattr(exc, "provider_response", None)
+            if not isinstance(response, dict) or "provider_result_v1" not in response:
+                raise
+        if "provider_result_v1" in response:
+            result = parse_provider_result(response["provider_result_v1"])
+            if result.requested_provider != provider:
+                raise ValueError("provider request mismatch")
+            if result.status == "ok" and (response.get("type") != "answer" or response.get("text") != result.text):
+                raise ValueError("provider response text mismatch")
+            if result.status != "ok":
+                expected_error = "model_timeout" if result.status == "timeout" else "no_answer"
+                if (response.get("type") != "error" or response.get("error") != expected_error
+                        or response.get("text") is not None):
+                    raise ValueError("provider error response mismatch")
+            return replace(result, transport="launcher", elapsed_seconds=max(0, time.monotonic()-started))
+        # Old launchers expose text only. Do not invent actual model/usage IDs.
+        text = response.get("text") if response.get("type") == "answer" else None
+        ok = isinstance(text, str) and bool(text)
+        return ProviderResult(str(uuid.uuid4()), provider, None if provider == "auto" else provider,
+            "launcher", "ok" if ok else "error", text if ok else None,
+            None if ok else ProviderError("no_answer", "Model request failed"),
+            max(0, time.monotonic()-started))
 
     def close(self):
         # Deliberately does not close the descriptor: the channel belongs to the
@@ -97,6 +229,8 @@ class InheritedHelperDriver:
             pass
 
     def _send(self, msg: dict) -> dict:
+        if getattr(self, "_poisoned", False):
+            raise HelperUnavailable("model channel is permanently closed")
         self._f.write(json.dumps(msg, ensure_ascii=False) + "\n")
         self._f.flush()
         line = self._f.readline()
@@ -237,6 +371,17 @@ class HelperDriver:
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
             intent_text="", approved=False):
+        if risk_class not in RISK_CLASSES:
+            return {"type": "error", "error": "unknown_risk_class",
+                    "effect": "not_started",
+                    "detail": f"모르는 위험 등급이라 실행하지 않았습니다: "
+                              f"{risk_class!r}"}
+        if risk_class == "blocked":
+            # Blocked means nobody could say what this would do. There is no
+            # approval that fixes that, so there is nothing to ask.
+            return {"type": "error", "error": "blocked",
+                    "effect": "not_started",
+                    "detail": intent_text or "무슨 일이 일어날지 확정할 수 없습니다"}
         if risk_class == "handoff":
             return {"type": "handoff_request", "reason": intent_text}
         if risk_class in ("confirm", "preapproved") and not approved:
@@ -244,6 +389,16 @@ class HelperDriver:
                     "risk_class": risk_class}
         msg = {"type": "act", "obs_id": obs_id, "target": target,
                "action": action}
+        if action.get("name") in ("click", "prepare_window"):
+            from .model_budget import remaining_model_seconds
+            # Capture before computing remaining time; never extend the budget
+            # by serialization or time spent waiting for the helper.
+            started = time.monotonic()
+            try:
+                msg["click_deadline_uptime"] = started + remaining_model_seconds(5)
+            except TimeoutError:
+                return {"type": "error", "error": "input_deadline_expired",
+                        "effect": "not_started"}
         if expect:
             msg["expect"] = expect
         r = self._send(msg)
@@ -255,8 +410,39 @@ class HelperDriver:
         return self._send({"type": "probe", "obs_id": obs_id, "target": target,
                            "element_index": element_index})
 
+    def menu_items(self, target, path=None):
+        return self._send({"type": "menu_items", "target": target, "path": [] if path is None else path})
+
+    def menu_state(self, target, path):
+        """Read a running target's menu over the signed channel; never invoke it."""
+        return self._send({"type": "menu_state", "target": target, "path": path})
+
     def selection(self, target):
         return self._send({"type": "selection", "target": target})
+
+    def document_text(self, target, document_token=None, *, max_utf16_units=1000000):
+        """A pinned document's complete text, read over the signed channel.
+
+        The same shape `Driver.document_text` answers with, and the same thing
+        it refuses to claim: this witnesses what a document contains and where
+        it lives, never its source format or where a save panel would put it.
+
+        Malformed arguments are refused here as well as at the launcher and in
+        the helper. Sending them on would make this end the one place a caller
+        could get a different answer from the same request.
+        """
+        if (type(max_utf16_units) is not int or isinstance(max_utf16_units, bool)
+                or not 0 <= max_utf16_units <= 1000000):
+            return {"type": "error", "error": "document_snapshot_unavailable",
+                    "effect": "not_started", "detail": "invalid max_utf16_units"}
+        message = {"type": "document_text", "target": target,
+                   "max_utf16_units": max_utf16_units}
+        if document_token is not None:
+            if not isinstance(document_token, str) or not document_token:
+                return {"type": "error", "error": "document_snapshot_unavailable",
+                        "effect": "not_started", "detail": "invalid document token"}
+            message["document_token"] = document_token
+        return self._send(message)
 
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
         deadline = time.monotonic() + timeout_ms / 1000
@@ -275,7 +461,7 @@ class HelperDriver:
 # `_send`, so the socket driver borrows the spawn driver's implementations
 # rather than keeping a second copy in step with the first.
 for _name in ("identity", "list_targets", "observe", "act", "probe",
-              "selection", "wait_until"):
+              "selection", "menu_state", "menu_items", "document_text", "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(SocketHelperDriver, _name, impl)
     setattr(InheritedHelperDriver, _name, impl)

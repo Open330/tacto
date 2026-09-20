@@ -27,6 +27,20 @@ mode this whole module exists to prevent.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import unicodedata
+
+
+def same_value(expected, observed) -> bool:
+    """Identity comparisons are exact; bob must never authorize bobby."""
+    if isinstance(expected, str) and isinstance(observed, str):
+        return unicodedata.normalize("NFC", expected.strip()) == unicodedata.normalize(
+            "NFC", observed.strip())
+    return type(expected) is type(observed) and expected == observed
+
+
+def observed_absent(value) -> bool:
+    # Missing evidence (None) is not evidence of absence.
+    return value is False or value == "" or value == []
 
 # A receipt's state. `done` is the only one that means the task succeeded, and
 # it is deliberately hard to reach.
@@ -55,6 +69,29 @@ class OutcomeSpec:
     kind: str = ""                                  # which task kind, if any
     required: tuple = ()                            # the checks that kind needs
     expected: dict = field(default_factory=dict)    # what each one expects
+
+    @property
+    def commit_checks(self) -> tuple:
+        return tuple(c for c in self.required if c.when == "before_commit")
+
+    def before_commit(self, observed: dict) -> list[str]:
+        problems = []
+        for check in self.commit_checks:
+            got = observed.get(check.name)
+            if got is None:
+                problems.append(f"{check.name}: 실행 전에 확인하지 못했습니다")
+            elif check.kind == "reports":
+                want = self.expected.get(check.name)
+                if want is None:
+                    problems.append(f"{check.name}: 요청에서 기대값을 정하지 못했습니다")
+                elif not same_value(want, got):
+                    problems.append(f"{check.name}: 기대 {want!r}, 관찰 {got!r}")
+            elif check.kind == "absent":
+                if not observed_absent(got):
+                    problems.append(f"{check.name}: 비어 있지 않습니다 ({got!r})")
+            else:
+                problems.append(f"{check.name}: 지원하지 않는 실행 전 검사")
+        return problems
 
     def unfilled(self) -> list:
         """Checks this kind requires that nobody supplied a value for.
@@ -152,8 +189,8 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
     if spec.must_read:
         witnessed_values = [str(v) for v in seen.values()]
         missing = [v for v in spec.must_read
-                   if not any(v in str(s) for s in said)
-                   and not any(v in w for w in witnessed_values)]
+                   if not any(same_value(v, str(s)) for s in said)
+                   and not any(same_value(v, w) for w in witnessed_values)]
         if missing:
             problems.append("읽어야 할 값을 못 봤습니다: " + ", ".join(missing))
         checked.append("원한 값이 결과에 있는가")
@@ -161,9 +198,13 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
         unchecked.append("원한 결과가 맞는지")
 
     # F — is what should not have moved still there?
-    if spec.must_not_change:
+    named_invariants = {spec.expected[c.name] for c in spec.required
+                        if c.kind == "unchanged" and c.name in spec.expected
+                        and isinstance(spec.expected[c.name], str)}
+    legacy_invariants = [v for v in spec.must_not_change if v not in named_invariants]
+    if legacy_invariants:
         if after_tree:
-            gone = [v for v in spec.must_not_change if v not in after_tree]
+            gone = [v for v in legacy_invariants if v not in after_tree]
             if gone:
                 problems.append("그대로여야 할 것이 사라졌습니다: "
                                 + ", ".join(gone))
@@ -184,10 +225,54 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
         if got is None:
             unchecked.append(f"{check.name} (커밋 전 화면에서 확인 못 함)")
             continue
-        if str(want) not in str(got):
+        if not same_value(want, got):
             problems.append(f"{check.name}: {want!r} 를 기대했는데 화면은 "
                             f"{got!r} 입니다")
         checked.append(f"{check.name} (커밋 직전)")
+
+    # A declared check is not a passed check. Every kind needs evidence.
+    history = getattr(result, "events", [])
+    for check in spec.required:
+        if check.kind == "absent":
+            got = seen.get(check.name)
+            if got is None:
+                unchecked.append(check.name)
+            elif not observed_absent(got):
+                problems.append(f"{check.name}: 비어 있지 않습니다 ({got!r})")
+            else:
+                checked.append(check.name)
+        elif check.kind == "exactly_once":
+            effect = {"save_file": "write_persistent", "send_message": "transmit"}.get(spec.kind)
+            events = [e for e in history if effect in e.get("effects", [])]
+            from .commit_evidence import evidence_error
+            if not events or any(e.get("state") != "confirmed" or
+                                 evidence_error({**e, "commit_evidence":
+                                     getattr(result, "commit_evidence", {}).get(e.get("event_id"))},
+                                                spec.expected) is not None
+                                 for e in events):
+                unchecked.append(check.name)
+            elif len(events) != 1:
+                problems.append(f"{check.name}: {len(events)}회 실행됐습니다")
+            else:
+                checked.append(check.name)
+        elif check.kind == "reports" and check.when == "after":
+            want, got = spec.expected.get(check.name), seen.get(check.name)
+            if want is None or got is None:
+                unchecked.append(check.name)
+            elif not same_value(want, got):
+                problems.append(f"{check.name}: 기대 {want!r}, 관찰 {got!r}")
+            else:
+                checked.append(check.name)
+        elif check.kind == "unchanged" and check.name in spec.expected:
+            if check.name in seen:
+                if not same_value(spec.expected[check.name], seen[check.name]):
+                    problems.append(f"{check.name}: 원래 값과 다릅니다")
+                else:
+                    checked.append(check.name)
+            else:
+                unchecked.append(check.name)
+        elif check.kind not in ("reports", "any_value", "unchanged"):
+            unchecked.append(check.name)
 
     # "Nothing changed" can be ARGUED rather than observed, when the request
     # permitted nothing that could change anything and nothing else occurred.
@@ -217,7 +302,7 @@ def verify(spec: OutcomeSpec, result, after_tree: str = "") -> TaskReceipt:
     elif not getattr(result, "ok", False):
         state = REFUSED
         problems = [getattr(result, "why", "") or "진행하지 않았습니다"]
-    elif spec.kind and skipped:
+    elif spec.kind and unchecked:
         # The kind said what it takes to know this worked, and some of it was
         # never looked at. Calling that success would be the machine grading
         # its own paper on the questions it chose to answer.

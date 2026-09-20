@@ -18,12 +18,14 @@ from __future__ import annotations
 import json
 import re
 import time
+from copy import deepcopy
 from dataclasses import dataclass, field, asdict, replace
 
 from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
                        validate, describe, ApprovalToken)
-from .driver import Driver
+from .protocol import Driver, ACTION_PARAMS
+from .commit_evidence import make_event, evidence_error
 
 
 def _norm(s: str) -> str:
@@ -216,7 +218,7 @@ class Selector:
         Unicode bidi/format marks (e.g. the LTR mark macOS Calculator wraps its
         digits in) are stripped so '\\u200e408' compares equal to '408'."""
         others = "|".join(k for k in cls._ATTR_KEYS if k != key)
-        m = re.search(rf"{key}:\s*(.+?)"
+        m = re.search(rf"{key}:[ \t]*(.*?)"
                       rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused)\]|$)", line)
         return _norm(m.group(1).strip()) if m else None
 
@@ -624,10 +626,32 @@ class Flow:
         return json.dumps(d, ensure_ascii=False, indent=2)
 
     @staticmethod
-    def from_json(text: str) -> "Flow":
+    def from_json(text: str, *, allow_legacy: bool = False) -> "Flow":
         d = json.loads(text)
+        if not isinstance(d, dict):
+            raise ValueError("Flow must be a JSON object")
+        schema = d.get("schema", 2)
+        if type(schema) is not int or schema not in (1, 2):
+            raise ValueError(f"unsupported Flow schema: {schema!r}")
+        if schema == 1 and not allow_legacy:
+            raise ValueError("schema 1 requires explicit migration to schema 2")
+        if not isinstance(d.get("steps"), list):
+            raise ValueError("Flow.steps must be a list")
+        if not all(isinstance(d.get(k), str) and d[k] for k in ("name", "target")):
+            raise ValueError("Flow requires name and target")
         steps = []
         for s in d["steps"]:
+            if not isinstance(s, dict) or s.get("action") not in ACTION_PARAMS:
+                raise ValueError("unknown Flow action")
+            payload = s.get("params", {})
+            if not isinstance(payload, dict) or set(payload) - ACTION_PARAMS[s["action"]]:
+                raise ValueError("invalid action parameters; names and indices are not parameters")
+            if s["action"] in ("select_option", "select_custom_option") and not isinstance(payload.get("option_label"), str):
+                raise ValueError("selection requires option_label for effect classification")
+            for key in ("require_enabled", "is_submit", "into_sensitive_field",
+                        "unverified_ok", "answers"):
+                if key in s and type(s[key]) is not bool:
+                    raise ValueError(f"{key} must be boolean")
             sel = Selector(**s["selector"]) if s.get("selector") else None
 
             def _post(pc):
@@ -673,7 +697,7 @@ class Flow:
                               skip_if=skip_if, answers=s.get("answers", False),
                               on_uncertain=list(s.get("on_uncertain", []))))
         return Flow(name=d["name"], target=d["target"], steps=steps,
-                    schema=d.get("schema", 1),   # older files predate contracts
+                    schema=schema,
                     params=d.get("params", {}), tables=d.get("tables", {}),
                     derived=d.get("derived", {}))
 
@@ -884,6 +908,8 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
             binding,
             # a templated pin becomes the concrete value it renders to
             identifier=_render(binding.identifier, ctx),
+            title=_render(binding.title, ctx), desc=_render(binding.desc, ctx),
+            value=_render(binding.value, ctx),
             ancestor=_render(binding.ancestor, ctx),
             # Recomputed from the rendered payload: a parameterized type_text
             # changes what is typed, so a copied digest would invalidate every
@@ -927,7 +953,7 @@ def _live_binding(driver, flow, step, action, target_line,
     # the field, and an instant contract_invalidated for the first one that did.
     payload = {k: v for k, v in action.items()
                if k not in ("element_index", "name")}
-    live = ContextBinding(policy_version=rec.policy_version)
+    live = ContextBinding()
 
     if rec.bundle_id is not None:
         live.bundle_id = (driver.identity(flow.target)
@@ -936,6 +962,9 @@ def _live_binding(driver, flow, step, action, target_line,
         live.role = step.selector.role
     if rec.identifier is not None and step.selector is not None:
         live.identifier = _first_id(step.selector)
+    for key in ("title", "desc", "value"):
+        if getattr(rec, key) is not None and step.selector is not None:
+            setattr(live, key, getattr(step.selector, key))
     if rec.ancestor is not None and step.selector is not None:
         live.ancestor = step.selector.ancestor
     if rec.operation is not None:
@@ -1134,14 +1163,34 @@ def _may_rerun(step: "Step") -> bool:
         return False
     if step.safety is None:
         return False
-    return set(step.safety.effects) <= {"read", "write_ephemeral",
-                                        "write_persistent"}
+    return set(step.safety.effects) <= {"read", "write_ephemeral"}
 
 
 class ReplayResult:
     def __init__(self):
         self.ok = True
         self.log: list[dict] = []
+        self.events: list[dict] = []
+        self.commit_evidence: dict = {}
+        self._secrets: set[str] = set()
+
+    def protect(self, value):
+        if isinstance(value, str) and value:
+            self._secrets.add(value)
+        elif isinstance(value, list):
+            for item in value:
+                self.protect(item)
+        self.log = [self._redact(e) for e in self.log]
+
+    def _redact(self, value):
+        if isinstance(value, str):
+            for secret in sorted(self._secrets, key=len, reverse=True):
+                value = value.replace(secret, "[redacted]")
+        elif isinstance(value, dict):
+            value = {k: self._redact(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            value = [self._redact(v) for v in value]
+        return value
 
     @property
     def resolved(self) -> list[dict]:
@@ -1160,13 +1209,14 @@ class ReplayResult:
         return [e for e in self.log if e.get("status") == "resolved"]
 
     def record(self, **kw):
-        self.log.append(kw)
-        if kw.get("status") == "error":
+        self.log.append(self._redact(kw))
+        if kw.get("status") in ("error", "gated", "unverified"):
             self.ok = False
 
 
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
-           narrate=None, escalate=None, budget: int = 0) -> ReplayResult:
+           narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
+           after_commit=None, commit_expected: dict | None = None) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
@@ -1181,12 +1231,53 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     outcome that did not arrive. Today those end the run; given a budget they
     become a question instead. Screen-granularity is not "call a model every
     screen", it is "call one when the screen disagrees with the recipe".
+
+    Consequential commits require typed host evidence, even if a UI
+    postcondition succeeds. Hooks have the same shape as general.run and may
+    come from the driver. commit_expected contains host expectations fixed
+    before execution; a receipt must never be reused as its own expectation.
     """
     approvals = approvals or {}
     res = ReplayResult()
+    if type(flow.schema) is not int or flow.schema != 2:
+        res.record(status="error", error="unsupported_schema",
+                   detail="migrate the flow to schema 2 before execution")
+        return res
     spend = _Budget(budget if escalate is not None else 0)
     captures: dict = {}      # values read off the screen during this run
 
+    for i, step in enumerate(flow.steps):
+        if step.action not in ACTION_PARAMS or not isinstance(step.params, dict) \
+                or set(step.params) - ACTION_PARAMS.get(step.action, frozenset()):
+            res.record(status="error", step=i, error="invalid_action")
+            return res
+        if step.action == "prepare_window":
+            if ("action.prepare_window" not in getattr(driver,"capabilities",())
+                    or step.selector is None or step.postcondition is None
+                    or step.postcondition.field is None or step.postcondition.equals is None
+                    or step.postcondition.attribute is None or step.unverified_ok
+                    or step.safety is None or set(step.safety.effects) != {"write_ephemeral"}):
+                res.record(status="error", step=i, error="window_preparation_contract_required",
+                           detail="prepare_window needs capability, window selector and exact observed result")
+                return res
+        if step.action in ("select_option", "select_custom_option") and not isinstance(step.params.get("option_label"), str):
+            res.record(status="error", step=i, error="selection_label_required")
+            return res
+
+    missing = [i for i, st in enumerate(flow.steps) if st.safety is None]
+    if missing:
+        res.record(status="error", error="contract_required",
+                   detail=f"steps {missing} require a safety contract")
+        return res
+    prepare_commit = prepare_commit or getattr(driver, "prepare_commit", None)
+    after_commit = after_commit or getattr(driver, "after_commit", None)
+    configured_expected = (commit_expected if commit_expected is not None
+                           else getattr(driver, "commit_expected", None))
+    if configured_expected is not None and not isinstance(configured_expected, dict):
+        raise ValueError("commit_expected must be a host-supplied dictionary")
+    host_expected = deepcopy(configured_expected or {})
+    if hasattr(driver, "protect_captures"):
+        driver.protect_captures([c for s in flow.steps for c in s.captures if c.sensitive])
     obs = driver.observe(flow.target, "tree_full")
     if obs.get("error") == "no_window_content" and flow.steps \
             and flow.steps[0].action == "menu":
@@ -1197,20 +1288,6 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     if obs["type"] != "observation":
         res.record(status="error", stage="initial_observe", detail=obs)
         return res
-
-    # A contract is the authorization mechanism, not an optional annotation.
-    # Without this check a step that simply omits `safety` falls through to the
-    # legacy label classifier — so "the model never declares risk" would be
-    # false in practice (advisor finding). v1 recipes predate contracts and are
-    # still honoured, but must opt in explicitly.
-    if flow.schema >= 2:
-        missing = [i for i, st in enumerate(flow.steps)
-                   if st.action != "observe" and st.safety is None]
-        if missing:
-            res.record(status="error", error="contract_required",
-                       detail=f"스텝 {missing} 에 safety 계약이 없습니다 "
-                              "(schema 2는 모든 실행 스텝에 계약을 요구합니다)")
-            return res
 
     # Steps whose success is not self-evident must be verifiable: delivery of a
     # keyboard event is not evidence the app accepted it, so an unverified
@@ -1298,11 +1375,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 res.record(status="error", step=i, action=step.action,
                            error=kind, detail=f"{e}. {nearby}")
                 return res
+        if step.selector is not None:
             idx = action["element_index"]
             target_line = next((l for l in obs["tree"].splitlines()
                                 if re.match(rf"\s*{idx}\s", l)), "")
-            # Precondition (TOCTOU/enabled): re-verify the resolved target on the
-            # fresh observation right before acting.
+            if step.action == "prepare_window":
+                parts = target_line.strip().split()
+                if len(parts)<2 or not _same_role(parts[1], "Window"):
+                    res.record(status="error", step=i, error="window_preparation_target_required")
+                    return res
             if step.require_enabled and "[disabled]" in target_line:
                 res.record(status="error", step=i, action=step.action,
                            error="precondition_failed",
@@ -1350,9 +1431,124 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 into_sensitive_field=step.into_sensitive_field)
             risk = safety.merge(step.risk_class, detected)
 
-        r = driver.act(obs["obs_id"], flow.target, action,
-                       risk_class=risk, intent_text=gate_desc,
-                       approved=_approved(approvals, i, step, action))
+        def dispatch(current, payload):
+            if current.get("type") != "observation":
+                return {"type": "error", "error": "observation_required", "effect": "not_started"}
+            idx = payload.get("element_index")
+            line = next((ln for ln in current["tree"].splitlines()
+                         if idx is not None and re.match(rf"\s*{idx}\s", ln)), target_line)
+            if step.binding is not None:
+                live = _live_binding(driver, flow, step, payload, line, current["tree"])
+                valid = validate(step.binding, live)
+                if not valid.ok:
+                    return {"type": "error", "error": "contract_invalidated",
+                            "effect": "not_started", "detail": valid.hard + valid.unverifiable}
+            claim = {}
+            if idx is not None:
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    claim["role"] = parts[1]
+                for key in ("Identifier", "Title", "Description", "Value"):
+                    label = Selector._attr(line, key)
+                    if label is not None:
+                        claim.update(attribute=key, label=label)
+                        break
+                if step.require_enabled and step.action != "prepare_window":
+                    claim["enabled"] = True
+            effects = set(step.safety.effects) if step.safety is not None else safety.effects_of(payload, line, target=flow.target)[0]
+            observed_effects, observed_reason = safety.effects_of(payload, line, target=flow.target)
+            # Element/option signals come from the resolved target. A menu's
+            # synthesized path is authored text, not a live element observation
+            # (Save As… can merely open a panel), so it is not this check's input.
+            observed_consequential = (observed_effects - {"read", "write_ephemeral"}
+                                      if idx is not None else safety.document_edit_effects(
+                                          payload, line, target=flow.target))
+            if observed_consequential - effects:
+                return {"type": "error", "error": "contract_effect_mismatch",
+                        "effect": "not_started", "detail": sorted(observed_consequential - effects)}
+            effects |= observed_consequential
+            calculator_clear = (
+                flow.target == "com.apple.calculator" and effects == {"delete"}
+                and risk == "none" and step.safety is not None
+                and step.safety.resource.scope == "entry"
+                and step.safety.reversibility == "reversible"
+                and observed_effects == {"write_ephemeral"}
+                and observed_reason == "입력 지우기")
+            consequential = bool(effects - {"read", "write_ephemeral"}) and not calculator_clear
+            expected = {}
+            if consequential and "write_persistent" in effects and step.binding is not None:
+                if step.binding.resource_identity:
+                    expected["저장한 이름"] = step.binding.resource_identity
+                if step.binding.destination_identity:
+                    expected["저장 위치"] = step.binding.destination_identity
+            # Explicit host expectations may resolve a logical folder label
+            # (e.g. Downloads) to the canonical path before execution.
+            expected.update(host_expected)
+            event = make_event(payload, effects, flow.target, obs_id=current['obs_id'])
+            context = None
+            if consequential and prepare_commit is not None:
+                try:
+                    context = prepare_commit(deepcopy(event))
+                except Exception:
+                    return {"type": "error", "error": "host_evidence_preparation_failed",
+                            "effect": "not_started"}
+            try:
+                response = driver.act(current["obs_id"], flow.target, payload,
+                                      **({"expect": claim} if claim else {}),
+                                      risk_class=risk, intent_text=gate_desc,
+                                      approved=_approved(approvals, i, step, payload))
+            except Exception as exc:
+                response = {"type": "error", "error": "driver_exception",
+                            "effect": "unknown", "detail": str(exc)}
+            dispatched = response.get("type") == "acted" or (
+                response.get("type") == "error" and response.get("effect", "unknown") != "not_started")
+            if not dispatched:
+                return response
+            event["state"] = ("unknown" if response.get("type") != "acted" or response.get("unverified")
+                              else "confirmed" if effects == {"read"} else "dispatched")
+            res.events.append(event)
+            preparation_observation = (
+                step.action == "prepare_window" and response.get("type") == "acted"
+                and response.get("input_route") == "window_prepare"
+                and response.get("unverified") == "observe_effect"
+                and response.get("reobserve_required") is True
+                and effects <= {"read", "write_ephemeral"})
+            if step.action == "prepare_window" and not preparation_observation:
+                event["state"] = "unknown"
+                return {"type":"error", "error":"action_unverified", "effect":"unknown",
+                        "event_id":event["event_id"], "event_state":"unknown",
+                        "detail":"window preparation response has no reobservation contract"}
+            if preparation_observation:
+                event["observation_required"] = True
+            if response.get("unverified") and not preparation_observation:
+                return {"type": "error", "error": "action_unverified", "effect": "unknown",
+                        "event_id": event["event_id"], "event_state": "unknown",
+                        "detail": response["unverified"]}
+            if consequential:
+                proof = None
+                if after_commit is not None:
+                    try:
+                        proof = after_commit(deepcopy(event), deepcopy(response), context)
+                    except Exception:
+                        event["evidence_error"] = "host_commit_evidence_failed"
+                problem = evidence_error({**event, "commit_evidence": proof}, expected)
+                if problem is not None:
+                    event["evidence_error"] = event.get("evidence_error", problem)
+                    return {"type": "error", "error": "commit_unverified",
+                            "effect": response.get("effect", "unknown"),
+                            "event_id": event["event_id"], "event_state": event["state"],
+                            "detail": event["evidence_error"]}
+                res.commit_evidence[event["event_id"]] = proof
+                event["state"] = "confirmed"
+            return response
+
+        r = dispatch(obs, action)
+
+        if r.get("error") in ("commit_unverified", "action_unverified"):
+            res.record(status="unverified", step=i, action=step.action,
+                       error=r["error"], effect=r["effect"],
+                       event_id=r["event_id"], event_state=r["event_state"], detail=r["detail"])
+            return res
 
         if r["type"] in ("confirm_request", "handoff_request"):
             res.record(status="gated", step=i, gate=r["type"], risk=risk,
@@ -1383,11 +1579,18 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     try:
                         action["element_index"], trace = \
                             step.selector.resolve(obs["tree"])
-                    except LookupError:
-                        pass
-                r = driver.act(obs["obs_id"], flow.target, action,
-                               risk_class=risk, intent_text=gate_desc,
-                               approved=_approved(approvals, i, step, action))
+                    except LookupError as exc:
+                        res.record(status="error", step=i, error="target_missing", detail=str(exc))
+                        return res
+                r = dispatch(obs, action)
+                if r.get("error") in ("commit_unverified", "action_unverified"):
+                    res.record(status="unverified", step=i, action=step.action,
+                               error=r["error"], effect=r["effect"],
+                               event_id=r["event_id"], event_state=r["event_state"], detail=r["detail"])
+                    return res
+                if r["type"] in ("confirm_request", "handoff_request"):
+                    res.record(status="gated", step=i, gate=r["type"], detail=r)
+                    return res
             if r["type"] == "error":
                 res.record(status="error", step=i, action=step.action, detail=r)
                 return res
@@ -1441,10 +1644,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             except LookupError:
                                 retry = None
                         if retry is not None:
-                            driver.act(fresh["obs_id"], flow.target, retry,
-                                       risk_class=risk, intent_text=gate_desc,
-                                       approved=_approved(approvals, i, step,
-                                                          retry))
+                            retried = dispatch(fresh, retry)
+                            if retried.get("type") != "acted":
+                                res.record(status="error", step=i, error="retry_refused", detail=retried)
+                                return res
                             obs = driver.wait_until(flow.target, post.check)
                             if obs["type"] == "observation":
                                 res.record(status="resolved", step=i,
@@ -1518,6 +1721,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             # it. Keep the two apart rather than masking at the source, which
             # would hand "[redacted]" to the next step (advisor finding).
             captures[cap.name] = value
+            if cap.sensitive:
+                res.protect(value)
+            if cap.sensitive and hasattr(driver, "protect_value"):
+                driver.protect_value(value)
             shown = "[redacted]" if cap.sensitive else value
         res.record(status="ok", step=i, action=step.action, resolver=trace,
                    risk=risk,

@@ -1,0 +1,117 @@
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from nlc.codex_result import codex_result, parse_codex_events, CodexProtocolError, _run_codex
+
+
+def events():
+    return [{'type': 'thread.started', 'thread_id': 'thread-1'},
+            {'type': 'turn.started'},
+            {'type': 'item.completed', 'item': {'id': 'a', 'type': 'agent_message', 'text': '{"done":true}'}},
+            {'type': 'turn.completed', 'usage': {'input_tokens': 100, 'output_tokens': 10, 'cached_input_tokens': 60}}]
+
+
+def stream(items):
+    return '\n'.join(json.dumps(item) for item in items)
+
+
+class CodexResultTests(unittest.TestCase):
+    def test_parses_observed_usage_and_thread_separately(self):
+        result = parse_codex_events(stream(events()), '{"done":true}\n')
+        self.assertEqual('thread-1', result['provider_thread_id'])
+        self.assertEqual(100, result['input_tokens'])
+        self.assertEqual(60, result['cached_input_tokens'])
+
+    def test_partial_error_and_multiple_terminals_cannot_succeed(self):
+        bad = [events()[:-1], events() + [{'type': 'error', 'message': 'private'}],
+               events() + [events()[-1]], events()[:2] + [{'type': 'turn.failed'}],
+               events()[1:], events()[:2] + [{'type': 'item.completed', 'item': {'type': 'error'}}] + events()[2:]]
+        for sequence in bad:
+            with self.subTest(sequence=sequence), self.assertRaises(CodexProtocolError):
+                parse_codex_events(stream(sequence), '{"done":true}')
+        with self.assertRaises(CodexProtocolError):
+            parse_codex_events(stream(events()), 'different answer')
+        with self.assertRaises(CodexProtocolError):
+            parse_codex_events('not json\n' + stream(events()), '{"done":true}')
+
+    def test_usage_booleans_negative_and_invalid_cache_rejected(self):
+        for key, value in [('input_tokens', True), ('output_tokens', -1),
+                           ('cached_input_tokens', 101), ('cached_input_tokens', False)]:
+            sequence = events()
+            sequence[-1]['usage'][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(CodexProtocolError):
+                parse_codex_events(stream(sequence), '{"done":true}')
+
+    def test_explicit_adapter_stdin_private_file_and_unknown_metadata(self):
+        paths = []
+        def launch(argv, prompt, timeout):
+            self.assertEqual('sensitive prompt', prompt)
+            self.assertNotIn(prompt, argv)
+            self.assertEqual('-', argv[-1])
+            self.assertIn('--ephemeral', argv)
+            self.assertEqual('read-only', argv[argv.index('--sandbox')+1])
+            self.assertEqual('requested-model', argv[argv.index('--model')+1])
+            path = Path(argv[argv.index('--output-last-message')+1])
+            paths.append(path)
+            self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
+            path.write_text('{"done":true}')
+            return 0, stream(events())
+        with patch('nlc.codex_result._run_codex', side_effect=launch):
+            result = codex_result('sensitive prompt', model='requested-model')
+        self.assertEqual('ok', result.status)
+        self.assertEqual(10, result.output_tokens)
+        self.assertIsNone(result.model)
+        self.assertIsNone(result.provider_request_id)
+        self.assertIsNone(result.cost)
+        self.assertFalse(result.cancellation_supported)
+        self.assertFalse(paths[0].exists())
+
+    def test_nonzero_exit_and_timeout_are_not_success(self):
+        with patch('nlc.codex_result._run_codex', return_value=(1, stream(events()))):
+            result = codex_result('q')
+        self.assertEqual('error', result.status)
+        with patch('nlc.codex_result._run_codex', side_effect=subprocess.TimeoutExpired('PRIVATE', 1)):
+            result = codex_result('q')
+        self.assertEqual('timeout', result.status)
+        self.assertIsNone(result.input_tokens)
+        self.assertNotIn('PRIVATE', json.dumps(result.to_dict()))
+
+    def test_process_helper_passes_stdin_without_shell(self):
+        code, text = _run_codex([sys.executable, '-c', 'import sys;print(sys.stdin.read())'], 'literal $(not shell)', 3)
+        self.assertEqual(0, code)
+        self.assertEqual('literal $(not shell)', text.strip())
+
+    def test_invalid_deadline_rejected_before_launch(self):
+        for value in (0, -1, float('nan'), float('inf'), True):
+            with self.subTest(value=value), patch('nlc.codex_result._run_codex') as launch:
+                result = codex_result('q', timeout=value)
+                self.assertEqual('error', result.status)
+                launch.assert_not_called()
+
+
+class CodexInputTokenSemanticsTests(unittest.TestCase):
+    def test_cached_input_is_not_added_again_and_cache_write_remains_optional(self):
+        source = events()
+        def parse():
+            return parse_codex_events(stream(source), '{"done":true}')
+        result = parse()
+        self.assertEqual('total', result['input_tokens_basis'])
+        self.assertEqual(100,result['total_input_tokens'])
+        self.assertIsNone(result['cache_creation_input_tokens'])
+        source[-1]['usage']['cache_write_input_tokens'] = 20
+        result = parse()
+        self.assertEqual(100,result['total_input_tokens'])
+        self.assertEqual(20,result['cache_creation_input_tokens'])
+        source[-1]['usage']['cache_write_input_tokens'] = True
+        with self.assertRaises(CodexProtocolError): parse()
+
+
+if __name__ == '__main__':
+    unittest.main()

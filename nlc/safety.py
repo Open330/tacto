@@ -78,6 +78,15 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
                   typing into credential fields and for final-submit steps.
     """
     name = action.get("name", "")
+    if name in ('select_option', 'select_custom_option') and isinstance(action.get('option_label'), str):
+        # Selecting an option can invoke a command. Keep the parent control's
+        # signal as well: a harmless-looking option cannot lower its risk.
+        without_label = {k: v for k, v in action.items() if k != 'option_label'}
+        parent, parent_reason = classify(without_label, target_line,
+                                        into_sensitive_field=into_sensitive_field, is_submit=is_submit)
+        selected, selected_reason = classify(without_label, action['option_label'],
+                                            into_sensitive_field=into_sensitive_field, is_submit=is_submit)
+        return merge(parent, selected), parent_reason + '; selected option: ' + selected_reason
     low = target_line.lower()
     raw = target_line   # Korean matched case-sensitively on the original text
 
@@ -105,9 +114,9 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
             return "confirm", f"destructive key: {k}"
 
     # Typing a password/OTP is transmission-adjacent -> hand off to the user.
-    if name in ("type_text", "set_value") and into_sensitive_field:
+    if name in ("type_text", "set_value", "select_option", "select_custom_option") and into_sensitive_field:
         return "handoff", "credential entry: user must type it"
-    if name in ("type_text", "set_value") and (
+    if name in ("type_text", "set_value", "select_option", "select_custom_option") and (
             _SENSITIVE_FIELD.search(low)
             or any(k in raw for k in _SENSITIVE_FIELD_KO)):
         return "handoff", "target looks like a credential field"
@@ -202,7 +211,63 @@ _EFFECT_EN = [
 _EFFECT_RX = [(eff, [re.compile(p) for p in pats]) for eff, pats in _EFFECT_EN]
 
 
-def effects_of(action: dict, target_line: str = "") -> tuple[set, str]:
+def document_edit_effects(action: dict, target_line: str = "", *, target: str = "") -> set:
+    """Host-known TextEdit document mutations may autosave even when untitled.
+
+    Target must come from the executor, never model-supplied action fields.
+    Only the resolved role/identifier is inspected, not document text labels.
+    Menu paths describe the actual command being dispatched; opening Save or
+    selecting text is not itself a document mutation. This is a finite list,
+    not an exhaustive classifier for every TextEdit menu, plugin, or shortcut.
+    Unknown-role writes cannot establish a transient field and stay persistent;
+    resolved ordinary TextFields (name/search) retain their existing treatment.
+    """
+    if target != "com.apple.TextEdit":
+        return set()
+    name = action.get("name")
+    role_match = re.match(r"\s*\d+\s+(?:AX)?(\w+)", target_line)
+    role = role_match.group(1) if role_match else ""
+    body = role == "TextArea" or bool(re.search(
+        r"(?:^|[, ]+)Identifier: First Text View(?:,|$)", target_line))
+    if name in ("set_value", "type_text") and body:
+        return {"write_persistent"}
+    if name in ("type_text", "set_value") and not role:
+        # No resolved field means the current document cannot be excluded.
+        return {"write_persistent"}
+    if name == "press_key":
+        from .protocol import NAVIGATION_KEYS
+        key = action.get("key")
+        if isinstance(key, str) and key not in NAVIGATION_KEYS:
+            normalized = key.lower().replace("command+", "cmd+").replace("super+", "cmd+")
+            edits = {"cmd+v", "cmd+x", "cmd+z", "cmd+shift+z", "shift+cmd+z",
+                     "cmd+b", "cmd+i", "cmd+u", "delete", "forwarddelete", "backspace",
+                     "return", "enter", "space", "spacebar"}
+            parts = normalized.split("+")
+            if (normalized in edits
+                    or ("cmd" in parts and parts[-1] in {"v", "x", "z", "b", "i", "u"})
+                    or any(part in ("delete", "backspace", "forwarddelete") for part in parts)
+                    or len(key) == 1 or (len(parts) == 2 and parts[0] == "shift" and len(parts[1]) == 1)):
+                return {"write_persistent"}
+    if name == "menu":
+        path = action.get("path")
+        if not isinstance(path, list) or len(path) < 2:
+            return set()
+        def alternatives(part):
+            return part if isinstance(part, list) else [part]
+        roots, leaves = alternatives(path[0]), alternatives(path[-1])
+        edit = {"Cut", "Paste", "Paste and Match Style", "Delete", "Undo", "Redo",
+                "오려두기", "붙여넣기", "스타일 일치시켜 붙여넣기", "삭제", "실행 취소", "실행 복귀"}
+        formatting = {"Bold", "Italic", "Underline", "Bigger", "Smaller", "굵게", "볼드",
+                      "기울임꼴", "밑줄", "더 크게", "더 작게", "Make Plain Text",
+                      "Make Rich Text", "일반 텍스트 만들기", "리치 텍스트 만들기"}
+        if ((any(x in ("Edit", "편집") for x in roots) and any(x in edit for x in leaves))
+                or (any(x in ("Format", "포맷", "서식") for x in roots)
+                    and any(x in formatting for x in leaves))):
+            return {"write_persistent"}
+    return set()
+
+
+def effects_of(action: dict, target_line: str = "", *, target: str = "") -> tuple[set, str]:
     """What this action DOES, as effects — never as a risk level.
 
     A risk level cannot be compared against what the user asked for; an effect
@@ -211,13 +276,41 @@ def effects_of(action: dict, target_line: str = "") -> tuple[set, str]:
     than keeping a second notion of "risky" that nothing else understands.
     """
     name = action.get("name", "")
+    if name in ('select_option', 'select_custom_option') and isinstance(action.get('option_label'), str):
+        without_label = {k: v for k, v in action.items() if k != 'option_label'}
+        parent, parent_reason = effects_of(without_label, target_line, target=target)
+        selected, selected_reason = effects_of(without_label, action['option_label'], target=target)
+        combined = parent | selected
+        if combined - {'read', 'write_ephemeral'}:
+            combined -= {'read', 'write_ephemeral'}
+        return combined, parent_reason + '; 선택 항목: ' + selected_reason
     low, raw = target_line.lower(), target_line
+    if name == "menu":
+        path = action.get("path")
+        leaf = path[-1] if isinstance(path,list) and path else []
+        leaves = [leaf] if isinstance(leaf,str) else leaf if isinstance(leaf,list) else []
+        # These menu commands can mutate a persistent document in any app.
+        # A background app or an unfamiliar menu root does not make them transient.
+        edits = {"cut", "paste", "paste and match style", "delete", "undo", "redo",
+                 "bold", "italic", "underline", "bigger", "smaller", "make plain text", "make rich text",
+                 "오려두기", "붙여넣기", "스타일 일치시켜 붙여넣기", "삭제", "실행 취소", "실행 복귀",
+                 "굵게", "볼드", "기울임꼴", "밑줄", "더 크게", "더 작게", "일반 텍스트 만들기", "리치 텍스트 만들기"}
+        if any(isinstance(title,str) and title.strip().casefold().rstrip(".…") in edits for title in leaves):
+            return {"write_persistent"}, "메뉴 명령은 저장되는 내용을 변경할 수 있습니다"
+    from .protocol import NAVIGATION_KEYS
+    if name == "prepare_window":
+        return {"write_ephemeral"}, "관측된 창 준비 후 재관찰"
+    if name == "press_key" and isinstance(action.get("key"), str) and action["key"] in NAVIGATION_KEYS:
+        return {"write_ephemeral"}, "현재 포커스의 탐색 키"
     if name in ("scroll", "read"):
         return {"read"}, "화면을 읽습니다"
-    if name in ("type_text", "set_value") and (
+    if name in ("type_text", "set_value", "select_option", "select_custom_option") and (
             _SENSITIVE_FIELD.search(low)
             or any(k in raw for k in _SENSITIVE_FIELD_KO)):
         return {"credential"}, "자격 증명 입력란"
+    document_effects = document_edit_effects(action, target_line, target=target)
+    if document_effects:
+        return document_effects, "TextEdit 문서 편집은 자동 저장될 수 있습니다"
     # The calculator's AC clears an ENTRY, not stored data. Same carve-out as
     # `classify`, for the same reason and on the same words.
     if name == "click" and any(k in low or k in raw for k in _INPUT_CLEAR_WORDS) \

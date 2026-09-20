@@ -124,6 +124,8 @@ class SafetyContract:
             bad.append(f"unknown reversibility {self.reversibility!r}")
         if self.resource.scope not in RESOURCE_SCOPES:
             bad.append(f"unknown resource scope {self.resource.scope!r}")
+        if self.destination.kind not in ("none", "same_app", "same_origin", "third_party"):
+            bad.append(f"unknown destination kind {self.destination.kind!r}")
         for ev in self.evidence:
             if ev.source not in PROVENANCE:
                 bad.append(f"unknown evidence provenance {ev.source!r}")
@@ -265,7 +267,22 @@ def policy(c: SafetyContract) -> Decision:
         decisions.append(Decision("handoff", "credential material — the user enters it"))
     if not decisions:                      # `problems()` already rejects this
         return Decision("blocked", "no effects stated")
-    return _worst(decisions)
+    decision = _worst(decisions)
+    # `unknowns` is advisory model output. The actual contract fields still
+    # have to support unattended permission even when that list is empty.
+    # Keep this independent of the combined risk: adding a second effect must
+    # not downgrade an incomplete write from blocked to confirm.
+    if eff & {"write_ephemeral", "write_persistent"}:
+        missing = []
+        if c.reversibility == "unknown":
+            missing.append("reversibility")
+        if c.resource.scope == "unknown":
+            missing.append("resource.scope")
+        if c.destination.kind in ("same_origin", "third_party") and not c.destination.identity:
+            missing.append("destination.identity")
+        if missing:
+            return Decision("blocked", "undetermined " + ", ".join(missing))
+    return decision
 
 
 # ---------------------------------------------------------------- binding
@@ -282,6 +299,9 @@ class ContextBinding:
     team_id: str | None = None            # code-signing identity (high-risk steps)
     role: str | None = None
     identifier: str | None = None
+    title: str | list[str] | None = None
+    desc: str | list[str] | None = None
+    value: str | list[str] | None = None
     ancestor: str | None = None
     operation: str | None = None          # the action primitive
     params_digest: str | None = None      # digest of the payload
@@ -299,7 +319,7 @@ class ContextBinding:
     resource_identity_from: dict | None = None
     destination_identity_from: dict | None = None
 
-    HARD_FIELDS = ("bundle_id", "team_id", "role", "identifier", "ancestor",
+    HARD_FIELDS = ("bundle_id", "team_id", "role", "identifier", "title", "desc", "value", "ancestor",
                    "operation", "params_digest", "resource_identity",
                    "selection_count", "destination_identity")
 
