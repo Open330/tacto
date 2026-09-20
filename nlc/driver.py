@@ -324,7 +324,7 @@ class Driver:
     # Kept in step with `helperCapabilities` in helper/NLCHelper.swift.
     capabilities = frozenset({
         "observe", "act", "probe", "selection",
-        "evidence.document_text",
+        "evidence.document_text", "evidence.visual",
         "expect.role", "expect.label", "expect.attribute", "expect.enabled",
         "expect.no_modal", "expect.selection",
         "effect",
@@ -826,6 +826,69 @@ class Driver:
             return {'type': 'error', 'error': 'document_snapshot_unavailable',
                     'effect': 'not_started', 'detail': str(exc)}
 
+    def visual_read(self) -> dict:
+        """Can this driver take a picture of a window, and may it act on one?
+
+        Answering "no, and here is why" is the point: a caller that cannot see
+        an AX-opaque window needs to know whether asking for pixels is worth a
+        round trip, and a person needs to know a permission is what is missing
+        rather than the app.
+        """
+        try:
+            from .native_visual import ScreenCaptureBackend
+            allowed = ScreenCaptureBackend().permission()
+        except Exception as exc:
+            return {"available": False, "reason": f"unavailable: {exc}"}
+        if allowed is not True:
+            return {"available": False, "reason": "screen_capture_permission_missing",
+                    "detail": "시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 켜주세요"}
+        # Even when it is available, a picture is something to READ. It does
+        # not authorize an action and it does not witness a commit — the same
+        # rule `visual.py` states for the browser, kept here so one transport
+        # cannot quietly mean more than the other.
+        return {"available": True, "authorizes_action": False,
+                "commit_witness": False}
+
+    def capture(self, target: str, *, obs_id: str | None = None,
+                window_index: int | None = None, path=None,
+                timeout_seconds: float = 5) -> dict:
+        """A picture of ONE observed window, for what the tree cannot describe.
+
+        Only the window that was observed, never the desktop and never a
+        region — the same narrowing the accessibility path already has, for
+        the same reason: a caller asked about an app, not about the screen.
+
+        Pixels are not returned inline. `path` saves the PNG and the answer
+        says where, because an image large enough to be useful is large enough
+        that handing it back by default is a decision, not a convenience.
+        """
+        obs = self._latest.get(target.lower())
+        if obs is None:
+            return {"type": "error", "error": "stale_observation",
+                    "effect": "not_started",
+                    "detail": "observe first: a capture is of an OBSERVED window"}
+        if obs_id is not None and obs.obs_id != obs_id:
+            return {"type": "error", "error": "stale_observation",
+                    "effect": "not_started",
+                    "detail": f"latest is {obs.obs_id}"}
+        allowed = self.visual_read()
+        if not allowed.get("available"):
+            return {"type": "error", "error": "visual_read_unavailable",
+                    "effect": "not_started", **allowed}
+        self._showing_control(obs.pid)
+        try:
+            from .native_visual import capture_native, NativeVisualError
+            shot = capture_native(self, obs.obs_id, target,
+                                  window_index=window_index,
+                                  timeout_seconds=timeout_seconds)
+        except Exception as exc:
+            return {"type": "error", "error": "visual_read_failed",
+                    "effect": "not_started", "detail": str(exc)}
+        answer = {"type": "capture", **shot.to_dict()}
+        if path is not None:
+            answer["path"] = str(shot.save(path))
+        return answer
+
     INDICATOR_TTL = 4.0
 
     def _showing_control(self, pid) -> None:
@@ -956,7 +1019,16 @@ class Driver:
                     "mode": mode, "tree": "(창 없음 — 메뉴만 사용 가능)",
                     "element_count": 0, "waited_ms": waited_ms}
         if not obs.elements:
+            # The one case the protocol reserves a picture for: a window that
+            # is there and says nothing about itself. It stayed an error with
+            # no `obs_id`, so the fallback it names had nothing to be called
+            # with — `native_visual` was written, tested, and reachable from
+            # nowhere (found 2026-09-20). Register the observation so a caller
+            # can cite it, and say whether a picture is actually available.
+            self._latest[target.lower()] = obs
             return {"type": "error", "error": "empty_tree", "target": target,
+                    "obs_id": obs.obs_id, "waited_ms": waited_ms,
+                    "visual_read": self.visual_read(),
                     "detail": "window present but no AX elements (AX-opaque app?)"}
 
         prev = self._latest.get(target.lower())
@@ -975,10 +1047,16 @@ class Driver:
                 tree = "(no change)"
             elif len(diff) < len(obs.lines):
                 tree = "\n".join(diff[3:])  # drop ---/+++/@@ header noise
-        return {"type": "observation", "obs_id": obs.obs_id, "target": target,
-                "mode": mode, "tree": tree, "element_count": len(obs.elements),
-                "custom_selects": self._custom_selects(obs),
-                "truncated": obs.truncated, "waited_ms": waited_ms}
+        answer = {"type": "observation", "obs_id": obs.obs_id, "target": target,
+                  "mode": mode, "tree": tree, "element_count": len(obs.elements),
+                  "custom_selects": self._custom_selects(obs),
+                  "truncated": obs.truncated, "waited_ms": waited_ms}
+        if obs.truncated:
+            # A tree that stopped early describes less than the window holds,
+            # which is the other half of "screenshots are for where the tree
+            # is incomplete". Saying so here is how a caller knows to ask.
+            answer["visual_read"] = self.visual_read()
+        return answer
 
     def wait_until(self, target: str, predicate, timeout_ms=4000, poll_ms=250):
         """Re-observe on a monotonic deadline until predicate(full_tree) is true.
