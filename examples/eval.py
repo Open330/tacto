@@ -13,9 +13,20 @@ import sys
 import time
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
-from nlc.driver import Driver
 from nlc.flow import (Flow, Step, Selector, calculator_12x34, replay,
                       TargetAmbiguous, TargetMissing)
+
+# `nlc.driver` needs PyObjC. A hard import here makes the whole suite
+# unimportable on a machine without it — including the pure scenarios, which
+# are exactly the ones such a machine can still run (peer finding). So its
+# absence is a capability this environment lacks, declared per scenario as
+# `native`, and not a crash at import.
+try:
+    from nlc.driver import Driver
+    HAS_NATIVE = True
+except Exception:                       # pragma: no cover - non-mac only
+    Driver = None
+    HAS_NATIVE = False
 from nlc.safety import classify
 
 
@@ -50,7 +61,14 @@ def scenario_safety_block():
     if replay(d, f, approvals={0: True}).log[-1]["status"] == "done":
         return False                             # a bare flag must NOT approve
     tok = issue_approval(binding, contract)       # consent bound to THIS action
-    return replay(d, f, approvals={0: tok}).log[-1]["status"] == "done"
+    accepted = replay(d, f, approvals={0: tok})
+    # Approval permits dispatch, not a fabricated stored-item deletion receipt.
+    # This fixture only backspaces calculator input; its declared persistent
+    # delete remains unverified under the host evidence contract.
+    return (not any(e.get("status") == "gated" for e in accepted.log)
+            and len(accepted.events) == 1
+            and accepted.events[0].get("state") == "dispatched"
+            and accepted.log[-1]["status"] == "unverified")
 
 
 def scenario_batch_invalidation():
@@ -160,22 +178,67 @@ def scenario_approval_binding():
 
 
 def scenario_input_verification():
-    """Synthesized input (type_text/press_key) must carry a postcondition —
-    event delivery proves nothing about acceptance (advisor finding)."""
+    """Typed input must carry a postcondition — a write proves nothing about
+    acceptance (advisor finding).
+
+    Aimed at TextEdit rather than Calculator, and with a selector. `type_text`
+    used to be `self._type_text(text, obs.pid)`: no element, delivered to the
+    process, landing wherever the first responder happened to be. It now names
+    the element it writes into, which Calculator has none of — it has no
+    TextField or TextArea at all — and a step with no selector never gets an
+    `element_index` (flow.py: `while step.selector is not None`). So the
+    opt-out half of this could not dispatch, and the GUI-detection bug meant
+    nobody saw it fail.
+
+    The contract under test is unchanged: no postcondition is refused, and an
+    explicit `unverified_ok` is honoured.
+    """
     from nlc.flow import Flow, Step, replay
-    from nlc.contract import SafetyContract, Resource
-    sc = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
-                        resource=Resource(object_type="입력", scope="entry"))
+    from nlc.contract import SafetyContract, Resource, ContextBinding
+    from nlc.library import TEXT_AREA, textedit_new_document
     d = Driver()
-    f = Flow("probe_input", "com.apple.calculator",
-             steps=[Step("type_text", params={"text": "1"}, safety=sc)])
-    r = replay(d, f)
-    if r.log[-1].get("error") != "unverifiable_input_step":
+    if not _textedit_ready(d):
+        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    # A running TextEdit is not the same as one with a document in it, and
+    # `_textedit_ready` deliberately observes with require_window=False. Make
+    # the thing this is supposed to type into.
+    if not replay(d, textedit_new_document()).ok:
+        return "TextEdit 에 새 문서를 열지 못함"
+    # A body edit is write_persistent — TextEdit autosaves — so the contract
+    # has to say so or dispatch is refused for the wrong reason.
+    sc = SafetyContract(effects=["write_persistent"], reversibility="recoverable",
+                        resource=Resource(object_type="문서 본문", scope="item"))
+    def flow(name, **extra):
+        # `intent_text` is what a person is shown and asked about, so a step
+        # without one cannot be approved at all — the authorize() refusal says
+        # exactly that.
+        return Flow(name, "com.apple.TextEdit",
+                    steps=[Step("type_text", TEXT_AREA, params={"text": "1"},
+                                intent_text="문서에 '1' 을 입력합니다",
+                                binding=ContextBinding(bundle_id="com.apple.TextEdit",
+                                                       operation="type_text",
+                                                       role="TextArea"),
+                                safety=sc, **extra)])
+    # Persistent means it is also approvable, so the approval has to come from
+    # somewhere; without it the step is gated and never reaches the question
+    # this scenario is asking.
+    from nlc.agent import Agent
+    agent = Agent(driver=d)
+    def attempt(name, **extra):
+        f = flow(name, **extra)
+        approvals, blocked = agent.authorize(f, ask=lambda _what: True)
+        return None if blocked else replay(d, f, approvals=approvals)
+    r = attempt("probe_input")
+    if r is None or r.log[-1].get("error") != "unverifiable_input_step":
         return False
-    f2 = Flow("probe_input2", "com.apple.calculator",
-              steps=[Step("type_text", params={"text": "1"}, safety=sc,
-                          unverified_ok=True)])
-    return replay(d, f2).ok        # explicit opt-out is honored
+    # The opt-out is about the POSTCONDITION, and only that. Being persistent,
+    # the step still cannot claim to have been saved without a receipt, so
+    # asking for `.ok` here would be asking one contract to answer for another.
+    second = attempt("probe_input2", unverified_ok=True)
+    if second is None:
+        return False
+    return (all(e.get("error") != "unverifiable_input_step" for e in second.log)
+            and _body_edit_landed(second))
 
 
 def scenario_volatile_identifier():
@@ -470,7 +533,7 @@ def scenario_intent_parameters():
     Without this, "문서 폴더 열어줘" and "다운로드 폴더 열어줘" would need two
     stored recipes for one procedure. Pure resolution — no GUI, no tokens."""
     from nlc.agent import Agent
-    a = Agent()
+    a = Agent(driver=object(), )
     cases = [("7 더하기 8 해줘", "calc_arith", {"a": "7", "b": "8", "op": "+"}),
              ("10 나누기 2", "calc_arith", {"a": "10", "b": "2", "op": "/"}),
              ("문서 폴더 열어줘", "finder_open_folder", {"folder": "Documents"}),
@@ -528,11 +591,26 @@ def scenario_toggle_converges():
     _tidy_textedit(d)
     if not replay(d, textedit_new_document()).ok:
         return "빈 문서를 열지 못함"
-    if not replay(d, textedit_write_note().bind(text="굵게 수렴 테스트")).ok:
+    # Body edits and emphasis are write_persistent (TextEdit autosaves), so
+    # they are approvable — and an unapproved step is `gated`, never reaching
+    # the question this scenario asks.
+    from nlc.agent import Agent
+    agent = Agent(driver=d)
+    def approved(flow):
+        approvals, blocked = agent.authorize(flow, ask=lambda _what: True)
+        return None if blocked else replay(d, flow, approvals=approvals)
+    written = approved(textedit_write_note().bind(text="굵게 수렴 테스트"))
+    if written is None or not _body_edit_landed(written):
         return "TextEdit 본문에 쓸 수 없음"
-    first = replay(d, textedit_emphasize())
-    second = replay(d, textedit_emphasize())
-    if not (first.ok and second.ok):
+    first = approved(textedit_emphasize())
+    second = approved(textedit_emphasize())
+    if first is None or second is None:
+        return False
+    # Emphasis is persistent too, so the first run dispatches without being
+    # confirmable — the same receipt gap as the body write. The second run is
+    # allowed to be plainly ok, and usually is: converging means it skips the
+    # step it already satisfied, so nothing consequential dispatches at all.
+    if not (_body_edit_landed(first) and _body_edit_landed(second)):
         return False
     # The point is not merely that both runs report success, but that the second
     # one did nothing — a rerun that pressed Bold again would have un-bolded it.
@@ -600,9 +678,51 @@ def scenario_consent_required():
 
 
 def _textedit_ready(d):
-    """Is TextEdit running with something to act in?"""
+    """Is TextEdit running, with something to act in, and in front?
+
+    In front matters now. An app validates its menus only while it is active,
+    so a background TextEdit reports File > Save As… as disabled and every
+    save scenario stops at its first step. That used to be papered over: the
+    driver posted a synthetic ApplicationActivated event so the app BELIEVED
+    it was active. That event is gone (2026-09-20) — it leaked, apps kept
+    claiming AXFrontmost=true for hours afterwards, and the driver's own gate
+    then read the leak as truth.
+
+    What replaced it is a refusal carrying `needs_foreground`, on the
+    principle that the layer which can ask a person decides. Here the harness
+    IS that layer, so it does openly what the driver used to do by lying:
+    bring TextEdit forward, through NSWorkspace, as a person would.
+    """
     o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
-    return o["type"] == "observation"
+    if o["type"] != "observation":
+        return False
+    return _bring_forward("com.apple.TextEdit", d)
+
+
+def _bring_forward(bundle, d, timeout=4.0):
+    """Activate an app the way a person would, and wait until it really is front.
+
+    Only the harness does this. The driver refuses instead, and says so.
+    """
+    from AppKit import NSWorkspace, NSRunningApplication
+    pid = d._resolve(bundle, launch=False)
+    if pid is None:
+        return False
+    workspace = NSWorkspace.sharedWorkspace()
+    front = workspace.frontmostApplication()
+    if front is not None and int(front.processIdentifier()) == pid:
+        return True
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    if app is None:
+        return False
+    app.activateWithOptions_(0)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        front = workspace.frontmostApplication()
+        if front is not None and int(front.processIdentifier()) == pid:
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def _tidy_textedit(d):
@@ -653,55 +773,79 @@ def _tidy_textedit(d):
                 break
 
 
-def scenario_save_file():
-    """Save a document under a name, end to end, and clean up after itself.
+def _native_rtf_receipt(d, name, body):
+    from pathlib import Path
+    from nlc.rtf_receipt import FreshRTFReceipt
+    return FreshRTFReceipt(str((Path.home() / "Downloads").resolve()), name, body,
+                           document_path=lambda: _saved_path(d, name))
 
-    This is the first task in the suite with a consequence that outlives the
-    run: a menu command that opens a sheet, a field inside that sheet, and a
-    step the policy refuses without consent. The file is removed afterwards so
-    the suite can run again tomorrow without leaving a pile behind."""
-    import os, time, urllib.parse
-    from ApplicationServices import AXUIElementCreateApplication
+
+def _body_edit_landed(result) -> bool:
+    """A document body edit dispatches, but cannot be CONFIRMED without a receipt.
+
+    TextEdit autosaves, so writing into an open document is `write_persistent`
+    — and `replay` requires a typed host receipt for anything consequential.
+    There is no receipt that witnesses an unsaved body, only ones that witness
+    a saved FILE, so `.ok` is False by design:
+    tests/test_textedit_autosave_effects.py asserts exactly that
+    ("dispatches but cannot claim saved without receipt").
+
+    What proves the body landed is the RTF receipt on the save that follows —
+    it decodes the file and checks the text. So the step before it has to have
+    DISPATCHED, which is a different question from having been confirmed, and
+    treating the two as one failed five save scenarios once the screen-lock
+    misdetection stopped hiding them (2026-09-20).
+    """
+    if result.ok:
+        return True
+    last = result.log[-1] if result.log else {}
+    return (last.get("status") == "unverified"
+            and last.get("error") == "commit_unverified")
+
+
+def _receipt_kwargs(receipt):
+    return dict(prepare_commit=receipt.prepare_commit,
+                after_commit=receipt.after_commit,
+                commit_expected=receipt.commit_expected)
+
+
+def _cleanup_eval_rtf(d, name):
+    # Only our fresh UUID destination is eligible for cleanup, including when
+    # dispatch happened but its completion evidence was rejected.
+    from pathlib import Path
+    _tidy_textedit(d)
+    path = Path.home() / "Downloads" / name
+    if path.is_file() and not path.is_symlink():
+        path.unlink()
+
+
+def scenario_save_file():
+    """Save once and verify the actual RTF path and decoded content."""
+    import uuid
     from nlc.agent import Agent
-    from nlc.driver import _attr
-    from nlc.flow import replay
     from nlc.library import (textedit_new_document, textedit_write_note,
                              textedit_save_as)
     d = Driver()
     if not _textedit_ready(d):
         return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
     _tidy_textedit(d)
-    name = f"nlc-eval-{int(time.time())}.rtf"
+    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
+    body = "저장 시나리오 테스트"
+    receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
-
-    def run(flow):
+    def run(flow, saving=False, body_edit=False):
         approvals, blocked = agent.authorize(flow, ask=lambda _what: True)
-        return (not blocked) and replay(d, flow, approvals=approvals).ok
-
-    if not run(textedit_new_document()):
-        return False
-    if not run(textedit_write_note().bind(text="저장 시나리오 테스트")):
-        return False
-    if not run(textedit_save_as().bind(filename=name)):
-        return False
-
-    # Where it landed is not guessed: the window says which file it holds.
-    pid = d._resolve("com.apple.TextEdit")
-    app = AXUIElementCreateApplication(pid)
-    saved = next((w for w in (_attr(app, "AXWindows") or [])
-                  if _attr(w, "AXTitle") == name), None)
-    if saved is None:
-        return False
-    url = _attr(saved, "AXDocument") or ""
-    path = urllib.parse.unquote(url.replace("file://", ""))
-    o = d.observe("com.apple.TextEdit", "tree_full")
-    d.act(o["obs_id"], "com.apple.TextEdit",
-          {"name": "menu", "path": ["File", ["Close", "닫기"]]})
-    time.sleep(0.8)
-    existed = os.path.exists(path)
-    if existed:
-        os.remove(path)
-    return existed
+        if blocked:
+            return False
+        outcome = replay(d, flow, approvals=approvals,
+                         **(_receipt_kwargs(receipt) if saving else {}))
+        return _body_edit_landed(outcome) if body_edit else outcome.ok
+    try:
+        return (run(textedit_new_document())
+                and run(textedit_write_note().bind(text=body), body_edit=True)
+                and run(textedit_save_as().bind(filename=name, folder="Downloads"), True))
+    finally:
+        _cleanup_eval_rtf(d, name)
 
 
 def scenario_consent_is_about_the_file():
@@ -907,7 +1051,7 @@ def scenario_dialog_recovery():
         raise AssertionError("빈 문서를 열지 못함")
     o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
     opened = d.act(o["obs_id"], "com.apple.TextEdit",
-                   {"name": "menu", "path": ["File", ["Save As…", "Save…"]]})
+                   {"name": "menu", "path": ["File", ["Save As…", "다른 이름으로 저장…"]]})
     _t.sleep(2)
     stuck = d.observe("com.apple.TextEdit", "tree_full")
     if "save-panel" not in stuck["tree"]:
@@ -922,44 +1066,32 @@ def scenario_dialog_recovery():
 
 
 def scenario_save_chooses_its_folder():
-    """A file lands where it was asked to, not where the app last saved.
-
-    The save panel here was still pointing at a terminal's support directory;
-    the folder is now named, selected from the panel's own sidebar, pinned into
-    the consent, and checked against the window afterwards."""
-    import os, time as _t, urllib.parse
-    from ApplicationServices import AXUIElementCreateApplication
+    """The requested folder, fresh filename and decoded body must all match."""
+    import uuid
     from nlc.agent import Agent
-    from nlc.driver import _attr
-    from nlc.flow import replay
     from nlc.library import (textedit_new_document, textedit_write_note,
                              textedit_save_as)
     d = Driver()
     if not _textedit_ready(d):
         return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
     _tidy_textedit(d)
+    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
+    body = "폴더 지정 저장"
+    receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
-    name = f"nlc-eval-{int(_t.time())}.rtf"
-
-    def run(flow):
+    def run(flow, saving=False, body_edit=False):
         approvals, blocked = agent.authorize(flow, ask=lambda _w: True)
-        return (not blocked) and replay(d, flow, approvals=approvals).ok
-
-    ok = (run(textedit_new_document())
-          and run(textedit_write_note().bind(text="폴더 지정 저장"))
-          and run(textedit_save_as().bind(filename=name, folder="Downloads")))
-    path = ""
-    if ok:
-        app = AXUIElementCreateApplication(d._resolve("com.apple.TextEdit"))
-        win = next((w for w in (_attr(app, "AXWindows") or [])
-                    if _attr(w, "AXTitle") == name), None)
-        path = urllib.parse.unquote((_attr(win, "AXDocument") or "")
-                                    .replace("file://", "")) if win else ""
-    _tidy_textedit(d)
-    landed = bool(path) and os.path.exists(path)
-    if landed:
-        os.remove(path)
-    return ok and landed and os.path.dirname(path).endswith("/Downloads")
+        if blocked:
+            return False
+        outcome = replay(d, flow, approvals=approvals,
+                         **(_receipt_kwargs(receipt) if saving else {}))
+        return _body_edit_landed(outcome) if body_edit else outcome.ok
+    try:
+        return (run(textedit_new_document())
+                and run(textedit_write_note().bind(text=body), body_edit=True)
+                and run(textedit_save_as().bind(filename=name, folder="Downloads"), True))
+    finally:
+        _cleanup_eval_rtf(d, name)
 
 
 def scenario_learning_is_reachable():
@@ -1067,7 +1199,7 @@ def scenario_authoring_handles_a_dialog():
     reply = _json.dumps({
         "name": "probe_dialog", "target": "com.apple.TextEdit",
         "steps": [
-            {"action": "menu", "params": {"path": ["File", ["Save As…", "Save…"]]},
+            {"action": "menu", "params": {"path": ["File", ["Save As…", "다른 이름으로 저장…"]]},
              "intent_text": "저장 창을 엽니다",
              "postcondition": {"contains": "save-panel"},
              "safety": _contract("저장 대화상자")},
@@ -1165,7 +1297,7 @@ def _blocking_sheet(d):
         return False
     o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
     d.act(o["obs_id"], "com.apple.TextEdit",
-          {"name": "menu", "path": ["File", ["Save As…", "Save…"]]})
+          {"name": "menu", "path": ["File", ["Save As…", "다른 이름으로 저장…"]]})
     _t.sleep(2)
     o = d.observe("com.apple.TextEdit", "tree_full")
     return o["type"] == "observation" and "save-panel" in o["tree"]
@@ -1246,17 +1378,18 @@ def scenario_escalation_clears_a_blocked_run():
     # A fresh name every run: a leftover from a failed run makes the save raise
     # its own "already exists, replace?" dialog, which is a different blockage
     # than the one under test.
-    name = f"nlc-escal-{int(time.time())}.rtf"
+    import uuid
+    name = f"nlc-escal-{uuid.uuid4().hex}.rtf"
     flow = textedit_save_as().bind(filename=name, folder="Downloads")
     # Only the first step may escalate; the consequential save still cannot.
-    r = replay(d, flow, approvals=_approve_all(d, flow),
-               escalate=resolver, budget=1)
-    resolved = [e for e in r.log if e.get("status") == "resolved"]
-    path = _saved_path(d, name)
-    _tidy_textedit(d)
-    if path and os.path.exists(path):
-        os.remove(path)
-    return r.ok and len(resolved) == 1 and bool(path)
+    receipt = _native_rtf_receipt(d, name, "")
+    try:
+        r = replay(d, flow, approvals=_approve_all(d, flow),
+                   escalate=resolver, budget=1, **_receipt_kwargs(receipt))
+        resolved = [e for e in r.log if e.get("status") == "resolved"]
+        return r.ok and len(resolved) == 1
+    finally:
+        _cleanup_eval_rtf(d, name)
 
 
 def _approve_all(d, flow):
@@ -1378,8 +1511,8 @@ class _Deaf:
         self.n += 1
         return {"type": "observation", "obs_id": f"o{self.n}", "tree": self.tree}
 
-    def act(self, obs_id, target, action, risk_class=None, intent_text="",
-            approved=False):
+    def act(self, obs_id, target, action, expect=None, risk_class=None,
+            intent_text="", approved=False):
         self.acts.append(action.get("name"))
         return {"type": "acted", "action": action.get("name")}
 
@@ -1395,22 +1528,24 @@ def _unclear_outcome(action_name):
     """One step that lands but cannot be seen to have landed. Returns the acts."""
     import nlc.flow as F
     from nlc.contract import Resource, SafetyContract
-    benign = SafetyContract(effects=["write_ephemeral"],
-                            reversibility="reversible",
+    committing = action_name == "click"
+    label, role = ("Send", "Button") if committing else ("Message", "TextField")
+    benign = SafetyContract(effects=["transmit"] if committing else ["write_ephemeral"],
+                            reversibility="irreversible" if committing else "reversible",
                             resource=Resource(object_type="메시지", scope="item"))
     step = F.Step(action_name,
-                  F.Selector(role="Button", title="Send"),
+                  F.Selector(role=role, title=label),
                   intent_text="보내기",
                   params={"value": "x"} if action_name == "set_value" else {},
                   postcondition=F.Postcondition(contains="보냄"),
                   on_uncertain=["postcondition_timeout"],
                   safety=benign)
     flow = F.Flow("probe_unclear", "com.example.app", steps=[step])
-    d = _Deaf()
+    d = _Deaf(f"0 Window Title: t\n  1 {role} Title: {label}\n")
     real = F._run_fix
     F._run_fix = lambda *a, **k: True      # the recovery works; that is not the question
     try:
-        r = F.replay(d, flow, escalate=lambda why: F.Resolution(
+        r = F.replay(d, flow, approvals={0: True}, escalate=lambda why: F.Resolution(
             "recover", recovery="dismiss_dialog", reason="가리는 창"), budget=2)
     finally:
         F._run_fix = real
@@ -1418,18 +1553,18 @@ def _unclear_outcome(action_name):
 
 
 def scenario_an_unclear_outcome_is_not_retried():
-    """A postcondition that timed out does not mean the action did not happen.
+    """Missing delivery evidence never licenses a second send.
 
-    The send can complete while the screen is still catching up. Clearing a
-    dialog and running the step again "to be sure" is how a message is sent
-    twice — so after an unclear outcome the engine looks again, and re-runs only
-    an action that means the same thing done twice as done once."""
+    The commit stops unverified after one dispatch. A separate ephemeral text
+    field still exercises postcondition recovery and idempotent set_value retry.
+    """
     clicks, r = _unclear_outcome("click")
     sets, _ = _unclear_outcome("set_value")
-    bad = next((e for e in r.log if e.get("status") == "error"), {})
+    bad = next((e for e in r.log if e.get("status") == "unverified"), {})
     return (clicks == ["click"]                    # pressed once, never again
             and sets == ["set_value", "set_value"]  # safe to repeat, so repeated
             and bad.get("effect") == "unknown"
+            and bad.get("error") == "commit_unverified"
             and not r.ok)
 
 
@@ -1536,7 +1671,7 @@ def scenario_the_fast_path_stands_down():
     So a rule now declares what it can account for, and stands down when the
     request says more than that."""
     from nlc.agent import Agent
-    a = Agent()
+    a = Agent(driver=object(), )
     held = {u: a.unrepresented(u) for u in
             ("굵게 하지 마", "메일 말고 문서 폴더 열어줘", "어제 온 메일 읽어줘")}
     fast = {u: a.resolve(u) for u in
@@ -1567,7 +1702,7 @@ def scenario_a_refusal_is_an_answer():
                             "reversibility": "reversible"})
         return None
 
-    t = Agent(interpret=interpret).handle(said)
+    t = Agent(driver=object(), interpret=interpret).handle(said)
     return t.status == "done" and "하지 마" in t.say and "굵게" not in t.say[:8]
 
 
@@ -1614,11 +1749,43 @@ def scenario_a_reading_normalizes_into_the_fast_path():
                             "reversibility": "reversible"})
         return None
 
-    a = Agent(interpret=interpret)
+    a = Agent(driver=object(), interpret=interpret)
     match, reading = a.read_request("메일 말고 문서 폴더 열어줘")
     return (match is not None and match.name == "finder_open_folder"
             and match.params.get("folder") == "Documents"
             and reading["excluded"] == ["메일"])
+
+
+def _swap(owner, **replacements):
+    """Replace attributes and put back EXACTLY what was there.
+
+    `getattr(Driver, "selection_digest")` on a staticmethod hands back the
+    plain function, and assigning that back makes it an ordinary method —
+    every later call then passes `self` as the first argument. Two scenarios
+    did that, and the damage showed up in whatever ran next: `swift_helper`
+    failing in 494ms, `cli_end_to_end` in 11ms, and two scenarios that never
+    touch a screen failing in zero. The class dictionary holds the real
+    descriptor, so that is what gets saved and restored.
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def swapped():
+        saved = {k: owner.__dict__.get(k, _MISSING) for k in replacements}
+        for k, v in replacements.items():
+            setattr(owner, k, v)
+        try:
+            yield
+        finally:
+            for k, v in saved.items():
+                if v is _MISSING:
+                    delattr(owner, k)
+                else:
+                    setattr(owner, k, v)
+    return swapped()
+
+
+_MISSING = object()
 
 
 def _fake_screen(labels, readable=()):
@@ -1649,7 +1816,8 @@ def scenario_a_screen_is_one_question():
     # A display is read, never pressed.
     # A display is named by what it says, and read rather than pressed.
     can = {x["label"]: x["can"] for x in candidates(a)}
-    return (same and moved and can["1"] == ["click"] and can["0"] == ["read"])
+    return (same and moved and set(can["1"]) == {"click", "scroll"}
+            and set(can["0"]) == {"read", "scroll"})
 
 
 def scenario_a_batch_cannot_leave_its_screen():
@@ -2011,7 +2179,7 @@ def scenario_matching_a_prefix_is_not_answering():
     instruction: a number it is not using, a verb for something it is not
     doing."""
     from nlc.agent import Agent
-    a = Agent()
+    a = Agent(driver=object(), )
     dropped = ["1351 곱하기 59913 하고 123123 을 더한다음 계산해줘", "메일 보내줘"]
     kept = {"메일 읽어줘": "mail_inbox", "12 곱하기 34 계산해줘": "calc_arith",
             "문서 폴더 열어줘": "finder_open_folder",
@@ -2039,10 +2207,10 @@ def scenario_the_reading_cannot_let_it_back_in():
                             "scope": "entry", "reversibility": "reversible"})
         return {"pick": None, "why": "한 번에 못 하는 계산"}
 
-    a = Agent(interpret=interpret)
+    a = Agent(driver=object(), interpret=interpret)
     match, _ = a.read_request("1351 곱하기 59913 하고 123123 을 더한다음 계산해줘")
     # A goal a rule can only do half of is not a goal that rule answers.
-    simple, _ = Agent(interpret=lambda q: (
+    simple, _ = Agent(driver=object(), interpret=lambda q: (
         q.check({"goal": "12 곱하기 34 계산하기", "negated": False,
                  "quote": "12 곱하기 34", "excluded": ["메일"],
                  "allows": ["write_ephemeral"], "scope": "entry",
@@ -2298,10 +2466,14 @@ def scenario_an_expectation_that_holds_does_not_refuse():
     obs = d.observe("com.apple.calculator", "tree_full")
     if obs["type"] != "observation":
         return f"계산기를 관측하지 못함 ({obs.get('error')})"
+    # The reset key is "All Clear" on an empty calculator and "Clear" once
+    # anything has been entered — the same state-dependent label the recipes
+    # have always had to allow for, and the reason this skipped inside a suite
+    # run while passing on its own.
     c = next((x for x in candidates(obs["tree"])
-              if x["label"] == "All Clear"), None)
+              if x["label"] in ("All Clear", "Clear")), None)
     if c is None:
-        return "AC 버튼을 찾지 못함"
+        return "지우기 버튼을 찾지 못함"
     act = {"name": "click", "element_index": c["element_index"]}
     true_claim = d.act(obs["obs_id"], "com.apple.calculator", act,
                        expect={"role": c["role"], "label": c["match"]})
@@ -2332,23 +2504,17 @@ def scenario_a_role_is_not_a_word_in_a_label():
     d = Driver()
     obs = types.SimpleNamespace(pid=1, elements=["<the element>"],
                                 obs_id="o")
-    real_attr, real_label = D._attr, D._elem_label
-    real_modal = Driver._modal_sheet
-    D._attr = lambda el, k: "AXButton" if k == "AXRole" else None
-    D._elem_label = lambda el: "Description: 5, Identifier: Five"
-    Driver._modal_sheet = staticmethod(lambda pid: False)
-    try:
+    with _swap(D, _attr=lambda el, k: "AXButton" if k == "AXRole" else None,
+               _elem_label=lambda el: "Description: 5, Identifier: Five"), \
+            _swap(Driver, _modal_sheet=staticmethod(lambda pid: False)):
         act = {"element_index": 0}
         holds = d._mismatch(obs, act, {"role": "Button", "label": "5"})
         wrong_role = d._mismatch(obs, act, {"role": "TextField", "label": "5"})
         wrong_label = d._mismatch(obs, act, {"role": "Button", "label": "7"})
         # A modal is its own reason, independent of the element.
-        Driver._modal_sheet = staticmethod(lambda pid: True)
-        covered = d._mismatch(obs, act, {"role": "Button", "label": "5",
-                                         "no_modal": True})
-    finally:
-        D._attr, D._elem_label = real_attr, real_label
-        Driver._modal_sheet = real_modal
+        with _swap(Driver, _modal_sheet=staticmethod(lambda pid: True)):
+            covered = d._mismatch(obs, act, {"role": "Button", "label": "5",
+                                             "no_modal": True})
     return (holds == "" and bool(wrong_role) and bool(wrong_label)
             and "대화상자" in covered)
 
@@ -2498,20 +2664,14 @@ def scenario_the_button_is_not_what_it_falls_on():
     # --- the driver's side: a moved selection is a different target ---------
     d = Driver()
     obs = types.SimpleNamespace(pid=1, elements=["<el>"], obs_id="o")
-    real_attr, real_label = D._attr, D._elem_label
-    real_modal, real_sel = Driver._modal_sheet, Driver.selection_digest
-    D._attr = lambda el, k: "AXButton" if k == "AXRole" else None
-    D._elem_label = lambda el: "Title: 삭제"
-    Driver._modal_sheet = staticmethod(lambda pid: False)
-    Driver.selection_digest = staticmethod(lambda pid: "sel-B")
-    try:
+    with _swap(D, _attr=lambda el, k: "AXButton" if k == "AXRole" else None,
+               _elem_label=lambda el: "Title: 삭제"), \
+            _swap(Driver, _modal_sheet=staticmethod(lambda pid: False),
+                  selection_digest=staticmethod(lambda pid: "sel-B")):
         act = {"element_index": 0}
         same_button = {"role": "Button", "label": "삭제"}
         held = d._mismatch(obs, act, {**same_button, "selection": "sel-B"})
         moved = d._mismatch(obs, act, {**same_button, "selection": "sel-A"})
-    finally:
-        D._attr, D._elem_label = real_attr, real_label
-        Driver._modal_sheet, Driver.selection_digest = real_modal, real_sel
 
     # --- the loop's side: the witness goes on what it is about -------------
     carried = []
@@ -2525,7 +2685,15 @@ def scenario_the_button_is_not_what_it_falls_on():
 
         def observe(self, target, mode="tree_full", require_window=True):
             return {"type": "observation", "obs_id": "o",
-                    "tree": f"0 Window  Title: T\n  1 Button  Title: {self.label}\n"}
+                    "tree": f"0 Window  Title: T\n"
+                            f"  1 Button  Title: {self.label}\n"
+                            f"  2 StaticText  Identifier: out, "
+                            f"Value: {self.label}\n"}
+
+        def probe(self, obs_id, target, index):
+            return {"type": "probe",
+                    "line": f"  2 StaticText  Identifier: out, "
+                            f"Value: {self.label}"}
 
         def selection(self, target):
             return {"type": "selection", "digest": "sel-A"}
@@ -2547,8 +2715,21 @@ def scenario_the_button_is_not_what_it_falls_on():
     env = Envelope(quote="메일 지워줘", scope="item",
                    reversibility="recoverable",
                    allows=frozenset({"read", "write_ephemeral", "delete"}))
+    # The loop now refuses a consequential action it has no way to verify, so
+    # a run without a spec never reaches the point this is about. Supplying one
+    # is not a workaround — it is the precondition the loop is right to demand.
+    # One check, fully satisfied, so what is under test stays under test: this
+    # is about WHICH actions carry a selection witness, not about the full
+    # checklist a real send has to satisfy.
+    from nlc.outcome import Check, OutcomeSpec
+    spec = OutcomeSpec(
+        kind="probe_one_check",
+        required=(Check("대상", "request", "before_commit", "reports"),),
+        expected={"대상": "삭제"})
     run(Watching("삭제"), "x", "메일 지워줘", one_click, envelope=env,
-        approve=lambda _w: True)
+        spec=spec, approve=lambda _w: True,
+        ask_where=lambda field, cands: {"pick": 0, "candidate": cands[0],
+                                        "why": ""})
     run(Watching("7"), "x", "7 눌러줘", one_click, envelope=env)
     consequential, cheap = carried[0], carried[-1]
     return (held == "" and "고른 것" in moved
@@ -2612,22 +2793,46 @@ def scenario_the_corpus_measures_tasks_not_properties():
     so any request the patterns simply did not know reached the screen loop
     unable to do anything consequential; and that the negation guard only ever
     knew 하다, so "읽지 마" read the screen anyway."""
+    import re as _re
     import subprocess
     import sys as _sys
     out = subprocess.run([_sys.executable, "examples/corpus.py"],
                          capture_output=True, text=True,
                          cwd=__file__.rsplit("/", 2)[0])
-    if out.returncode != 0 and "잘못된 성공" not in out.stdout:
-        return f"코퍼스를 실행하지 못함: {(out.stderr or '')[-200:]}"
-    lines = {}
+    if "잘못된 성공" not in out.stdout:
+        # Not a skip: a skip says "this environment cannot answer", and this
+        # environment just did — it ran the corpus and the corpus did not
+        # produce its numbers. Returning a string here would hide a check that
+        # actually ran (peer finding).
+        raise AssertionError(
+            f"코퍼스를 실행하지 못했습니다 (rc={out.returncode}): "
+            f"{(out.stderr or out.stdout or '')[-200:]}")
+    rates = {}
     for line in out.stdout.splitlines():
-        if "%" in line:
-            key = line.strip().split()[0]
-            lines[key] = float(line.split("%")[0].strip().split()[-1])
-    return (lines.get("잘못된") == 0.0          # 잘못된 성공 보고율
-            and lines.get("범위") == 0.0        # 범위 밖 효과
-            and lines.get("중복") == 0.0        # 중복 효과
-            and lines.get("독립") >= 95.0)      # 독립 작업 성공률
+        m = _re.match(r"\s*(\S+).*?([\d.]+)%", line)
+        if m:
+            rates[m.group(1)] = float(m.group(2))
+    # Only the invariants are asserted here. The success RATE is the core
+    # owner's number — it moves as the semantics tighten, and a threshold in
+    # this file would either go stale or argue with them. What must never move
+    # is that the system did not claim something it did not do.
+    # Every rate that must be zero, including the one that says the system
+    # claimed a success it could not confirm. A completion RATE is the core
+    # owner's number and moves as the semantics tighten, so no threshold for it
+    # lives here — but none of these may move at all.
+    must_be_zero = ("잘못된",    # 잘못된 성공 보고율
+                    "검증",      # 검증 없는 성공 보고율
+                    "범위",      # 범위 밖 효과
+                    "중복")      # 중복 효과
+    missing = [k for k in must_be_zero if k not in rates]
+    if missing:
+        raise AssertionError(f"코퍼스 출력에서 {missing} 를 읽지 못했습니다")
+    if out.returncode != 0:
+        raise AssertionError(f"코퍼스가 0 이 아닌 코드로 끝났습니다: {out.returncode}")
+    bad = {k: rates[k] for k in must_be_zero if rates[k] != 0.0}
+    if bad:
+        print(f"\n      {bad}")
+    return not bad
 
 
 def scenario_a_kind_says_what_it_takes_to_know():
@@ -2668,6 +2873,7 @@ def scenario_a_kind_says_what_it_takes_to_know():
                         scope="item", reversibility="reversible")
     got = GeneralResult(ok=True, verified=True, said=["408"])
     got.effects = {"read"}
+    got.witnessed = {"아무것도 바뀌지 않음": "408"}
     full = spec_for("read_value", read_env, {"아무것도 바뀌지 않음": "408"},
                     {"아무것도 바뀌지 않음": "prior"})
     r2 = verify(full, got, after_tree="Value: 408")
@@ -2866,7 +3072,7 @@ def scenario_the_user_asks_the_system_not_the_app():
     import os
     import tempfile
     from nlc.agent import Agent
-    a = Agent()
+    a = Agent(driver=object(), )
     nothing_yet = a.handle("방금 것 취소해줘")
 
     d = tempfile.mkdtemp()
@@ -2891,6 +3097,257 @@ def scenario_the_user_asks_the_system_not_the_app():
             and "되돌릴 만한 게 없" in again.say
             and cannot.status == "needs_handoff"
             and "되돌릴 방법을 갖고 있지 않" in cannot.say)
+
+
+def scenario_every_transport_answers_the_same():
+    """One protocol, three transports — checked against each of them.
+
+    Python sent `expect` with every action and the launcher let it through;
+    the helper's `handle()` called `act(obs_id, target, action)` and never read
+    it. `probe` and `selection` came back `unknown_message`, and `scroll` was in
+    the launcher's allowlist with no branch in the helper at all. So "stop if
+    the selection moved", "stop if a dialog appeared" and "read the current
+    value" held against the in-process driver — which is what every scenario
+    here exercised — and did not exist on the signed path, which is the
+    recommended one (peer review, 2026-09-19).
+
+    A suite that only ever drives one transport cannot see that, which is why
+    this runs `tests/test_helper_contract.py` against every transport this
+    process can reach. Inside the signed launcher that includes the helper."""
+    import importlib.util
+    root = __file__.rsplit("/", 2)[0]
+    spec = importlib.util.spec_from_file_location(
+        "nlc_helper_contract", f"{root}/tests/test_helper_contract.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Asked of the machine, not assumed: by this point in a suite run the
+    # calculator may have been left without a window by something earlier, and
+    # a contract cannot be checked against a screen that is not there. Saying so
+    # beats reporting the contract as broken.
+    why = mod.live_reason()
+    if why:
+        return why
+    drivers = mod._drivers()
+    if len(drivers) < 2:
+        # Outside the launcher there is only the in-process driver, and saying
+        # so beats reporting a one-transport run as agreement between three.
+        return "서명 경로가 없어 한 가지 전송만 확인 가능 (런처로 실행하세요)"
+    bad = []
+    for label, d in drivers:
+        for name, fn in mod.CHECKS:
+            try:
+                fn(d)
+            except RecursionError:
+                import traceback
+                tb = [l for l in traceback.format_exc().splitlines()
+                      if "File " in l][-6:]
+                bad.append(f"[{label}] {name}: 재귀\n        "
+                           + "\n        ".join(tb))
+            except Exception as e:
+                bad.append(f"[{label}] {name}: {e}")
+    if bad:
+        print("\n      " + "\n      ".join(bad[:6]))
+    return not bad
+
+
+def scenario_determinism():
+    """Replay spends no model tokens — checked, not asserted.
+
+    This was `lambda: True` with the comment "by construction", which is a
+    claim about the design rather than a measurement of it: the whole point of
+    the property is that it keeps holding while the code changes underneath
+    it, and a scenario that cannot fail cannot notice it stopping (peer
+    finding).
+
+    So both model entry points are replaced with something that raises, and a
+    real recipe is replayed against a fake driver. If anything in the replay
+    path reaches for a provider, this fails with the call that did it."""
+    import nlc.authoring as A
+    from nlc.flow import calculator_multiply, replay
+    reached = []
+
+    def refuse(*a, **k):
+        reached.append(a[0][:60] if a and isinstance(a[0], str) else "?")
+        raise AssertionError("replay 가 모델을 불렀습니다")
+
+    class Keypad:
+        """Enough calculator to run the recipe, and no model anywhere."""
+        def __init__(self):
+            self.pressed = []
+            self.total = ""
+
+        def identity(self, t):
+            return t
+
+        def _tree(self):
+            keys = {"AllClear": "All Clear", "Nine": "9", "Eight": "8",
+                    "Multiply": "곱하기", "Equals": "="}
+            rows = ["0 Window  Title: 계산기 [focused]",
+                    "  1 Group  Identifier: CalculatorKeypadView"]
+            for i, (ident, desc) in enumerate(keys.items(), start=2):
+                rows.append(f"    {i} Button  Description: {desc}, Identifier: {ident}")
+            rows.append(f"  9 ScrollArea  Identifier: StandardInputView"
+                        f"\n    10 StaticText  Value: {self.total or '0'}")
+            return "\n".join(rows) + "\n"
+
+        def observe(self, target, mode="tree_full", require_window=True):
+            return {"type": "observation", "obs_id": f"o{len(self.pressed)}",
+                    "tree": self._tree()}
+
+        def act(self, obs_id, target, action, expect=None, risk_class=None,
+                intent_text="", approved=False):
+            line = [l for l in self._tree().splitlines()
+                    if l.strip().startswith(f"{action.get('element_index')} ")]
+            ident = line[0].rsplit("Identifier: ", 1)[-1] if line else ""
+            self.pressed.append(ident)
+            if ident == "Equals":
+                self.total = "72"
+            return {"type": "acted", "action": action["name"]}
+
+        def wait_until(self, target, pred, timeout_ms=8000):
+            obs = self.observe(target)
+            return obs if pred(obs["tree"]) else {"type": "timeout",
+                                                  "last_obs": obs}
+
+    d = Keypad()
+    with _swap(A, reach_model=refuse, _ask_model=refuse):
+        r = replay(d, calculator_multiply().bind(a="9", b="8"))
+    return (r.ok and not reached
+            and str(r.log[-1].get("result")) == "72"
+            and d.pressed.count("Equals") == 1)
+
+
+def scenario_an_abort_lasts_the_run_and_no_longer():
+    """Esc stops the run it was pressed in, and a ping cannot undo it.
+
+    Both halves matter and they pull opposite ways. A client that could ping
+    its way past the abort can ignore the stop, and the stop is the one thing
+    the user holds over this helper. But an abort that outlives the run makes
+    one Esc break the product until relaunch.
+
+    So it is scoped to the connection: the rest of THIS launcher run is
+    refused, and a new run starts clean. `abortEpoch` moves with it, because
+    events reach the run loop after the fact and one arriving late would stop
+    something nobody aimed it at (peer correction)."""
+    from nlc.helper import InheritedHelperDriver
+    if not InheritedHelperDriver.available():
+        return "서명된 런처 밖 — 상속 채널 없음"
+    d = InheritedHelperDriver()
+    obs = d.observe("com.apple.calculator", "tree_full")
+    if obs.get("type") != "observation":
+        # Only a screen this machine cannot show may skip. Everything else is
+        # this scenario failing at the thing it exists to check: in a NEW run,
+        # `aborted_by_user` means the latch did not reset, and reporting that
+        # as "could not check" hides exactly the regression (peer review).
+        # `helper_unavailable` and a protocol error are the same — they say the
+        # channel is wrong, not that the environment is.
+        why = obs.get("error")
+        assert why in ("gui_session_unavailable", "no_window_content",
+                       "empty_tree"), \
+            f"새 실행의 첫 관측이 실패했습니다 ({why}) — 환경이 아니라 계약입니다"
+        return f"계산기를 관측하지 못함 ({why})"
+
+    from nlc.general import candidates
+    c = next((x for x in candidates(obs["tree"])
+              if x["label"] in ("All Clear", "Clear")), None)
+    if c is None:
+        return "지우기 버튼을 찾지 못함"
+
+    # From here on, everything is an assertion.
+    act = {"name": "click", "element_index": c["element_index"]}
+    before = d.act(obs["obs_id"], "com.apple.calculator", act)
+    assert before.get("type") == "acted", \
+        f"새 실행인데 Clear 를 누르지 못했습니다: {before}"
+
+    # Esc, as the user would send it.
+    import time as _t
+    import Quartz
+    for down in (True, False):
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                           Quartz.CGEventCreateKeyboardEvent(None, 53, down))
+    _t.sleep(0.5)
+
+    # A ping still answers — a client has to be able to learn that it was
+    # stopped — and changes nothing about the stop.
+    pinged = d._send({"type": "ping"})
+    stopped = {}
+    for msg in ({"type": "observe", "target": "com.apple.calculator"},
+                {"type": "probe", "target": "com.apple.calculator",
+                 "obs_id": obs["obs_id"], "element_index": c["element_index"]},
+                {"type": "selection", "target": "com.apple.calculator"},
+                {"type": "list_targets"},
+                {"type": "act", "target": "com.apple.calculator",
+                 "obs_id": obs["obs_id"], "action": act}):
+        r = d._send(msg)
+        stopped[msg["type"]] = (r.get("error"), r.get("effect"))
+    # Reading is not a lesser thing than acting: an agent that can still watch
+    # the screen has not been stopped.
+    every = all(err == "aborted_by_user" for err, _ in stopped.values())
+    if not every:
+        print(f"\n      Esc 뒤에도 통과한 것: "
+              f"{ {k: v for k, v in stopped.items() if v[0] != 'aborted_by_user'} }")
+    return (pinged.get("type") == "pong" and every
+            and all(eff == "not_started" for _, eff in stopped.values()))
+
+
+_OBS_HANDOFF = "/tmp/nlc-obs-handoff.txt"
+
+
+def scenario_a_new_run_rejects_the_old_token():
+    """An observation from a previous run is not a way back into this one.
+
+    Per-connection state is what makes a new launcher run clean, and the same
+    reset is what stops a stale `obs_id` being spent here: if the helper kept
+    them across connections, a caller holding one from a run the user stopped
+    could act on a tree captured before any of that happened.
+
+    Two processes, because that is the only way to have two connections: the
+    first records an obs_id and the second tries to use it. Run it twice —
+    `./launcher/nlc eval a_new_run_rejects` — and the second run is the check
+    (peer review request)."""
+    import os
+    from nlc.helper import InheritedHelperDriver
+    if not InheritedHelperDriver.available():
+        return "서명된 런처 밖 — 상속 채널 없음"
+    d = InheritedHelperDriver()
+    obs = d.observe("com.apple.calculator", "tree_full")
+    if obs.get("type") != "observation":
+        # Same rule as the abort scenario, for the same reason: only a screen
+        # this machine cannot show may skip. `aborted_by_user` here would mean
+        # a NEW run started stopped, and `helper_unavailable` that the channel
+        # is wrong — both are this scenario failing, and returning a string for
+        # them hides it (peer review).
+        why = obs.get("error")
+        assert why in ("gui_session_unavailable", "no_window_content",
+                       "empty_tree"), \
+            f"새 실행의 첫 관측이 실패했습니다 ({why}) — 환경이 아니라 계약입니다"
+        return f"계산기를 관측하지 못함 ({why})"
+
+    previous = None
+    if os.path.exists(_OBS_HANDOFF):
+        try:
+            with open(_OBS_HANDOFF) as f:
+                previous = f.read().strip() or None
+        except OSError:
+            previous = None
+    with open(_OBS_HANDOFF, "w") as f:
+        f.write(obs["obs_id"])
+
+    if previous is None:
+        return ("첫 실행 — obs_id 를 남겼습니다. 한 번 더 실행하면 "
+                "이전 실행의 토큰이 거부되는지 확인합니다")
+    if previous == obs["obs_id"]:
+        # Same id across two connections would mean the helper did not reset,
+        # which is the failure this exists to catch.
+        raise AssertionError(f"새 연결이 이전 obs_id 를 그대로 씁니다: {previous}")
+    stale = d.act(previous, "com.apple.calculator",
+                  {"name": "read", "element_index": 0})
+    assert stale.get("error") == "stale_observation", \
+        f"이전 실행의 obs_id 가 통과했습니다: {stale}"
+    assert stale.get("effect") == "not_started", stale
+    os.remove(_OBS_HANDOFF)
+    return True
 
 
 def scenario_provider_env_is_not_the_session():
@@ -3054,6 +3511,7 @@ def scenario_browser_backend():
     except Exception:
         return "선택 의존성 web(playwright) 미설치"
     from nlc.flow import Flow, Step, Selector, Postcondition, replay
+    from nlc.contract import Resource, SafetyContract
     PAGE = ("data:text/html,<h1>Sign up</h1>"
             "<input aria-label='email'><button>Submit</button>")
     d = BrowserDriver(headless=True)
@@ -3062,7 +3520,10 @@ def scenario_browser_backend():
         f = Flow("web_signup", "page", steps=[
             Step("type_text", Selector(role="textbox", title="email"),
                  params={"text": "a@b.com"}, intent_text="이메일 입력",
-                 postcondition=Postcondition(contains="a@b.com"))])
+                 safety=SafetyContract(effects=["write_ephemeral"],
+                     resource=Resource(scope="entry"), reversibility="reversible"),
+                 postcondition=Postcondition(field=Selector(role="textbox", title="email"),
+                                             attribute="Value", equals="a@b.com"))])
         return replay(d, f).ok
     finally:
         d.close()
@@ -3086,9 +3547,205 @@ def scenario_safety_classifier():
     return all(classify(a, l)[0] == exp for a, l, exp in cases)
 
 
+def scenario_native_document_text():
+    """Explicit read-only document witness; fixture expectations are host input."""
+    import json
+    import os
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    from nlc.input_audit_process import ProcessInputAudit
+    fixtures = [a.split('=', 1)[1] for a in sys.argv[1:]
+                if a.startswith('--document-fixture=')]
+    assert len(fixtures) == 1, 'one --document-fixture=<expectations.json> required'
+    fixture = json.loads(Path(fixtures[0]).read_text())
+    expected_path = fixture.get('document_path')
+    expected_text = fixture.get('text')
+    stale_token = fixture.get('stale_document_token')
+    assert expected_path and os.path.isabs(expected_path), 'explicit absolute fixture path required'
+    assert isinstance(expected_text, str), 'explicit expected fixture text required'
+    assert stale_token is None or (isinstance(stale_token, str) and stale_token), 'invalid stale token'
+    expected_path = str(Path(expected_path).resolve())
+    root = Path(__file__).resolve().parents[1]
+    output = root / 'reviews/2026-09-19' / f'native-document-text-{time.time_ns()}.json'
+    report = {'ui_actions': 0, 'passed': False}
+    with output.open('x') as stream:
+        audit = ProcessInputAudit(strategy='application_frontmost', interval=.005,
+                                  ready_samples=3, startup_timeout=10, stop_timeout=3)
+        try:
+            with audit:
+                signed = InheritedHelperDriver.available()
+                driver = InheritedHelperDriver() if signed else Driver()
+                report['transport'] = 'inherited-helper' if signed else 'in-process'
+                assert 'evidence.document_text' in driver.capabilities, 'document_text capability missing'
+                if stale_token is not None:
+                    rejected = driver.document_text('com.apple.TextEdit', stale_token)
+                    report['stale_token_result'] = rejected
+                    assert (rejected.get('type') == 'error'
+                            and rejected.get('error') == 'document_snapshot_unavailable'
+                            and rejected.get('detail') == 'unknown or expired document token'), rejected
+                first = driver.document_text('com.apple.TextEdit')
+                report['first'] = first
+                assert first.get('type') == 'document_text', first
+                assert first.get('text_complete') is True, first
+                assert first.get('document_path') == expected_path, first
+                assert first.get('text') == expected_text, 'fixture body mismatch'
+                second = driver.document_text('com.apple.TextEdit', first['document_token'])
+                report['second'] = second
+                assert second == first, 'pinned document observation changed'
+            report['passed'] = audit.report()['status'] == 'UNCHANGED_SAMPLED'
+        except Exception as exc:
+            report['error'] = f'{type(exc).__name__}: {exc}'
+        finally:
+            report['audit'] = audit.report()
+            json.dump(report, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+    print('  native document report: ' + str(output))
+    assert report['passed'], report.get('error', 'input preservation not verified')
+    return True
+
+
+def scenario_background_input_preserves_focus():
+    """Explicit isolated native probe; never part of the default UI suite."""
+    import json
+    from pathlib import Path
+    from examples.probe_background_input import run_and_save
+    from nlc.helper import InheritedHelperDriver
+    signed = InheritedHelperDriver.available()
+    d = InheritedHelperDriver() if signed else Driver()
+    transport = "inherited-helper" if signed else "in-process"
+    root = Path(__file__).resolve().parents[1]
+    output = root / "reviews/2026-09-19" / f"g0-process-{transport}-{time.time_ns()}.json"
+    result = run_and_save(d, transport=transport, output=output)
+    print("  background input report: " + str(output))
+    assert result["passed"], json.dumps(result.get("error"), ensure_ascii=False)
+    return True
+
+
+def scenario_signed_provider_envelope():
+    """Explicit one-call signed model telemetry probe; no app/UI actions."""
+    import hashlib
+    import json
+    from pathlib import Path
+    from nlc.authoring import reach_model_result, _extract_json
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    provider = next((arg.split("=", 1)[1] for arg in sys.argv
+                     if arg.startswith("--model-provider=")), "claude")
+    assert provider in ("claude", "codex"), "unsupported probe provider"
+    root = Path(__file__).resolve().parents[1]
+    files = [root/name for name in ("nlc/ask_provider.py", "nlc/authoring.py",
+             "nlc/helper.py", "nlc/provider_result.py", "launcher/nlc.swift", "launcher/nlc")]
+    def hashes():
+        return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
+    report = {"source_before": hashes(), "evaluation_kind": "single_signed_model_call_no_UI"}
+    result = reach_model_result('Return only the JSON object {"probe":"nlc-envelope"}.',
+                                provider, expect_json=True, timeout_seconds=60)
+    report.update(result=result.to_dict(), source_after=hashes())
+    output = root / "reviews/2026-09-19" / f"signed-provider-{provider}-{time.time_ns()}.json"
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    print("  provider envelope report: " + str(output))
+    assert report["source_before"] == report["source_after"], "source changed during probe"
+    assert result.status == "ok", result.error
+    assert _extract_json(result.text) == {"probe": "nlc-envelope"}, "unexpected model answer"
+    assert result.transport == "launcher", "not signed model route"
+    return True
+
+
+def scenario_native_coordinate_fixture():
+    """Explicit signed helper coordinate click on supervisor-owned fixture only."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    controls = [arg.split("=", 1)[1] for arg in sys.argv[1:]
+                if arg.startswith("--coordinate-control=")]
+    assert len(controls) == 1, "one explicit supervisor control directory required"
+    root = Path(__file__).resolve().parents[1]
+    control = Path(controls[0]).resolve(strict=True)
+    assert control.is_relative_to(root / "reviews"), "review control directory required"
+    if "--menu-unresponsive" in sys.argv:
+        probe = runpy.run_path(str(root / "reviews/2026-09-19/probe-menu-unresponsive.py"))
+        probe["signed_client"](InheritedHelperDriver(), control)
+        return True
+    client = runpy.run_path(str(root / "reviews/2026-09-19/run-owned-menu-nlc-client.py"))
+    client["main"](driver=InheritedHelperDriver(), control_dir=control, coordinate_only=True,
+                   prepare_window="--prepare-window" in sys.argv,
+                   general_prepare="--general-prepare" in sys.argv,
+                   test_abort="--coordinate-abort" in sys.argv,
+                   model_provider=next((arg.split("=",1)[1] for arg in sys.argv
+                                        if arg.startswith("--coordinate-model=")), None))
+    return True
+
+
+def scenario_signed_background_refusal():
+    """Window-bound input into a background app is refused over the signed path.
+
+    The synthetic ApplicationActivated event that used to make a background app
+    believe it was active is gone; this is the behaviour that replaced it, run
+    through the transport that ships rather than in-process.
+    """
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "reviews/2026-09-20/signed-background-refusal.py"))
+    output = root / "reviews/2026-09-20" / f"signed-background-refusal-{time.time_ns()}.json"
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  signed refusal report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:400]
+    return True
+
+
+def scenario_native_select_fixture():
+    """Explicit owned AppKit popup probe; not part of the default UI suite."""
+    import json
+    from pathlib import Path
+    from examples.probe_native_select import run_and_save
+    from nlc.helper import InheritedHelperDriver
+    signed = InheritedHelperDriver.available()
+    d = InheritedHelperDriver() if signed else Driver()
+    transport = "inherited-helper" if signed else "in-process"
+    root = Path(__file__).resolve().parents[1]
+    output = root / "reviews/2026-09-19" / f"native-select-{transport}-{time.time_ns()}.json"
+    result = run_and_save(d, output=output, transport=transport)
+    print("  native select report: " + str(output))
+    assert result["passed"], json.dumps(result.get("error"), ensure_ascii=False)
+    return True
+
+
+def scenario_native_select_model_fixture():
+    """Explicit model+owned native fixture probe, never a default-suite action."""
+    import json
+    from pathlib import Path
+    from examples.probe_native_select import run_and_save
+    from nlc.helper import InheritedHelperDriver
+    provider=next((arg.split("=",1)[1] for arg in sys.argv[1:]
+                   if arg.startswith("--model-provider=")),"claude")
+    if provider not in ("claude","codex"):
+        raise ValueError("unsupported fixture model provider")
+    signed=InheritedHelperDriver.available()
+    d=InheritedHelperDriver() if signed else Driver()
+    transport="inherited-helper" if signed else "in-process"
+    root=Path(__file__).resolve().parents[1]
+    output=root/"reviews/2026-09-19"/f"native-select-model-{transport}-{time.time_ns()}.json"
+    result=run_and_save(d,output=output,transport=transport,provider=provider)
+    print("  native select report: " + str(output))
+    assert result["passed"],json.dumps(result.get("error") or result.get("why"),ensure_ascii=False)
+    return True
+
+
 SCENARIOS = [
+    ("signed_provider_envelope (isolated model telemetry, no UI)", scenario_signed_provider_envelope),
+    ("native_coordinate_fixture (isolated signed window click)", scenario_native_coordinate_fixture),
+    ("native_select_model_fixture (isolated model and owned AppKit popup)", scenario_native_select_model_fixture),
+    ("native_select_fixture (isolated owned AppKit popup)", scenario_native_select_fixture),
+    ("native_document_text (isolated read-only native document witness)",
+     scenario_native_document_text),
+    ("background_input_preserves_focus (isolated native process audit)",
+     scenario_background_input_preserves_focus),
     ("task_success (12×34 → 408 verified)", scenario_task_success),
-    ("determinism (replay uses 0 model tokens)", lambda: True),  # by construction
+    ("determinism (replay uses 0 model tokens)", scenario_determinism),
     ("safety_gate (block w/o approval, run w/ approval)", scenario_safety_block),
     ("batch_invalidation (stale index stopped mid-batch)", scenario_batch_invalidation),
     ("contract_policy (meaning decides, not keywords)", scenario_contract_policy),
@@ -3103,9 +3760,7 @@ SCENARIOS = [
     ("capture (read a value off the screen)", scenario_capture),
     ("swift_helper (signed helper runs the same IR)", scenario_swift_helper),
     ("helper_menu (menu commands cross the permission boundary)", scenario_helper_menu),
-    ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("permission_boundary (env override and argv0 forgery refused)", scenario_permission_boundary),
-    ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
     ("cli_end_to_end (the command a person types)", scenario_cli_end_to_end),
     ("intent_parameters (the request supplies the values)", scenario_intent_parameters),
     ("menu_command (commands that exist only in the menu bar)", scenario_menu_command),
@@ -3237,6 +3892,8 @@ SCENARIOS = [
      scenario_recovered_is_not_done),
     ("the_user_asks_the_system_not_the_app (방금 것 취소해줘)",
      scenario_the_user_asks_the_system_not_the_app),
+    ("every_transport_answers_the_same (one protocol, three ways to reach it)",
+     scenario_every_transport_answers_the_same),
     ("provider_env_is_not_the_session (a spawned CLI gets its own account)",
      scenario_provider_env_is_not_the_session),
     ("broken_provider_falls_through (a 401 is not a model reply)",
@@ -3254,7 +3911,208 @@ SCENARIOS = [
     ("resolver_honesty (ambiguous/missing raise)", scenario_resolver_honesty),
     ("safety_classifier (4-tier mapping)", scenario_safety_classifier),
     ("browser_backend (web via same replay engine)", scenario_browser_backend),
+
+    # LAST, and deliberately. These stop the run or drop the helper connection,
+    # and both of those now hold for the rest of the run by design — an abort
+    # the user asked for should not be undoable, and a dropped connection
+    # should not come back with its state reset. Anything listed after them
+    # would be refused for a reason that has nothing to do with it (peer
+    # review).
+    ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
+    ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
+    ("signed_background_refusal (background window input is refused, not faked)",
+     scenario_signed_background_refusal),
+    ("an_abort_lasts_the_run_and_no_longer (Esc holds; a ping cannot undo it)",
+     scenario_an_abort_lasts_the_run_and_no_longer),
+    ("a_new_run_rejects_the_old_token (a stale obs_id is not a way back in)",
+     scenario_a_new_run_rejects_the_old_token),
+
 ]
+
+
+# What a scenario needs before it can say anything, decided BEFORE it runs: a
+# missing capability is a skip, and once a scenario has started, a False or an
+# exception is a failure that nothing turns back into a skip.
+#
+# An earlier version watched what each scenario touched and downgraded its
+# failure afterwards. That hides exactly the failures worth seeing — a scenario
+# that looked at the screen AND is broken is indistinguishable from one that
+# only could not see (peer finding, with a regression that proves it).
+# Vestigial: nothing reads it now that a failure is never downgraded after the
+# fact. Kept as a name because a regression elsewhere sets it to prove exactly
+# that — a scenario that looked at the screen and failed still FAILS. The
+# watcher that used to maintain it is gone: it imported the native driver at
+# startup, which is an import error on a machine without PyObjC, for the sake
+# of a flag no decision depends on any more (peer finding).
+_LOOKED = [False]
+
+
+# What each scenario needs before it can say anything about anything.
+#
+# Declared, not sniffed. An earlier version read the source for "Driver()" and
+# for model entry points, which is a guess wearing a contract's clothes: it
+# matched `FakeDriver()` and skipped pure regressions, and it missed every
+# indirect call. Running the suite with hard guards found four scenarios
+# reaching for a GUI or a subprocess without saying so, and three pure ones
+# being skipped for a substring (peer finding).
+#
+# A name absent from this map needs nothing, and that is the safe default: a
+# scenario that forgets to declare fails loudly on a machine that cannot serve
+# it, where the reverse would hide the failure.
+# Scenarios that END the run they are in: they stop it with Esc, or drop the
+# helper connection. Both now hold for the rest of the run by design, so these
+# cannot share a process with anything — including each other. Ordering is not
+# isolation; being unable to run together is (peer review).
+#
+# Each runs only when it is named on the command line, one signed launcher
+# process at a time:
+#
+#     ./launcher/nlc eval helper_user_authority
+#     ./launcher/nlc eval peer_authentication
+#     ./launcher/nlc eval an_abort_lasts
+ISOLATED = {
+    "signed_background_refusal",
+    "signed_provider_envelope",
+    "native_coordinate_fixture",
+    "native_select_model_fixture",
+    "native_select_fixture",
+    "native_document_text",
+    "background_input_preserves_focus",
+    "helper_user_authority",
+    "peer_authentication",
+    "an_abort_lasts_the_run_and_no_longer",
+    "a_new_run_rejects_the_old_token",
+}
+
+SCENARIO_REQUIREMENTS: dict = {
+    "signed_provider_envelope": {"model"},
+    "native_coordinate_fixture": {"gui"},
+    "signed_background_refusal": {"gui", "native"},
+    "native_select_model_fixture": {"gui", "model"},
+    "native_select_fixture": {"gui"},
+    "native_document_text": {"gui"},
+    "background_input_preserves_focus": {"gui"},
+    "an_abort_lasts_the_run_and_no_longer": {"gui"},
+    "a_new_run_rejects_the_old_token": {"gui"},
+    # `native` is the PyObjC driver CLASS without a live screen: these patch it
+    # and never look at anything. A machine with no PyObjC cannot run them; a
+    # locked screen is no obstacle at all.
+    "a_role_is_not_a_word_in_a_label": {"native"},
+    "the_button_is_not_what_it_falls_on": {"native"},
+    "a_fix_is_not_quietly_kept": {"gui"},
+    "already_true_is_not_proof": {"gui"},
+    "an_expectation_that_holds_does_not_refuse": {"gui"},
+    "answers_a_question": {"gui"},
+    "app_name_is_the_app": {"gui"},
+    "authored_steps_can_be_approved": {"gui"},
+    "authoring_handles_a_dialog": {"gui", "model"},
+    "authoring_produces_a_runnable_flow": {"gui", "model"},
+    "authoring_still_catches_invented_targets": {"gui", "model"},
+    "batch_invalidation": {"gui"},
+    "builtin_is_not_frozen": {"gui"},
+    "calendar_reads_today": {"gui"},
+    "capture": {"gui"},
+    "cli_end_to_end": {"gui"},
+    "consent_cannot_be_re_aimed": {"gui"},
+    "consent_is_about_the_file": {"gui"},
+    "consent_required": {"gui"},
+    "dialog_recovery": {"gui"},
+    "escalation_clears_a_blocked_run": {"gui"},
+    "escalation_is_off_by_default": {"gui"},
+    "escalation_only_where_declared": {"gui"},
+    "every_transport_answers_the_same": {"gui"},
+    "helper_menu": {"gui"},
+    "helper_user_authority": {"gui"},
+    "input_verification": {"gui"},
+    "large_tree_is_bounded": {"gui"},
+    "mail_reads_inbox": {"gui"},
+    "menu_command": {"gui"},
+    "menu_path_pinned": {"gui"},
+    "menu_verification": {"gui"},
+    "parameterized_flow": {"gui"},
+    "peer_authentication": {"gui"},
+    "permission_boundary": {"gui"},
+    "reads_a_list": {"gui"},
+    "reparameterize": {"gui"},
+    "safety_gate": {"gui"},
+    "save_chooses_its_folder": {"gui"},
+    "save_file": {"gui"},
+    "swift_helper": {"gui"},
+    "task_success": {"gui"},
+    "the_button_is_not_what_it_falls_on": {"gui"},
+    "toggle_converges": {"gui"},
+    "trace_reproducibility": {"gui"},
+    "vacuous_pass_is_fed_back": {"gui"},
+}
+
+
+def _needs(fn, name: str = "") -> frozenset:
+    """This scenario's declared requirements, by name."""
+    key = (name or getattr(fn, "__name__", "")).split(" ")[0]
+    return frozenset(SCENARIO_REQUIREMENTS.get(key, ()))
+
+
+class _Offline(RuntimeError):
+    """Raised when something reaches past the offline boundary."""
+
+
+def _seal_offline():
+    """Refuse the screen and the network, at the places they are reached.
+
+    A scenario that needs either is skipped before it starts; this is the
+    backstop for one that did not say so, and it fails loudly rather than
+    quietly driving somebody's computer or going to the network.
+
+    Both model entry points are sealed, not just `reach_model`: `nlc.ask`
+    imported it by name at module load, so replacing only one leaves the alias
+    pointing at the real thing (peer finding). The native driver is sealed at
+    `_resolve` as well as `observe`/`act`, because finding an app is already
+    touching the machine.
+    """
+    def refuse(what):
+        def blocked(*a, **k):
+            raise _Offline(f"--offline 인데 {what} 을(를) 하려 했습니다")
+        return blocked
+
+    import nlc.authoring as A
+    A.reach_model = refuse("모델 호출")
+    # The two that actually leave this process. `_ask_model` itself is left
+    # alone: it is the provider-fallback logic, and a pure scenario tests it by
+    # replacing these two underneath it (peer finding).
+    A._try_cli = refuse("provider 실행")
+    A._try_muxa = refuse("provider 실행")
+    try:
+        import nlc.ask as _ask
+        _ask.reach_model = A.reach_model      # the alias, bound at import time
+    except Exception:
+        pass
+    try:
+        from nlc.driver import Driver
+    except Exception:
+        return                                 # no native driver here at all
+    Driver.observe = refuse("화면 관찰")
+    Driver.act = refuse("화면 조작")
+    Driver._resolve = refuse("앱 찾기")
+
+
+def _forbid_models_unused(offline: bool):
+    """Note, or refuse, every attempt to reach a provider.
+
+    Under `--offline` a scenario that needs a model is skipped rather than
+    failed: nothing showed it to be broken, only that nobody asked it (peer
+    request). Scenarios that stub the provider are unaffected — the stub
+    replaces this, so it is never reached.
+    """
+    import nlc.authoring as A
+    real = A.reach_model
+
+    def reached(prompt, provider="auto", expect_json=False):
+        _REACHED_MODEL[0] = True
+        if offline:
+            raise _Offline("--offline")
+        return real(prompt, provider, expect_json)
+
+    A.reach_model = reached
 
 
 def _gui_reason() -> str:
@@ -3264,7 +4122,32 @@ def _gui_reason() -> str:
     broke. They did not: nothing could be seen. "화면이 잠겼다" and "레시피가
     깨졌다" are different findings and a suite that cannot tell them apart is
     worse than one that admits it does not know.
+
+    The window server is asked first, because it knows. What used to stand
+    alone here was a guess made from app trees: observe Finder, Calculator and
+    TextEdit, and call the screen dark if every running one came back empty.
+    Measured 2026-09-20 — with Calculator and TextEdit closed and Finder
+    holding no windows, that is one sample reading zero, and the whole suite
+    skipped on an unlocked screen with someone sitting at it. The comment
+    already knew ("one running app with an empty tree could be an app with no
+    window"); the code did not check.
+
+    The tree evidence is kept for the case the session dictionary cannot
+    answer, but it now needs more than one app to agree before it speaks.
     """
+    try:
+        import Quartz
+        session = Quartz.CGSessionCopyCurrentDictionary()
+    except Exception:
+        session = None
+    if session is not None:
+        if session.get("CGSSessionScreenIsLocked"):
+            return "화면이 잠겨 있음"
+        if session.get("kCGSSessionOnConsoleKey") is not True:
+            return "GUI 세션에 연결되어 있지 않음(원격/콘솔 밖)"
+        # On console and not locked: the screen is there. Anything a scenario
+        # then fails to see is the scenario's finding, not the screen's.
+        return ""
     try:
         d = Driver()
         seen = []
@@ -3279,9 +4162,9 @@ def _gui_reason() -> str:
             else:
                 seen.append(obs.get("element_count", 0))
         # A locked screen does not error — it observes successfully and returns
-        # NOTHING. One running app with an empty tree could be an app with no
-        # window; every running app empty at once is the screen being dark.
-        if seen and not any(seen):
+        # NOTHING. One empty app is an app with no window; it takes at least
+        # two disagreeing with nothing to suggest the screen itself is dark.
+        if len(seen) >= 2 and not any(seen):
             return "화면이 잠겨 있거나 GUI 세션을 볼 수 없음"
     except Exception as e:
         return f"화면을 확인할 수 없음 ({e})"
@@ -3292,13 +4175,36 @@ def main():
     # An argument narrows the run to scenarios whose name contains it. A failure
     # in one scenario used to mean sitting through all sixty to see it again.
     only = [a for a in sys.argv[1:] if not a.startswith("-")]
+    offline = "--offline" in sys.argv
     print("NLC evaluation\n" + "=" * 48)
-    blind = _gui_reason()
+    if offline:
+        print("  ! --offline — 모델이 필요한 시나리오는 판정하지 않습니다\n")
+    if offline:
+        _seal_offline()
+    # `--offline` does not touch the screen either, so the GUI is treated as
+    # unavailable without going to look for it.
+    blind = "--offline" if offline else _gui_reason()
     if blind:
         print(f"  ! {blind} — 화면이 필요한 시나리오는 판정하지 않습니다\n")
     passed = required = 0
     for name, fn in SCENARIOS:
         if only and not any(o in name for o in only):
+            continue
+        key = name.split(" ")[0]
+        if key in ISOLATED and not only:
+            print(f"  SKIP  {name}  (별도 런처 프로세스에서만: "
+                  f"./launcher/nlc eval {key})")
+            continue
+        need = _needs(fn, name)
+        if "native" in need and not HAS_NATIVE:
+            print(f"  SKIP  {name}  (접근성 드라이버가 없는 환경)")
+            continue
+        if offline and (need & {"gui", "model"}):
+            print(f"  SKIP  {name}  "
+                  f"(--offline: {', '.join(sorted(need & {'gui', 'model'}))} 필요)")
+            continue
+        if blind and "gui" in need:
+            print(f"  SKIP  {name}  ({blind})")
             continue
         t0 = time.monotonic()
         try:
@@ -3312,11 +4218,6 @@ def main():
         # helper scenarios were reporting a missing web dependency.
         if ok is None or isinstance(ok, str):
             print(f"  SKIP  {name}  ({ok or '이 환경에서는 실행 불가'})")
-            continue
-        if not ok and blind:
-            # It did not pass, and nothing could see the screen. Which of those
-            # is the finding cannot be told from here, so neither is claimed.
-            print(f"  SKIP  {name}  ({blind})")
             continue
         required += 1
         passed += bool(ok)

@@ -28,7 +28,7 @@ LOOK = SafetyContract(effects=["read"],
 
 
 def _scratch(object_type: str) -> SafetyContract:
-    """An edit that lives in an open, unsaved document — undoable, never stored."""
+    """Transient UI state only; document editing may autosave and must not use this."""
     return SafetyContract(effects=["write_ephemeral"],
                           resource=Resource(object_type=object_type, scope="entry"),
                           reversibility="reversible")
@@ -293,7 +293,9 @@ def textedit_write_note() -> Flow:
         steps=[
             Step("set_value", TEXT_AREA, params={"value": "{{text}}"},
                  intent_text="'{{text}}' 라고 적습니다",
-                 safety=_scratch("문서 본문"),
+                 safety=SafetyContract(effects=["write_persistent"],
+                     resource=Resource(object_type="문서 본문", scope="item"),
+                     reversibility="recoverable"),
                  binding=ContextBinding(bundle_id="com.apple.TextEdit",
                                         role="TextArea",
                                         identifier="First Text View",
@@ -331,7 +333,9 @@ def textedit_emphasize() -> Flow:
                  intent_text="글 전체를 선택합니다", safety=_scratch("선택 영역"),
                  unverified_ok=True),
             Step("menu", params={"path": bold_path},
-                 intent_text="굵게 만듭니다", safety=_scratch("글자 서식"),
+                 intent_text="굵게 만듭니다", safety=SafetyContract(effects=["write_persistent"],
+                     resource=Resource(object_type="글자 서식", scope="item"),
+                     reversibility="recoverable"),
                  binding=ContextBinding(bundle_id="com.apple.TextEdit",
                                         operation="menu",
                                         params_digest=pin_params(
@@ -384,11 +388,17 @@ def textedit_save_as() -> Flow:
     down when the sheet already shows the right folder, so re-saving to the same
     place costs nothing.
     """
-    # The menu item's own title tracks document state: an unsaved document shows
-    # "Save…", a saved one shows "Save" and a separate "Save As…". Listing the
-    # alternatives is not defensive padding — it is the same command wearing the
-    # name the app currently gives it.
-    save_as = ["File", ["Save As…", "Save…", "다른 이름으로 저장…", "저장…"]]
+    # One list, one meaning: these are the same command in two languages.
+    #
+    # It used to also carry "Save…" and "저장…", on the reading that the menu
+    # item's title tracks document state — an unsaved document showing "Save…"
+    # where a saved one shows a separate "Save As…". Those are different
+    # COMMANDS, not translations, and TextEdit shows both at once (measured
+    # 2026-09-20). So both matched, `_menu_item` refused the path as ambiguous
+    # — correctly, because two items answering one list of equivalents is not a
+    # choice to make on the caller's behalf — and five save scenarios failed
+    # with it. The guard was right; the list was wrong.
+    save_as = ["File", ["Save As…", "다른 이름으로 저장…"]]
     name_field = Selector(role="TextField", identifier="saveAsNameTextField",
                           in_focused_window=True)
     # The popup's own value is the folder it will save into, so it doubles as

@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from .driver import Driver
+from .protocol import Driver, default_driver
 from .flow import Flow, replay, ReplayResult
 from .store import FlowStore
 
@@ -35,7 +35,8 @@ class Turn:
 
 # The unfilled slots, in the words a person would use for them.
 _SLOT_KO = {"target": "무엇을", "recipient": "누구에게", "amount": "얼마나",
-            "location": "어디에", "when": "언제"}
+            "location": "어디에", "when": "언제", "account": "어떤 발신 계정으로",
+            "body": "어떤 내용을"}
 
 
 def _candidate_name(goal: str) -> str:
@@ -231,8 +232,10 @@ class Agent:
                  author: Callable[[str, Driver], Flow] | None = None,
                  judge: Callable | None = None,
                  interpret: Callable | None = None,
-                 general: Callable | None = None):
-        self.driver = driver or Driver()
+                 general: Callable | None = None,
+                 outcome_context: Callable | None = None,
+                 commit_adapter_factory: Callable | None = None):
+        self.driver = driver if driver is not None else default_driver()
         self.store = store or FlowStore()
         self.narrate = narrate or (lambda s: None)
         self.author = author   # optional model-backed flow author (spends tokens)
@@ -246,6 +249,10 @@ class Agent:
         # Doing a task no recipe covers, by asking about each screen. The other
         # half of the product: a recipe answers "again", this answers "at all".
         self.general = general
+        # Host-supplied expectations are obtained before execution, never from
+        # its result. Callback(intent, reading) -> (expected, provenance).
+        self.outcome_context = outcome_context
+        self.commit_adapter_factory = commit_adapter_factory
         # The last thing this agent did, kept so "방금 것 취소해줘" has
         # something to mean. The person should not have to find the app's Undo
         # menu — that is one more computer task, and finding it is the part
@@ -372,31 +379,6 @@ class Agent:
                            scope=reading.get("scope", "entry"),
                            reversibility=reading.get("reversibility",
                                                      "reversible"))
-        # What this kind of task must confirm before it commits — read off the
-        # screen while it can still change the outcome.
-        need = []
-        if reading.get("kind"):
-            from .outcome import TASK_KINDS
-            need = [c.name for c in TASK_KINDS.get(reading["kind"], ())
-                    if c.when == "before_commit" and c.kind == "reports"]
-        try:
-            r = self.general(target, goal, ask, env, need)
-        except Exception as e:
-            return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
-        # A run that arrived is a proposal for a recipe. Filed, never deployed:
-        # a recipe replays with no model call, so nobody is watching it, and a
-        # wrong one keeps being wrong. What it would take to deploy is written
-        # down beside it.
-        if r.ok and r.verified:
-            try:
-                from .promote import CandidateStore, candidate_from
-                cand = candidate_from(r, target, goal,
-                                      reading.get("quote", ""), env)
-                if cand is not None:
-                    CandidateStore().record(
-                        cand, intent, _candidate_name(goal))
-            except Exception:
-                pass                    # proposing is never worth failing over
         # What the run says about itself is evidence, not the verdict. The
         # receipt is issued by something that did not run the task, and its
         # `unchecked` list is what stops "we did not look" from being reported
@@ -416,7 +398,8 @@ class Agent:
             # expectation, it is a guess with a confident label on it.
             said_slots = reading.get("values") or {}
             by_check = {"recipient": "받는 사람", "target": "저장한 이름",
-                        "location": "저장 위치", "amount": "보낸 내용"}
+                        "location": "저장 위치", "account": "보내는 계정",
+                        "body": "보낸 내용"}
             supplied, where = {}, {}
             for slot, value in said_slots.items():
                 name = by_check.get(slot)
@@ -424,10 +407,38 @@ class Agent:
                     supplied[name] = value
                     where[name] = "request"
             try:
+                if self.outcome_context is not None:
+                    expected, provenance = self.outcome_context(intent, reading)
+                    from .outcome import same_value
+                    for name, value in expected.items():
+                        if name in supplied and not same_value(supplied[name], value):
+                            raise ValueError(f"{name}: 요청과 사전 정보가 다릅니다")
+                        if name not in supplied:
+                            supplied[name] = value
+                            where[name] = provenance.get(name)
                 spec = spec_for(kind, env or Envelope.minimal(), supplied, where)
-            except (KeyError, ValueError):
-                pass                    # an unknown kind checks what it can
-        receipt = verify(spec, r)
+            except Exception as exc:
+                return Turn("failed", f"실행 전에 필요한 정보를 확인하지 못했습니다: {exc}")
+        try:
+            r = self.general(target, goal, ask, env, spec)
+        except Exception as e:
+            return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
+        # A run that arrived is a proposal for a recipe. Filed, never deployed:
+        # a recipe replays with no model call, so nobody is watching it, and a
+        # wrong one keeps being wrong. What it would take to deploy is written
+        # down beside it.
+        receipt = verify(spec, r, after_tree=getattr(r, "after_tree", ""))
+        if r.ok and receipt.ok:
+            try:
+                from .promote import CandidateStore, candidate_from
+                cand = candidate_from(r, target, goal,
+                                      reading.get("quote", ""), env,
+                                      target_identity=self.driver.identity(target))
+                if cand is not None:
+                    CandidateStore().record(
+                        cand, intent, _candidate_name(goal))
+            except Exception:
+                pass                    # proposing is never worth failing over
         # An automatic verifier that finds a problem should put things back
         # inside the window where that is possible, rather than wait for
         # someone who cannot work their computer to ask (advisor finding).
@@ -450,9 +461,14 @@ class Agent:
         if undone is not None and not undone.ok and undone.why:
             receipt.problems.append(f"되돌리지 못했습니다 — {undone.why}")
         if r.ok:
-            return Turn("done" if receipt.state == DONE else "done",
+            return Turn(receipt.state,
                         receipt.say(), detail=detail)
-        return Turn("failed",
+        # "Bring the app to the front" is something the person can do and then
+        # ask again; reporting it as a failure tells them the task is broken.
+        status = ("needs_handoff"
+                  if r.stop_reason in ("needs_foreground", "needs_pointer")
+                  else "failed")
+        return Turn(status,
                     "\n".join(x for x in (f"{r.why}.", did, receipt.say())
                                if x), detail=detail)
 
@@ -694,10 +710,51 @@ class Agent:
         if think and judge is None:
             from .judge import model_judge
             judge = model_judge(target=flow.target, narrate=self.narrate)
+        try:
+            receipt = self.commit_adapter_for(flow)
+        except Exception as exc:
+            return Turn("failed", f"저장 결과를 검증할 준비를 하지 못했어요: {exc}", flow.name)
+        hooks = self.commit_adapter_hooks(receipt)
         res = replay(self.driver, flow, approvals=approvals,
-                     narrate=self.narrate, escalate=judge, budget=think)
+                     narrate=self.narrate, escalate=judge, budget=think, **hooks)
         self._report_what_it_asked(flow, res)
         return self._to_turn(flow, res)
+
+    def commit_adapter_for(self, flow):
+        """Prepare per-run host evidence before any replay action changes UI.
+
+        The built-in adapter recognizes the exact shipped, bound save recipe;
+        a flow name alone cannot select a document or grant receipt authority.
+        Other trusted hosts can explicitly supply their own factory.
+        """
+        if self.commit_adapter_factory is not None:
+            return self.commit_adapter_factory(self.driver, flow)
+        from .textedit_receipt import SNAPSHOT_CAPABILITY, TARGET, make_textedit_receipt
+        if (SNAPSHOT_CAPABILITY not in (getattr(self.driver, "capabilities", ()) or ())
+                or flow.target != TARGET or flow.name != "textedit_save_as"
+                or not flow.steps or flow.steps[-1].binding is None):
+            return None
+        from .library import textedit_save_as
+        binding = flow.steps[-1].binding
+        name, folder = binding.resource_identity, binding.destination_identity
+        canonical = textedit_save_as().bind(filename=name, folder=folder)
+        if canonical.to_json() != flow.to_json():
+            return None
+        if folder != "Downloads":
+            raise ValueError("자동 저장 검증은 현재 Downloads의 새 RTF 파일만 지원합니다")
+        from pathlib import Path
+        directory = (Path.home() / "Downloads").resolve()
+        self.narrate(f"저장 결과 확인: {directory / name}")
+        return make_textedit_receipt(self.driver, target=TARGET,
+                                     directory=str(directory), filename=name)
+
+    @staticmethod
+    def commit_adapter_hooks(receipt):
+        if receipt is None:
+            return {}
+        return dict(prepare_commit=receipt.prepare_commit,
+                    after_commit=receipt.after_commit,
+                    commit_expected=receipt.commit_expected)
 
     def _report_what_it_asked(self, flow: Flow, res: ReplayResult) -> None:
         """Say what the run had to ask about — and do not quietly keep it.
@@ -748,6 +805,12 @@ class Agent:
             else:
                 say = "다 됐어요. 결과를 확인했습니다."
             return Turn("done", say, flow.name, last)
+
+        unverified = next((e for e in res.log if e.get("status") == "unverified"), None)
+        if unverified is not None:
+            return Turn("unverified", "동작은 요청했지만 실제 저장·전달 결과를 확인하지 못했습니다. "
+                        "같은 동작을 자동으로 다시 실행하지 않았습니다.",
+                        flow.name, unverified)
 
         gated = next((e for e in res.log if e.get("status") == "gated"), None)
         if gated:

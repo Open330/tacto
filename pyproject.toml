@@ -6,6 +6,11 @@ build-backend = "setuptools.build_meta"
 name = "nlc"
 version = "0.1.0"
 description = "자연어로 컴퓨터를 조작하는 인터페이스 — 토큰 효율적·결정론적 computer use 모사"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+]
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -20,9 +25,15 @@ dependencies = [
 # Optional headless/programmatic web backend (nlc/browser.py). NOT needed for
 # computer use of the user's real browser, which the AX driver already handles.
 web = ["playwright>=1.40"]
+native-visual = ["pyobjc-framework-ScreenCaptureKit>=10.0; sys_platform == 'darwin'"]
 
 [project.scripts]
 nlc = "nlc.cli:main"
 
 [tool.setuptools]
 packages = ["nlc"]
+# This wheel distributes portable Python modules. Signed native executables,
+# source-tree evaluation fixtures and mutable flow stores are not wheel data.
+# Native installation uses the source checkout's build.sh + launcher/nlc;
+# see docs/installation.md. Never copy a developer's signed binaries into wheels.
+include-package-data = false

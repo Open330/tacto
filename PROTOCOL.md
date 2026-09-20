@@ -36,8 +36,11 @@ SkyComputerUseService.app         ← 화면기록·손쉬운사용 권한 보�
 
 - 네이티브 코어는 ChatGPT.app 번들의 `sky.node`(N-API), `Package_ComputerUse`,
   `Package_Appshot`, `Package_SlimCore`.
-- macOS SkyLight 사설 API + "focus-without-raise"로 **백그라운드 창에 입력을
-  주입** → 사용자 마우스/키보드를 뺏지 않고 에이전트 여러 개가 병렬 동작.
+- macOS의 백그라운드 실행은 공식 문서에서 확인된다. 다만 초기 조사에서 이를
+  SkyLight의 "focus-without-raise" 하나로 설명한 것은 부정확했다(§3.20).
+  2026-09-20 로컬 바이너리에서 synthetic focus·focus suppression·virtual cursor
+  구성의 이름을 확인했으나 내부 호출 계약은 미확정이다. NLC의 동등한 입력 격리는
+  아직 구현·검증 중이다([G0 추적](reviews/2026-09-19/background-input.md)).
 - 실측 제약: 화면 잠금 시(`CGSSessionScreenIsLocked=true`) 창 캡처 불가
   (`cgWindowNotFound` -10005). 앱이 실행 중이어도 마찬가지.
 
@@ -473,10 +476,11 @@ codex와 공동조사(Apple 문서 + learn.chatgpt.com/docs/computer-use#locked-
 나열 금지). AX-tree 우선 설계라 화면기록은 선택으로 처리.
 
 ### 5.3 병렬 조작 (구현됨, `nlc/parallel.py`)
-focus-without-raise의 정직한 구현: AX 액션(`AXPress`·`AXValue`)은 요소별이라
-포커스 없이 **진짜 병렬**(distinct 앱 동시 조작), CGEvent(타이핑·좌표)는 전역
-포커스 의존이라 프로세스 락으로 **직렬화**(안전 인터리브). 실측: 2개 앱 동시 관찰
-91ms. 사설 API 없이 달성.
+AX 액션(`AXPress`·`AXValue`)은 요소를 직접 지정하고, CGEvent 호출은 프로세스
+락으로 직렬화한다. 실측된 2개 앱 동시 **관찰** 91ms는 입력 격리나 실행 중
+사용자 포커스 보존의 검증이 아니다. PID 이벤트 전달도 대상 앱 내부 focus와
+전역 focus의 부작용까지 보장하지 않는다. 전경 활성화·HID 클릭 경로가 남아
+있어 이를 제거하고 실제 비침해 실행을 검증하는 G0 작업을 진행한다.
 
 ### 5.4 확장 구현 완료 (2026-09-16)
 - **브라우저 백엔드**(`nlc/browser.py`) — Playwright + CDP `Accessibility.getFullAXTree`.
@@ -1342,3 +1346,20 @@ write-back. 실행 중 알아낸 수정을 레시피에 써 넣으면 escalation
   해석해서는 안 된다.
 - **비교 실험의 축.** Codex 와 비교할 것은 호출 수만이 아니라 성공당 비용, **잘못된
   성공 판정**, 안전한 중단, 중복 효과, 사람이 복구한 비용이다.
+
+
+### 2026-09-20 실험적 L2 창 준비 계약
+
+Native direct/signed helper의 `action.prepare_window` capability는 관측된 표준 창에 대해 `{"name": "prepare_window", "element_index": 0}` 형태의 act action을 받는다. general planner에는 capability를 가진 관측 Window 후보로 노출한다. flow authoring/replay의 준비 검증 계약은 미완료이며, 해당 경로의 자동 승격을 보류한다. 창 identity와 준비 상태를 확인한 뒤 PID·창에 지정한 제목 표시줄 입력을 전송한다. `click_deadline_uptime`은 click과 prepare_window에만 허용되는 같은 Mac 단조 시계의 입력 시작 기한이다.
+
+반환값 `acted + input_route: window_prepare + unverified: observe_effect + reobserve_required: true`는 메뉴 사용 가능이나 작업 완료를 보증하지 않는다. 새 관측과 대상 메뉴의 활성 상태를 확인한 뒤 후속 명령을 판단해야 한다. 후속 signed helper는 `menu_state` 읽기 API를 지원한다. `{type: "menu_state", target: 앱, path: 메뉴경로}`로 실행 중인 앱의 활성 여부·체크 표시·단축키를 조회한다. 메뉴 준비와 general 자동 연결은 별도이며 아직 미완료다. 실제 시험 범위와 모달·중단·입력 감사 한계는 [창 입력 계약](docs/native-window-input.md)에 기록한다.
+
+
+### 읽기 전용 메뉴 목록
+
+`menu_items` capability는 `{type:"menu_items",target:앱,path:[]}` 요청을 지원한다. 루트/하위 메뉴 직계 목록을 반환하며 조회 자체는 입력을 발생시키지 않는다. 미관측 enabled/has_submenu는 null이며 실행 가능을 뜻하지 않는다. 중복/부분 읽기/대상 변경은 오류다. 정확한 응답과 제한은 [메뉴 발견 계약](docs/menu-discovery.md)을 따른다.
+
+
+### prepare_window flow 재생
+
+빈 params와 관측된 Window selector를 사용한다. action.prepare_window capability, write_ephemeral 계약, field/equals/attribute의 명시적 postcondition이 필수다. unverified_ok는 허용하지 않는다. 정확한 window_prepare + observe_effect + reobserve_required 응답일 때만 결과를 재관찰한 뒤 진행하며 알 수 없는 응답이나 결과 조건 미충족은 후속 단계를 실행하지 않는다. 준비 입력 자체의 확인 이벤트는 unknown으로 유지하고, 이미 만족한 조건은 already_true로 기록한다.

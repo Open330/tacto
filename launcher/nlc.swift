@@ -63,12 +63,24 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
-                                 "probe", "selection", "ask"]
+                                 "probe", "selection", "ask", "document_text", "menu_state", "menu_items"]
+// The largest complete document this channel will carry, in UTF-16 units. The
+// same ceiling the helper enforces: a budget is a promise about how much this
+// process will allocate, so both ends have to mean the same number.
+let maxDocumentUTF16Units = 1_000_000
 // Per-action exact schemas, not a union of every field. A union let `click`
 // arrive carrying `text`, `action` and `pages` as well (advisor finding);
 // requiring an exact key set makes each action mean one thing.
 //
-// `press_key` is deliberately absent. The helper does not implement it, and a
+// `press_key` is here now, and narrowly: a NAMED set of six keys that move the
+// focus ring, validated against the same list the helper checks. Escape is not
+// among them — it is how the person stops this helper, and a key the agent can
+// also press makes "the user pressed Esc" indistinguishable from "the agent
+// did". Both sides validate, because the helper holds the grant and does not
+// depend on a caller having filtered on its behalf.
+//
+// The original note, which still says why a GENERIC key primitive stays out:
+// `press_key` was deliberately absent. The helper does not implement it, and a
 // generic key primitive is how "type into a field" becomes "run a command" —
 // Return commits, and a modifier combination invokes. When it returns it should
 // return split into a navigation capability and an explicit submit/shortcut one,
@@ -77,6 +89,7 @@ let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
 // `menu` expresses those without a keystroke primitive at all.
 let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     "click":            (["name", "element_index"], []),
+    "prepare_window":   (["name", "element_index"], []),
     "set_value":        (["name", "element_index", "value"], []),
     "type_text":        (["name", "element_index", "text"], []),
     "scroll":           (["name", "element_index", "direction"], ["pages"]),
@@ -88,7 +101,26 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // Trash, so it is vetted as strictly as an element index would be.
     "menu":             (["name", "path"], []),
     // Reads the screen and changes nothing, so it carries no target at all.
-    "read":             (["name"], []),
+    // `element_index` is optional here, not forbidden: a read of one named
+    // element is how a batch answers with the screen AFTER its earlier
+    // actions, and refusing the field made that unreachable through the signed
+    // path while it worked in-process (peer request).
+    "read":             (["name"], ["element_index"]),
+    // No `element_index`: the key goes where the focus is, and naming an
+    // element would suggest otherwise.
+    "press_key":        (["name", "key"], []),
+    // `value` is accepted for shape-compatibility with the browser's
+    // select_option, and must equal `option_label`: a native menu item has a
+    // title and nothing behind it, so there is no value space to name.
+    "select_option":    (["name", "element_index", "option_label"], ["value"]),
+    // The two-step form. `open_select` opens a popup and stops — it names no
+    // option because the whole reason it exists is that the caller does not
+    // yet know what is in there.
+    "open_select":      (["name", "element_index"], []),
+    // And this one chooses, from the observation that followed. `value` is
+    // accepted only for shape-compatibility with the browser and must equal
+    // `option_label`, for the same reason it must in `select_option`.
+    "select_custom_option": (["name", "element_index", "option_label"], ["value"]),
 ]
 
 // The vetting helpers below run on the connection thread as well as the main
@@ -123,26 +155,48 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["type", "obs_id", "target", "action", "mode",
-                                 "require_window", "prompt", "json",
-                                 "expect", "element_index"]
+let topLevelKeys: Set<String> = ["click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
+                                 "require_window", "prompt", "json", "path",
+                                 "expect", "element_index", "provider",
+                                 "document_token", "max_utf16_units", "timeout_seconds"]
 
 // What a caller may claim its target still is. Reading one element's own
 // attributes is about a millisecond; re-walking Mail's tree to find out is
 // nine and a half SECONDS, measured. So the claim travels with the action and
 // the helper checks it there — which also leaves no gap between checking and
 // acting. It names attributes to compare, never a program or a permission.
-let expectKeys: Set<String> = ["role", "label", "no_modal", "selection"]
+let expectKeys: Set<String> = ["role", "label", "attribute", "enabled",
+                               "no_modal", "selection"]
+// Which attribute a label was read from, so the check compares that one
+// exactly instead of searching a rendered line for a substring.
+let expectAttributes: Set<String> = ["Title", "Description", "Value", "Help",
+                                     "Identifier", "Placeholder"]
+
+// The only keys that may be asked for. Spelled out rather than parsed from a
+// modifier grammar: a grammar is how `cmd+q` becomes reachable by spelling.
+let navigationKeys: Set<String> = ["Tab", "shift+Tab", "Up", "Down",
+                                   "Left", "Right"]
 
 // A question is a string and nothing else. No program, no arguments, no
 // environment — the child names none of those, here or anywhere.
 let maxPromptBytes = 400_000
 
+// Which providers a question may ask for. The child names one of these or
+// none; it never names a program, a path or an argument. Kept in step with
+// `nlc/authoring.py::PROVIDER_ORDER`.
+let knownProviders: Set<String> = ["auto", "claude", "codex", "opencode", "cxweb"]
+
 @Sendable func isInt(_ v: Any) -> Bool {
     // CFBoolean bridges to NSNumber, so a bare NSNumber test would let `true`
     // through where an index is expected.
     guard let n = v as? NSNumber else { return false }
-    return CFGetTypeID(n) != CFBooleanGetTypeID()
+    guard CFGetTypeID(n) != CFBooleanGetTypeID() else { return false }
+    // And 1.5 is an NSNumber too. An index that is not a whole number is not a
+    // smaller index — it is a value nothing downstream has a rule for, and
+    // JSONSerialization hands it over without complaint (peer request).
+    let d = n.doubleValue
+    guard d.isFinite, d == d.rounded(.towardZero) else { return false }
+    return abs(d) <= 9_007_199_254_740_992      // beyond this, not exact
 }
 
 func vetted(_ msg: [String: Any]) -> String? {
@@ -150,6 +204,17 @@ func vetted(_ msg: [String: Any]) -> String? {
     guard allowedTypes.contains(type) else { return "허용되지 않은 type: \(type)" }
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
+    }
+    if msg["path"] != nil && !["menu_state", "menu_items"].contains(type) {
+        return "최상위 path 는 menu_state/menu_items 에만 허용됩니다"
+    }
+    if type == "menu_state" || type == "menu_items" {
+        guard Set(msg.keys) == Set(["type", "target", "path"]),
+              let target = msg["target"] as? String, !target.isEmpty,
+              let path = msg["path"],
+              isMenuPath(path) || (type == "menu_items" && (path as? [Any])?.isEmpty == true) else {
+            return "menu_state 형식 오류"
+        }
     }
     if type == "selection" {
         guard msg["target"] is String else { return "selection 에 target 없음" }
@@ -163,11 +228,53 @@ func vetted(_ msg: [String: Any]) -> String? {
         guard !p.isEmpty else { return "빈 prompt" }
         guard p.utf8.count <= maxPromptBytes else { return "prompt 가 너무 깁니다" }
         if let j = msg["json"], !(j is Bool) { return "json 형식 오류" }
+        guard modelTimeout(msg["timeout_seconds"]) != nil else { return "invalid model timeout" }
+        if let pv = msg["provider"] {
+            // A name from a fixed list, never a path or an argument: the child
+            // holds screen content and must not get to say what runs.
+            guard let name = pv as? String, knownProviders.contains(name) else {
+                return "알 수 없는 provider"
+            }
+        }
+    }
+    if type == "document_text" {
+        // Reading only, and only TextEdit — the same target restriction the
+        // in-process reader states, checked here so a different bundle id
+        // never reaches the helper at all.
+        guard let target = msg["target"] as? String else { return "document_text 에 target 없음" }
+        guard target == "com.apple.TextEdit" else {
+            return "document_text 는 TextEdit 만 지원합니다"
+        }
+        if let token = msg["document_token"] {
+            guard let text = token as? String, !text.isEmpty, text.count <= 128 else {
+                return "document_token 형식 오류"
+            }
+        }
+        if let budget = msg["max_utf16_units"] {
+            // Rejected here rather than clamped: a caller that asked for a
+            // gigabyte should be told no, not quietly given something else.
+            guard isInt(budget), let n = budget as? NSNumber,
+                  n.intValue >= 0, n.intValue <= maxDocumentUTF16Units else {
+                return "max_utf16_units 형식 오류"
+            }
+        }
+        for key in msg.keys where !["type", "target", "document_token",
+                                    "max_utf16_units"].contains(key) {
+            return "document_text 에 허용되지 않은 필드: \(key)"
+        }
     }
     if type == "observe" {
         guard msg["target"] is String else { return "observe 에 target 없음" }
         if let rw = msg["require_window"], !(rw is Bool) {
             return "require_window 형식 오류"
+        }
+    }
+    if let raw = msg["click_deadline_uptime"] {
+        guard type == "act", let action = msg["action"] as? [String: Any],
+              ["click", "prepare_window"].contains(action["name"] as? String ?? ""),
+              let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite, number.doubleValue > 0 else {
+            return "invalid click deadline"
         }
     }
     if type == "act" {
@@ -179,6 +286,12 @@ func vetted(_ msg: [String: Any]) -> String? {
             if let r = d["role"], !(r is String) { return "expect.role 형식 오류" }
             if let l = d["label"], !(l is String) { return "expect.label 형식 오류" }
             if let n = d["no_modal"], !(n is Bool) { return "expect.no_modal 형식 오류" }
+            if let en = d["enabled"], !(en is Bool) { return "expect.enabled 형식 오류" }
+            if let at = d["attribute"] {
+                guard let name = at as? String, expectAttributes.contains(name) else {
+                    return "expect.attribute 가 알려진 속성이 아닙니다"
+                }
+            }
             if let sd = d["selection"] {
                 guard let t = sd as? String, t.count <= 64 else {
                     return "expect.selection 형식 오류"
@@ -199,8 +312,28 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "\(name) 에 허용되지 않은 필드: "
                  + "\(keys.subtracting(schema.required.union(schema.optional)))"
         }
+        if name == "press_key" {
+            guard let key = action["key"] as? String else { return "key 형식 오류" }
+            guard navigationKeys.contains(key) else {
+                return "탐색 키가 아닙니다: \(key)"
+            }
+        }
+        // An expectation about an element, on an action that names none, is a
+        // condition nothing can check. Refused here as well as in the helper,
+        // because silently dropping it is how a caller comes to believe its
+        // checks ran.
+        let takesElement = schema.required.contains("element_index")
+                        || schema.optional.contains("element_index")
+        if !takesElement, let e = msg["expect"] as? [String: Any] {
+            for field in ["role", "label", "attribute", "enabled"]
+            where e[field] != nil {
+                return "\(name) 은 대상 요소를 지정하지 않는데 expect.\(field) 가 있습니다"
+            }
+        }
         for (k, v) in action {
             switch k {
+            case "key", "option_label":
+                if !(v is String) { return "\(k) 형식 오류" }
             case "name", "direction": if !(v is String) { return "\(k) 형식 오류" }
             case "value": if !(v is String) { return "value 형식 오류" }
             case "text":
@@ -300,7 +433,21 @@ func readJSONLine(_ fd: Int32, _ buffer: inout Data) -> [String: Any]? {
 func writeJSONLine(_ fd: Int32, _ obj: [String: Any]) {
     guard var d = try? JSONSerialization.data(withJSONObject: obj) else { return }
     d.append(0x0A)
-    _ = d.withUnsafeBytes { write(fd, $0.baseAddress, d.count) }
+    // One `write()` can be partial. Without the loop a long frame — a full
+    // accessibility tree, or a model's answer — is silently cut into invalid
+    // JSON, and the reader takes the remainder as the start of the next one:
+    // the protocol desyncs and every later reply is wrong (peer request).
+    var sent = 0
+    d.withUnsafeBytes { raw in
+        while sent < d.count {
+            let n = write(fd, raw.baseAddress!.advanced(by: sent), d.count - sent)
+            if n <= 0 {
+                if errno == EINTR { continue }
+                return                      // the far end is gone
+            }
+            sent += n
+        }
+    }
 }
 
 // MARK: - Environment
@@ -353,6 +500,13 @@ guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else {
     FileHandle.standardError.write(Data("nlc: 채널 생성 실패\n".utf8)); exit(1)
 }
 let relayEnd = pair[0], childEnd = pair[1]
+// A model deadline deliberately closes the child channel. A late reply must
+// fail its write, not kill this launcher with SIGPIPE before child cleanup.
+var relayNoSigPipe: Int32 = 1
+guard setsockopt(relayEnd, SOL_SOCKET, SO_NOSIGPIPE, &relayNoSigPipe,
+                 socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+    FileHandle.standardError.write(Data("nlc: 채널 종료 처리 설정 실패\n".utf8)); exit(1)
+}
 // CLOEXEC on both ends: without it the relay end leaks into the helper we spawn
 // later, and any exec inherits a channel that was authenticated for someone else.
 _ = fcntl(relayEnd, F_SETFD, FD_CLOEXEC)
@@ -394,25 +548,106 @@ guard spawned == 0 else {
 // process gets no helper channel and no fd 3: it sees a prompt and returns
 // text, and cannot touch the screen whatever the prompt says.
 
-func askModel(_ prompt: String, _ wantJSON: Bool) -> String? {
+@Sendable func modelTimeout(_ raw: Any?) -> Double? {
+    guard let raw else { return 420 }
+    guard let number = raw as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          number.doubleValue.isFinite, number.doubleValue > 0,
+          number.doubleValue <= 420 else { return nil }
+    return number.doubleValue
+}
+
+enum ModelProcessError: Error { case timeout, ioFailure, outputLimit }
+
+// Bound stdin, stdout (including inherited pipe writers), and process waiting.
+// SIGKILL targets this wrapper only. Provider-owned detached process groups and
+// remote inference are not guaranteed cancelled by this outer watchdog.
+@Sendable func boundedModelProcess(_ proc: Process, prompt: String, timeout: Double) throws -> Data {
+    let deadline = ProcessInfo.processInfo.systemUptime + timeout
+    let input = Pipe(), output = Pipe()
+    proc.standardInput = input
+    proc.standardOutput = output
+    try proc.run()
+    let inputFD = input.fileHandleForWriting.fileDescriptor
+    let outputFD = output.fileHandleForReading.fileDescriptor
+    var inputOpen = true
+    defer {
+        if inputOpen { try? input.fileHandleForWriting.close() }
+        try? output.fileHandleForReading.close()
+        if proc.isRunning { kill(proc.processIdentifier, SIGKILL) }
+        // Reap off the relay thread; do not let cleanup extend its deadline.
+        DispatchQueue.global().async { proc.waitUntilExit() }
+    }
+    let inputFlags = fcntl(inputFD, F_GETFL), outputFlags = fcntl(outputFD, F_GETFL)
+    guard inputFlags >= 0, outputFlags >= 0,
+          fcntl(inputFD, F_SETFL, inputFlags | O_NONBLOCK) >= 0,
+          fcntl(outputFD, F_SETFL, outputFlags | O_NONBLOCK) >= 0,
+          fcntl(inputFD, F_SETNOSIGPIPE, 1) >= 0 else { throw ModelProcessError.ioFailure }
+    let bytes = Array(prompt.utf8)
+    var sent = 0, result = Data()
+    var outputEnded = false
+    while true {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        if remaining <= 0 { throw ModelProcessError.timeout }
+        if inputOpen && sent == bytes.count {
+            try input.fileHandleForWriting.close()
+            inputOpen = false
+        }
+        if outputEnded && !proc.isRunning { return result }
+        var fds = [pollfd(fd: outputEnded ? -1 : outputFD, events: Int16(POLLIN), revents: 0),
+                   pollfd(fd: inputOpen ? inputFD : -1, events: Int16(POLLOUT), revents: 0)]
+        let ready = poll(&fds, nfds_t(fds.count), Int32(max(1, min(50, remaining * 1000))))
+        if ready < 0 {
+            if errno == EINTR { continue }
+            throw ModelProcessError.ioFailure
+        }
+        if inputOpen && fds[1].revents != 0 {
+            let written = bytes.withUnsafeBytes { raw in
+                Darwin.write(inputFD, raw.baseAddress!.advanced(by: sent), bytes.count - sent)
+            }
+            if written > 0 { sent += written }
+            else if written < 0 && errno != EAGAIN && errno != EINTR { throw ModelProcessError.ioFailure }
+        }
+        if !outputEnded && fds[0].revents != 0 {
+            var buffer = [UInt8](repeating: 0, count: 65536)
+            let count = Darwin.read(outputFD, &buffer, buffer.count)
+            if count == 0 { outputEnded = true }
+            else if count > 0 {
+                result.append(contentsOf: buffer.prefix(count))
+                if result.count > 4 * 1024 * 1024 { throw ModelProcessError.outputLimit }
+            } else if errno != EAGAIN && errno != EINTR { throw ModelProcessError.ioFailure }
+        }
+    }
+}
+
+func askModel(_ prompt: String, _ wantJSON: Bool, _ provider: String,
+              timeout: Double = 420) throws -> [String: Any]? {
     let proc = Process()
     proc.executableURL = python
-    proc.arguments = ["-I", "-m", "nlc.ask_provider"] + (wantJSON ? ["--json"] : [])
+    proc.arguments = ["-I", "-m", "nlc.ask_provider", "--result-envelope", "--timeout", String(timeout)]
+        + (wantJSON ? ["--json"] : [])
+        + (provider == "auto" ? [] : ["--provider", provider])
     proc.currentDirectoryURL = root
     proc.environment = ProcessInfo.processInfo.environment
-    let inPipe = Pipe(), outPipe = Pipe()
-    proc.standardInput = inPipe
-    proc.standardOutput = outPipe
     proc.standardError = FileHandle.standardError
-    do { try proc.run() } catch { return nil }
-    inPipe.fileHandleForWriting.write(Data(prompt.utf8))
-    try? inPipe.fileHandleForWriting.close()
-    let data = outPipe.fileHandleForReading.readDataToEndOfFile()
-    proc.waitUntilExit()
+    let data = try boundedModelProcess(proc, prompt: prompt, timeout: timeout)
+    if proc.terminationStatus == 124 { throw ModelProcessError.timeout }
     guard proc.terminationStatus == 0 else { return nil }
-    let text = String(decoding: data, as: UTF8.self)
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    return text.isEmpty ? nil : text
+    guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          result["requested_provider"] as? String == provider,
+          let requestID = result["request_id"] as? String, !requestID.isEmpty,
+          let status = result["status"] as? String, ["ok", "error", "timeout"].contains(status) else {
+        throw ModelProcessError.ioFailure
+    }
+    if status == "ok" {
+        guard let text = result["text"] as? String, !text.isEmpty,
+              result["error"] is NSNull else { throw ModelProcessError.ioFailure }
+    } else {
+        guard result["text"] is NSNull, result["error"] is [String: Any] else {
+            throw ModelProcessError.ioFailure
+        }
+    }
+    return result
 }
 
 // MARK: - Relay
@@ -424,31 +659,63 @@ let relayQueue = DispatchQueue(label: "nlc.relay")
 relayQueue.async {
     var fromChild = Data(), fromHelper = Data()
     var helperFD: Int32 = -1
+    // Once the helper connection drops, it stays dropped for this run.
+    var helperGone = false
     while let msg = readJSONLine(relayEnd, &fromChild) {
         if let why = vetted(msg) {
+            // Nothing was forwarded, so nothing happened — and the Python side
+            // reads `effect` to decide whether re-running or undoing is even
+            // allowed. A refusal without it is read as "may have happened",
+            // which is the most cautious reading of the least dangerous case
+            // (peer review).
             writeJSONLine(relayEnd, ["type": "error", "error": "rejected_by_launcher",
-                                     "detail": why])
+                                     "effect": "not_started", "detail": why])
             continue
         }
         if msg["type"] as? String == "ask" {
             let prompt = msg["prompt"] as! String
             let wantJSON = (msg["json"] as? Bool) ?? false
-            if let text = askModel(prompt, wantJSON) {
-                writeJSONLine(relayEnd, ["type": "answer", "text": text])
-            } else {
-                writeJSONLine(relayEnd, ["type": "error", "error": "no_answer",
-                                         "detail": "모델에서 답을 받지 못했습니다"])
+            let provider = (msg["provider"] as? String) ?? "auto"
+            let timeout = modelTimeout(msg["timeout_seconds"])!
+            do {
+                if let result = try askModel(prompt, wantJSON, provider, timeout: timeout) {
+                    if result["status"] as? String == "ok" {
+                        writeJSONLine(relayEnd, ["type": "answer", "text": result["text"]!,
+                                                "provider_result_v1": result])
+                    } else {
+                        let timedOut = result["status"] as? String == "timeout"
+                        writeJSONLine(relayEnd, ["type": "error",
+                            "error": timedOut ? "model_timeout" : "no_answer",
+                            "effect": "not_started", "provider_result_v1": result])
+                    }
+                } else {
+                    writeJSONLine(relayEnd, ["type": "error", "error": "no_answer",
+                                             "effect": "not_started"])
+                }
+            } catch {
+                let timedOut = (error as? ModelProcessError) == .timeout
+                writeJSONLine(relayEnd, ["type": "error", "error": timedOut ? "model_timeout" : "no_answer",
+                                         "effect": "not_started"])
             }
+            continue
+        }
+        if helperGone {
+            writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                     "effect": "not_started",
+                                     "detail": "도우미 연결이 끊어진 실행입니다 — "
+                                               + "다시 실행해 주세요"])
             continue
         }
         if helperFD < 0 {
             if access(helperSocket, F_OK) != 0, !startHelper() {
                 writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                         "effect": "not_started",
                                          "detail": "도우미를 시작하지 못했습니다"])
                 continue
             }
             guard let fd = connectSocket(helperSocket) else {
                 writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                         "effect": "not_started",
                                          "detail": "도우미에 연결하지 못했습니다"])
                 continue
             }
@@ -456,9 +723,21 @@ relayQueue.async {
         }
         writeJSONLine(helperFD, msg)
         guard let reply = readJSONLine(helperFD, &fromHelper) else {
-            writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
-                                     "detail": "도우미 연결이 끊어졌습니다"])
+            // The message went out and the answer never came back: this one
+            // genuinely may have happened.
+            //
+            // And this run is over for helper traffic. Reconnecting on the next
+            // message would hand back a helper with fresh per-connection state
+            // — including a cleared abort — so a dropped connection became a
+            // way to resurrect a run the user had stopped (peer review). A new
+            // run is a new launcher, which is the user's to start.
+            close(helperFD)
             helperFD = -1
+            helperGone = true
+            writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                                     "effect": "unknown",
+                                     "detail": "도우미 연결이 끊어졌습니다 — "
+                                               + "이 실행에서는 다시 연결하지 않습니다"])
             continue
         }
         writeJSONLine(relayEnd, reply)

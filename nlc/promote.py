@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from . import safety
 from .contract import ContextBinding, Envelope, policy
-from .flow import Capture, Flow, Postcondition, Selector, Step
+from .flow import Capture, Flow, Postcondition, Selector, Step, pin_params
 
 
 @dataclass
@@ -45,6 +45,7 @@ class Candidate:
     actions: list = field(default_factory=list)
     envelope: Envelope | None = None
     verified: bool = False
+    target_identity: str | None = None
 
     def same_path_as(self, other: "Candidate") -> bool:
         """Two runs did the same job.
@@ -54,26 +55,31 @@ class Candidate:
         clicks mean different things from different starting points. Both, or
         it is a different path that happens to rhyme.
         """
-        return (self.screens == other.screens
+        return (self.target == other.target
+                and self.target_identity == other.target_identity
+                and self.screens == other.screens
                 and [(a["do"], a["match"]) for a in self.actions]
                     == [(b["do"], b["match"]) for b in other.actions])
 
 
 def candidate_from(result, target: str, goal: str, quote: str = "",
-                   envelope: Envelope | None = None) -> Candidate | None:
+                   envelope: Envelope | None = None,
+                   target_identity: str | None = None) -> Candidate | None:
     """What a finished general run proposes, if it proposes anything.
 
     A run that did not reach a verified end proposes nothing: the first thing a
     recipe has to be is a path that is known to arrive.
     """
-    if not (result.ok and result.verified):
+    if not (result.ok and result.verified) or getattr(result, "identity_changed", False):
         return None
     actions = [a for v in result.visits for a in v.actions if a.get("match")]
-    if not actions:
+    # Pure menu discovery is not an executable replay action.
+    if not actions or any(a.get("do") == "inspect_menu" for a in actions):
         return None
     return Candidate(goal=goal, target=target, quote=quote,
                      screens=list(result.path), actions=actions,
-                     envelope=envelope, verified=True)
+                     envelope=envelope, verified=True,
+                     target_identity=getattr(result, "target_identity", None) or target_identity)
 
 
 # ------------------------------------------------------------- provenance
@@ -124,7 +130,8 @@ def parameters(c: Candidate) -> dict:
 
 # ------------------------------------------------------------------ flow
 
-def to_flow(c: Candidate, name: str) -> Flow:
+def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondition] | None = None,
+            preparation_postconditions: dict[int, Postcondition] | None = None) -> Flow:
     """The candidate as a concrete Flow — every step contracted and bound.
 
     Concrete on purpose. A template is a claim that some of this varies, and
@@ -134,25 +141,48 @@ def to_flow(c: Candidate, name: str) -> Flow:
     """
     env = c.envelope or Envelope.minimal()
     steps = []
-    for a in c.actions:
+    for index, a in enumerate(c.actions):
+        if a["do"] == "menu":
+            path = a.get("menu_path")
+            if (not isinstance(path,list) or not 1 <= len(path) <= 6
+                    or any(not isinstance(title,str) or not title or len(title)>200
+                           or any(ord(char)<32 or ord(char)==127 for char in title) for title in path)):
+                raise ValueError("menu candidate has no observed path")
+            params = {"path":list(path)}
+            effects,_ = safety.effects_of({"name":"menu", **params},a.get("line", ""),target=c.target)
+            steps.append(Step("menu", None, params=params,
+                intent_text=a.get("label", " > ".join(path)),
+                safety=env.contract_for(effects,a.get("label", " > ".join(path))),
+                binding=ContextBinding(bundle_id=c.target_identity or c.target,
+                                       operation="menu",params_digest=pin_params(params)),
+                postcondition=(menu_postconditions or {}).get(index)))
+            continue
         sel = Selector(role=a["role"], **{
             {"Title": "title", "Description": "desc",
              "Value": "value", "Identifier": "identifier"}[a["attr"]]: a["match"]},
             ancestor=a.get("container") or None)
-        action = {"name": a["do"]}
-        effects, why = safety.effects_of(action, a.get("line", ""))
+        from .protocol import ACTION_PARAMS
+        params = {k: a[k] for k in ACTION_PARAMS[a["do"]] if k in a}
+        action = {"name": a["do"], **params}
+        effects, why = safety.effects_of(action, a.get("line", ""), target=c.target)
         # A read is what the recipe ANSWERS with, so it becomes a capture — a
         # named value the run reports rather than a click nobody sees. Without
         # this a promoted recipe would replay perfectly and say nothing.
-        captures = ([Capture(name="결과", field=sel, attribute="Value")]
+        captures = ([Capture(name="결과", field=sel, attribute=a.get("read_attribute", "Value"))]
                     if a["do"] == "read" else [])
         steps.append(Step(
             a["do"], sel,
-            params={"value": a["value"]} if a.get("value") else {},
+            postcondition=(preparation_postconditions or {}).get(index) if a["do"] == "prepare_window" else None,
+            params=params,
             intent_text=a.get("label", a["match"]),
             safety=env.contract_for(effects, a.get("label", a["match"])),
-            binding=ContextBinding(bundle_id=c.target, role=a["role"],
-                                   identifier=a["match"], operation=a["do"],
+            binding=ContextBinding(bundle_id=c.target_identity or c.target, role=a["role"],
+                                   identifier=a["match"] if a["attr"] == "Identifier" else None,
+                                   title=a["match"] if a["attr"] == "Title" else None,
+                                   desc=a["match"] if a["attr"] == "Description" else None,
+                                   value=a["match"] if a["attr"] == "Value" else None,
+                                   operation=a["do"],
+                                   params_digest=pin_params(params),
                                    ancestor=a.get("container") or None),
             captures=captures, answers=bool(captures),
             unverified_ok=(a["do"] == "read")))
@@ -177,6 +207,30 @@ def gate(c: Candidate, flow: Flow, request: str) -> list[str]:
 
     verifies = False
     for i, st in enumerate(flow.steps):
+        if st.action == "prepare_window":
+            post=st.postcondition
+            if (st.selector is None or not isinstance(post,Postcondition) or post.field is None
+                    or post.equals is None or post.attribute is None or st.unverified_ok
+                    or st.safety is None or set(st.safety.effects) != {"write_ephemeral"}):
+                why.append(f"{i}번 창 준비에 관측 대상과 정확한 결과 조건이 필요합니다")
+        if st.action == "menu":
+            post = st.postcondition
+            if (not isinstance(post,Postcondition) or post.field is None
+                    or post.equals is None or post.attribute is None or st.unverified_ok):
+                why.append(f"{i}번 메뉴에 직접 읽을 필드와 정확한 값의 결과 조건이 필요합니다")
+            if (st.selector is not None or st.binding is None or st.binding.operation != "menu"
+                    or st.binding.params_digest != pin_params(st.params)):
+                why.append(f"{i}번 메뉴 경로의 실행 계약이 달라졌습니다")
+            recorded = c.actions[i] if i < len(c.actions) else {}
+            if recorded.get("do") != "menu" or st.params.get("path") != recorded.get("menu_path"):
+                why.append(f"{i}번 메뉴 경로가 관측된 후보와 다릅니다")
+            actual,_ = safety.effects_of({"name":"menu", **st.params},
+                " > ".join(x for x in st.params.get("path", []) if isinstance(x,str)),target=c.target)
+            if st.safety is not None and not actual <= set(st.safety.effects):
+                why.append(f"{i}번 메뉴의 실제 효과가 계약에 포함되지 않았습니다")
+        if st.action == "press_key" and (st.selector is not None or
+                                         (st.postcondition is None and st.expect is None)):
+            why.append(f"{i}번 탐색 키의 포커스와 실행 결과를 재생 계약에 고정하지 못했습니다")
         if st.safety is None:
             why.append(f"{i}번 단계에 계약이 없습니다")
             continue
@@ -189,15 +243,21 @@ def gate(c: Candidate, flow: Flow, request: str) -> list[str]:
             why.append(f"{i}번 단계는 무인 재생 대상이 아닙니다 ({risk})")
         if st.binding is None:
             why.append(f"{i}번 단계에 고정된 설명이 없습니다")
+        if effects - {"read", "write_ephemeral"}:
+            # A general run's witness is not yet a durable selector binding.
+            # Keep the candidate reviewable, but never publish an unbound send.
+            if st.binding is None or not (st.binding.resource_identity or st.binding.destination_identity):
+                why.append(f"{i}번 단계의 실행 전 대상 검증을 레시피에 고정하지 못했습니다")
         if st.postcondition is not None or st.expect or st.captures:
             verifies = True
         # This run's data must not become the template's. A literal that came
         # off the screen is what THIS screen said, and a recipe that replays it
         # is asserting the screen will say it again.
-        lit = str(st.params.get("value") or "")
-        if lit and provenance(lit, request) == "screen":
-            why.append(f"{i}번 단계가 이번 실행에서 읽은 값을 그대로 담고 있습니다"
-                       f" ({lit[:24]!r})")
+        for parameter in ('value', 'option_label'):
+            lit = str(st.params.get(parameter) or "")
+            if lit and provenance(lit, request) == "screen":
+                why.append(f"{i}번 단계가 이번 실행에서 읽은 값을 그대로 담고 있습니다"
+                           f" ({lit[:24]!r})")
     if not verifies:
         why.append("성공했는지 확인하는 단계가 하나도 없습니다")
     return why
@@ -239,14 +299,16 @@ def counterexamples(c: Candidate, flow: Flow, request: str) -> list[tuple]:
     return out
 
 
-def deployable(c: Candidate, name: str, request: str) -> tuple[Flow | None, list]:
+def deployable(c: Candidate, name: str, request: str, *,
+               menu_postconditions: dict[int, Postcondition] | None = None,
+               preparation_postconditions: dict[int, Postcondition] | None = None) -> tuple[Flow | None, list]:
     """The whole decision: a recipe, or every reason there is not one.
 
     The counterexamples run against the same gate. If a knowingly broken
     version passes, the gate measured nothing and nothing is deployed —
     including the version that looked fine.
     """
-    flow = to_flow(c, name)
+    flow = to_flow(c, name, menu_postconditions=menu_postconditions, preparation_postconditions=preparation_postconditions)
     why = gate(c, flow, request)
     if why:
         return None, why
@@ -297,14 +359,15 @@ class CandidateStore:
         rec = {
             "name": name, "runs": runs, "request": request,
             "candidate": {"goal": c.goal, "target": c.target, "quote": c.quote,
+                          "target_identity": c.target_identity,
                           "screens": c.screens, "actions": c.actions,
                           "verified": c.verified},
             "parameters": parameters(c),
             "blocked_by": why,
             "flow": json.loads(flow.to_json()) if flow else None,
         }
-        with open(self._file(name), "w", encoding="utf-8") as f:
-            json.dump(rec, f, ensure_ascii=False, indent=2)
+        from .storage import write_private
+        write_private(self._file(name), json.dumps(rec, ensure_ascii=False, indent=2))
         return rec
 
     def get(self, name: str) -> dict | None:

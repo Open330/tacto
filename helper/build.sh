@@ -2,7 +2,7 @@
 # Build and sign the helper that holds the Accessibility grant.
 #
 # Swift only allows top-level statements in a file named main.swift, and the
-# helper is split across two files now, so the entry point is staged under that
+# helper is split across several files now, so the entry point is staged under that
 # name in a temp dir rather than renaming the source.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -13,8 +13,9 @@ STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp NLCHelper.swift "$STAGE/main.swift"
 cp PeerAuth.swift  "$STAGE/PeerAuth.swift"
+cp WindowInput.swift "$STAGE/WindowInput.swift"
 
-"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" -o nlc-helper
+"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" -o nlc-helper
 
 IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
   | grep -v CSSMERR | head -1 | sed -E 's/.*"(.*)"/\1/')}

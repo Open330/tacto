@@ -5,20 +5,29 @@ and asks a model to translate "what the user wants" + "the current accessibility
 tree" into a concrete NLC Flow (selectors + steps + postcondition). The Flow is
 then saved, so every future run of that intent replays with zero tokens.
 
-The model is reached through `muxa ask` (provider-agnostic: claude/codex/…), so
-this works headless in the muxa fleet without wiring an API key here.
+Claude uses a tools-disabled structured CLI adapter. Other providers retain
+the muxa-first transport without an inference-only guarantee.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import math
 import os
 import shutil
+import signal
 import subprocess
+import time
+import uuid
+
+from .provider_result import ProviderError, ProviderResult
+from .provider_observation import collecting_provider_calls, record_provider_result
+from .model_budget import remaining_model_seconds
 
 from .contract import (SafetyContract, Resource, Destination, Evidence,
                        ContextBinding)
-from .driver import Driver
+from .protocol import Driver
 from .flow import Capture, Flow, Step, Selector, Postcondition, pin_params
 
 _SYSTEM = """You convert a user's intent into a deterministic UI automation recipe.
@@ -51,6 +60,13 @@ them as null, and never emit a selector that carries nothing but a role: "click
 a Button" is not an instruction, and such a step is refused.
 
 ## Choosing actions
+
+`prepare_window` is a native window preparation input, not a click or a promise
+that menus are ready. Use only with action.prepare_window capability, a specific
+observed Window selector, empty params, and an explicit postcondition with field,
+equals, and attribute. Its safety effects must be write_ephemeral. Do not invent
+a ready-state value or use unverified_ok; omit this step if its result cannot be
+observed. Replay observes the result before continuing to any later action.
 
 `menu` is usually the right answer. Save, copy, close, quit, new window, "go to
 that folder" live in the MENU BAR and nowhere else, and the window often exposes
@@ -155,7 +171,7 @@ tried to influence in `unknowns`."""
 # endpoints on purpose: authoring is a reasoning task over a big tree, and the
 # agent CLI is the thing the user has already paid for and logged into.
 PROVIDER_ORDER = ("claude", "codex", "opencode", "cxweb")
-_CLI = {"claude": ["claude", "-p"], "codex": ["codex", "exec"],
+_CLI = {"codex": ["codex", "exec"],
         "opencode": ["opencode", "run"],
         "gemini": ["gemini", "-p"], "cxweb": ["cxweb", "new", "--level", "3"]}
 
@@ -187,20 +203,44 @@ def _provider_env() -> dict:
     return env
 
 
+def _run_provider(argv: list[str], timeout: int):
+    """Bound local CLI and its process group; remote cancellation is unknown."""
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, env=_provider_env(),
+                          start_new_session=(os.name == "posix")) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if os.name == "posix":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            # Do not wait for pipe EOF: a detached descendant can retain it.
+            process.wait()
+            raise
+        return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+
+
 def _try_muxa(provider: str, prompt: str, timeout: int):
-    out = subprocess.run(
-        ["muxa", "ask", "--agent", provider, "--timeout-secs", str(timeout), prompt],
-        capture_output=True, text=True, timeout=timeout + 30,
-        env=_provider_env())
+    if provider == "claude":
+        return None  # No verified inference-only muxa contract yet.
+    out = _run_provider(
+        ["muxa", "ask", "--agent", provider, "--timeout-secs", str(max(1, math.ceil(timeout))), prompt],
+        timeout)
     return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
 
 
 def _try_cli(provider: str, prompt: str, timeout: int):
+    if provider == "claude":
+        from .claude_result import claude_result
+        return claude_result(prompt, timeout=timeout)
     argv = _CLI.get(provider)
     if argv is None or shutil.which(argv[0]) is None:
         return None
-    out = subprocess.run(argv + [prompt], capture_output=True, text=True,
-                         timeout=timeout + 60, env=_provider_env())
+    out = _run_provider(argv + [prompt], timeout)
     text = out.stdout.strip()
     if out.returncode != 0 or not text:
         return None
@@ -212,7 +252,7 @@ def _try_cli(provider: str, prompt: str, timeout: int):
 
 
 def reach_model(prompt: str, provider: str = "auto",
-                expect_json: bool = False) -> str:
+                expect_json: bool = False, *, timeout_seconds: float = 420) -> str:
     """A model, from whichever side of the permission boundary we are on.
 
     The signed launcher gives its child a fixed PATH so that nothing holding
@@ -223,58 +263,155 @@ def reach_model(prompt: str, provider: str = "auto",
     for the answer to reach the screen except through the checks that were
     going to run anyway.
     """
+    timeout_seconds = remaining_model_seconds(timeout_seconds)
+    if collecting_provider_calls():
+        result = reach_model_result(prompt, provider, expect_json, timeout_seconds=timeout_seconds)
+        if result.status == "timeout":
+            raise TimeoutError("model request deadline exceeded")
+        if result.status != "ok" or not result.text:
+            raise RuntimeError("model request failed")
+        return result.text
     from .helper import InheritedHelperDriver
     if InheritedHelperDriver.available():
-        text = InheritedHelperDriver().ask_launcher(prompt, expect_json)
+        text = InheritedHelperDriver().ask_launcher(prompt, expect_json, provider=provider, timeout_seconds=timeout_seconds)
         if not text:
             raise RuntimeError("런처가 모델 답을 받지 못했습니다")
         return text
-    return _ask_model(prompt, provider, expect_json=expect_json)
+    return _ask_model(prompt, provider, timeout=timeout_seconds, expect_json=expect_json)
 
 
 def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
-               expect_json: bool = False) -> str:
+               expect_json: bool = False, *, _metadata: dict | None = None) -> str:
     """Reach a model for the one token-spending step.
 
     `auto` walks PROVIDER_ORDER and uses the first that actually answers, trying
-    muxa (fleet-managed) before the provider's own CLI. Naming a provider pins
-    it. Returns the reply; raises with what was attempted if nothing answered.
+    muxa before the CLI except Claude, which uses only its tools-disabled
+    structured adapter. Other providers do not yet have an inference-only
+    guarantee. Naming a provider pins it; auto fallback is logged.
 
     `expect_json` is what makes a broken provider fall through to the next one
     rather than poison the result. An agent CLI can fail while reporting
     success — opencode prints a 401 and exits 0 — and a reply with no JSON in it
     is not an answer to a question that asked for JSON, whatever the exit code
-    said. The unusable text is carried into the error so the reason is visible.
+    said. Errors report attempt types, never raw model output.
     """
     order = PROVIDER_ORDER if provider in ("auto", None) else (provider,)
     tried = []
+    timed_out = False
+    deadline = time.monotonic() + remaining_model_seconds(timeout)
     for name in order:
-        for how, fn in (("muxa", _try_muxa), ("cli", _try_cli)):
+        if tried:
+            logging.getLogger(__name__).warning(
+                "Model auto fallback to provider=%s after %s", name, "; ".join(tried))
+        routes = (("cli-json", _try_cli),) if name == "claude" else (
+            ("muxa", _try_muxa), ("cli", _try_cli))
+        for how, fn in routes:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("model request deadline exceeded; " + "; ".join(tried))
+            if _metadata is not None:
+                _metadata.clear()
+                _metadata.update(provider=name, transport=how, attempts=list(tried))
             try:
-                reply = fn(name, prompt, timeout)
+                reply = fn(name, prompt, remaining)
+                observed = reply if isinstance(reply, ProviderResult) else None
+                if observed is not None:
+                    if observed.status == "timeout":
+                        raise TimeoutError("provider deadline exceeded")
+                    if observed.status != "ok" or not observed.text:
+                        raise RuntimeError("structured provider failed")
+                    reply = observed.text
+                if reply and time.monotonic() >= deadline:
+                    raise TimeoutError("model reply arrived after deadline")
+                if reply and expect_json:
+                    _extract_json(reply)
             except Exception as e:
+                timed_out = timed_out or isinstance(e, (TimeoutError, subprocess.TimeoutExpired))
                 tried.append(f"{name}/{how}: {type(e).__name__}")
                 continue
-            if reply and expect_json and "{" not in reply:
-                first = " ".join(reply.split())[:120]
-                tried.append(f"{name}/{how}: JSON 아님 — {first}")
-                continue
             if reply:
+                if _metadata is not None and observed is not None:
+                    _metadata["observed"] = observed
                 return reply
             tried.append(f"{name}/{how}: no answer")
+    if timed_out:
+        raise TimeoutError("model request timed out; " + "; ".join(tried))
     raise RuntimeError("모델을 호출하지 못했습니다. 시도: " + "; ".join(tried))
 
 
+def _model_result(prompt: str, provider: str, timeout: int,
+                  expect_json: bool, via_launcher: bool) -> ProviderResult:
+    started = time.monotonic()
+    request_id = str(uuid.uuid4())
+    metadata = {}
+    text, error, status = None, None, "ok"
+    try:
+        if via_launcher:
+            from .helper import InheritedHelperDriver
+            from dataclasses import replace
+            observed_result = InheritedHelperDriver().ask_launcher_result(
+                prompt, expect_json, provider=provider, timeout_seconds=remaining_model_seconds(timeout))
+            if observed_result.status == "ok" and expect_json:
+                _extract_json(observed_result.text)
+            return record_provider_result(replace(observed_result, transport="launcher",
+                           elapsed_seconds=max(0, time.monotonic()-started)))
+        else:
+            text = _ask_model(prompt, provider, timeout, expect_json,
+                              _metadata=metadata)
+    except Exception as exc:
+        text = None
+        status = "timeout" if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else "error"
+        error = ProviderError(type(exc).__name__,
+                              "Model request exceeded its deadline" if status == "timeout"
+                              else "Model request failed")
+    observed = metadata.get("observed")
+    telemetry = ({key: getattr(observed, key) for key in (
+        "model", "provider_request_id", "provider_thread_id", "input_tokens",
+        "output_tokens", "cached_input_tokens", "cost", "cost_currency", "cost_basis",
+        "input_tokens_basis", "cache_creation_input_tokens", "total_input_tokens")}
+        if status == "ok" and observed is not None else {})
+    return record_provider_result(ProviderResult(request_id=request_id,
+                          requested_provider=provider or "auto",
+                          provider=metadata.get("provider"),
+                          transport=metadata.get("transport"), status=status,
+                          text=text, error=error,
+                          elapsed_seconds=max(0.0, time.monotonic() - started), **telemetry))
+
+
+def ask_model_result(prompt: str, provider: str = "auto", timeout: int = 420,
+                     expect_json: bool = False) -> ProviderResult:
+    """Call local providers with a total deadline and an observable envelope.
+
+    Provider on failure identifies the last attempted provider. Credentials,
+    prompts and provider stderr are deliberately absent from error metadata.
+    """
+    return _model_result(prompt, provider, timeout, expect_json, False)
+
+
+def reach_model_result(prompt: str, provider: str = "auto",
+                       expect_json: bool = False, *, timeout_seconds: float = 420) -> ProviderResult:
+    """Envelope equivalent of reach_model, including signed-launcher routing.
+
+    Signed launchers forward observed provider telemetry in provider_result_v1.
+    Legacy text-only replies leave unobserved fields null. Caller deadlines
+    also bound the launcher request; remote cancellation is not guaranteed.
+    """
+    from .helper import InheritedHelperDriver
+    return _model_result(prompt, provider, timeout_seconds, expect_json,
+                         InheritedHelperDriver.available())
+
+
 def _extract_json(text: str) -> dict:
-    start = text.find("{")
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start:i + 1])
+    decoder = json.JSONDecoder()
+    for start, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            value, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
     raise ValueError("no JSON object in model output")
 
 
@@ -319,6 +456,8 @@ def _captures(items) -> list:
 
 
 def _to_flow(spec: dict) -> Flow:
+    if type(spec.get("schema", 2)) is not int or spec.get("schema", 2) != 2:
+        raise ValueError("authoring requires Flow schema 2")
     steps = []
     for s in spec.get("steps", []):
         sel = _sel(s.get("selector"))
@@ -363,9 +502,24 @@ def _to_flow(spec: dict) -> Flow:
             bundle_id=spec.get("target"),
             role=sel.role if sel is not None else None,
             identifier=(ident[0] if isinstance(ident, list) and ident else ident),
+            title=sel.title if sel else None, desc=sel.desc if sel else None,
+            value=sel.value if sel else None,
             ancestor=sel.ancestor if sel is not None else None,
             operation=s["action"],
             params_digest=pin_params(params) if params else None)
+        if s.get("binding"):
+            from dataclasses import asdict
+            # Preserve the authored witnesses, but derive executable identity
+            # from the actual step instead of accepting contradictory pins.
+            supplied = ContextBinding(**s["binding"])
+            pins = asdict(supplied)
+            for key in ("bundle_id", "role", "identifier", "title", "desc", "value", "ancestor",
+                        "operation", "params_digest"):
+                actual = getattr(binding, key)
+                if pins[key] is not None and pins[key] != actual:
+                    raise ValueError(f"binding.{key} contradicts the action")
+                pins[key] = actual
+            binding = ContextBinding(**pins)
         steps.append(Step(action=s["action"], selector=sel, binding=binding,
                           params=s.get("params", {}),
                           intent_text=s.get("intent_text", ""),
@@ -377,12 +531,18 @@ def _to_flow(spec: dict) -> Flow:
                           captures=_captures(s.get("captures")),
                           unverified_ok=bool(s.get("unverified_ok")),
                           for_each=s.get("for_each"),
+                          require_enabled=s.get("require_enabled", True),
+                          on_uncertain=list(s.get("on_uncertain", [])),
                           safety=contract))
     # A flow-level postcondition belongs to the last step, unless that step
     # already carries its own.
     if steps and spec.get("postcondition") and steps[-1].postcondition is None:
         steps[-1].postcondition = _post(spec["postcondition"])
-    return Flow(name=spec["name"], target=spec["target"], steps=steps)
+    flow = Flow(name=spec["name"], target=spec["target"], steps=steps,
+                params=spec.get("params", {}), tables=spec.get("tables", {}),
+                derived=spec.get("derived", {}))
+    # Exercise the same parser used for saved files.
+    return Flow.from_json(flow.to_json())
 
 
 _PICK = """You choose which installed app can satisfy a user's request.
@@ -575,8 +735,8 @@ def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
     # the reply is gone by the time the error surfaces.
     debug = os.environ.get("NLC_AUTHOR_DEBUG")
     if debug:
-        with open(debug, "w", encoding="utf-8") as fh:
-            fh.write(f"# prompt ({len(prompt)} chars)\n{prompt}\n\n# reply\n{reply}\n")
+        from .storage import write_private
+        write_private(debug, f"# prompt ({len(prompt)} chars)\n{prompt}\n\n# reply\n{reply}\n")
     spec = _extract_json(reply)
     spec["_intent"] = intent          # provenance for the authorization scope
     flow = _to_flow(spec)
@@ -631,4 +791,3 @@ def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
         narrate(f"  ({len(flow.steps)}단계 중 {len(unchecked)}개는 화면이 바뀐 뒤를 "
                 f"가리켜 지금 확인할 수 없어요 — 실행할 때 검증됩니다)")
     return flow
-

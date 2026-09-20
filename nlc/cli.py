@@ -8,6 +8,7 @@ Usage:
   python -m nlc.cli compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
       (--verify runs the result once and lets the model fix what failed)
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
+      (--provider codex|claude|gemini|opencode|cxweb|auto selects the model provider)
       (--think [N] lets a run stop and ask when the screen disagrees; N calls, default 1)
       (--strict turns off reading the request itself: only phrasings the
        patterns already know, and an honest "I did not understand" otherwise)
@@ -36,7 +37,6 @@ Things it already knows how to do (nlc do "…"):
 
 import sys
 
-from . import onboard
 from .agent import Agent
 from .store import FlowStore
 
@@ -79,6 +79,57 @@ def _confirmer(argv):
     return ask
 
 
+def _provider_from(argv):
+    """Keep provider configuration out of the user's task text."""
+    provider, rest, seen = "auto", [], False
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token == "--provider" or token.startswith("--provider="):
+            if seen:
+                raise ValueError("--provider may be supplied only once")
+            seen = True
+            if token == "--provider":
+                i += 1
+                if i >= len(argv):
+                    raise ValueError("--provider requires a value")
+                provider = argv[i]
+            else:
+                provider = token.split("=", 1)[1]
+            if provider not in ("auto", "claude", "codex", "gemini", "opencode", "cxweb"):
+                raise ValueError(f"unsupported provider: {provider!r}")
+        else:
+            rest.append(token)
+        i += 1
+    return provider, rest
+
+
+def _general_limits_from(argv):
+    flags = {"--general-timeout": "timeout_seconds", "--max-screens": "max_screens",
+             "--prompt-budget": "budget", "--max-pages": "max_pages"}
+    limits = {"timeout_seconds": None, "max_screens": 8, "budget": 16000, "max_pages": 8}
+    rest, seen, i = [], set(), 0
+    while i < len(argv):
+        token = argv[i]
+        name, equals, value = token.partition("=")
+        if name not in flags:
+            rest.append(token)
+        else:
+            if name in seen:
+                raise ValueError(f"{name} may be supplied only once")
+            seen.add(name)
+            if not equals:
+                i += 1
+                if i >= len(argv):
+                    raise ValueError(f"{name} requires a positive integer")
+                value = argv[i]
+            if not value.isascii() or not value.isdecimal() or int(value) <= 0:
+                raise ValueError(f"{name} requires a positive integer")
+            limits[flags[name]] = int(value)
+        i += 1
+    return limits, rest
+
+
 def _params_from(argv):
     """Collect -p key=value pairs into a dict (and return the rest)."""
     out, rest = {}, []
@@ -96,10 +147,11 @@ def _params_from(argv):
 def _indicator_for(target, argv):
     """Show a 'being controlled' outline on the target window during a run,
     unless the caller opted out. Never blocks the task if it can't draw."""
+    if "--no-indicator" in argv:
+        from contextlib import nullcontext
+        return nullcontext()
     from .driver import Driver
     from .overlay import Indicator
-    if "--no-indicator" in argv:
-        return Indicator(None, enabled=False)
     try:
         pid = Driver()._resolve(target, launch=False)
     except Exception:
@@ -107,14 +159,62 @@ def _indicator_for(target, argv):
     return Indicator(pid, notify=lambda m: print(f"  {m}"))
 
 
+def _run_flow(flow, argv):
+    """All direct replay commands use the same consent and trace path."""
+    from .flow import replay
+    driver = _make_driver(argv)
+    trace_path = None
+    tracer = None
+    if "--trace" in argv:
+        k = argv.index("--trace")
+        if k + 1 == len(argv) or argv[k + 1].startswith("--"):
+            print("--trace requires a path")
+            return 2
+        trace_path = argv[k + 1]
+        import json, os
+        if os.path.exists(trace_path):
+            try:
+                with open(trace_path, encoding="utf-8") as fh:
+                    if "steps" in json.load(fh):
+                        print("트레이스로 레시피를 덮어쓸 수 없습니다")
+                        return 2
+            except (ValueError, TypeError):
+                pass
+        from .trace import Trace, TracingDriver
+        tracer = TracingDriver(driver, Trace(flow=flow.name, target=flow.target))
+        driver = tracer
+    agent = Agent(driver=driver)
+    approvals, blocked = agent.authorize(flow, ask=_confirmer(argv))
+    if blocked:
+        print("\n".join(blocked))
+        return 1
+    try:
+        hooks = agent.commit_adapter_hooks(agent.commit_adapter_for(flow))
+    except Exception as exc:
+        print(f"저장 결과 검증 준비 실패: {exc}")
+        return 1
+    with _indicator_for(flow.target, argv):
+        result = replay(driver, flow, approvals=approvals,
+                        narrate=lambda text: print(f"  … {text}"), **hooks)
+    if tracer:
+        print(f"트레이스 저장: {tracer.trace.save(trace_path)}")
+    if result.ok:
+        value = result.log[-1].get("result") if result.log else None
+        print("done" + (f" — 결과: {value}" if value else ""))
+    else:
+        print(f"failed: {result.log[-1]}")
+    return 0 if result.ok else 1
+
+
 def main(argv=None):
-    argv = argv or sys.argv[1:]
-    if not argv:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] in ("--help", "-h", "help"):
         print(__doc__)
         return 0
     cmd, *rest = argv
 
     if cmd == "doctor":
+        from . import onboard
         ok = onboard.run(interactive="--check" not in rest)
         return 0 if ok else 1
 
@@ -123,13 +223,17 @@ def main(argv=None):
         # see the signed launcher in their ancestry.
         import runpy, os as _os
         root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        evaluator = _os.path.join(root, "examples", "eval.py")
+        if not _os.path.isfile(evaluator):
+            print("평가 fixture는 wheel에 포함되지 않습니다. 소스 checkout에서 "
+                  "examples/eval.py를 실행하세요.")
+            return 2
         # runpy keeps OUR argv, and the suite reads it to narrow the run — so
         # hand it the arguments meant for it, not the ones meant for us.
         argv = sys.argv
         sys.argv = ["eval.py", *rest]
         try:
-            runpy.run_path(_os.path.join(root, "examples", "eval.py"),
-                           run_name="__main__")
+            runpy.run_path(evaluator, run_name="__main__")
         finally:
             sys.argv = argv
         return 0
@@ -254,17 +358,15 @@ def main(argv=None):
                 else:
                     provider = val
                 del words[k:k + 2]
-        intent = " ".join(words)
-        from .driver import Driver as _D
+        intent = " ".join(w for w in words if w != "--helper")
         from .authoring import author as _author
         from .store import FlowStore as _FS
         print(f"  🧠 '{intent}' 를 배우는 중… (엔진: {provider or 'auto'})")
-        flow = _author(intent, _D(), provider=provider or "auto", narrate=print,
+        flow = _author(intent, _make_driver(rest), provider=provider or "auto", narrate=print,
                        verify=verify, rounds=rounds)
         if out:
-            with open(out, "w", encoding="utf-8") as fh:
-                fh.write(flow.to_json())
-            path = out
+            from .storage import write_private
+            path = write_private(out, flow.to_json())
         else:
             path = _FS().save(flow)
         print(f"  ✓ IR 저장: {path}  ({len(flow.steps)}단계, 앱 {flow.target})")
@@ -296,7 +398,8 @@ def main(argv=None):
         tmpl = _par(flow, params, tables=_dt() if "--digits" in words else None,
                     derived=derived or None)
         if out:
-            open(out, "w", encoding="utf-8").write(tmpl.to_json()); path = out
+            from .storage import write_private
+            path = write_private(out, tmpl.to_json())
         else:
             path = FlowStore().save(tmpl)
         print(f"  ✓ 파라미터화: {path}")
@@ -311,43 +414,32 @@ def main(argv=None):
         if not rest:
             print('usage: run <flow.json> [-p a=12 -p b=34]')
             return 2
-        from .driver import Driver as _D
         from .flow import Flow as _F, replay as _replay
         with open(rest[0], encoding="utf-8") as fh:
             flow = _F.from_json(fh.read())
-        if flow.params or params:
+        if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)          # parameterized recipe
-        with _indicator_for(flow.target, rest):
-            r = _replay(_make_driver(rest), flow, narrate=lambda s: print(f"  … {s}"))
-        last = r.log[-1]
-        if r.ok:
-            v = last.get("result")
-            print(f"done" + (f" — 결과: {v}" if v else ""))
-        else:
-            print(f"failed: {last}")
-        return 0 if r.ok else 1
+        return _run_flow(flow, rest)
 
     if cmd == "replay":
         if not rest:
             print("usage: replay <name>"); return 2
-        from .driver import Driver
-        from .flow import replay
         params, rest = _params_from(rest)
         if not rest:
             print("usage: replay <name> [-p a=12 -p b=34]"); return 2
         flow = FlowStore().load(rest[0])
-        if flow.params or params:
+        if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)
-        with _indicator_for(flow.target, rest):
-            r = replay(_make_driver(rest), flow, narrate=lambda s: print(f"  … {s}"))
-        if r.ok:
-            v = r.log[-1].get("result")
-            print("done" + (f" — 결과: {v}" if v else ""))
-        else:
-            print(f"failed: {r.log[-1]}")
-        return 0 if r.ok else 1
+        return _run_flow(flow, rest)
 
     if cmd == "do":
+        try:
+            provider, rest = _provider_from(rest)
+            general_limits, rest = _general_limits_from(rest)
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        from . import onboard
         # A path where an intent was expected is a recipe, not a sentence —
         # run it rather than failing to resolve it as natural language.
         import os as _os
@@ -372,9 +464,11 @@ def main(argv=None):
         trace_path = None
         if "--trace" in rest:
             k = rest.index("--trace")
-            trace_path = rest[k + 1] if k + 1 < len(rest) else "nlc-trace.json"
-            intent = " ".join(r for j, r in enumerate(rest)
-                              if j not in (k, k + 1))
+            if k + 1 == len(rest) or rest[k + 1].startswith("-"):
+                print("--trace requires a path")
+                return 2
+            trace_path = rest[k + 1]
+            rest = [r for j, r in enumerate(rest) if j not in (k, k + 1)]
         # Guard: a trace and a flow are different IRs. Writing a trace over a
         # saved flow destroys the recipe (a real user hit this), so refuse.
         if trace_path:
@@ -411,7 +505,8 @@ def main(argv=None):
                     if j != k and not (j == k + 1 and nxt.isdigit())]
             intent = " ".join(rest)
 
-        intent = " ".join(w for w in intent.split() if not w.startswith("--")).strip()
+        intent = " ".join(w for w in rest if w not in
+                          ("--yes", "-y", "--helper", "--strict", "--no-indicator")).strip()
 
         driver = _make_driver(rest)
         tracer = None
@@ -426,7 +521,7 @@ def main(argv=None):
             from .authoring import author as _author
             def author_hook(intent_text, drv):        # noqa: E306
                 print("  🧠 처음 보는 작업이라 배우는 중… (모델 사용)")
-                return _author(intent_text, drv, provider="auto", narrate=print)
+                return _author(intent_text, drv, provider=provider, narrate=print)
         # Reading the request is on by default. A product for people who
         # cannot use a computer cannot answer only to phrasings a regex was
         # written for — and the patterns now say so themselves rather than
@@ -438,7 +533,7 @@ def main(argv=None):
 
             def interpret(q):                                  # noqa: F811
                 print(f"  🧠 말씀을 읽는 중… ({q.kind})")
-                return _ask(q, narrate=lambda m: print(f"  {m}"))
+                return _ask(q, provider=provider, narrate=lambda m: print(f"  {m}"))
 
         # The other half: a task no recipe covers is done by looking at the
         # screen and asking about it — one question per screen, not per click.
@@ -446,25 +541,33 @@ def main(argv=None):
         # than after four provider timeouts.
         general_hook = None
         if interpret is not None:
-            from .ask import ask as _ask2, what_to_do_here
+            from .ask import ask as _ask2, ask_here_paged
 
             def general_hook(target, goal, confirm, env=None, need=None):  # noqa: F811
                 from .ask import where_is
                 from .general import run as _run
                 def here(g, cands, done):
                     print(f"  👀 화면을 보고 있어요… ({len(cands)}개)")
-                    return _ask2(what_to_do_here(g, cands, done),
-                                 narrate=lambda m: print(f"  {m}"))
+                    return ask_here_paged(g, cands, done, provider=provider,
+                                          budget=general_limits["budget"],
+                                          max_pages=general_limits["max_pages"],
+                                          narrate=lambda m: print(f"  {m}"))
                 def where(field, cands):
                     print(f"  🔎 보내기 전에 '{field}' 를 확인합니다")
-                    return _ask2(where_is(field, cands))
+                    return _ask2(where_is(field, cands), provider=provider)
                 return _run(driver, target, goal, here, envelope=env,
+                            timeout_seconds=general_limits["timeout_seconds"],
+                            max_screens=general_limits["max_screens"],
                             witnesses=need, ask_where=where,
                             approve=confirm, narrate=lambda m: print(f"  {m}"))
 
+        judge = None
+        if think:
+            from .judge import model_judge
+            judge = model_judge(provider=provider, narrate=lambda s: print(f"  {s}"))
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook, interpret=interpret,
-                      general=general_hook)
+                      general=general_hook, judge=judge)
         # The person should be able to see their computer being driven, and
         # stop it: outline the window while the task runs.
         from .store import FlowStore as _S
