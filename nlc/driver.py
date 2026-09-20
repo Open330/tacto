@@ -12,6 +12,7 @@ Implements the PROTOCOL.md v0.1 decisions:
 from __future__ import annotations
 
 import difflib
+import os
 import subprocess
 import threading
 import time
@@ -348,6 +349,16 @@ class Driver:
                 "Accessibility permission in System Settings")
         self._latest: dict[str, Observation] = {}   # target -> newest obs
         self._last_action_at = 0.0
+        # Showing that this is happening belongs to whatever touches the
+        # screen, not to whoever remembered to wrap the call. It used to be
+        # wired at two CLI commands and two helper messages, so every other
+        # way in — a script holding a Driver, `nlc observe`, the whole
+        # evaluation suite — drove somebody's machine with nothing on screen
+        # to say so (found 2026-09-20 while verifying browsers).
+        self._indicator = None
+        self._indicator_pid = None
+        self._indicator_beat = None
+        self._indicate = os.environ.get("NLC_NO_INDICATOR") != "1"
         # The one menu this driver opened and has not yet spent, if any. It is
         # a registry of ONE: a second open would leave a menu standing that
         # nothing is tracking, and the caller would have no way to say which of
@@ -815,6 +826,78 @@ class Driver:
             return {'type': 'error', 'error': 'document_snapshot_unavailable',
                     'effect': 'not_started', 'detail': str(exc)}
 
+    INDICATOR_TTL = 4.0
+
+    def _showing_control(self, pid) -> None:
+        """Put the outline on this app, and keep it there while we are working.
+
+        Never raises and never blocks the action: a failure to draw is reported
+        through the child's own absence, and losing the outline must not be a
+        reason the person's task stops. It is still not silent — `indicator()`
+        reports what is on screen, and the signed helper refuses outright when
+        it cannot draw, because that transport holds the grant.
+
+        The outline is torn down by a heartbeat rather than a scope: a driver
+        that CAN act at any moment is not one that IS acting, and an outline
+        that never leaves stops being read.
+        """
+        if not getattr(self, "_indicate", False) or type(pid) is not int or pid <= 0:
+            return
+        try:
+            beat = getattr(self, "_indicator_beat", None)
+            if beat is None:
+                import tempfile
+                handle, beat = tempfile.mkstemp(prefix="nlc-indicator-")
+                os.close(handle)
+                self._indicator_beat = beat
+            os.utime(beat, None)                      # this is the heartbeat
+            current = getattr(self, "_indicator", None)
+            if (current is not None and current.alive()
+                    and getattr(self, "_indicator_pid", None) == pid):
+                return
+            self.hide_indicator()
+            from .overlay import Indicator
+            self._indicator = Indicator(pid, heartbeat=beat, ttl=self.INDICATOR_TTL)
+            self._indicator.__enter__()
+            self._indicator_pid = pid
+        except Exception:
+            # Best effort. `indicator()` tells the truth about what happened.
+            self._indicator = None
+
+    def indicator(self) -> dict:
+        """What is on screen saying this is happening, if anything."""
+        current = getattr(self, "_indicator", None)
+        return {"showing": bool(current is not None and current.alive()),
+                "pid": getattr(self, "_indicator_pid", None),
+                "enabled": bool(getattr(self, "_indicate", False))}
+
+    def hide_indicator(self) -> None:
+        current = getattr(self, "_indicator", None)
+        if current is not None:
+            try:
+                current.__exit__(None, None, None)
+            except Exception:
+                pass
+        self._indicator = None
+        self._indicator_pid = None
+
+    def close(self) -> None:
+        """Take the outline down; a driver nobody holds is not driving."""
+        self.hide_indicator()
+        beat = getattr(self, "_indicator_beat", None)
+        if beat:
+            try:
+                os.unlink(beat)
+            except OSError:
+                pass
+        self._indicator_beat = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def observe(self, target: str, mode: str = "tree_diff",
                 require_window: bool = True):
         if mode not in ("tree_diff", "tree_full"):
@@ -828,6 +911,7 @@ class Driver:
             waited_ms = int(settle * 1000)
 
         pid = self._resolve(target)
+        self._showing_control(pid)
         if pid is None:
             # Distinguish "not running" from "this process cannot see the GUI
             # session at all". NSWorkspace needs no Accessibility permission, but
@@ -937,6 +1021,7 @@ class Driver:
 
         # D3: index freshness — action must cite the newest observation.
         obs = self._latest.get(target.lower())
+        self._showing_control(getattr(obs, "pid", None))
         if obs is None or obs.obs_id != obs_id:
             return {"type": "error", "error": "stale_observation",
                     "effect": "not_started",
@@ -1162,9 +1247,15 @@ class Driver:
                 raise RuntimeError(f"AXPress failed ({err}); effect is unknown; do not retry blindly")
         elif name == "set_value":
             el = self._element(obs, action)
+            self._focus_for_write(el)
             err = AXUIElementSetAttributeValue(el, "AXValue", action["value"])
             if err != 0:
                 raise RuntimeError(f"AXValue set failed ({err})")
+            landed = _attr(el, "AXValue")
+            if isinstance(landed, str) and landed != action["value"]:
+                raise NotStarted(
+                    "값을 썼다고 응답했지만 요소에 남지 않았습니다 — "
+                    f"지금 값: {landed!r}")
         elif name == "type_text":
             el = self._element(obs, action)
             role = _attr(el, "AXRole")
@@ -1280,6 +1371,29 @@ class Driver:
         return _attr(AXUIElementCreateApplication(pid), "AXFocusedUIElement")
 
 
+    @staticmethod
+    def _focus_for_write(element) -> None:
+        """Give the element the app's focus before writing into it.
+
+        A web text field accepts `AXValue` and `AXSelectedText` as settable,
+        returns success from the write, and keeps the old value: measured on
+        Safari 2026-09-20, the write only lands once `AXFocused` is set. That
+        is the same shape as an AXPress that returns 0 and does nothing — a
+        silent success — so the focus is arranged rather than hoped for.
+
+        This moves focus INSIDE the app, to the element the caller named. It
+        does not activate the app and does not touch the window server's idea
+        of what is in front; a background app's own focused element is its
+        business. Elements that do not offer `AXFocused` (most native fields)
+        are left alone.
+        """
+        settable = AXUIElementIsAttributeSettable(element, "AXFocused", None)
+        if not (isinstance(settable, tuple) and settable[0] == 0 and settable[1] is True):
+            return
+        if _attr(element, "AXFocused") is True:
+            return
+        AXUIElementSetAttributeValue(element, "AXFocused", True)
+
     def _type_text(self, text, pid, element):
         """Write the text INTO the named element, addressed, in one call.
 
@@ -1311,7 +1425,9 @@ class Driver:
                 "AXSelectedText 를 쓸 수 없는 요소입니다")
         if _aborted_now():
             raise NotStarted("사용자가 중단했습니다 — 아무것도 입력하지 않았습니다")
+        before = _attr(element, "AXValue")
         with _INPUT_LOCK:
+            self._focus_for_write(element)
             err = AXUIElementSetAttributeValue(element, "AXSelectedText", text)
         if err == AX_CANNOT_COMPLETE:
             # As with AXPress: a callback doing modal processing can time out
@@ -1321,6 +1437,14 @@ class Driver:
                 "텍스트 삽입이 시간 초과했습니다 — 들어갔을 수도 있습니다", "unknown")
         if err != 0:
             raise NotStarted(f"텍스트 삽입에 실패했습니다 ({err})")
+        # A web field reports success and keeps its old value when the write
+        # did not take. Ask the element what it says now instead of believing
+        # the return code.
+        after = _attr(element, "AXValue")
+        if isinstance(after, str) and after == before and text not in (after or ""):
+            raise NotStarted(
+                "삽입했다고 응답했지만 요소의 값이 그대로입니다 — "
+                "들어가지 않았습니다")
 
     NAVIGATION_KEYS = {
         "Tab": ("tab", 0), "shift+Tab": ("tab", "shift"),

@@ -95,22 +95,43 @@ class NativeInputDispatchTests(unittest.TestCase):
 
     # ---------------------------------------------------------------- typing
 
-    def type_text(self, text, *, settable=True, set_error=0):
+    def type_text(self, text, *, settable=True, set_error=0, lands=True,
+                  focusable=True, already_focused=False):
+        """`lands` is what a web field does when the write did not take.
+
+        Measured on Safari 2026-09-20: a web text field reports `AXValue` and
+        `AXSelectedText` as settable, returns success from the write, and keeps
+        its old value — until `AXFocused` is set on it. Success that changed
+        nothing is the same trap as an AXPress returning 0 and doing nothing.
+        """
         m = self.module
         wrote = []
+        value = ["before"]
+        def attr(el, key):
+            return {"AXRole": "AXTextField", "AXValue": value[0],
+                    "AXFocused": already_focused}.get(key)
+        def write(el, key, new):
+            wrote.append((key, new))
+            if key == "AXFocused":
+                return 0
+            if lands and set_error == 0:
+                value[0] = text if key == "AXSelectedText" else new
+            return set_error
+        def is_settable(el, key, _out):
+            return (0, focusable if key == "AXFocused" else settable)
         with ExitStack() as stack:
-            stack.enter_context(patch.object(m, '_attr', return_value='AXTextField'))
+            stack.enter_context(patch.object(m, '_attr', side_effect=attr))
             stack.enter_context(patch.object(m, '_aborted_now', return_value=False))
             stack.enter_context(patch.object(m, 'AXUIElementIsAttributeSettable',
-                                             return_value=(0, settable)))
+                                             side_effect=is_settable))
             stack.enter_context(patch.object(m, 'AXUIElementSetAttributeValue',
-                side_effect=lambda el, key, value: (wrote.append((key, value)), set_error)[1]))
+                                             side_effect=write))
             result = self.driver.act('test', 'test-app',
                                      {'name': 'type_text', 'element_index': 0, 'text': text})
         return result, wrote
 
     def test_text_is_written_to_the_named_element_in_one_addressed_call(self):
-        """No focus to require, and no half-typed state to report.
+        """No keystrokes, and no half-typed state to report.
 
         The path this replaced posted one keystroke per character and had to
         re-check the focused element between every pair, because a keystroke
@@ -118,23 +139,44 @@ class NativeInputDispatchTests(unittest.TestCase):
         """
         result, wrote = self.type_text('hello')
         self.assertEqual('acted', result['type'], result)
+        self.assertIn(('AXSelectedText', 'hello'), wrote)
+
+    def test_the_element_is_focused_first_because_a_web_field_needs_it(self):
+        result, wrote = self.type_text('hello')
+        self.assertEqual('acted', result['type'], result)
+        self.assertEqual(('AXFocused', True), wrote[0], 'focus comes before the write')
+
+    def test_an_already_focused_element_is_not_focused_again(self):
+        _, wrote = self.type_text('hello', already_focused=True)
+        self.assertNotIn('AXFocused', [key for key, _ in wrote])
+
+    def test_a_field_that_does_not_offer_focus_is_written_anyway(self):
+        """Most native fields have no settable AXFocused, and never needed one."""
+        result, wrote = self.type_text('hello', focusable=False)
+        self.assertEqual('acted', result['type'], result)
         self.assertEqual([('AXSelectedText', 'hello')], wrote)
+
+    def test_a_write_that_reports_success_and_changes_nothing_is_refused(self):
+        result, wrote = self.type_text('hello', lands=False)
+        self.assertEqual('not_started', result['effect'], result)
+        self.assertIn(('AXSelectedText', 'hello'), wrote, 'it was attempted')
 
     def test_astral_characters_survive_because_nothing_counts_code_units(self):
         result, wrote = self.type_text('😀 한글')
         self.assertEqual('acted', result['type'], result)
-        self.assertEqual([('AXSelectedText', '😀 한글')], wrote)
+        self.assertIn(('AXSelectedText', '😀 한글'), wrote)
 
     def test_an_element_that_cannot_take_text_is_refused_with_nothing_written(self):
         result, wrote = self.type_text('hello', settable=False)
         self.assertEqual('not_started', result['effect'])
-        self.assertEqual([], wrote)
+        self.assertEqual([], [w for w in wrote if w[0] == 'AXSelectedText'])
 
     def test_a_timed_out_write_is_unknown_and_not_written_again(self):
         m = self.module
         result, wrote = self.type_text('hello', set_error=m.AX_CANNOT_COMPLETE)
         self.assertEqual('unknown', result['effect'])
-        self.assertEqual(1, len(wrote), 'writing again is how one sentence becomes two')
+        self.assertEqual(1, len([w for w in wrote if w[0] == 'AXSelectedText']),
+                         'writing again is how one sentence becomes two')
 
     def test_a_failed_write_says_nothing_was_written(self):
         result, _ = self.type_text('hello', set_error=-25200)

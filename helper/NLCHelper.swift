@@ -2413,6 +2413,27 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                 "effect": "not_started",
                 "detail": "사용자가 Esc로 중단했습니다 — 이 실행에서는 더 진행하지 않습니다"]
     }
+    // Every message that reaches into another app says so on screen, decided
+    // here rather than in each case. `observe` and `act` already did it and
+    // the rest did not, so a caller could read a document, walk a menu bar or
+    // take a selection with nothing on screen to say it was happening — the
+    // same gap the Python driver had, found the same way (2026-09-20).
+    //
+    // Reading is not the lesser thing: the note on `observe` is that showing
+    // the outline for reads too is what keeps confidentiality protected, not
+    // just integrity. So these refuse when the outline cannot be drawn,
+    // exactly as `observe` does.
+    let reaching: Set<String> = ["menu_state", "menu_items", "probe",
+                                 "selection", "document_text"]
+    if let kind, reaching.contains(kind),
+       let target = msg["target"] as? String, let p = pid(forBundle: target) {
+        guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+            return ["type": "error", "error": "indicator_unavailable",
+                    "effect": "not_started",
+                    "detail": "조작 표시를 띄울 수 없어 중단했습니다 (\(kind))"]
+        }
+    }
+
     switch kind {
     case "ping":
         // NOT where the abort clears. A client that could ping its way past Esc
