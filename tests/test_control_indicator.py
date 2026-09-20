@@ -9,6 +9,7 @@ owns it now.
 """
 import importlib.util
 import os
+import pathlib
 import time
 import unittest
 from types import SimpleNamespace
@@ -156,3 +157,123 @@ class IndicatorLifetimeTests(unittest.TestCase):
                 pass
         self.assertEqual(['4321'], [c for c in seen['command'] if c == '4321'])
         self.assertEqual(4, len(seen['command']), 'python -m nlc.overlay <pid>')
+
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+class TheIndicatorCoversNothing(unittest.TestCase):
+    """It was an outline drawn around the target window. It is a menu-bar item.
+
+    The outline was wrong twice over. It put our own drawing on top of
+    someone's screen, and it carried `canJoinAllSpaces` — "make sure it is
+    visible", which in practice meant it followed the user to every desktop and
+    drew a box around empty space over unrelated work, while the window it
+    described was not on that screen at all (user report, 2026-09-21).
+
+    A menu-bar item hides nothing and follows nobody. These tests exist because
+    the obvious "fix" is to bring the panel back with one flag removed, and the
+    panel itself was the problem.
+    """
+
+    def test_the_helper_shows_a_menu_bar_item(self):
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertIn("NSStatusBar.system.statusItem(withLength:", text)
+        self.assertIn("func showControlIndicator(forPID", text)
+
+    def test_the_python_indicator_shows_a_menu_bar_item(self):
+        text = (ROOT / "nlc/overlay.py").read_text()
+        self.assertIn("statusItemWithLength_", text)
+
+    def test_neither_draws_a_window_over_the_screen(self):
+        for path, banned in (("helper/NLCHelper.swift", ("NSPanel(", "orderFrontRegardless")),
+                             ("nlc/overlay.py", ("NSPanel", "NSBezierPath"))):
+            text = (ROOT / path).read_text()
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("//") or stripped.startswith("#"):
+                    continue
+                for token in banned:
+                    self.assertNotIn(token, stripped,
+                                     f"{path} is drawing over the screen again")
+
+    def test_no_collection_behaviour_survives_anywhere(self):
+        # There is no panel to give a Space behaviour to. A reference to one is
+        # the panel coming back.
+        for path in ("helper/NLCHelper.swift", "nlc/overlay.py"):
+            text = (ROOT / path).read_text()
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("//") or stripped.startswith("#"):
+                    continue
+                self.assertNotIn("ollectionBehavior", stripped, path)
+
+    def test_the_indicator_still_gates_every_action(self):
+        # The point of it is that a caller cannot act invisibly. Losing the
+        # outline must not lose that.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertGreaterEqual(text.count("ensureVisibleControl(forPID: p)"), 4)
+        self.assertIn("indicator_unavailable", text)
+
+    def test_what_the_gate_hangs_on_is_the_signal_that_cannot_hide(self):
+        # Measured: on a full menu bar macOS collapses extra items behind an
+        # overflow chevron while the item still reports isVisible == true. A
+        # promise the person can see this happening cannot rest on that, so the
+        # refusal hangs on the capture stream, whose indicator is the system's
+        # own and took a slot ahead of the chevron rather than behind it.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        body = text[text.index("func ensureVisibleControl("):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("return ensureControlStream(forPID: pid)", body)
+        # The menu-bar item is best effort and must not be able to fail the run.
+        self.assertIn("_ = DispatchQueue.main.sync", body)
+
+    def test_the_held_stream_sees_one_window_not_the_screen(self):
+        # `SCContentFilter(display:)` stood here and captured everything, so an
+        # indicator meaning "NLC is looking" was looking at every other window
+        # the person had open (user report, 2026-09-21). The indicator may not
+        # cost more than what it announces.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        body = text[text.index("func ensureControlStream(forPID"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("SCContentFilter(desktopIndependentWindow:", body)
+        # In code, not in the comment that explains why it is gone.
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            self.assertNotIn("SCContentFilter(display:", stripped)
+
+    def test_the_stream_follows_the_window_it_is_about(self):
+        # A run that moves to another window must move the indicator with it,
+        # or it reports capture of something we stopped touching.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertIn("controlStreamWindow", text)
+        body = text[text.index("func ensureControlStream(forPID"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("stopCapture", body)
+
+    def test_the_refusal_names_the_permission_it_needs(self):
+        # "조작 표시를 띄울 수 없습니다" told nobody what to do about it, and the
+        # cause is now one specific switch.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertEqual(text.count("화면 기록 에서 'NLC Helper'"), 4)
+
+    def test_the_held_stream_keeps_nothing(self):
+        # It is lit by really capturing, so it takes the least it can: the
+        # frames are dropped and the stream is small and slow. A sink that
+        # started keeping frames would be taking more of someone's screen than
+        # the indicator promises.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        sink = text[text.index("final class DiscardingSink"):]
+        sink = sink[:sink.index("\n}\n")]
+        self.assertNotIn("append", sink)
+        self.assertNotIn("=", sink.split("of type: SCStreamOutputType)")[-1])
+
+    def test_it_names_the_app_being_driven(self):
+        # "something is happening" is not the same promise as "this app is
+        # being driven", and the menu bar has room to say which.
+        swift = (ROOT / "helper/NLCHelper.swift").read_text()
+        python = (ROOT / "nlc/overlay.py").read_text()
+        self.assertIn("localizedName", swift)
+        self.assertIn("localizedName", python)

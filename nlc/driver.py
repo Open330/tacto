@@ -339,7 +339,11 @@ class Driver:
         "custom_select.label_only",
         # Said separately because the browser's `press_key` includes Escape and
         # this one does not.
-        "press_key.navigation_only", "press_key.no_escape",
+        # No press_key capability is announced. Keys are not synthesised at
+        # all now, so naming one would be advertising a refusal — and a
+        # caller reading "navigation_only" plans around a Tab that never
+        # arrives. Silence is not a capability, and neither is a promise
+        # kept by an error message.
     })
 
     def __init__(self):
