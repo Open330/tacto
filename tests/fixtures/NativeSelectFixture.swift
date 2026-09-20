@@ -13,10 +13,12 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
     private let count = NSTextField(labelWithString: "0")
     private let lifetime: TimeInterval
     private let decoys: Int
+    private let foreground: Bool
 
-    init(lifetime: TimeInterval, decoys: Int) {
+    init(lifetime: TimeInterval, decoys: Int, foreground: Bool) {
         self.lifetime = lifetime
         self.decoys = decoys
+        self.foreground = foreground
         super.init()
     }
 
@@ -56,8 +58,23 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
         window.contentView?.addSubview(result)
         window.contentView?.addSubview(count)
 
-        // Show behind other windows. Do not activate or request key focus.
-        window.orderBack(nil)
+        // Default: show behind other windows, do not activate, do not ask for
+        // key focus. That is what the background-refusal probes need — a window
+        // that is demonstrably not in front.
+        //
+        // `--foreground` is the opposite, and it exists because the two
+        // questions are opposite. Checking that `select_option` really picks an
+        // option needs a menu that can open, and a menu opens only in the app
+        // that is in front. Finder used to be that subject; on macOS 27 its
+        // view popup answers AXPress with kAXErrorSuccess and opens nothing.
+        // So the fixture can be asked to come forward, by a harness that says
+        // so out loud — never by the driver, which refuses instead.
+        if foreground {
+            window.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        } else {
+            window.orderBack(nil)
+        }
         let timer = Timer(timeInterval: lifetime, repeats: false) { _ in
             NSApplication.shared.terminate(nil)
         }
@@ -85,8 +102,16 @@ enum NativeSelectFixture {
         let args = Array(CommandLine.arguments.dropFirst())
         var lifetime: TimeInterval = 90
         var decoys = 0
+        var foreground = false
         var index = 0
         while index < args.count {
+            // A flag with no value, so it is consumed before the pair parsing
+            // below can demand one.
+            if args[index] == "--foreground" {
+                foreground = true
+                index += 1
+                continue
+            }
             guard index + 1 < args.count else { exit(2) }
             if args[index] == "--timeout", let seconds = Double(args[index + 1]),
                seconds.isFinite, seconds >= 1, seconds <= 300 {
@@ -103,8 +128,12 @@ enum NativeSelectFixture {
             exit(0)
         }
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        let delegate = FixtureDelegate(lifetime: lifetime, decoys: decoys)
+        // An accessory app cannot be frontmost, and a popup menu only opens in
+        // the app that is. Which policy this runs under is therefore part of
+        // what is being asked, not a detail.
+        app.setActivationPolicy(foreground ? .regular : .accessory)
+        let delegate = FixtureDelegate(lifetime: lifetime, decoys: decoys,
+                                       foreground: foreground)
         app.delegate = delegate
         withExtendedLifetime(delegate) {
             app.run()

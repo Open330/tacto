@@ -23,6 +23,7 @@ not observe.
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -440,38 +441,235 @@ def _view_popup(d):
     skip("이 Finder 창에는 보기 팝업이 없습니다")
 
 
-def _close_open_menus(pid):
-    """Cancel any menu this app has standing.
+SELECT_FIXTURE = "ai.callabo.nlc.select-fixture"
+_FIXTURE = {}          # built once per process, torn down by its own timeout
 
-    A `select_option` that fails partway leaves the menu it opened on screen,
-    and the next check then reports "메뉴가 3개 열려" — a failure caused
-    entirely by the previous one. One check's wreckage must not be read as the
-    next one's defect, and a menu left over someone's Finder is not something
-    to leave behind either.
 
-    `AXCancel` is the menu's own action: nothing is synthesised here.
+def _select_fixture(d, lifetime=180):
+    """An owned popup to check `select_option` against, started if needed.
+
+    Finder's view popup was the subject here because it is reversible. On
+    macOS 27 it stopped answering: `AXPress` and `AXShowMenu` both return
+    kAXErrorSuccess and nothing opens, and the window refuses `AXFocused` the
+    same way — set returns 0, the value stays false. The driver is right to
+    refuse rather than claim it worked, but that leaves the happy path of
+    `select_option` with nothing to prove itself on.
+
+    So the subject is ours: ordinary AppKit controls, no AX overrides, a popup
+    whose selection is echoed into a separate label by the control's own action
+    callback. That label is the witness — it moves only if the selection really
+    happened, not because the driver says so.
+
+    Returns the pid. Skips, with the reason, when this machine cannot build or
+    start it — checked before anything is pressed, never after.
     """
-    from ApplicationServices import (AXUIElementCreateApplication,
-                                     AXUIElementPerformAction)
+    import subprocess
+    import time
+    from nlc.driver import Driver
+
+    probe = Driver()
+    pid = _FIXTURE.get("pid")
+    if pid is not None and probe._resolve(SELECT_FIXTURE, launch=False) == pid:
+        if not _bring_forward(SELECT_FIXTURE, probe):
+            skip("픽스처를 앞으로 가져오지 못했습니다 — 팝업은 앞선 앱에서만 열립니다")
+        return pid
+
+    import plistlib
+    import tempfile
+    root = pathlib.Path(__file__).resolve().parents[1]
+    source = root / "tests/fixtures/NativeSelectFixture.swift"
+    if not source.is_file():
+        skip(f"{source.relative_to(root)} 이 없습니다")
+    swiftc = pathlib.Path("/Library/Developer/CommandLineTools/usr/bin/swiftc")
+    if not swiftc.is_file():
+        skip("swiftc 가 없습니다 (Command Line Tools 미설치)")
+    sdks = sorted(pathlib.Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
+    if not sdks:
+        skip("macOS SDK 를 찾지 못했습니다")
+
+    # Kept for the life of the process, not a `with` block: the fixture has to
+    # outlive the build and both checks, and it ends itself on --timeout.
+    work = _FIXTURE.get("dir") or tempfile.mkdtemp(prefix="nlc-select-fixture-")
+    _FIXTURE["dir"] = work
+    app = pathlib.Path(work) / "NLC Select Fixture.app"
+    executable = app / "Contents/MacOS/NativeSelectFixture"
+    if not executable.is_file():
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": SELECT_FIXTURE,
+            "CFBundleExecutable": executable.name,
+            "CFBundleName": "NLC Select Fixture",
+            "CFBundlePackageType": "APPL",
+            "CFBundleVersion": "1",
+        }))
+        build = subprocess.run(
+            [str(swiftc), "-parse-as-library", "-sdk", str(sdks[-1]),
+             str(source), "-o", str(executable)],
+            capture_output=True, text=True)
+        if build.returncode != 0:
+            skip(f"픽스처 빌드 실패: {build.stderr.strip()[:160]}")
+
+    # A fixture left over from an earlier run answers to the same bundle id,
+    # so `_resolve` would keep returning ITS pid and the wait below would time
+    # out against a process that is perfectly healthy — and it may be the
+    # accessory one, which cannot come forward at all. It is ours and
+    # disposable, so it goes.
+    stale = probe._resolve(SELECT_FIXTURE, launch=False)
+    if stale is not None:
+        from AppKit import NSRunningApplication
+        app_obj = NSRunningApplication.runningApplicationWithProcessIdentifier_(stale)
+        if app_obj is not None:
+            app_obj.terminate()
+        # `_pump` between polls, or this never ends: NSWorkspace's app list is
+        # a snapshot refreshed by run-loop notifications, and a plain script
+        # runs no run loop — so a process that died a second ago stays in the
+        # list forever and `_resolve` keeps handing back its pid. `_resolve`
+        # pumps only when it fails to find something, which is the opposite of
+        # the case here.
+        gone = time.monotonic() + 8
+        while time.monotonic() < gone:
+            probe._pump()
+            if probe._resolve(SELECT_FIXTURE, launch=False) is None:
+                break
+            time.sleep(0.1)
+        else:
+            skip("이전 픽스처가 종료하지 않아 새로 시작할 수 없습니다")
+
+    # `--foreground` is deliberate and said out loud: a popup menu opens only
+    # in the app that is in front, so a check of the happy path has to put its
+    # subject there. The driver never does this; the harness does, on a fixture
+    # that exists for it. The same fixture without the flag is what the
+    # background-refusal probes use.
+    # Opened through LaunchServices, not by running the executable. Measured
+    # here the same way it was measured for the helper: a binary exec'd
+    # directly is never allowed to come forward — `activate` returns and
+    # nothing happens — while the same bundle opened by LaunchServices is
+    # frontmost within a second. Twice now, the answer to "why will macOS not
+    # let this process do the thing it was granted" has been how it was
+    # started.
+    launch = subprocess.run(
+        ["open", "-n", "-a", str(app), "--args",
+         "--timeout", str(lifetime), "--foreground"],
+        capture_output=True, text=True)
+    if launch.returncode != 0:
+        skip(f"픽스처를 열지 못했습니다: {launch.stderr.strip()[:160]}")
+    # Ready means answerable, not merely running. A pid appears before the
+    # window does, and a check that asked in between reported
+    # `no_window_content` — which reads as a contract failure and is really
+    # "we asked too early". The fixture's own result label is the readiness
+    # signal: it exists once the controls are built.
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        probe._pump()
+        pid = probe._resolve(SELECT_FIXTURE, launch=False)
+        if pid is not None and _fixture_label(pid, "nlc-fixture-result") is not None:
+            _FIXTURE["pid"] = pid
+            if not _bring_forward(SELECT_FIXTURE, probe):
+                skip("픽스처를 앞으로 가져오지 못했습니다 — "
+                     "팝업은 앞선 앱에서만 열립니다")
+            return pid
+        time.sleep(0.1)
+    skip("픽스처가 15초 안에 쓸 수 있는 상태가 되지 않았습니다")
+
+
+def _fixture_popup(d):
+    """The fixture's choice popup: its observation, its index, and its pid."""
+    import time
+    pid = _select_fixture(d)
+    # A pid is not a window, and OUR pid is not the helper's view of one.
+    # Two separate delays, both of them "we asked too early" rather than a
+    # broken contract:
+    #
+    #   no_window_content — the app exists, its window does not yet;
+    #   target_not_found  — the helper is a different process with its own
+    #                       NSWorkspace snapshot, and an app launched after it
+    #                       started takes a moment to appear in that list.
+    #
+    # Reporting either as a failure blames the contract for the clock.
+    obs = None
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        obs = d.observe(SELECT_FIXTURE, "tree_full")
+        if obs.get("type") == "observation":
+            break
+        if obs.get("error") not in ("no_window_content", "target_not_found"):
+            break
+        time.sleep(0.3)
+    if obs is None or obs.get("type") != "observation":
+        skip(f"픽스처를 관측할 수 없습니다: {obs.get('error') if obs else 'none'}")
+    for line in obs["tree"].splitlines():
+        if "PopUpButton" in line and "nlc-fixture-choice" in line:
+            return obs, int(line.strip().split()[0]), pid
+    skip("픽스처에 choice 팝업이 없습니다")
+
+
+def _fixture_label(pid, identifier):
+    """Read one of the fixture's labels straight from AX, not from the driver.
+
+    The driver's own report is what is being checked, so the confirmation
+    cannot come from it.
+    """
+    from ApplicationServices import AXUIElementCreateApplication
     from nlc.driver import _attr
-    app = AXUIElementCreateApplication(pid)
     found = []
 
     def walk(node, depth=0):
-        if depth > 6 or len(found) > 8:
+        if depth > 8 or found:
             return
-        if _attr(node, "AXRole") == "AXMenu":
+        if _attr(node, "AXIdentifier") == identifier:
             found.append(node)
-            return                      # its items are not menus to cancel
+            return
         for child in (_attr(node, "AXChildren") or [])[:60]:
             walk(child, depth + 1)
 
-    # Only menus hanging off the app's own windows and controls. The menu BAR
-    # always has menus in it and cancelling those is neither needed nor ours.
+    app = AXUIElementCreateApplication(pid)
     for window in (_attr(app, "AXWindows") or []):
         walk(window)
-    for menu in found:
-        AXUIElementPerformAction(menu, "AXCancel")
+    return _attr(found[0], "AXValue") if found else None
+
+
+def _discard_fixture():
+    """End the fixture rather than dismissing its menu.
+
+    The obvious cleanup — `AXCancel` the menu that is still open — is the one
+    thing that must not happen here. It was measured on this kind of control:
+    an automatic cancel left it unable to post a menu ever again, every later
+    `AXShowMenu` returning kAXErrorSuccess with nothing on screen. The driver
+    refuses to do it and says why (`refuse_after_opening` in nlc/driver.py),
+    and a harness that does it anyway hands the NEXT transport a control that
+    cannot open — which is exactly how these checks first passed in-process
+    and failed for the helper, in the same run.
+
+    The fixture is ours and disposable, so a menu left standing is answered by
+    ending the process. The next `_select_fixture` starts a clean one.
+    """
+    import os
+    import signal
+    from AppKit import NSRunningApplication
+    # Always the CURRENT fixture, never a pid a caller remembered. A check
+    # that relaunched partway — the round-trip's restore step does — would
+    # otherwise kill the instance that already exited and leave the live one
+    # on someone's screen.
+    target = _FIXTURE.get("pid")
+    _FIXTURE.pop("pid", None)
+    if target is None:
+        return
+    app_obj = NSRunningApplication.runningApplicationWithProcessIdentifier_(target)
+    if app_obj is None or app_obj.isTerminated():
+        return
+    # Confirmed to be the fixture before anything is signalled: a pid is not a
+    # name, and the one thing a test harness must never do is kill by number
+    # and hope.
+    if app_obj.bundleIdentifier() != SELECT_FIXTURE:
+        return
+    # SIGKILL, not terminate(). An open menu runs a nested run loop, and a
+    # polite termination waits for it to end — which is precisely the state
+    # this is called in, so the fixture outlived every gentler attempt and the
+    # next check found it still holding the bundle id.
+    try:
+        os.kill(target, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def _the_only_view_popup(pid):
@@ -498,88 +696,122 @@ def _the_only_view_popup(pid):
 
 @check("선택지는 이름으로 고르고, 고른 대로 됐는지 확인한다")
 def _select_option_round_trip(d):
-    """Open the menu, press the item, and check the control reads back.
+    """Open the menu, press the item, and check it really landed.
 
     Native popups do not expose their options until the menu is open —
     measured: `AXChildren` is empty and the menu turns up elsewhere in the app.
     So the real path is the one a person takes, and every step of it is
-    checked. Finder's view popup is used because it is reversible: this leaves
-    it exactly as it found it.
+    checked.
+
+    The subject is our own fixture rather than Finder's view popup, which is
+    what stood here until macOS 27 stopped answering it (see `_select_fixture`).
+    Being ours buys the thing that matters most: the fixture echoes the chosen
+    title into a SEPARATE label from the control's action callback, so there is
+    a witness the driver does not write. `selected` in the reply is the claim;
+    the label is the fact.
     """
-    obs, idx = _view_popup(d)
-    from nlc.driver import Driver, _attr
-    probe = Driver()
-    pid = probe._resolve(FINDER, launch=False)
-    # Read through the control we are about to act on, by CF identity. The
-    # identity-free "exactly one popup of this role" fallback could answer out
-    # of a DIFFERENT popup once this one was gone (peer review).
-    #
-    # The handle comes from THIS process's own walk, not from `d._latest` —
-    # that is an in-process Driver internal, and reaching for it meant this
-    # check crashed with AttributeError on the signed transport, which is the
-    # one that ships. `_view_popup` has already established there is exactly
-    # one Finder window, so "the popup in it" is an attributable handle.
-    control = _the_only_view_popup(pid)
-    if control is None:
-        skip("보기 팝업 핸들을 이 프로세스에서 찾지 못했습니다")
-    start = probe._reread_selection(pid, "AXPopUpButton", None, control)
-    if start not in ("as Icons", "as List", "as Columns", "as Gallery"):
-        skip(f"이 검사가 아는 보기 팝업이 아닙니다: {start!r}")
-    other = "as List" if start != "as List" else "as Icons"
+    obs, idx, pid = _fixture_popup(d)
+    start = _fixture_label(pid, "nlc-fixture-result")
+    if start not in ("Alpha", "Beta"):
+        skip(f"픽스처가 예상 상태가 아닙니다: {start!r}")
+    other = "Beta" if start == "Alpha" else "Alpha"
+    before = _fixture_label(pid, "nlc-fixture-count")
     try:
-        r = d.act(obs["obs_id"], FINDER,
+        r = d.act(obs["obs_id"], SELECT_FIXTURE,
                   {"name": "select_option", "element_index": idx,
                    "option_label": other})
         assert r["type"] == "acted", f"{other} 를 고르지 못했습니다: {r}"
         assert r.get("selected") == other, r
-        # The selection really happened — checked here, not taken from the
-        # driver's word for it.
-        landed = probe._reread_selection(pid, "AXPopUpButton", None, control)
-        if landed is not None:
-            assert landed == other, f"고른 것이 반영되지 않았습니다: {landed!r}"
+        # The app's own callback ran. Not the driver's word for it: this label
+        # is written by the control's action, so it moves only if a real
+        # selection happened.
+        landed = _fixture_label(pid, "nlc-fixture-result")
+        assert landed == other, f"고른 것이 반영되지 않았습니다: {landed!r}"
+        after = _fixture_label(pid, "nlc-fixture-count")
+        assert after != before, (
+            f"값은 바뀌었는데 선택 콜백이 돌지 않았습니다 "
+            f"({before!r} -> {after!r}) — 값을 직접 써넣은 것입니다")
         # And the claim matches the fact. Confirming something that did not
-        # happen is the one answer that must never appear; saying "could not
-        # confirm" when the control cannot be re-found is correct, not a
-        # failure — several popups on screen and no identifier means there is
-        # nothing to attribute the value to.
+        # happen is the one answer that must never appear.
         if r.get("unverified") is None:
             assert landed == other, \
                 f"확인했다고 하는데 실제로는 {landed!r} 입니다"
+        # Put it back. Reversibility is a property worth checking, and it is
+        # read back here rather than inferred — a fresh fixture would start at
+        # the right value and prove nothing.
+        obs2, idx2, _ = _fixture_popup(d)
+        d.act(obs2["obs_id"], SELECT_FIXTURE,
+              {"name": "select_option", "element_index": idx2,
+               "option_label": start})
+        back = _fixture_label(pid, "nlc-fixture-result")
+        assert back == start, f"원래 값으로 못 되돌렸습니다: {start!r} -> {back!r}"
     finally:
-        # Put it back whatever happened. A check that changes someone's Finder
-        # and leaves it changed is a check nobody can run twice.
-        _close_open_menus(pid)
-        try:
-            obs2, idx2 = _view_popup(d)
-            d.act(obs2["obs_id"], FINDER,
-                  {"name": "select_option", "element_index": idx2,
-                   "option_label": start})
-        except Skipped:
-            pass
-        _close_open_menus(pid)
-    back = probe._reread_selection(pid, "AXPopUpButton", None, control)
-    assert back == start, f"원래 보기로 못 되돌렸습니다: {start!r} -> {back!r}"
+        _discard_fixture()
 
 
 @check("없는 선택지·모호한 값은 거절하고 무엇이 있는지 말한다")
 def _select_option_refusals(d):
-    obs, idx = _view_popup(d)
-    missing = d.act(obs["obs_id"], FINDER,
+    obs, idx, pid = _fixture_popup(d)
+    before = _fixture_label(pid, "nlc-fixture-result")
+    missing = d.act(obs["obs_id"], SELECT_FIXTURE,
                     {"name": "select_option", "element_index": idx,
                      "option_label": "이런 선택지는 없습니다"})
     assert missing["type"] == "error", f"없는 선택지가 통과함: {missing}"
-    assert missing.get("effect") == "not_started", missing
+    # NOT `not_started`, and that is the driver being right rather than
+    # generous. Finding out what a native popup offers means opening it, so by
+    # the time this refusal is written the screen has already moved — and the
+    # menu stays open on purpose: an automatic AXCancel from here was measured
+    # to leave the control unable to post a menu ever again. What must be true
+    # is narrower and is checked instead: nothing was chosen.
+    assert missing.get("effect") == "unknown", missing
+    assert missing.get("option_selected") is False, missing
+    assert missing.get("selections_made") == 0, missing
     # The refusal names what IS there, like every other target failure here.
     assert "있는 것" in str(missing.get("detail", "")), missing
+    # The menu is still standing, by design, and it is not dismissed — see
+    # `_discard_fixture`. A fresh fixture is how the next case gets a control
+    # that can still open.
+    _discard_fixture()
 
-    obs2, idx2 = _view_popup(d)
+    obs2, idx2, pid = _fixture_popup(d)
     # `value` exists for shape-compatibility with the browser and must agree:
     # a native menu item has a title and nothing behind it.
-    clash = d.act(obs2["obs_id"], FINDER,
+    clash = d.act(obs2["obs_id"], SELECT_FIXTURE,
                   {"name": "select_option", "element_index": idx2,
-                   "option_label": "as Columns", "value": "columns"})
+                   "option_label": "Beta", "value": "beta"})
     assert clash["type"] == "error", f"값이 어긋나는데 통과함: {clash}"
+    # This one IS `not_started`: a title and a value that disagree is caught
+    # before anything opens, so the screen has not moved.
     assert clash.get("effect") == "not_started", clash
+
+    # And that claim is checked against the world, not taken from the reply.
+    after = _fixture_label(pid, "nlc-fixture-result")
+    _discard_fixture()
+    assert after == before, (
+        f"거절했다면서 값이 {before!r} 에서 {after!r} 로 바뀌었습니다")
+
+
+@check("비활성 선택지는 고를 수 없다고 말한다")
+def _select_option_disabled(d):
+    """A disabled item is not a missing one, and the refusal must say which.
+
+    The fixture keeps one — `autoenablesItems` off, `Disabled` explicitly
+    disabled — because a popup whose items are all selectable cannot show the
+    difference between "there is no such option" and "that one cannot be
+    chosen", and a caller acting on the first when it is the second retries
+    forever.
+    """
+    obs, idx, pid = _fixture_popup(d)
+    before = _fixture_label(pid, "nlc-fixture-result")
+    r = d.act(obs["obs_id"], SELECT_FIXTURE,
+              {"name": "select_option", "element_index": idx,
+               "option_label": "Disabled"})
+    after = _fixture_label(pid, "nlc-fixture-result")
+    _discard_fixture()
+    assert r["type"] == "error", f"비활성 선택지가 통과함: {r}"
+    assert r.get("option_selected") is False, r
+    assert after == before, (
+        f"거절했다면서 값이 {before!r} 에서 {after!r} 로 바뀌었습니다")
 
 
 @check("선택지가 없는 컨트롤에는 select_option 이 통하지 않는다")
@@ -766,7 +998,6 @@ def _capability_lists_agree(_d):
 
     Source-only — no screen, no helper, no permission.
     """
-    import pathlib
     import re
     from nlc.driver import Driver
     swift = pathlib.Path(__file__).resolve().parents[1] / "helper" / "NLCHelper.swift"
