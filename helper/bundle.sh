@@ -8,6 +8,7 @@
 # when deciding whether to allow it.
 set -euo pipefail
 cd "$(dirname "$0")"
+. ../signing.sh
 APP="NLC Helper.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
@@ -42,9 +43,15 @@ IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
 # Sign inner code first, then the bundle — Apple's guidance; --deep is for
 # verification, not a signing strategy. Hardened runtime stays on: a process
 # holding an accessibility grant should not accept library injection.
-codesign --force --sign "$IDENTITY" --options runtime --timestamp=none \
-         "$APP/Contents/MacOS/NLCHelper"
-codesign --force --sign "$IDENTITY" --options runtime --timestamp=none "$APP"
+# -r pins the team, not the signer's certificate CN, so the TCC grant this
+# bundle earns outlives the certificate that signed it (see ../signing.sh).
+REQ="designated => $(nlc_requirement "$NLC_HELPER_ID")"
+codesign --force --sign "$IDENTITY" --identifier "$NLC_HELPER_ID" -r="$REQ" \
+         --options runtime --timestamp=none "$APP/Contents/MacOS/NLCHelper"
+codesign --force --sign "$IDENTITY" --identifier "$NLC_HELPER_ID" -r="$REQ" \
+         --options runtime --timestamp=none "$APP"
 codesign --verify --deep --strict "$APP" && echo "verified: hardened runtime, inner-first"
+codesign --verify -R="$(nlc_requirement "$NLC_HELPER_ID")" "$APP" \
+  && echo "verified: satisfies its own designated requirement"
 codesign -dv "$APP" 2>&1 | grep -E 'Identifier|TeamIdentifier'
 echo "bundled: $(pwd)/$APP"

@@ -42,9 +42,8 @@ def _driver(reply=None):
 
 class DocumentTextChannelTests(unittest.TestCase):
     def test_every_transport_exposes_it(self):
-        from nlc.helper import (HelperDriver, InheritedHelperDriver,
-                                SocketHelperDriver)
-        for cls in (HelperDriver, InheritedHelperDriver, SocketHelperDriver):
+        from nlc.helper import HelperDriver, InheritedHelperDriver
+        for cls in (HelperDriver, InheritedHelperDriver):
             with self.subTest(transport=cls.__name__):
                 self.assertTrue(hasattr(cls, 'document_text'),
                                 'a transport without document_text answers a '

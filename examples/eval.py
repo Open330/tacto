@@ -8,6 +8,7 @@ Not a general benchmark; a focused check of the properties the design promises:
   - resolver honesty (ambiguous/missing targets fail loudly, never silent)
 """
 
+import json
 import os
 import sys
 import time
@@ -3133,11 +3134,18 @@ def scenario_every_transport_answers_the_same():
         # Outside the launcher there is only the in-process driver, and saying
         # so beats reporting a one-transport run as agreement between three.
         return "서명 경로가 없어 한 가지 전송만 확인 가능 (런처로 실행하세요)"
-    bad = []
+    bad, skipped = [], []
     for label, d in drivers:
         for name, fn in mod.CHECKS:
             try:
                 fn(d)
+            except mod.Skipped as e:
+                # A check that could not be SET UP is not a check that failed,
+                # and calling it one sends the reader after a defect that is not
+                # there. It is not a pass either: it is counted and printed
+                # separately, the same discipline `run_all` uses, so nothing is
+                # quietly absorbed in either direction.
+                skipped.append(f"[{label}] {name}: {e}")
             except RecursionError:
                 import traceback
                 tb = [l for l in traceback.format_exc().splitlines()
@@ -3146,8 +3154,12 @@ def scenario_every_transport_answers_the_same():
                            + "\n        ".join(tb))
             except Exception as e:
                 bad.append(f"[{label}] {name}: {e}")
+    if skipped:
+        print(f"\n      {len(skipped)}건 건너뜀 (실행되지 않음 — 통과로 세지 않음)")
+        print("      " + "\n      ".join(skipped[:4]))
     if bad:
-        print("\n      " + "\n      ".join(bad[:6]))
+        print(f"\n      {len(bad)}건 실패")
+        print("      " + "\n      ".join(bad[:8]))
     return not bad
 
 
@@ -3677,6 +3689,26 @@ def scenario_native_coordinate_fixture():
     return True
 
 
+def scenario_signed_window_capture():
+    """One owned window, photographed by the side that holds the grant.
+
+    Screen recording is granted to `ai.callabo.nlc.helper`, not to whatever
+    Python is running: on a shared interpreter that permission would belong to
+    every script on it, and a screenshot reaches further than a click.
+    """
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "reviews/2026-09-20/signed-window-capture.py"))
+    output = root / "reviews/2026-09-20" / f"signed-window-capture-{time.time_ns()}.json"
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  signed capture report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:500]
+    return True
+
+
 def scenario_signed_background_refusal():
     """Window-bound input into a background app is refused over the signed path.
 
@@ -3920,6 +3952,8 @@ SCENARIOS = [
     # review).
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
+    ("signed_window_capture (one owned window, by the grant holder)",
+     scenario_signed_window_capture),
     ("signed_background_refusal (background window input is refused, not faked)",
      scenario_signed_background_refusal),
     ("an_abort_lasts_the_run_and_no_longer (Esc holds; a ping cannot undo it)",
@@ -3972,6 +4006,7 @@ _LOOKED = [False]
 #     ./launcher/nlc eval an_abort_lasts
 ISOLATED = {
     "signed_background_refusal",
+    "signed_window_capture",
     "signed_provider_envelope",
     "native_coordinate_fixture",
     "native_select_model_fixture",
@@ -3988,6 +4023,7 @@ SCENARIO_REQUIREMENTS: dict = {
     "signed_provider_envelope": {"model"},
     "native_coordinate_fixture": {"gui"},
     "signed_background_refusal": {"gui", "native"},
+    "signed_window_capture": {"gui", "native"},
     "native_select_model_fixture": {"gui", "model"},
     "native_select_fixture": {"gui"},
     "native_document_text": {"gui"},

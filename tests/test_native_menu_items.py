@@ -2,11 +2,11 @@
 import importlib.util
 import unittest
 from unittest.mock import patch, Mock
-from nlc.helper import HelperDriver, SocketHelperDriver, InheritedHelperDriver
+from nlc.helper import HelperDriver, InheritedHelperDriver
 
 class MenuItemsTransportTests(unittest.TestCase):
     def test_transports_preserve_explicit_root_and_path(self):
-        for cls in (HelperDriver, SocketHelperDriver, InheritedHelperDriver):
+        for cls in (HelperDriver, InheritedHelperDriver):
             d=object.__new__(cls);d._send=Mock(return_value={'type':'menu_items'})
             d.menu_items('fixture')
             d._send.assert_called_once_with({'type':'menu_items','target':'fixture','path':[]})

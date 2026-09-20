@@ -239,62 +239,15 @@ class InheritedHelperDriver:
         return json.loads(line)
 
 
-class SocketHelperDriver:
-    """Talks to a helper that authenticates THIS process, not our ancestry.
-
-    The helper listens on a unix socket and checks the connecting peer's audit
-    token against a code requirement. That is the property XPC is usually
-    reached for; the difference from the spawn path is that trust is decided
-    about the process actually connecting rather than inferred from who started
-    whom."""
-
-    def __init__(self, socket_path: str, path: str = HELPER, start: bool = True):
-        import socket as _s
-        self.socket_path = socket_path
-        self._proc = None
-        if start and not os.path.exists(socket_path):
-            self._proc = subprocess.Popen(
-                [path, "--listen", socket_path],
-                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-            for _ in range(50):
-                if os.path.exists(socket_path):
-                    break
-                time.sleep(0.1)
-        if not os.path.exists(socket_path):
-            err = (self._proc.stderr.read() if self._proc else "") or ""
-            raise HelperUnavailable(f"소켓이 열리지 않았습니다: {err.strip()[:200]}")
-        self._sock = _s.socket(_s.AF_UNIX, _s.SOCK_STREAM)
-        self._sock.connect(socket_path)
-        self._f = self._sock.makefile("rw", encoding="utf-8", newline="\n")
-        self._last_action_at = 0.0
-        pong = self._send({"type": "ping"})
-        if pong.get("error") == "peer_not_authorized":
-            raise HelperUnavailable(
-                "도우미가 이 프로세스를 인증하지 못했습니다 — 서명된 클라이언트로 "
-                f"연결해야 합니다.\n  {pong.get('detail','')}")
-        if pong.get("type") != "pong":
-            raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
-        if not pong.get("trusted"):
-            raise HelperUnavailable("도우미에 접근성 권한이 없습니다")
-
-    def close(self):
-        try:
-            self._f.close(); self._sock.close()
-        except Exception:
-            pass
-        if self._proc is not None:
-            self._proc.terminate()
-
-    def _send(self, msg: dict) -> dict:
-        self._f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-        self._f.flush()
-        line = self._f.readline()
-        if not line:
-            raise HelperUnavailable("도우미 연결이 끊어졌습니다")
-        return json.loads(line)
-
-    # The rest of the L2 surface is identical to the spawn-based driver.
-    identity = None     # filled in below
+# `SocketHelperDriver` was removed here. It spawned the helper with `--listen`
+# and connected to it, and the helper does not listen any more: it is opened
+# through LaunchServices, so that TCC attributes its screen-recording grant to
+# the helper's own identity rather than to whatever spawned it, and it connects
+# back to the launcher. Rewriting it around the new direction would not have
+# given it back, either — the helper authenticates its peer against a compiled-in
+# code requirement naming the signed launcher, which no Python process can
+# satisfy. What is left would have been a transport that cannot connect,
+# offered as though it could.
 
 
 class HelperDriver:
@@ -331,7 +284,8 @@ class HelperDriver:
         if not pong.get("trusted"):
             raise HelperUnavailable(
                 "도우미에 접근성 권한이 없습니다 — 시스템 설정 > 개인정보 보호 및 "
-                "보안 > 손쉬운 사용 에서 nlc-helper 를 켜주세요")
+                "보안 > 손쉬운 사용 에서 'NLC Helper' 를 켜주세요 "
+                "(macOS 27 에서는 'Device Control and Data Access')")
 
     def close(self):
         try:
@@ -420,6 +374,38 @@ class HelperDriver:
     def selection(self, target):
         return self._send({"type": "selection", "target": target})
 
+    def capture(self, target, *, obs_id=None, window_index=None, path=None,
+                timeout_seconds=5):
+        """A picture of one observed window, taken by the side that holds the grant.
+
+        The screen-recording permission belongs here for the same reason the
+        accessibility one does: on a shared Python interpreter it would be a
+        permission every script on that interpreter holds, and a screenshot
+        reaches further than a click.
+
+        The helper writes the PNG to a file it owns and answers with the path,
+        so the pixels never travel through the frame. `path` copies it where
+        the caller asked and says so; the original stays until the caller
+        removes it.
+        """
+        if obs_id is None:
+            return {"type": "error", "error": "stale_observation",
+                    "effect": "not_started",
+                    "detail": "observe first: a capture is of an OBSERVED window"}
+        message = {"type": "capture", "target": target, "obs_id": obs_id}
+        if window_index is not None:
+            message["window_index"] = window_index
+        answer = self._send(message)
+        if answer.get("type") == "capture" and path is not None:
+            import shutil
+            try:
+                shutil.copyfile(answer["path"], path)
+                answer = {**answer, "path": str(path), "helper_path": answer["path"]}
+            except OSError as exc:
+                return {"type": "error", "error": "visual_read_failed",
+                        "effect": "not_started", "detail": str(exc)}
+        return answer
+
     def document_text(self, target, document_token=None, *, max_utf16_units=1000000):
         """A pinned document's complete text, read over the signed channel.
 
@@ -458,10 +444,10 @@ class HelperDriver:
 
 
 # The L2 surface is transport-independent: observe/act/wait_until only need a
-# `_send`, so the socket driver borrows the spawn driver's implementations
-# rather than keeping a second copy in step with the first.
+# `_send`, so the inherited-socket driver borrows the spawn driver's
+# implementations rather than keeping a second copy in step with the first.
 for _name in ("identity", "list_targets", "observe", "act", "probe",
-              "selection", "menu_state", "menu_items", "document_text", "wait_until"):
+              "selection", "menu_state", "menu_items", "document_text", "capture",
+              "wait_until"):
     impl = getattr(HelperDriver, _name)
-    setattr(SocketHelperDriver, _name, impl)
     setattr(InheritedHelperDriver, _name, impl)

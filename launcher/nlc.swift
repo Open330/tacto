@@ -28,6 +28,7 @@
 import Foundation
 import Darwin
 import Security
+import AppKit
 
 // MARK: - Where we are
 
@@ -45,9 +46,7 @@ guard !exe.path.isEmpty else {
 }
 let root = exe.deletingLastPathComponent().deletingLastPathComponent()
 let python = root.appendingPathComponent(".venv/bin/python")
-let helperBin = root.appendingPathComponent(
-    "helper/NLC Helper.app/Contents/MacOS/NLCHelper")
-let helperBare = root.appendingPathComponent("helper/nlc-helper")
+let helperApp = root.appendingPathComponent("helper/NLC Helper.app")
 
 guard FileManager.default.isExecutableFile(atPath: python.path) else {
     FileHandle.standardError.write(Data(
@@ -63,7 +62,8 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
-                                 "probe", "selection", "ask", "document_text", "menu_state", "menu_items"]
+                                 "probe", "selection", "ask", "document_text", "menu_state",
+                                 "menu_items", "capture"]
 // The largest complete document this channel will carry, in UTF-16 units. The
 // same ceiling the helper enforces: a budget is a promise about how much this
 // process will allocate, so both ends have to mean the same number.
@@ -158,7 +158,8 @@ let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
 let topLevelKeys: Set<String> = ["click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
                                  "require_window", "prompt", "json", "path",
                                  "expect", "element_index", "provider",
-                                 "document_token", "max_utf16_units", "timeout_seconds"]
+                                 "document_token", "max_utf16_units", "timeout_seconds",
+                                 "window_index"]
 
 // What a caller may claim its target still is. Reading one element's own
 // attributes is about a millisecond; re-walking Mail's tree to find out is
@@ -218,6 +219,22 @@ func vetted(_ msg: [String: Any]) -> String? {
     }
     if type == "selection" {
         guard msg["target"] is String else { return "selection 에 target 없음" }
+    }
+    if type == "capture" {
+        // One observed window, named by the observation that described it.
+        // No path, no region, no display — the narrowing is the contract, so
+        // the channel checks it rather than trusting the helper to.
+        guard Set(msg.keys).isSubset(of: ["type", "target", "obs_id", "window_index"]),
+              let target = msg["target"] as? String, !target.isEmpty,
+              let obsID = msg["obs_id"] as? String, !obsID.isEmpty, obsID.count <= 128 else {
+            return "capture 형식 오류"
+        }
+        if let raw = msg["window_index"] {
+            guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.intValue >= 0, number.intValue < 64 else {
+                return "capture window_index 오류"
+            }
+        }
     }
     if type == "probe" {
         guard msg["obs_id"] is String, msg["target"] is String,
@@ -380,39 +397,64 @@ let helperRequirement =
 /// running as this same user — which can unlink and rebind the socket and
 /// answer as a fake helper. Authentication has to run both ways, so the
 /// launcher checks the helper's audit token exactly as the helper checks ours.
-@Sendable func peerSatisfies(_ fd: Int32, _ requirement: String) -> Bool {
+/// The kernel's account of who is on the other end of a connected socket.
+@Sendable func peerToken(_ fd: Int32) -> audit_token_t? {
     var token = audit_token_t()
     var len = socklen_t(MemoryLayout<audit_token_t>.size)
     let got = withUnsafeMutablePointer(to: &token) { ptr -> Bool in
         getsockopt(fd, SOL_LOCAL, LOCAL_PEERTOKEN, ptr, &len) == 0
     }
-    guard got else { return false }
-    let data = withUnsafeBytes(of: &token) { Data($0) } as CFData
-    var code: SecCode?
-    guard SecCodeCopyGuestWithAttributes(
-            nil, [kSecGuestAttributeAudit: data] as CFDictionary, [], &code)
-            == errSecSuccess, let code else { return false }
-    var req: SecRequirement?
-    guard SecRequirementCreateWithString(requirement as CFString, [], &req)
-            == errSecSuccess, let req else { return false }
-    return SecCodeCheckValidity(code, [], req) == errSecSuccess
+    return got ? token : nil
 }
 
-func connectSocket(_ path: String) -> Int32? {
-    guard var addr = fillAddr(path) else { return nil }
-    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-    guard fd >= 0 else { return nil }
-    let size = socklen_t(MemoryLayout<sockaddr_un>.size)
-    let ok = withUnsafePointer(to: &addr) { p in
-        p.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, size) }
+/// Our own, so a peer's audit session can be compared against something.
+@Sendable func selfAuditToken() -> audit_token_t? {
+    var token = audit_token_t()
+    var count = mach_msg_type_number_t(
+        MemoryLayout<audit_token_t>.size / MemoryLayout<natural_t>.size)
+    let kr = withUnsafeMutablePointer(to: &token) { p -> kern_return_t in
+        p.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_AUDIT_TOKEN), $0, &count)
+        }
     }
-    if ok != 0 { close(fd); return nil }
-    guard peerSatisfies(fd, helperRequirement) else {
-        FileHandle.standardError.write(Data(
-            "nlc: 소켓 반대편이 진짜 도우미가 아닙니다 — 연결을 끊습니다\n".utf8))
-        close(fd); return nil
+    return kr == KERN_SUCCESS ? token : nil
+}
+
+/// Does the peer satisfy `requirement`? A refusal names what failed: this is
+/// the check that decides whether the privileged channel opens at all, and one
+/// that can only say "no" is one nobody can tell apart from a build mistake.
+@Sendable func peerSatisfies(_ fd: Int32, _ requirement: String) -> (Bool, String) {
+    guard var token = peerToken(fd) else {
+        return (false, "연결한 프로세스의 감사 토큰을 얻지 못했습니다")
     }
-    return fd
+    let data = withUnsafeBytes(of: &token) { Data($0) } as CFData
+    var code: SecCode?
+    let copied = SecCodeCopyGuestWithAttributes(
+        nil, [kSecGuestAttributeAudit: data] as CFDictionary, [], &code)
+    guard copied == errSecSuccess, let code else {
+        return (false, "연결한 프로세스의 코드 정보를 얻지 못했습니다 (OSStatus \(copied))")
+    }
+    var req: SecRequirement?
+    guard SecRequirementCreateWithString(requirement as CFString, [], &req)
+            == errSecSuccess, let req else {
+        return (false, "requirement 문자열이 잘못되었습니다")
+    }
+    let status = SecCodeCheckValidity(code, [], req)
+    if status == errSecSuccess { return (true, "ok") }
+    return (false, "서명 요구 조건을 만족하지 않습니다 (OSStatus \(status), "
+                   + "identifier \(peerIdentifier(code)))")
+}
+
+/// The peer's signing identifier, for a refusal message. Diagnostics only.
+@Sendable func peerIdentifier(_ code: SecCode) -> String {
+    var staticCode: SecStaticCode?
+    guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
+          let staticCode else { return "unknown" }
+    var info: CFDictionary?
+    guard SecCodeCopySigningInformation(
+            staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+            == errSecSuccess, let dict = info as? [String: Any] else { return "unsigned" }
+    return (dict["identifier"] as? String) ?? "unsigned"
 }
 
 func readJSONLine(_ fd: Int32, _ buffer: inout Data) -> [String: Any]? {
@@ -468,29 +510,160 @@ guard let dirC = mkdtemp(&template) else {
     FileHandle.standardError.write(Data("nlc: 임시 디렉터리 생성 실패\n".utf8)); exit(1)
 }
 let runDir = String(cString: dirC)
-let helperSocket = runDir + "/helper.sock"
-defer { unlink(helperSocket); rmdir(runDir) }
+let rendezvousPath = runDir + "/rendezvous.sock"
+defer { unlink(rendezvousPath); rmdir(runDir) }
 
 // MARK: - Helper
+//
+// The helper is opened through LaunchServices, not posix_spawn, and the reason
+// is TCC. A screen-recording grant is not checked against the process that
+// calls for it but against the identity its execution is attributed to, and a
+// spawned child is attributed to whoever spawned it — here, the terminal
+// session, which holds no grant. Measured on this machine with the same signed
+// binary three ways (`launchctl procinfo`, 2026-09-21):
+//
+//   from a shell       responsible path = /usr/libexec/sshd-keygen-wrapper
+//   posix_spawned      responsible path = /usr/libexec/sshd-keygen-wrapper
+//   LaunchServices     responsible path = .../NLC Helper.app/.../NLCHelper
+//
+// Only the third is the helper's own identity, and only the third can use the
+// grant the user ticked against "NLC Helper". Accessibility was never affected,
+// which is why this went unnoticed: the two services do not attribute alike.
+//
+// What LaunchServices takes away is the parent-child relationship: no inherited
+// descriptors, no ppid, no exit status. So the rendezvous is inverted. THIS
+// process binds and listens first, and the helper connects back to a path only
+// it was told. Binding before launching is what closes the substitution window
+// a "wait for the helper's socket to appear" rendezvous leaves open — under the
+// old direction a same-user process could bind that path first and answer in
+// the helper's place, and only the peer check stood between us and it.
 
-let helperPath = FileManager.default.isExecutableFile(atPath: helperBin.path)
-    ? helperBin.path : helperBare.path
-var helperPID: pid_t = 0
-func startHelper() -> Bool {
-    var fileActions: posix_spawn_file_actions_t?
-    posix_spawn_file_actions_init(&fileActions)
-    defer { posix_spawn_file_actions_destroy(&fileActions) }
-    let argv: [String] = [helperPath, "--listen", helperSocket]
-    var cArgs = argv.map { strdup($0) } + [nil]
-    var cEnv = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
-    defer { cArgs.forEach { free($0) }; cEnv.forEach { free($0) } }
-    let rc = posix_spawn(&helperPID, helperPath, &fileActions, nil, &cArgs, &cEnv)
-    if rc != 0 { return false }
-    for _ in 0..<60 {
-        if access(helperSocket, F_OK) == 0 { return true }
-        usleep(100_000)
+var helperRunning: NSRunningApplication?
+
+/// The listening end of the rendezvous, bound before anything is launched.
+@Sendable func openRendezvous() -> Int32? {
+    let listener = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard listener >= 0, var addr = fillAddr(rendezvousPath) else { return nil }
+    let size = socklen_t(MemoryLayout<sockaddr_un>.size)
+    let bound = withUnsafePointer(to: &addr) { p in
+        p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, size) }
     }
-    return false
+    guard bound == 0, listen(listener, 1) == 0 else { close(listener); return nil }
+    chmod(rendezvousPath, 0o600)
+    return listener
+}
+
+/// Accept one connection, or give up. A blocking accept() would wait forever
+/// for a helper that never started, and LaunchServices reports no exit status
+/// we could have waited on instead.
+@Sendable func acceptWithin(_ listener: Int32, seconds: Double) -> Int32? {
+    var pfd = pollfd(fd: listener, events: Int16(POLLIN), revents: 0)
+    let deadline = ProcessInfo.processInfo.systemUptime + seconds
+    while ProcessInfo.processInfo.systemUptime < deadline {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        let rc = poll(&pfd, 1, Int32(max(1, min(1000, remaining * 1000))))
+        if rc < 0 { if errno == EINTR { continue }; return nil }
+        if rc == 0 { continue }
+        let conn = accept(listener, nil, nil)
+        if conn >= 0 { return conn }
+        if errno == EINTR || errno == ECONNABORTED { continue }
+        return nil
+    }
+    return nil
+}
+
+/// Open the helper through LaunchServices and wait for the instance it made.
+///
+/// `createsNewApplicationInstance` is what makes this OUR helper rather than
+/// one somebody else left running, and `allowsRunningApplicationSubstitution`
+/// off refuses the substitution outright instead of quietly handing back a
+/// stranger. `activates` stays off because the whole point of this project is
+/// that the user's focus is not ours to take.
+@Sendable func launchHelper() -> NSRunningApplication? {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: helperApp.path, isDirectory: &isDir),
+          isDir.boolValue else { return nil }
+    let configuration = NSWorkspace.OpenConfiguration()
+    configuration.activates = false
+    configuration.addsToRecentItems = false
+    configuration.createsNewApplicationInstance = true
+    configuration.allowsRunningApplicationSubstitution = false
+    configuration.arguments = ["--connect", rendezvousPath]
+    configuration.environment = env
+
+    let done = DispatchSemaphore(value: 0)
+    var started: NSRunningApplication?
+    NSWorkspace.shared.openApplication(at: helperApp, configuration: configuration) {
+        app, _ in started = app; done.signal()
+    }
+    return done.wait(timeout: .now() + 10) == .success ? started : nil
+}
+
+/// Is the process on the other end the helper we just launched?
+///
+/// Two questions. The code requirement says it is our signed helper; the pid
+/// says it is the instance LaunchServices made for us and not some other copy
+/// that found the path. Neither alone is enough — a pid can be reused, and
+/// "our signed helper" does not by itself mean "the one we asked for" — which
+/// is also why the lifetime below is held through `NSRunningApplication` rather
+/// than by remembering a number.
+///
+/// A same-audit-session check stood here too, and was wrong: measured on
+/// 2026-09-21, an ssh-side launcher had asid 100228 and the helper
+/// LaunchServices started for it had 100018, the console session. Driving the
+/// screen from a remote shell is a thing this project is for, and the helper
+/// has to be in the session that owns the screen, so those two sessions differ
+/// by design and equality could never have held.
+@Sendable func rendezvousAccepted(_ fd: Int32, expecting app: NSRunningApplication) -> String? {
+    guard let token = peerToken(fd) else { return "연결한 프로세스를 확인하지 못했습니다" }
+    let (signed, why) = peerSatisfies(fd, helperRequirement)
+    guard signed else { return "연결한 프로세스가 서명된 도우미가 아닙니다 — " + why }
+    // audit_token_t is eight words: [auid, euid, egid, ruid, rgid, pid, asid,
+    // pidversion]. Swift cannot see libbsm's accessor macros, so the pid is
+    // read by position.
+    guard pid_t(bitPattern: token.val.5) == app.processIdentifier else {
+        return "연결한 프로세스가 우리가 시작한 인스턴스가 아닙니다"
+    }
+    return nil
+}
+
+/// Launch, then take the one connection that answers. Returns the authenticated
+/// descriptor, or nil with the reason already written to stderr.
+@Sendable func startHelper() -> Int32? {
+    guard let listener = openRendezvous() else {
+        FileHandle.standardError.write(Data("nlc: 랑데부 소켓을 열지 못했습니다\n".utf8))
+        return nil
+    }
+    defer { close(listener) }
+    guard let app = launchHelper() else {
+        FileHandle.standardError.write(Data(
+            "nlc: \(helperApp.path) 을 열지 못했습니다\n".utf8))
+        return nil
+    }
+    helperRunning = app
+    guard let conn = acceptWithin(listener, seconds: 20) else {
+        app.forceTerminate()
+        helperRunning = nil
+        FileHandle.standardError.write(Data("nlc: 도우미가 연결해 오지 않았습니다\n".utf8))
+        return nil
+    }
+    if let why = rendezvousAccepted(conn, expecting: app) {
+        close(conn)
+        // A helper that connected and then left says so by having no code
+        // object left to check. Reporting that as "not our helper" sent the
+        // reader looking for a signing problem that was not there — and the
+        // helper's own account of why it left is in the unified log, because
+        // LaunchServices gave it no stderr to write on.
+        let vanished = app.isTerminated
+        app.forceTerminate()
+        helperRunning = nil
+        FileHandle.standardError.write(Data((vanished
+            ? "nlc: 도우미가 연결 직후 종료했습니다 — 이유는 다음에서 확인하세요:\n"
+              + "    log show --last 2m --predicate 'subsystem == \"ai.callabo.nlc\"'\n"
+            : "nlc: \(why)\n").utf8))
+        return nil
+    }
+    return conn
 }
 
 // MARK: - Child on an inherited socket
@@ -707,16 +880,13 @@ relayQueue.async {
             continue
         }
         if helperFD < 0 {
-            if access(helperSocket, F_OK) != 0, !startHelper() {
+            // Starting the helper and authenticating it are now one step: the
+            // connection IS the launch result, so there is no second phase in
+            // which we could have a running helper and no way to reach it.
+            guard let fd = startHelper() else {
                 writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
                                          "effect": "not_started",
                                          "detail": "도우미를 시작하지 못했습니다"])
-                continue
-            }
-            guard let fd = connectSocket(helperSocket) else {
-                writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
-                                         "effect": "not_started",
-                                         "detail": "도우미에 연결하지 못했습니다"])
                 continue
             }
             helperFD = fd
@@ -747,5 +917,17 @@ relayQueue.async {
 
 var status: Int32 = 0
 waitpid(childPID, &status, 0)
-if helperPID > 0 { kill(helperPID, SIGTERM) }
+// Closing the connection is what ends the helper — it serves one client and
+// exits when that client goes away, which is the whole of its lifetime now that
+// there is no parent to watch. This is the backstop for a helper that is wedged
+// somewhere it cannot notice the close, and it addresses the instance object
+// LaunchServices handed us rather than a pid we wrote down.
+if let app = helperRunning, !app.isTerminated {
+    app.terminate()
+    let deadline = ProcessInfo.processInfo.systemUptime + 2
+    while !app.isTerminated && ProcessInfo.processInfo.systemUptime < deadline {
+        usleep(50_000)
+    }
+    if !app.isTerminated { app.forceTerminate() }
+}
 exit((status & 0x7F) == 0 ? (status >> 8) & 0xFF : 1)

@@ -2235,7 +2235,13 @@ class Driver:
             # could reach the control we were holding, which turned a decisive
             # CF-identity match into "not found" in any app with more than a
             # handful of popups (measured on Finder).
-            if read(node, "AXRole") == role:
+            # Optional, and the distinction is the whole three-way contract:
+            # an element that HAS no AXRole is simply not the one we want,
+            # while an element we could not ASK is a hole in the search. Read
+            # non-optionally, the first was recorded as the second — and since
+            # the application element itself has no role, every walk began
+            # truncated and the identifier path below could never fire.
+            if read(node, "AXRole", optional=True) == role:
                 if control is not None and CFEqual(node, control):
                     alive.append(node)
                 if identity is not None and read(node, "AXIdentifier", optional=True) == identity:

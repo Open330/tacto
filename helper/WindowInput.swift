@@ -325,6 +325,17 @@ func validateNativeWindowBinding(_ binding: NativeWindowBinding) throws {
           fresh.point == binding.point else { throw NativeWindowInputError.refused("window binding changed") }
 }
 
+/// The window server's id for an accessibility window, or nil.
+///
+/// The SPI that answers this is private to this file, and a capture needs the
+/// same answer a click does — the window the OBSERVATION described, not one
+/// that merely shares its title.
+func nativeWindowID(_ element: AXUIElement) -> CGWindowID? {
+    guard let ask = try? WindowInputSPI.windowFunction() else { return nil }
+    var id = CGWindowID(0)
+    return ask(element, &id) == 0 && id != 0 ? id : nil   // kAXErrorSuccess
+}
+
 struct NativeWindowClick {
     let down: CGEvent
     let up: CGEvent

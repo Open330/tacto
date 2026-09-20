@@ -236,13 +236,27 @@ def _read_index_is_optional(d):
 NAVIGATION_KEYS = ("Tab", "shift+Tab", "Up", "Down", "Left", "Right")
 
 
-@check("탐색 키는 여섯 개뿐이고 모두 실제로 전달된다")
-def _navigation_keys_work(d):
+@check("어떤 키도 합성하지 않는다 — 여섯 개짜리 예외도 없다")
+def _no_key_is_synthesised(d):
+    """The navigation keys used to be the one allowed kind of synthetic input.
+
+    They are gone with the rest of it. A key press names no element: it goes
+    wherever focus happens to be, which is a place this process does not own
+    and cannot check afterwards — and getting focus there first is exactly the
+    theft this project exists to avoid. So every key is refused, the six that
+    were once allowed included, and the refusal says what to use instead.
+
+    This check was the inverse of itself until now, and it ran only inside the
+    signed launcher, so nothing noticed for three commits.
+    """
     obs = _observe(d)
     for key in NAVIGATION_KEYS:
         r = d.act(obs["obs_id"], CALC, {"name": "press_key", "key": key})
-        assert r["type"] == "acted", f"{key} 가 거부됨: {r}"
-        obs = _observe(d)          # each action spends its observation
+        assert r["type"] == "error", f"{key} 가 통과함: {r}"
+        assert r.get("effect") == "not_started", f"{key}: {r}"
+        # A refusal that does not say what to do instead reads as a defect.
+        assert "click" in str(r.get("detail", "")), \
+            f"{key} 거절이 대안을 말하지 않습니다: {r}"
 
 
 @check("Escape 는 눌러주지 않는다 — 사용자가 중단하는 키다")
@@ -287,30 +301,35 @@ def _unanswerable_expectation(d):
     nowhere to be compared — and the comparison was skipped, silently. An
     ignored precondition looks exactly like a met one, which is the failure
     this whole contract exists to stop (peer question).
+
+    `press_key` was the vehicle here until it stopped being an action at all.
+    A bare `read` is the remaining one that names no element, so the property
+    is checked through that instead of disappearing with the old vehicle.
     """
-    obs = _observe(d)
     for field, value in (("role", "Button"), ("label", "7"),
                          ("attribute", "Title"), ("enabled", True)):
-        r = d.act(obs["obs_id"], CALC, {"name": "press_key", "key": "Tab"},
-                  expect={field: value})
+        obs = _observe(d)          # each action spends its observation
+        r = d.act(obs["obs_id"], CALC, {"name": "read"}, expect={field: value})
         assert r["type"] == "error", \
             f"확인할 수 없는 expect.{field} 가 통과함: {r}"
         assert r.get("effect") == "not_started", r
     # The ones that ARE answerable without an element still work.
-    ok = d.act(obs["obs_id"], CALC, {"name": "press_key", "key": "Tab"},
-               expect={"no_modal": True})
+    obs = _observe(d)
+    ok = d.act(obs["obs_id"], CALC, {"name": "read"}, expect={"no_modal": True})
     assert ok["type"] == "acted", f"no_modal 만 건 expect 가 거부됨: {ok}"
 
 
-@check("탐색 키가 실제로 캐럿을 움직인다 (TextEdit 임시 문서)")
-def _navigation_actually_moves(d):
-    """Delivery is not movement, so this reads the caret back.
+@check("거절된 키는 캐럿도 움직이지 않는다 (TextEdit 임시 문서)")
+def _refused_keys_move_nothing(d):
+    """A refusal that half-happened would be the worst of both.
 
-    Every other key check confirms the message was accepted. None of them shows
-    the key arrived anywhere, and "posted to the pid" is not "reached the
-    focused element" — AX does not promise that. A local TextEdit document with
-    text in it has a caret whose position is readable, so it can be asked
-    (peer request). Nothing leaves this machine and no file is saved.
+    This check used to read the caret back to prove a navigation key had
+    ARRIVED — "posted to the pid" is not "reached the focused element", and AX
+    promises nothing there. Keys are not sent at all now, so the question turns
+    around: the refusal must be complete. `effect: not_started` is a claim
+    about the world, and the caret is somewhere the claim can be checked.
+
+    Nothing leaves this machine and no file is saved.
     """
     from nlc.driver import Driver, _attr
     from ApplicationServices import AXUIElementCreateApplication
@@ -340,19 +359,47 @@ def _navigation_actually_moves(d):
     if where is None:
         return          # no editable focus here; the delivery checks still ran
 
-    moved = False
     for key in ("Right", "Right", "Left"):
         r = d.act(obs["obs_id"], "com.apple.TextEdit",
                   {"name": "press_key", "key": key})
-        assert r["type"] == "acted", f"{key} 가 거부됨: {r}"
+        assert r["type"] == "error", f"{key} 가 통과함: {r}"
+        assert r.get("effect") == "not_started", f"{key}: {r}"
         obs = d.observe("com.apple.TextEdit", "tree_full")
-        if caret() != where:
-            moved = True
-    assert moved, ("탐색 키를 보냈는데 캐럿이 한 번도 움직이지 않았습니다 — "
-                   "전달은 됐다고 하는데 도착하지 않았습니다")
+        assert caret() == where, (
+            f"{key} 를 거절했다면서 캐럿이 {where} 에서 {caret()} 로 "
+            f"움직였습니다 — not_started 가 사실이 아닙니다")
 
 
 FINDER = "com.apple.finder"
+
+
+def _bring_forward(bundle, d, timeout=4.0):
+    """Activate an app the way a person would, and wait until it really is front.
+
+    Only the harness does this. The driver refuses instead, and says so — a
+    background window is not somewhere a menu can be opened, and pretending
+    otherwise is the synthetic activation this project removed.
+    """
+    import time
+    from AppKit import NSWorkspace, NSRunningApplication
+    pid = d._resolve(bundle, launch=False)
+    if pid is None:
+        return False
+    workspace = NSWorkspace.sharedWorkspace()
+    front = workspace.frontmostApplication()
+    if front is not None and int(front.processIdentifier()) == pid:
+        return True
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+    if app is None:
+        return False
+    app.activateWithOptions_(0)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        front = workspace.frontmostApplication()
+        if front is not None and int(front.processIdentifier()) == pid:
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def _view_popup(d):
@@ -378,6 +425,12 @@ def _view_popup(d):
                if _attr(w, "AXRole") == "AXWindow"]
     if len(windows) != 1:
         skip(f"Finder 창이 {len(windows)}개라 어느 팝업의 값인지 귀속할 수 없습니다")
+    # A popup only opens in the app that is in front. The driver refuses in a
+    # background app rather than faking the activation, which is the whole
+    # point — so the harness does what a person does and brings Finder forward
+    # first. Only the harness may; nothing inside the driver does this.
+    if not _bring_forward(FINDER, probe):
+        skip("Finder 를 앞으로 가져오지 못했습니다 — 팝업은 앞선 앱에서만 열립니다")
     obs = d.observe(FINDER, "tree_full")
     if obs.get("type") != "observation":
         skip(f"Finder 를 관측할 수 없습니다: {obs.get('error')}")
@@ -385,6 +438,62 @@ def _view_popup(d):
         if "PopUpButton" in line and "view" in line:
             return obs, int(line.strip().split()[0])
     skip("이 Finder 창에는 보기 팝업이 없습니다")
+
+
+def _close_open_menus(pid):
+    """Cancel any menu this app has standing.
+
+    A `select_option` that fails partway leaves the menu it opened on screen,
+    and the next check then reports "메뉴가 3개 열려" — a failure caused
+    entirely by the previous one. One check's wreckage must not be read as the
+    next one's defect, and a menu left over someone's Finder is not something
+    to leave behind either.
+
+    `AXCancel` is the menu's own action: nothing is synthesised here.
+    """
+    from ApplicationServices import (AXUIElementCreateApplication,
+                                     AXUIElementPerformAction)
+    from nlc.driver import _attr
+    app = AXUIElementCreateApplication(pid)
+    found = []
+
+    def walk(node, depth=0):
+        if depth > 6 or len(found) > 8:
+            return
+        if _attr(node, "AXRole") == "AXMenu":
+            found.append(node)
+            return                      # its items are not menus to cancel
+        for child in (_attr(node, "AXChildren") or [])[:60]:
+            walk(child, depth + 1)
+
+    # Only menus hanging off the app's own windows and controls. The menu BAR
+    # always has menus in it and cancelling those is neither needed nor ours.
+    for window in (_attr(app, "AXWindows") or []):
+        walk(window)
+    for menu in found:
+        AXUIElementPerformAction(menu, "AXCancel")
+
+
+def _the_only_view_popup(pid):
+    """The view popup of Finder's single window, walked here rather than
+    borrowed from a driver's cache. Returns None if it is not unique."""
+    from ApplicationServices import AXUIElementCreateApplication
+    from nlc.driver import _attr
+    found = []
+
+    def walk(node, depth=0):
+        if depth > 8 or len(found) > 1:
+            return
+        if _attr(node, "AXRole") == "AXPopUpButton":
+            found.append(node)
+        for child in (_attr(node, "AXChildren") or [])[:60]:
+            walk(child, depth + 1)
+
+    app = AXUIElementCreateApplication(pid)
+    for window in (_attr(app, "AXWindows") or []):
+        if _attr(window, "AXRole") == "AXWindow":
+            walk(window)
+    return found[0] if len(found) == 1 else None
 
 
 @check("선택지는 이름으로 고르고, 고른 대로 됐는지 확인한다")
@@ -404,7 +513,15 @@ def _select_option_round_trip(d):
     # Read through the control we are about to act on, by CF identity. The
     # identity-free "exactly one popup of this role" fallback could answer out
     # of a DIFFERENT popup once this one was gone (peer review).
-    control = d._latest[FINDER.lower()].elements[idx]
+    #
+    # The handle comes from THIS process's own walk, not from `d._latest` —
+    # that is an in-process Driver internal, and reaching for it meant this
+    # check crashed with AttributeError on the signed transport, which is the
+    # one that ships. `_view_popup` has already established there is exactly
+    # one Finder window, so "the popup in it" is an attributable handle.
+    control = _the_only_view_popup(pid)
+    if control is None:
+        skip("보기 팝업 핸들을 이 프로세스에서 찾지 못했습니다")
     start = probe._reread_selection(pid, "AXPopUpButton", None, control)
     if start not in ("as Icons", "as List", "as Columns", "as Gallery"):
         skip(f"이 검사가 아는 보기 팝업이 아닙니다: {start!r}")
@@ -431,6 +548,7 @@ def _select_option_round_trip(d):
     finally:
         # Put it back whatever happened. A check that changes someone's Finder
         # and leaves it changed is a check nobody can run twice.
+        _close_open_menus(pid)
         try:
             obs2, idx2 = _view_popup(d)
             d.act(obs2["obs_id"], FINDER,
@@ -438,6 +556,7 @@ def _select_option_round_trip(d):
                    "option_label": start})
         except Skipped:
             pass
+        _close_open_menus(pid)
     back = probe._reread_selection(pid, "AXPopUpButton", None, control)
     assert back == start, f"원래 보기로 못 되돌렸습니다: {start!r} -> {back!r}"
 
@@ -618,6 +737,18 @@ def _no_borrowed_confirmation(_d):
         D.AXUIElementCopyAttributeValue = real_copy
 
 
+# Capabilities that describe the CHANNEL rather than what can be done to a
+# window. The in-process driver does not announce these and should not: there
+# is no channel to make promises about.
+#
+#   action.click.deadline_uptime — the client stamps a click with an absolute
+#     uptime past which the helper must not perform it. It exists because a
+#     separate process can receive a click after the moment that asked for it
+#     stopped being true. In-process the call is synchronous; there is no gap
+#     for a stale click to arrive in.
+WIRE_ONLY = frozenset({"action.click.deadline_uptime"})
+
+
 @check("네이티브와 도우미가 같은 약속 목록을 말한다")
 def _capability_lists_agree(_d):
     """Two surfaces honouring one contract must ANNOUNCE the same one.
@@ -626,6 +757,12 @@ def _capability_lists_agree(_d):
     class declared no capabilities at all, so a caller asking what it could do
     heard nothing and read that as "cannot" (peer finding). Silence is not a
     capability, and two lists that can drift will.
+
+    Exact equality is not the rule, and demanding it was wrong: a few
+    capabilities are about the WIRE, not about what can be done to a window,
+    and the in-process driver has no wire. Those are named one by one below,
+    with the reason, so that a genuine divergence still fails here instead of
+    being waved through by a loosened comparison.
 
     Source-only — no screen, no helper, no permission.
     """
@@ -637,8 +774,15 @@ def _capability_lists_agree(_d):
     block = text.split("let helperCapabilities: [String] = [", 1)[1].split("]", 1)[0]
     announced = set(re.findall(r'"([^"]+)"', block))
     native = set(Driver.capabilities)
-    assert announced == native, (
-        f"약속 목록이 어긋났습니다 — 도우미만: {sorted(announced - native)}, "
+    assert WIRE_ONLY <= announced, (
+        f"전송 전용이라던 약속을 도우미가 말하지 않습니다: "
+        f"{sorted(WIRE_ONLY - announced)}")
+    assert not (WIRE_ONLY & native), (
+        f"네이티브가 전송 전용 약속을 말합니다 — 지킬 수 있다면 "
+        f"WIRE_ONLY 에서 빼세요: {sorted(WIRE_ONLY & native)}")
+    assert (announced - WIRE_ONLY) == native, (
+        f"약속 목록이 어긋났습니다 — 도우미만: "
+        f"{sorted(announced - WIRE_ONLY - native)}, "
         f"네이티브만: {sorted(native - announced)}")
 
 
@@ -648,7 +792,13 @@ def _capabilities_are_declared(d):
     if caps is None:
         return                      # the in-process driver IS the capability
     from nlc.helper import REQUIRED_CAPABILITIES
-    missing = REQUIRED_CAPABILITIES - caps
+    # That set is what the helper CLIENT puts on the wire, so it is a demand on
+    # transports, not on a driver that is called directly. Asking it of the
+    # in-process driver made it answer for a message nothing ever sends it.
+    required = REQUIRED_CAPABILITIES
+    if not hasattr(d, "_send"):
+        required = required - WIRE_ONLY
+    missing = required - set(caps)
     assert not missing, f"도우미가 못 지키는 것을 말하지 않았습니다: {missing}"
 
 
