@@ -3676,10 +3676,10 @@ def scenario_native_coordinate_fixture():
     control = Path(controls[0]).resolve(strict=True)
     assert control.is_relative_to(root / "reviews"), "review control directory required"
     if "--menu-unresponsive" in sys.argv:
-        probe = runpy.run_path(str(root / "reviews/2026-09-19/probe-menu-unresponsive.py"))
+        probe = runpy.run_path(str(root / "examples/probes/probe-menu-unresponsive.py"))
         probe["signed_client"](InheritedHelperDriver(), control)
         return True
-    client = runpy.run_path(str(root / "reviews/2026-09-19/run-owned-menu-nlc-client.py"))
+    client = runpy.run_path(str(root / "examples/probes/run-owned-menu-nlc-client.py"))
     client["main"](driver=InheritedHelperDriver(), control_dir=control, coordinate_only=True,
                    prepare_window="--prepare-window" in sys.argv,
                    general_prepare="--general-prepare" in sys.argv,
@@ -3701,7 +3701,7 @@ def scenario_signed_window_capture():
     from nlc.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
-    probe = runpy.run_path(str(root / "reviews/2026-09-20/signed-window-capture.py"))
+    probe = runpy.run_path(str(root / "examples/probes/signed-window-capture.py"))
     output = root / "reviews/2026-09-20" / f"signed-window-capture-{time.time_ns()}.json"
     report = probe["main"](InheritedHelperDriver(), output)
     print("  signed capture report: " + str(output))
@@ -3721,7 +3721,7 @@ def scenario_signed_background_refusal():
     from nlc.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
-    probe = runpy.run_path(str(root / "reviews/2026-09-20/signed-background-refusal.py"))
+    probe = runpy.run_path(str(root / "examples/probes/signed-background-refusal.py"))
     output = root / "reviews/2026-09-20" / f"signed-background-refusal-{time.time_ns()}.json"
     report = probe["main"](InheritedHelperDriver(), output)
     print("  signed refusal report: " + str(output))

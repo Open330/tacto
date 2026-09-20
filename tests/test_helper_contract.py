@@ -1003,7 +1003,12 @@ def _capability_lists_agree(_d):
     swift = pathlib.Path(__file__).resolve().parents[1] / "helper" / "NLCHelper.swift"
     text = swift.read_text(encoding="utf-8")
     block = text.split("let helperCapabilities: [String] = [", 1)[1].split("]", 1)[0]
-    announced = set(re.findall(r'"([^"]+)"', block))
+    # Comments are prose, not data. A comment that quoted a capability name to
+    # explain why it is GONE was read back as that capability being declared —
+    # the list disagreed with itself because of a sentence about it.
+    code = "\n".join(line for line in block.splitlines()
+                     if not line.strip().startswith("//"))
+    announced = set(re.findall(r'"([^"]+)"', code))
     native = set(Driver.capabilities)
     assert WIRE_ONLY <= announced, (
         f"전송 전용이라던 약속을 도우미가 말하지 않습니다: "
