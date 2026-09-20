@@ -17,10 +17,35 @@ import Foundation
 import ApplicationServices
 import AppKit
 import ScreenCaptureKit
+import CoreMedia
 import CryptoKit
 import os
 import ImageIO
 import UniformTypeIdentifiers
+
+/// Say something where it can still be heard.
+///
+/// LaunchServices hands a launched app no stdout and no stderr, so everything
+/// this process said about why it refused a client used to go into a void —
+/// the launcher saw only that we had gone. The unified log is the one channel
+/// that survives having no parent:
+///
+///     log stream --predicate 'subsystem == "ai.callabo.nlc"'
+///     log show --last 5m --predicate 'subsystem == "ai.callabo.nlc"'
+let rendezvousLog = Logger(subsystem: "ai.callabo.nlc", category: "rendezvous")
+
+@Sendable func note(_ message: String) {
+    rendezvousLog.notice("\(message, privacy: .public)")
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
+
+// Declared here, at the top, and the position is load-bearing. `main.swift`
+// initialises top-level globals in source order, so a `note()` called from a
+// diagnostic flag that exits before this line ran wrote to stderr and silently
+// dropped its unified-log half — which looked exactly like "that code never
+// ran" and cost two rounds of this investigation. Anything every path may call
+// has to be initialised before every path.
+
 
 // A failed call is not generally proof of no effect. Only unsupported is
 // classified as definitely not started; uncertain failures must not be retried.
@@ -473,9 +498,10 @@ func observe(_ target: String, requireWindow: Bool = true) -> [String: Any] {
     if abortState.isStopped {
         return ["type": "error", "error": "aborted_by_user"]
     }
-    guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+    guard ensureVisibleControl(forPID: p) else {
         return ["type": "error", "error": "indicator_unavailable",
-                "detail": "조작 표시를 띄울 수 없어 중단했습니다"]
+                "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
+                          + "조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
     }
     var lines: [String] = []
     var elements: [AXUIElement] = []
@@ -876,10 +902,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 "effect": "not_started",
                 "detail": "사용자가 Esc로 중단했습니다"]
     }
-    guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+    guard ensureVisibleControl(forPID: p) else {
         return ["type": "error", "error": "indicator_unavailable",
                 "effect": "not_started",
-                "detail": "조작 표시를 띄울 수 없어 중단했습니다"]
+                "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
+                          + "조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
     }
     let name = action["name"] as? String ?? ""
 
@@ -888,7 +915,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         return elements[i]
     }
 
-    // Before anything is performed, and after the overlay so the check sees
+    // Before anything is performed, and after the indicator so the check sees
     // the same screen the action will.
     if let want = expect, let why = mismatch(want, element: element(), pid: p) {
         return ["type": "error", "error": "target_changed",
@@ -1018,7 +1045,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "detail": "텍스트 삽입에 실패했습니다 (\(wrote.rawValue))"]
         }
     case "read":
-        // Look, change nothing — the observation and overlay above are the
+        // Look, change nothing — the observation and indicator above are the
         // whole of it. Lets a recipe read one part of the screen before using
         // that value somewhere else.
         break
@@ -1588,80 +1615,189 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 // which is the very problem the helper exists to fix. What DOES hold regardless
 // of who is calling is that the person can see what is happening and stop it.
 // So the indicator and the abort key belong HERE, in the process that performs
-// the actions — a caller cannot skip them by not drawing an overlay.
+// the actions — a caller cannot skip them by not showing the indicator.
 
 // The stop itself lives in `abortState`, which holds it together with the
 // moment this run began — the two only mean anything as a pair, and a second
 // locked copy of "is this stopped" would be a second answer to the one
 // question that must have one.
-var overlay: NSWindow?
+/// The menu-bar item that says this is happening. Nil when nothing is running.
+var controlItem: NSStatusItem?
 
-/// Returns false when the outline could not be drawn. Callers treat that as a
+/// Show that NLC is working, and say on which app.
+///
+/// This was an outline drawn around the target window, and it was wrong in two
+/// ways. It covered part of someone's screen with our own drawing, and — the
+/// report that started this — it carried `canJoinAllSpaces`, so switching
+/// desktops brought the box along and drew it over unrelated work, around a
+/// window that was not on that screen at all.
+///
+/// A menu-bar item is the same promise without either problem: it hides
+/// nothing, it does not follow anyone anywhere, and it costs no permission.
+/// The other half of the promise is macOS's own: when this helper actually
+/// captures the screen, the system lights its recording indicator, which we do
+/// not draw, cannot fake and cannot suppress. Two signals whose scopes differ
+/// exactly as the access does — the menu bar for "NLC is acting", the system
+/// indicator for "NLC is looking".
+///
+/// Returns false when the item could not be created. Callers treat that as a
 /// refusal: acting without the person being able to see it is the situation
-/// this whole mechanism exists to prevent, so a drawing failure must stop the
+/// this whole mechanism exists to prevent, so a failure here must stop the
 /// action rather than silently proceed (advisor finding).
 @discardableResult
-func showOverlay(forPID pid: pid_t) -> Bool {
-    let app = AXUIElementCreateApplication(pid)
-    guard let win = attr(app, kAXFocusedWindowAttribute as String)
-            ?? (attr(app, kAXWindowsAttribute as String) as? [AXUIElement])?.first
-    else { return false }
-    let winEl = win as! AXUIElement
-    guard let posV = attr(winEl, kAXPositionAttribute as String),
-          let sizeV = attr(winEl, kAXSizeAttribute as String) else { return false }
-    var pt = CGPoint.zero, sz = CGSize.zero
-    AXValueGetValue(posV as! AXValue, .cgPoint, &pt)
-    AXValueGetValue(sizeV as! AXValue, .cgSize, &sz)
-    // AX y is measured from the top of the PRIMARY screen; AppKit from the
-    // bottom. screens[0] is the menu-bar screen, which is that origin — `main`
-    // follows keyboard focus and would misplace the outline.
-    guard let primary = NSScreen.screens.first else { return false }
-    let frame = NSRect(x: pt.x, y: primary.frame.height - pt.y - sz.height,
-                       width: sz.width, height: sz.height)
-
-    // Follow the window rather than drawing once: a recipe that moves or
-    // switches windows would otherwise outline the wrong place.
-    if let existing = overlay {
-        existing.setFrame(frame, display: true)
-        existing.orderFrontRegardless()
+func showControlIndicator(forPID pid: pid_t) -> Bool {
+    let who = NSRunningApplication(processIdentifier: pid)?.localizedName
+    let title = who.map { "● NLC · \($0) · Esc" } ?? "● NLC 조작 중 · Esc"
+    if let existing = controlItem {
+        existing.button?.title = title      // the target can change mid-run
         return true
     }
-
-    let panel = NSPanel(contentRect: frame,
-                        styleMask: [.borderless, .nonactivatingPanel],
-                        backing: .buffered, defer: false)
-    panel.isOpaque = false
-    panel.backgroundColor = .clear
-    panel.ignoresMouseEvents = true
-    panel.level = .statusBar    // above normal and floating windows
-    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-    panel.hasShadow = false
-
-    let view = NSView(frame: NSRect(origin: .zero, size: frame.size))
-    view.wantsLayer = true
-    view.layer?.borderWidth = 4
-    view.layer?.cornerRadius = 8
-    view.layer?.borderColor = NSColor(srgbRed: 0.05, green: 0.62, blue: 0.55, alpha: 1).cgColor
-    let label = NSTextField(labelWithString: "NLC가 이 창을 조작 중입니다 · Esc로 중단")
-    label.font = .boldSystemFont(ofSize: 13)
-    label.textColor = .white
-    label.backgroundColor = NSColor(srgbRed: 0.05, green: 0.62, blue: 0.55, alpha: 1)
-    label.drawsBackground = true
-    label.sizeToFit()
-    label.frame.origin = CGPoint(x: 14, y: frame.size.height - label.frame.height - 14)
-    view.addSubview(label)
-    panel.contentView = view
-    panel.orderFrontRegardless()
-    overlay = panel
+    // `variableLength`, because the app's name is in the title and a fixed
+    // width would truncate the one word that says which window this is about.
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    guard let button = item.button else {
+        NSStatusBar.system.removeStatusItem(item)
+        return false
+    }
+    button.title = title
+    button.toolTip = "NLC가 이 앱을 조작하고 있습니다. Esc로 즉시 멈춥니다."
+    controlItem = item
     return true
 }
 
-func hideOverlay() {
-    overlay?.orderOut(nil)
-    overlay = nil
+/// The capture stream whose only product is macOS's own recording indicator.
+///
+/// The menu-bar item above is not enough on its own, and this is measured
+/// rather than assumed: on a full menu bar macOS collapses extra items behind
+/// an overflow chevron, and the item reports `isVisible == true` the whole
+/// time. A promise that the person can see this happening cannot rest on a
+/// signal that hides itself and then says it did not.
+///
+/// The system's recording indicator does not do that. Photographed while a
+/// stream was held, it took a slot at the front of the cluster and pushed the
+/// overflow chevron out rather than going behind it. It is also the one signal
+/// here that is not ours: we do not draw it, cannot fake it and cannot
+/// suppress it, which is exactly what makes it worth more than anything we
+/// could draw.
+///
+/// It costs what it says it costs. Lighting it means really capturing, so this
+/// asks for the smallest, slowest stream that keeps it lit and throws every
+/// frame away — and it means a run needs Screen Recording even when it only
+/// ever touches accessibility APIs. That is the honest trade: the indicator is
+/// truthful precisely because the access behind it is real.
+var controlStream: SCStream?
+
+/// Which window the held stream is scoped to, so a moved target is noticed.
+var controlStreamWindow: CGWindowID?
+
+/// Frames are not wanted. Holding the stream is the entire point.
+final class DiscardingSink: NSObject, SCStreamOutput {
+    func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer,
+                of type: SCStreamOutputType) {}
+}
+let controlSink = DiscardingSink()
+
+/// The window this run is acting on, as ScreenCaptureKit knows it.
+func controlWindowID(forPID pid: pid_t) -> CGWindowID? {
+    let app = AXUIElementCreateApplication(pid)
+    guard let windows = attr(app, kAXWindowsAttribute as String) as? [AXUIElement]
+    else { return nil }
+    let focused = attr(app, kAXFocusedWindowAttribute as String) as! AXUIElement?
+    for candidate in [focused].compactMap({ $0 }) + windows {
+        if let id = nativeWindowID(candidate) { return id }
+    }
+    return nil
 }
 
-// Capture lives beside the outline on purpose: both are about what this
+func ensureControlStream(forPID pid: pid_t) -> Bool {
+    guard let windowID = controlWindowID(forPID: pid) else {
+        note("nlc-helper: 조작 표시를 켜지 못했습니다 — 대상 창을 찾지 못했습니다")
+        return false
+    }
+    if controlStream != nil && controlStreamWindow == windowID { return true }
+    if let running = controlStream {
+        // The run moved to another window. The indicator must move with it,
+        // or it would be reporting capture of something we stopped touching.
+        running.stopCapture { _ in }
+        controlStream = nil
+        controlStreamWindow = nil
+    }
+
+    let ready = DispatchSemaphore(value: 0)
+    var started = false
+    var why = "no answer"
+    SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: false) {
+        content, error in
+        guard let window = content?.windows.first(where: { $0.windowID == windowID }) else {
+            why = "window not shareable: \(error?.localizedDescription ?? "none")"
+            ready.signal(); return
+        }
+        // ONE WINDOW. `SCContentFilter(display:)` stood here and it was wrong:
+        // it captures the whole screen, so lighting an indicator that says
+        // "NLC is looking" meant looking at everything — including every other
+        // window the person had open and never offered us (user report,
+        // 2026-09-21). The filter is the same one `captureWindow` uses, and it
+        // sees the target window and nothing else.
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let configuration = SCStreamConfiguration()
+        // Small and slow deliberately. Nothing reads these frames; the stream
+        // exists so the indicator is lit, and taking more than that would be
+        // the opposite of what the indicator promises.
+        configuration.width = 320
+        configuration.height = 200
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        configuration.showsCursor = false
+        configuration.queueDepth = 3
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+        do {
+            try stream.addStreamOutput(controlSink, type: .screen,
+                                       sampleHandlerQueue: DispatchQueue.global())
+        } catch {
+            why = "addStreamOutput: \(error.localizedDescription)"
+            ready.signal(); return
+        }
+        stream.startCapture { startError in
+            if let startError {
+                why = "startCapture: \(startError.localizedDescription)"
+            } else {
+                controlStream = stream
+                controlStreamWindow = windowID
+                started = true
+            }
+            ready.signal()
+        }
+    }
+    if ready.wait(timeout: .now() + 8) != .success {
+        note("nlc-helper: 조작 표시를 켜지 못했습니다 (시간 초과)")
+        return false
+    }
+    // Both outcomes, not just the bad one. "Did the indicator actually come
+    // on during that run?" was not answerable from the log, and the photograph
+    // that was supposed to answer it raced the run and missed.
+    note(started ? "nlc-helper: 조작 표시 켜짐 — 창 \(windowID) 하나만 캡처합니다"
+                 : "nlc-helper: 조작 표시를 켜지 못했습니다 — \(why)")
+    return started
+}
+
+/// Both signals, and only one of them decides.
+///
+/// The menu-bar item is best effort: when the bar has room it names the app
+/// being driven, which the system indicator cannot do. When it does not, it
+/// hides without telling anyone — so what the refusal hangs on is the stream,
+/// the signal that cannot hide.
+func ensureVisibleControl(forPID pid: pid_t) -> Bool {
+    _ = DispatchQueue.main.sync { showControlIndicator(forPID: pid) }
+    return ensureControlStream(forPID: pid)
+}
+
+func hideControlIndicator() {
+    if let item = controlItem {
+        NSStatusBar.system.removeStatusItem(item)
+    }
+    controlItem = nil
+}
+
+// Capture lives beside the indicator on purpose: both are about what this
 // helper may see of someone's screen, and both are refused when the other
 // cannot be arranged.
 func sha256Hex(_ data: Data) -> String {
@@ -1714,8 +1850,8 @@ func captureWindow(_ obsID: String, _ target: String,
         return refuse("window_id_unavailable", "cannot correlate the AX window")
     }
 
-    guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
-        return refuse("indicator_unavailable", "조작 표시를 띄울 수 없어 중단했습니다")
+    guard ensureVisibleControl(forPID: p) else {
+        return refuse("indicator_unavailable", "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요")
     }
 
     // ScreenCaptureKit answers asynchronously; the wait is bounded and a late
@@ -1942,7 +2078,11 @@ let helperCapabilities: [String] = [
     // Said separately because the browser's `press_key` includes Escape and
     // this one does not. A client that needs Escape should see the difference
     // rather than discover it.
-    "press_key.navigation_only", "press_key.no_escape",
+    // No press_key capability is announced. Keys are not synthesised at
+    // all now, so naming one would be advertising a refusal — and a caller
+    // reading "navigation_only" plans around a Tab that never arrives.
+    // Silence is not a capability, and neither is a promise kept by an
+    // error message.
     // Reading only, and deliberately NOT document_snapshot: this witnesses what
     // a document contains and where it lives, never its source format or where
     // a save panel would put it.
@@ -2595,10 +2735,11 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                                  "selection", "document_text"]
     if let kind, reaching.contains(kind) || kind == "capture",
        let target = msg["target"] as? String, let p = pid(forBundle: target) {
-        guard DispatchQueue.main.sync(execute: { showOverlay(forPID: p) }) else {
+        guard ensureVisibleControl(forPID: p) else {
             return ["type": "error", "error": "indicator_unavailable",
                     "effect": "not_started",
-                    "detail": "조작 표시를 띄울 수 없어 중단했습니다 (\(kind))"]
+                    "detail": "조작 표시를 켤 수 없어 \(kind) 를 중단했습니다 — 시스템 설정 > "
+                              + "개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요"]
         }
     }
 
@@ -2709,6 +2850,274 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // launcher starts IS such a descendant, so it could spawn this helper itself
 // and reach handle() without passing through the launcher's message vetting
 // (advisor finding: a bypass of the boundary we had just built). No fallback.
+// `--hold-indicator <seconds>`: run the PRODUCTION gate and photograph it.
+//
+// Every previous attempt to see this either raced the run or tested a probe
+// that merely resembled the real path. This calls `ensureVisibleControl` — the
+// exact function every gated message calls — holds it, and photographs the
+// menu bar from inside the same process, so the picture cannot miss the
+// window it is supposed to show.
+if let index = CommandLine.arguments.firstIndex(of: "--hold-indicator"),
+   index + 1 < CommandLine.arguments.count,
+   let seconds = Double(CommandLine.arguments[index + 1]) {
+    let app = NSApplication.shared
+    _ = app.setActivationPolicy(.accessory)
+    // Whose window to hold the indicator on. Defaults to this process, which
+    // has no windows — so a target has to be named for the test to mean
+    // anything.
+    var holdTarget = getpid()
+    if let t = CommandLine.arguments.firstIndex(of: "--hold-target"),
+       t + 1 < CommandLine.arguments.count, let given = Int32(CommandLine.arguments[t + 1]) {
+        holdTarget = given
+    }
+    // On the main queue AFTER `app.run()` begins servicing it, not from a
+    // background thread before. `ensureVisibleControl` does a
+    // `DispatchQueue.main.sync`, and a main.sync issued while the main queue is
+    // still on its way to `app.run()` simply waits — which is why this block
+    // produced no log at all and looked like it never ran.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        _ = showControlIndicator(forPID: holdTarget)
+        let ok = ensureControlStream(forPID: holdTarget)
+        note("nlc-helper: hold-indicator target=\(holdTarget) -> \(ok)")
+        // Give the indicator a moment to appear, then photograph.
+        if let shot = CommandLine.arguments.firstIndex(of: "--probe-shot"),
+           shot + 1 < CommandLine.arguments.count {
+            let path = CommandLine.arguments[shot + 1]
+            DispatchQueue.global().async {
+            Thread.sleep(forTimeInterval: 4)
+            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) {
+                content, _ in
+                guard let display = content?.displays.first else { return }
+                let f = SCContentFilter(display: display, excludingWindows: [])
+                let c = SCStreamConfiguration()
+                c.width = display.width * 2
+                c.height = display.height * 2
+                c.showsCursor = false
+                SCScreenshotManager.captureImage(contentFilter: f, configuration: c) {
+                    image, _ in
+                    guard let image,
+                          let dst = CGImageDestinationCreateWithURL(
+                            URL(fileURLWithPath: path) as CFURL,
+                            UTType.png.identifier as CFString, 1, nil) else { return }
+                    CGImageDestinationAddImage(dst, image, nil)
+                    CGImageDestinationFinalize(dst)
+                    note("nlc-helper: hold-indicator photographed, stream=\(controlStream != nil)")
+                }
+            }
+            }
+        }
+    }
+    DispatchQueue.global().asyncAfter(deadline: .now() + min(120, max(1, seconds))) {
+        exit(0)
+    }
+    app.run()
+    exit(0)
+}
+
+// `--indicator-probe <seconds>`: show the menu-bar item and hold it.
+//
+// Whether a status item is actually ON SCREEN is not something its own API
+// will tell you: `isVisible` answered true for an item nobody could see. The
+// suspicion it exists to test is that the menu bar belongs to the console
+// login session, and a process in another one — an ssh session, say — gets a
+// status bar that is not the one the person is looking at.
+if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
+   index + 1 < CommandLine.arguments.count,
+   let seconds = Double(CommandLine.arguments[index + 1]) {
+    let app = NSApplication.shared
+    let policySet = app.setActivationPolicy(.accessory)
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    item.button?.title = "●NLC"
+    // The audit session id, read here rather than in the interpolation: the
+    // type checker gives up on a long one, and the session is the whole point.
+    var auditToken = audit_token_t()
+    var tokenWords = mach_msg_type_number_t(
+        MemoryLayout<audit_token_t>.size / MemoryLayout<natural_t>.size)
+    let gotToken = withUnsafeMutablePointer(to: &auditToken) { p -> kern_return_t in
+        p.withMemoryRebound(to: integer_t.self, capacity: Int(tokenWords)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_AUDIT_TOKEN), $0, &tokenWords)
+        }
+    } == KERN_SUCCESS
+    let asid: String = gotToken ? String(auditToken.val.6) : "null"
+    let hasButton: Bool = item.button != nil
+    let visible: Bool = item.isVisible
+    let pidNow: Int32 = getpid()
+    // Where macOS actually PUT it. `isVisible` is the item's own opinion; the
+    // button's window frame is the screen talking. An item the menu bar had no
+    // room for still answers true and lives at a frame nobody can see.
+    let buttonWindow = item.button?.window
+    let frame = buttonWindow?.frame ?? .zero
+    let screen = NSScreen.main?.frame ?? .zero
+    let onScreen: Bool = buttonWindow?.isVisible ?? false
+    var report = "{\"policy_set\": \(policySet)"
+    report += ", \"has_button\": \(hasButton)"
+    report += ", \"visible\": \(visible)"
+    report += ", \"button_window_visible\": \(onScreen)"
+    report += ", \"frame\": [\(frame.origin.x), \(frame.origin.y), "
+    report += "\(frame.size.width), \(frame.size.height)]"
+    report += ", \"screen\": [\(screen.size.width), \(screen.size.height)]"
+    report += ", \"asid\": \(asid)"
+    report += ", \"pid\": \(pidNow)}"
+    // Reported from INSIDE the run loop, not before it. The menu bar lays a
+    // status item out as part of running; read beforehand the button's window
+    // is 48 wide and 0 high at the origin, which looks exactly like "macOS
+    // refused to place it" and is really "nothing has run yet". That mistake
+    // cost a round of this investigation.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        let laidOut = item.button?.window?.frame ?? .zero
+        var after = report
+        after += " /after-runloop/ {\"frame\": [\(laidOut.origin.x), "
+        after += "\(laidOut.origin.y), \(laidOut.size.width), \(laidOut.size.height)]"
+        after += ", \"visible\": \(item.isVisible)"
+        after += ", \"window_visible\": \(item.button?.window?.isVisible ?? false)}"
+        note("nlc-helper: indicator probe \(after)")
+        if let out = CommandLine.arguments.firstIndex(of: "--probe-out"),
+           out + 1 < CommandLine.arguments.count {
+            try? after.write(toFile: CommandLine.arguments[out + 1],
+                             atomically: true, encoding: .utf8)
+        }
+    }
+    // And then photograph the menu bar, because every reading so far has been
+    // the API's opinion of itself. `isVisible` said true for an item nobody
+    // could see; a frame says where it would be. A picture is the only one of
+    // the three that is evidence.
+    if let shot = CommandLine.arguments.firstIndex(of: "--probe-shot"),
+       shot + 1 < CommandLine.arguments.count {
+        let path = CommandLine.arguments[shot + 1]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) {
+                content, _ in
+                guard let display = content?.displays.first else { return }
+                let filter = SCContentFilter(display: display, excludingWindows: [])
+                let configuration = SCStreamConfiguration()
+                configuration.width = display.width * 2
+                configuration.height = display.height * 2
+                configuration.showsCursor = false
+                SCScreenshotManager.captureImage(contentFilter: filter,
+                                                 configuration: configuration) { image, _ in
+                    guard let image,
+                          let destination = CGImageDestinationCreateWithURL(
+                            URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString,
+                            1, nil) else { return }
+                    CGImageDestinationAddImage(destination, image, nil)
+                    CGImageDestinationFinalize(destination)
+                    note("nlc-helper: menu bar photographed to \(path)")
+                }
+            }
+        }
+    }
+    DispatchQueue.global().asyncAfter(deadline: .now() + min(120, max(1, seconds))) {
+        exit(0)
+    }
+    app.run()
+    exit(0)
+}
+
+// `--recording-indicator-probe <seconds>`: hold a capture stream and stop.
+//
+// The question this answers is not answerable from the API surface: does macOS
+// light its own screen-recording indicator for a running SCStream, and does it
+// stay lit for as long as the stream does? The indicator's state is not
+// readable — there is no API for "is the indicator showing" — so the only way
+// to know is to run one and look at the screen.
+//
+// A one-shot `SCScreenshotManager.captureImage` is NOT the same question. That
+// is what the helper uses today, and a single frame may light nothing at all.
+if let index = CommandLine.arguments.firstIndex(of: "--recording-indicator-probe"),
+   index + 1 < CommandLine.arguments.count,
+   let seconds = Double(CommandLine.arguments[index + 1]) {
+    final class Sink: NSObject, SCStreamOutput {
+        var frames = 0
+        func stream(_ stream: SCStream, didOutputSampleBuffer buffer: CMSampleBuffer,
+                    of type: SCStreamOutputType) {
+            frames += 1
+        }
+    }
+    let sink = Sink()
+    let done = DispatchSemaphore(value: 0)
+    var report = "{\"error\": \"no answer\"}"
+    SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) {
+        content, error in
+        guard let display = content?.displays.first else {
+            report = "{\"started\": false, \"why\": \"no display: "
+                + "\(error?.localizedDescription ?? "none")\"}"
+            done.signal(); return
+        }
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let configuration = SCStreamConfiguration()
+        // Small and slow on purpose. Frames are not the point here; holding the
+        // stream is. Anything captured is dropped on the floor.
+        configuration.width = 320
+        configuration.height = 200
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 2)
+        configuration.showsCursor = false
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+        do {
+            try stream.addStreamOutput(sink, type: .screen,
+                                       sampleHandlerQueue: DispatchQueue.global())
+        } catch {
+            report = "{\"started\": false, \"why\": \"addStreamOutput: "
+                + "\(error.localizedDescription)\"}"
+            done.signal(); return
+        }
+        stream.startCapture { startError in
+            if let startError {
+                report = "{\"started\": false, \"why\": \"startCapture: "
+                    + "\(startError.localizedDescription)\"}"
+                done.signal(); return
+            }
+            let hold = min(120, max(1, seconds))
+            FileHandle.standardError.write(Data(
+                "스트림 시작됨 — \(hold)초 동안 화면 상단의 녹화 표시를 확인하세요\n".utf8))
+            // Photograph the menu bar WHILE this stream is held. A menu-bar
+            // item turned out to collapse behind the overflow chevron on a
+            // full bar — reported visible, seen by nobody — so whether the
+            // system's own indicator gets a slot it cannot lose is a question
+            // to answer with a picture, not with an API's opinion.
+            if let shot = CommandLine.arguments.firstIndex(of: "--probe-shot"),
+               shot + 1 < CommandLine.arguments.count {
+                let path = CommandLine.arguments[shot + 1]
+                DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                    SCShareableContent.getExcludingDesktopWindows(false,
+                                                                  onScreenWindowsOnly: true) {
+                        content, _ in
+                        guard let display = content?.displays.first else { return }
+                        let f = SCContentFilter(display: display, excludingWindows: [])
+                        let c = SCStreamConfiguration()
+                        c.width = display.width * 2
+                        c.height = display.height * 2
+                        c.showsCursor = false
+                        SCScreenshotManager.captureImage(contentFilter: f, configuration: c) {
+                            image, _ in
+                            guard let image,
+                                  let dst = CGImageDestinationCreateWithURL(
+                                    URL(fileURLWithPath: path) as CFURL,
+                                    UTType.png.identifier as CFString, 1, nil) else { return }
+                            CGImageDestinationAddImage(dst, image, nil)
+                            CGImageDestinationFinalize(dst)
+                        }
+                    }
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + hold) {
+                stream.stopCapture { _ in
+                    report = "{\"started\": true, \"held_seconds\": \(hold), "
+                        + "\"frames\": \(sink.frames)}"
+                    done.signal()
+                }
+            }
+        }
+    }
+    _ = done.wait(timeout: .now() + min(140, max(5, seconds + 20)))
+    print(report)
+    if let out = CommandLine.arguments.firstIndex(of: "--probe-out"),
+       out + 1 < CommandLine.arguments.count {
+        try? report.write(toFile: CommandLine.arguments[out + 1],
+                          atomically: true, encoding: .utf8)
+    }
+    exit(0)
+}
+
 // `--request-accessibility`: ask for the grant in this process's own name.
 //
 // It has to be opened through LaunchServices to mean anything. The prompt names
@@ -2904,22 +3313,6 @@ if !AXIsProcessTrusted() {
 // not by ancestry. That distinction matters: ancestry admits anything descended
 // from the signed launcher, so one attacker-controlled link in the chain was
 // enough; a peer check names the process actually talking.
-
-/// Say something where it can still be heard.
-///
-/// LaunchServices hands a launched app no stdout and no stderr, so everything
-/// this process said about why it refused a client used to go into a void —
-/// the launcher saw only that we had gone. The unified log is the one channel
-/// that survives having no parent:
-///
-///     log stream --predicate 'subsystem == "ai.callabo.nlc"'
-///     log show --last 5m --predicate 'subsystem == "ai.callabo.nlc"'
-let rendezvousLog = Logger(subsystem: "ai.callabo.nlc", category: "rendezvous")
-
-@Sendable func note(_ message: String) {
-    rendezvousLog.notice("\(message, privacy: .public)")
-    FileHandle.standardError.write(Data((message + "\n").utf8))
-}
 
 /// How long we wait to be claimed. LaunchServices gives our client no way to
 /// tell us it gave up, so an unclaimed helper would otherwise sit holding an

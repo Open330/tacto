@@ -84,7 +84,12 @@ class WhoIsAccepted(unittest.TestCase):
                     stripped = line.strip()
                     if stripped.startswith("//") or ".val.6" not in stripped:
                         continue
-                    self.fail(f"{name} still compares audit sessions: {stripped}")
+                    # Reading the session id is fine and useful — a diagnostic
+                    # that prints which session a process is in is how the
+                    # difference was found. COMPARING two of them is the thing
+                    # that could never hold.
+                    if "==" in stripped or "!=" in stripped:
+                        self.fail(f"{name} still compares audit sessions: {stripped}")
 
     def test_a_refusal_says_what_failed(self):
         self.assertIn("OSStatus", LAUNCHER)
