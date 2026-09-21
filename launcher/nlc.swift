@@ -88,16 +88,18 @@ let maxDocumentUTF16Units = 1_000_000
 // people reached for it to do — save, copy, open — is a named menu command, and
 // `menu` expresses those without a keystroke primitive at all.
 let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
-    // `element_index` OR `point`: a coordinate is an address that has not been
-    // resolved to an element yet, which is how a control that draws itself and
-    // exposes no AX element becomes reachable. Exactly one of the two, checked
-    // below — both would be two answers to one question.
+    // `element_index` OR `point` for anything that acts on one element: a
+    // coordinate is an address that has not been resolved yet, which is how a
+    // control that draws itself and exposes no AX element becomes reachable.
+    // Exactly one of the two, checked below — both would be two answers to one
+    // question. `prepare_window` is not in the set on purpose: it takes a
+    // WINDOW, and a point inside one resolves to whatever is drawn there.
     "click":            (["name"], ["element_index", "point", "window_index"]),
     "prepare_window":   (["name", "element_index"], []),
-    "set_value":        (["name", "element_index", "value"], []),
-    "type_text":        (["name", "element_index", "text"], []),
-    "scroll":           (["name", "element_index", "direction"], ["pages"]),
-    "secondary_action": (["name", "element_index", "action"], []),
+    "set_value":        (["name", "value"], ["element_index", "point", "window_index"]),
+    "type_text":        (["name", "text"], ["element_index", "point", "window_index"]),
+    "scroll":           (["name", "direction"], ["element_index", "point", "window_index", "pages"]),
+    "secondary_action": (["name", "action"], ["element_index", "point", "window_index"]),
     // `menu` carries a title path instead of an element index: menu items are
     // not in the observation, because an app's whole menu bar is thousands of
     // items and paying for it on every observe would make the cheap path
@@ -109,7 +111,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // element is how a batch answers with the screen AFTER its earlier
     // actions, and refusing the field made that unreachable through the signed
     // path while it worked in-process (peer request).
-    "read":             (["name"], ["element_index"]),
+    "read":             (["name"], ["element_index", "point", "window_index"]),
     // No `element_index`: the key goes where the focus is, and naming an
     // element would suggest otherwise.
     "press_key":        (["name", "key"], []),
@@ -333,11 +335,19 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "\(name) 에 허용되지 않은 필드: "
                  + "\(keys.subtracting(schema.required.union(schema.optional)))"
         }
-        if name == "click" {
+        // Every action that acts on one element accepts either address.
+        // `read` is the exception that may carry neither: a bare read is about
+        // the screen, not about an element.
+        let pointAddressable: Set<String> = ["click", "set_value", "type_text",
+                                             "scroll", "secondary_action", "read"]
+        if pointAddressable.contains(name) {
             let byIndex = action["element_index"] != nil
             let byPoint = action["point"] != nil
-            guard byIndex != byPoint else {
-                return "click 은 element_index 또는 point 중 하나만 받습니다"
+            if byIndex && byPoint {
+                return "\(name) 은 element_index 또는 point 중 하나만 받습니다"
+            }
+            if !byIndex && !byPoint && name != "read" {
+                return "\(name) 에 element_index 또는 point 가 필요합니다"
             }
             if byPoint {
                 guard let raw = action["point"] as? [String: Any],
@@ -353,6 +363,8 @@ func vetted(_ msg: [String: Any]) -> String? {
             } else if action["window_index"] != nil {
                 return "window_index 는 point 와 함께만 씁니다"
             }
+        } else if action["point"] != nil || action["window_index"] != nil {
+            return "\(name) 은 point 를 받지 않습니다"
         }
         if name == "press_key" {
             guard let key = action["key"] as? String else { return "key 형식 오류" }

@@ -214,6 +214,48 @@ def _elem_label(el):
     return ", ".join(parts)
 
 
+def _real_windows(pid):
+    """The app's windows, with the things that are not windows taken out.
+
+    `AXWindows` is not a list of windows. Two measured intruders:
+
+      * an `AXHelpTag` — a tooltip — 85x20 at index 0 on Calculator, so a
+        `window_index` meant different things depending on where the mouse
+        happened to be resting;
+      * macOS's screen-capture badge, which it puts ON the window being
+        captured and which then appears in that app's own window list: 66x20
+        inside a 460x232 window, subrole AXDialog, title "Window", no close,
+        minimize or zoom button (2026-09-21). Holding the control indicator is
+        what puts it there, so saying "NLC is working on this window" was what
+        made that window ambiguous.
+
+    The second rule is about what the thing IS, not what it is called: sitting
+    entirely inside another of this app's windows with no way to close it makes
+    it an attachment to that window, not a window. A real dialog that overlaps
+    its parent still has a close button; a standalone one is contained by
+    nothing.
+    """
+    windows = [w for w in (_attr(AXUIElementCreateApplication(pid), "AXWindows") or [])
+               if _attr(w, "AXRole") == "AXWindow"]
+    frames = [_elem_frame(w) for w in windows]
+
+    def contains(outer, inner):
+        if outer is None or inner is None or outer == inner:
+            return False
+        ox, oy, ow, oh = outer
+        ix, iy, iw, ih = inner
+        return (ox <= ix and oy <= iy
+                and ix + iw <= ox + ow and iy + ih <= oy + oh)
+
+    keep = []
+    for i, window in enumerate(windows):
+        if _attr(window, "AXCloseButton") is None and any(
+                contains(frames[j], frames[i]) for j in range(len(windows)) if j != i):
+            continue
+        keep.append(window)
+    return keep
+
+
 def _elem_frame(el):
     """(x, y, w, h) in screen coords, or None."""
     pos, size = _attr(el, "AXPosition"), _attr(el, "AXSize")
@@ -1302,8 +1344,7 @@ class Driver:
         return self._element_at_point(obs, action)
 
     def _element_at_point(self, obs, action):
-        from ApplicationServices import (AXUIElementCreateSystemWide,
-                                         AXUIElementCopyElementAtPosition,
+        from ApplicationServices import (AXUIElementCopyElementAtPosition,
                                          AXUIElementGetPid)
         point = action.get("point")
         if not isinstance(point, dict) or set(point) != {"x", "y"}:
@@ -1315,12 +1356,7 @@ class Driver:
         if not (math.isfinite(x) and math.isfinite(y)):
             raise NotStarted("point 의 x, y 는 유한해야 합니다")
 
-        # Real windows only. `AXWindows` is not a list of windows: measured on
-        # Calculator with a tooltip up, index 0 was an AXHelpTag 85x20 and the
-        # window was index 1, so a window_index meant different things
-        # depending on where the mouse was resting.
-        windows = [w for w in (_attr(AXUIElementCreateApplication(obs.pid), "AXWindows") or [])
-                   if _attr(w, "AXRole") == "AXWindow"]
+        windows = _real_windows(obs.pid)
         index = action.get("window_index", 0)
         if type(index) is not int or not (0 <= index < len(windows)):
             raise NotStarted(f"window_index {index} out of range 0..{len(windows)-1}")
@@ -1333,8 +1369,15 @@ class Driver:
         # out to belong to someone else's window anyway.
         if not (0 <= x < ww and 0 <= y < wh):
             raise NotStarted(f"point ({x}, {y}) 가 창 밖입니다 ({ww}x{wh})")
+        # Asked of the APP, not the screen. System-wide hit testing is a
+        # z-order question — measured, a point inside a background window
+        # returned an AXWebArea belonging to a browser that was on top — so it
+        # would answer about whatever the person happened to have in front.
+        # The application element answers about that app's own hierarchy,
+        # which is what a window-relative coordinate meant, and it works for a
+        # window nobody has brought forward.
         found = AXUIElementCopyElementAtPosition(
-            AXUIElementCreateSystemWide(), wx + x, wy + y, None)
+            AXUIElementCreateApplication(obs.pid), wx + x, wy + y, None)
         error, element = found if isinstance(found, tuple) else (0, found)
         if error != 0 or element is None:
             raise NotStarted(f"({x}, {y}) 위치에 접근성 요소가 없습니다")

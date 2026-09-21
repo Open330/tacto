@@ -90,9 +90,33 @@ class WindowIndexMeansOneThing(unittest.TestCase):
         self.assertGreaterEqual(HELPER.count("realWindows(of: app)"), 2)
 
     def test_the_driver_filters_too(self):
-        body = DRIVER[DRIVER.index("def _element_at_point"):]
-        body = body[:body.index("\n    def ", 10)]
+        body = DRIVER[DRIVER.index("def _real_windows(pid):"):]
+        body = body[:body.index("\ndef ", 10)]
         self.assertIn('_attr(w, "AXRole") == "AXWindow"', body)
+        self.assertIn('_attr(window, "AXCloseButton") is None', body)
+
+    def test_the_capture_badge_is_not_counted_as_a_window(self):
+        # Holding the control indicator makes macOS attach its capture badge to
+        # the window being captured, and the badge appears in that app's own
+        # AXWindows list — so saying "NLC is working on this window" was what
+        # made that window ambiguous. Measured at 66x20 inside 460x232, subrole
+        # AXDialog, title "Window", no close button (2026-09-21).
+        for name, text in (("helper", HELPER), ("driver", DRIVER)):
+            with self.subTest(side=name):
+                self.assertIn("CloseButton", text)
+
+    def test_the_point_is_asked_of_the_app_not_the_screen(self):
+        # System-wide hit testing is a z-order question: measured, a point
+        # inside a background window returned an AXWebArea belonging to a
+        # browser that happened to be on top.
+        body = HELPER[HELPER.index("func elementAtPoint("):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("AXUIElementCreateApplication(p)", body)
+        self.assertNotIn("AXUIElementCreateSystemWide", body)
+        driver_body = DRIVER[DRIVER.index("def _element_at_point"):]
+        driver_body = driver_body[:driver_body.index("\n    def ", 10)]
+        self.assertIn("AXUIElementCreateApplication(obs.pid)", driver_body)
+        self.assertNotIn("AXUIElementCreateSystemWide", driver_body)
 
 
 class TheLauncherLetsExactlyOneAddressThrough(unittest.TestCase):
@@ -101,7 +125,8 @@ class TheLauncherLetsExactlyOneAddressThrough(unittest.TestCase):
                       LAUNCHER)
 
     def test_both_at_once_is_refused(self):
-        self.assertIn("click 은 element_index 또는 point 중 하나만 받습니다", LAUNCHER)
+        self.assertIn("은 element_index 또는 point 중 하나만 받습니다", LAUNCHER)
+        self.assertIn("에 element_index 또는 point 가 필요합니다", LAUNCHER)
 
     def test_the_point_shape_is_checked(self):
         self.assertIn('Set(raw.keys) == Set(["x", "y"])', LAUNCHER)
