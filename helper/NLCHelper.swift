@@ -827,7 +827,42 @@ private func processForWindowTarget(_ target: String) -> pid_t? { pid(forBundle:
 /// under you is worse than a wrong index: it is one that is right sometimes.
 func realWindows(of app: AXUIElement) -> [AXUIElement] {
     let all = (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
-    return all.filter { str($0, kAXRoleAttribute as String) == kAXWindowRole as String }
+    let byRole = all.filter { str($0, kAXRoleAttribute as String) == kAXWindowRole as String }
+
+    func frame(_ element: AXUIElement) -> CGRect? {
+        guard let positionValue = attr(element, kAXPositionAttribute as String),
+              let sizeValue = attr(element, kAXSizeAttribute as String) else { return nil }
+        var origin = CGPoint.zero, size = CGSize.zero
+        AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin)
+        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        return CGRect(origin: origin, size: size)
+    }
+    let frames = byRole.map { frame($0) }
+
+    // Drop attachments. macOS puts its screen-capture badge ON the window it
+    // is capturing, and that badge turns up in the app's own AXWindows list:
+    // measured at 66x20 inside a 460x232 window, subrole AXDialog, title
+    // "Window", identifier "_NS:8", with no close, minimize or zoom button
+    // and neither main nor focused (2026-09-21).
+    //
+    // That is ours. Holding the control-indicator stream is what puts it
+    // there, so this helper's own way of SAYING it is working was making the
+    // window it works on ambiguous — capture refused, and a point had two
+    // windows to be relative to.
+    //
+    // The rule is about what the thing IS, not what it is called: something
+    // that sits entirely inside another of this app's windows and offers no
+    // way to close it is an attachment to that window, not a window. A real
+    // dialog that happens to overlap its parent still has a close button, and
+    // a standalone one is contained by nothing.
+    return byRole.enumerated().filter { index, window in
+        guard attr(window, kAXCloseButtonAttribute as String) == nil,
+              let mine = frames[index] else { return true }
+        let inside = frames.enumerated().contains { other, rect in
+            other != index && rect.map { $0.contains(mine) && $0 != mine } == true
+        }
+        return !inside
+    }.map { $0.element }
 }
 
 // MARK: - A point is an element we have not looked up yet
@@ -852,17 +887,25 @@ func realWindows(of app: AXUIElement) -> [AXUIElement] {
 // makes: the thing that gets pressed is a real element, belonging to the app
 // the caller named, and the press is the app's own action.
 
-/// The element at a screen point, if it belongs to `pid`.
+/// The element at a screen point, asked of the APP rather than the screen.
 ///
-/// The pid check is the boundary. `AXUIElementCopyElementAtPosition` on the
-/// system-wide element will happily answer about ANY app's window that happens
-/// to be under that coordinate — including one the caller never named and the
-/// user never offered. A point over someone else's window resolves to nothing
-/// here.
+/// Asked of the system-wide element this is a z-order question: it answers
+/// about whatever window is in front at that coordinate. Measured — a point
+/// inside a background fixture's window returned an `AXWebArea` belonging to a
+/// browser that happened to be on top (2026-09-21). That is the wrong answer
+/// twice over: it is not the app the caller named, and it would make a point
+/// mean different things depending on what the person had in front.
+///
+/// Asked of the application element it is a question about that app's own
+/// hierarchy, which is what a window-relative coordinate meant all along, and
+/// it answers correctly for a window nobody has brought forward — the property
+/// this whole project is built on.
+///
+/// The pid check stays as a second lock rather than the only one.
 func elementAtPoint(_ point: CGPoint, pid p: pid_t) -> AXUIElement? {
-    let systemWide = AXUIElementCreateSystemWide()
+    let app = AXUIElementCreateApplication(p)
     var found: AXUIElement?
-    guard AXUIElementCopyElementAtPosition(systemWide, Float(point.x), Float(point.y),
+    guard AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y),
                                            &found) == .success,
           let element = found else { return nil }
     var owner: pid_t = 0
@@ -1009,8 +1052,12 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         return prepareWindow(obsID, target, el, p, deadline: deadline)
     case "click":
         guard let el = element() else {
+            // Which address failed, since there are two kinds now.
+            let detail = action["point"] != nil
+                ? "point 로 요소를 찾지 못했습니다 — 창 밖이거나 그 자리에 요소가 없습니다"
+                : "element_index out of range"
             return ["type": "error", "error": "action_failed",
-                    "effect": "not_started", "detail": "element_index out of range"]
+                    "effect": "not_started", "detail": detail]
         }
         var advertised: CFArray?
         let listed = AXUIElementCopyActionNames(el, &advertised)

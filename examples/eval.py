@@ -76,6 +76,7 @@ def scenario_batch_invalidation():
     """act_batch must stop when a mutation staled the remaining raw indices,
     rather than clicking the wrong element on an unchanged obs_id."""
     d = Driver()
+    _ensure_window("com.apple.calculator", d)
     o = d.observe("com.apple.calculator", "tree_full")
     if o["type"] != "observation":
         return "계산기 창이 없음 (잠금/미실행)"
@@ -694,10 +695,45 @@ def _textedit_ready(d):
     IS that layer, so it does openly what the driver used to do by lying:
     bring TextEdit forward, through NSWorkspace, as a person would.
     """
-    o = d.observe("com.apple.TextEdit", "tree_full", require_window=False)
-    if o["type"] != "observation":
+    if not _ensure_window("com.apple.TextEdit", d):
         return False
     return _bring_forward("com.apple.TextEdit", d)
+
+
+def _ensure_window(bundle, d, timeout=8.0):
+    """Make sure the app is running AND showing a window.
+
+    This is setup, not a skip. A scenario that needs Calculator needs it OPEN,
+    and a person would open it. The case it exists for is the one that kept
+    breaking runs: an app that is RUNNING with no window, where `observe`
+    answers `no_window_content` — which reads as a broken contract and is
+    really an empty desk. `open -a` re-creates the window without disturbing a
+    window that is already there.
+
+    Failing to open is reported by returning False; nothing here pretends.
+    """
+    import subprocess
+
+    def has_window():
+        pid = d._resolve(bundle, launch=False)
+        if pid is None:
+            return False
+        observation = d.observe(bundle, "tree_full", require_window=True)
+        return observation.get("type") == "observation"
+
+    if has_window():
+        return True
+    try:
+        subprocess.run(["open", "-g", "-b", bundle], check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        d._pump()
+        if has_window():
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def _bring_forward(bundle, d, timeout=4.0):
@@ -3709,6 +3745,38 @@ def scenario_signed_window_capture():
     return True
 
 
+def scenario_canvas_point_click():
+    """Capture, find the target in the picture, click the coordinate.
+
+    The loop `point` exists for, on a surface accessibility genuinely cannot
+    describe: the fixture's canvas is one opaque AXGroup with no children, so
+    an observation sees that something is there and nothing about the three
+    targets painted on it. The probe checks that premise before trusting the
+    result — if the tree mentioned the targets an element_index would have
+    reached them and this would prove nothing.
+
+    The target is located BY COLOUR IN THE CAPTURED IMAGE, not from any
+    knowledge of where the fixture drew it, and the hit is read back from a
+    label the view's own mouseDown handler writes, with a counter beside it so
+    a value that merely looks right cannot pass for a click that happened.
+
+    Signed path only: the screen-recording grant belongs to the helper, which
+    is the point of the helper.
+    """
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "examples/probes/canvas-point-click.py"))
+    output = root / "reviews/2026-09-21" / f"canvas-point-click-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  canvas point-click report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:600]
+    return True
+
+
 def scenario_signed_background_refusal():
     """Window-bound input into a background app is refused over the signed path.
 
@@ -3956,6 +4024,8 @@ SCENARIOS = [
      scenario_signed_window_capture),
     ("signed_background_refusal (background window input is refused, not faked)",
      scenario_signed_background_refusal),
+    ("canvas_point_click (a coordinate reaches what AX cannot describe)",
+     scenario_canvas_point_click),
     ("an_abort_lasts_the_run_and_no_longer (Esc holds; a ping cannot undo it)",
      scenario_an_abort_lasts_the_run_and_no_longer),
     ("a_new_run_rejects_the_old_token (a stale obs_id is not a way back in)",
@@ -4007,6 +4077,7 @@ _LOOKED = [False]
 ISOLATED = {
     "signed_background_refusal",
     "signed_window_capture",
+    "canvas_point_click",
     "signed_provider_envelope",
     "native_coordinate_fixture",
     "native_select_model_fixture",
@@ -4024,6 +4095,7 @@ SCENARIO_REQUIREMENTS: dict = {
     "native_coordinate_fixture": {"gui"},
     "signed_background_refusal": {"gui", "native"},
     "signed_window_capture": {"gui", "native"},
+    "canvas_point_click": {"gui", "native"},
     "native_select_model_fixture": {"gui", "model"},
     "native_select_fixture": {"gui"},
     "native_document_text": {"gui"},
@@ -4222,6 +4294,20 @@ def main():
     blind = "--offline" if offline else _gui_reason()
     if blind:
         print(f"  ! {blind} — 화면이 필요한 시나리오는 판정하지 않습니다\n")
+    elif not only:
+        # Open what the suite drives, once, before anything is judged.
+        #
+        # Runs kept failing for a reason that had nothing to do with the code:
+        # Calculator running with no window, so `task_success` reported
+        # `no_window_content` and the five scenarios that reuse the flow store
+        # it fills went down after it. Every one of them passed alone. A suite
+        # that needs an app open should open it, the way a person would —
+        # judging a contract against an empty desk measures the desk.
+        for bundle, label in (("com.apple.calculator", "계산기"),
+                              ("com.apple.TextEdit", "TextEdit")):
+            if not _ensure_window(bundle, Driver()):
+                print(f"  ! {label} 창을 열지 못했습니다 — 그 앱이 필요한 "
+                      f"시나리오는 그 이유로 실패합니다\n")
     passed = required = 0
     for name, fn in SCENARIOS:
         if only and not any(o in name for o in only):

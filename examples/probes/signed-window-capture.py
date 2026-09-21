@@ -22,25 +22,6 @@ from pathlib import Path
 TARGET = 'ai.callabo.nlc.menu-fixture'
 
 
-def _standard_window_index(driver, target):
-    """Which of the app's windows is the ordinary one, by subrole.
-
-    Counted over the same list the helper indexes — real windows only, in
-    order — so the number means the same thing on both sides.
-    """
-    from ApplicationServices import AXUIElementCreateApplication
-    from nlc.driver import Driver, _attr
-    pid = Driver()._resolve(target, launch=False)
-    if pid is None:
-        return 0
-    windows = [w for w in (_attr(AXUIElementCreateApplication(pid), 'AXWindows') or [])
-               if _attr(w, 'AXRole') == 'AXWindow']
-    for i, w in enumerate(windows):
-        if _attr(w, 'AXSubrole') == 'AXStandardWindow':
-            return i
-    return 0
-
-
 def main(driver, output: Path) -> dict:
     from nlc.driver import Driver
 
@@ -93,17 +74,15 @@ def main(driver, output: Path) -> dict:
             assert stale.get('error') == 'stale_observation', stale
 
             destination = output.parent / f'{output.stem}.png'
-            # Name the window. Reading the fixture's accessibility tree makes
-            # AppKit materialise a second one — an AXDialog titled "Window",
-            # the menu carrier — so by capture time the app has two and the
-            # helper refuses to guess between them. That refusal is right: the
-            # caller is the only one who knows which window it meant, and an
-            # index picked by position would silently follow whichever came
-            # first that run.
-            index = _standard_window_index(driver, TARGET)
-            report['window_index'] = index
+            # No window_index. There was a second window here for a while and
+            # it was ours: macOS attaches its capture badge TO the window being
+            # captured, and that badge turns up in the app's own AXWindows
+            # list. The helper drops attachments now — something sitting wholly
+            # inside another of the app's windows with no way to close it is
+            # not a window — so the fixture has one again and naming an index
+            # would only re-introduce a number to get wrong.
             shot = driver.capture(TARGET, obs_id=observation['obs_id'],
-                                  window_index=index, path=str(destination))
+                                  path=str(destination))
             report['steps'].append({'step': 'capture', 'response': shot})
             if shot.get('type') != 'capture':
                 report['passed'] = False
