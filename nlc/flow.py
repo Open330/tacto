@@ -186,8 +186,14 @@ class Selector:
     click_ancestor: str | list[str] | None = None
 
     # Known AX attribute keys as the driver formats them ("Key: value, Key2: …").
+    # "Secondary Actions" is here so it TERMINATES the value before it, not
+    # because a selector should match on it. Without it the key is unknown, a
+    # value runs to end of line, and `Description: First Text View` silently
+    # became `First Text View, Secondary Actions: ShowMenu` — every exact
+    # selector on that element stopped matching the moment the observation
+    # started naming actions.
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
-                  "Placeholder")
+                  "Placeholder", "Secondary Actions")
 
     # Suffixes after ';' that are known to be live state rather than identity.
     # An allowlist, not a general rule: treating everything after a ';' as

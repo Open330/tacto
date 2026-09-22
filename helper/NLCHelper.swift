@@ -113,6 +113,24 @@ let labelNames = ["Title", "Description", "Value", "Help",
     return parts.joined(separator: ", ")
 }
 
+/// What `secondary_action` will actually carry.
+///
+/// An AX action name goes straight to `AXUIElementPerformAction`, so the
+/// launcher enumerates what may cross; an observation advertising anything
+/// else would be describing a refusal. Press is not here because it is what
+/// `click` already means — what is here is what was otherwise invisible.
+/// Nothing said which elements accept a secondary action, so a caller could
+/// only find out by trying one and reading the error.
+let secondaryActions = ["AXShowMenu", "AXIncrement", "AXDecrement",
+                        "AXConfirm", "AXCancel"]
+
+func secondaryActionsOf(_ el: AXUIElement) -> [String] {
+    var names: CFArray?
+    guard AXUIElementCopyActionNames(el, &names) == .success,
+          let offered = names as? [String] else { return [] }
+    return secondaryActions.filter { offered.contains($0) }
+}
+
 /// One line per element, in the exact format the Python `Selector` parses:
 /// `<indent><index> <Role>  Key: value, Key2: value [disabled]`
 func walk(_ el: AXUIElement, depth: Int, out: inout [String],
@@ -128,8 +146,13 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
         elements.append(el)
         let enabled = (attr(el, kAXEnabledAttribute as String) as? Bool) ?? true
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
+        let extra = secondaryActionsOf(el)
+        let actions = extra.isEmpty ? ""
+            : ", Secondary Actions: " + extra.map { String($0.dropFirst(2)) }
+                                             .joined(separator: ", ")
         out.append(String(repeating: "  ", count: depth) + "\(idx) \(short)"
-                   + (text.isEmpty ? "" : "  \(text)") + (enabled ? "" : " [disabled]"))
+                   + (text.isEmpty ? "" : "  \(text)") + (enabled ? "" : " [disabled]")
+                   + actions)
     }
     let children = (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
     for child in children.prefix(maxChildrenPerNode) {
@@ -486,8 +509,14 @@ func observe(_ target: String, requireWindow: Bool = true) -> [String: Any] {
     }
     let processStart = nativeProcessStartIdentity(p)
     let app = AXUIElementCreateApplication(p)
-    let windows = ((attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? [])
-        .filter { str($0, kAXRoleAttribute as String) == "AXWindow" }
+    // The same list `capture` and point-addressing use, and for the same
+    // reason: macOS's screen-capture badge is a window in the app's own
+    // AXWindows, so while the control indicator was up every observation of the
+    // app being driven began with a phantom `Window  Title: Window, Identifier:
+    // _NS:8` — this helper's own way of saying "NLC is working here" walked
+    // into the tree it was working on, and shifted every element index behind
+    // it.
+    let windows = realWindows(of: app)
     if windows.isEmpty && requireWindow {
         return ["type": "error", "error": "no_window_content", "target": target]
     }
@@ -2209,6 +2238,11 @@ let helperCapabilities: [String] = [
     // Said separately because the browser's `press_key` includes Escape and
     // this one does not. A client that needs Escape should see the difference
     // rather than discover it.
+    // The observation names which elements accept a secondary action.
+    // Announcing `action.secondary_action` while saying nothing about where it
+    // applies left a caller to find out by trying one and reading the refusal
+    // — a capability that was advertised and unusable.
+    "observe.secondary_actions",
     // A coordinate can be an address. `capture` reports a viewport in window
     // points, and a point in that space resolves to the real element under it
     // — which is how a control that draws itself and exposes no AX element of
