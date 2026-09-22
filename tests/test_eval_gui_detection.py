@@ -74,3 +74,65 @@ class GuiAvailabilityTests(unittest.TestCase):
 
     def test_without_a_session_dictionary_any_content_means_usable(self):
         self.assertEqual('', self.reason(None, trees=(0, 12)))
+
+
+class ALockThatArrivesMidRun(unittest.TestCase):
+    """The screen is checked once, before anything starts.
+
+    2026-09-22: it locked partway through a run, and eight screen-touching
+    scenarios turned into eight failures. Read as eight defects, they were one
+    sentence — and the same shape as every other mistake in this suite's
+    history, where a failure got explained instead of diagnosed.
+
+    A lock is not a contract that broke, so the suite asks again on the way out
+    of a failure and says which it is.
+    """
+
+    def _run(self, scenario_ok, gui_reasons):
+        """Run `main()` over one gui scenario and return what it printed."""
+        import io
+        import contextlib
+        spec = importlib.util.spec_from_file_location(
+            "eval_under_test", ROOT / "examples/eval.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.SCENARIOS = [("probe_scenario (one gui check)", lambda: scenario_ok)]
+        module.ISOLATED = set()
+        module.SCENARIO_REQUIREMENTS = {"probe_scenario": {"gui"}}
+        # The suite opens the apps it drives; a test of the lock logic should
+        # not wait on LaunchServices to do it.
+        module._ensure_window = lambda *a, **k: True
+        reasons = list(gui_reasons)
+        module._gui_reason = lambda: reasons.pop(0) if reasons else ""
+        out = io.StringIO()
+        argv = sys.argv
+        sys.argv = ["eval.py"]
+        try:
+            with contextlib.redirect_stdout(out):
+                try:
+                    module.main()
+                except SystemExit:
+                    pass
+        finally:
+            sys.argv = argv
+        return out.getvalue()
+
+    def test_a_failure_after_a_lock_is_reported_as_the_lock(self):
+        # Unlocked at the start, locked by the time it failed.
+        printed = self._run(False, ["", "화면이 잠겨 있음"])
+        self.assertIn("SKIP", printed)
+        self.assertIn("화면이 잠겨 있음", printed)
+        self.assertNotIn("FAIL", printed)
+        self.assertIn("0/0", printed)
+
+    def test_a_real_failure_on_a_live_screen_still_fails(self):
+        # The screen was fine throughout. Nothing here may absorb that.
+        printed = self._run(False, ["", ""])
+        self.assertIn("FAIL", printed)
+        self.assertNotIn("SKIP", printed)
+        self.assertIn("0/1", printed)
+
+    def test_a_pass_is_never_second_guessed(self):
+        printed = self._run(True, ["", "화면이 잠겨 있음"])
+        self.assertIn("PASS", printed)
+        self.assertIn("1/1", printed)
