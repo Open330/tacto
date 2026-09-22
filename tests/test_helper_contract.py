@@ -981,6 +981,43 @@ def _no_borrowed_confirmation(_d):
 WIRE_ONLY = frozenset({"action.click.deadline_uptime"})
 
 
+@check("관측이 어느 요소에 secondary_action 이 통하는지 말한다")
+def _secondary_actions_are_named(d):
+    """An action nothing tells you where to use is one you cannot use.
+
+    `action.secondary_action` was announced by both surfaces while no
+    observation said which elements accept one, so the only way to find out
+    was to send one and read the refusal. Codex Computer Use puts the same
+    fact in its tree (`Secondary Actions: Copy`), and it is the difference
+    between a caller that can plan and one that has to guess.
+    """
+    obs = _observe(d)
+    named = [line for line in obs["tree"].splitlines()
+             if "Secondary Actions:" in line]
+    if not named:
+        skip("이 화면에는 secondary action 을 가진 요소가 없습니다")
+    # What is named must be something the boundary will actually carry.
+    allowed = {"ShowMenu", "Increment", "Decrement", "Confirm", "Cancel"}
+    for line in named:
+        listed = line.split("Secondary Actions:", 1)[1]
+        for name in (n.strip() for n in listed.split(",")):
+            if not name:
+                continue
+            assert name in allowed, \
+                f"통과하지 못할 동작을 광고했습니다: {name!r} in {line.strip()[:80]}"
+    # And it must be true: performing one of them must not come back
+    # "unsupported", which is the answer for an element that never had it.
+    first = named[0]
+    index = int(first.strip().split()[0])
+    action = first.split("Secondary Actions:", 1)[1].split(",")[0].strip()
+    r = d.act(obs["obs_id"], CALC,
+              {"name": "secondary_action", "element_index": index,
+               "action": "AX" + action})
+    detail = str(r.get("detail", ""))
+    assert "unsupported" not in detail, \
+        f"있다고 한 {action} 이 지원되지 않는다고 합니다: {r}"
+
+
 @check("네이티브와 도우미가 같은 약속 목록을 말한다")
 def _capability_lists_agree(_d):
     """Two surfaces honouring one contract must ANNOUNCE the same one.

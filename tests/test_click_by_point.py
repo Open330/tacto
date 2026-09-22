@@ -95,6 +95,23 @@ class WindowIndexMeansOneThing(unittest.TestCase):
         self.assertIn('_attr(w, "AXRole") == "AXWindow"', body)
         self.assertIn('_attr(window, "AXCloseButton") is None', body)
 
+    def test_the_badge_never_reaches_an_observation(self):
+        """It did, and it was ours.
+
+        `_real_windows` was applied to capture and to point-addressing but not
+        to the walk that builds the tree, so while the control indicator was up
+        every observation of the app being driven began with a phantom
+        `Window  Title: Window, Identifier: _NS:8` — and every element index
+        behind it moved. One filter, used everywhere an app's windows are
+        listed, or it is not a filter.
+        """
+        helper_walk = HELPER[HELPER.index("let processStart = nativeProcessStartIdentity(p)"):]
+        helper_walk = helper_walk[:helper_walk.index("if windows.isEmpty")]
+        self.assertIn("realWindows(of: app)", helper_walk)
+        driver_walk = DRIVER[DRIVER.index("def _walk_windows"):]
+        driver_walk = driver_walk[:driver_walk.index("\n    def ", 10)]
+        self.assertIn("_real_windows(obs.pid)", driver_walk)
+
     def test_the_capture_badge_is_not_counted_as_a_window(self):
         # Holding the control indicator makes macOS attach its capture badge to
         # the window being captured, and the badge appears in that app's own
@@ -144,3 +161,43 @@ class BothSidesAnnounceIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheTreeStaysParseable(unittest.TestCase):
+    """Naming the actions must not change what a selector reads.
+
+    A tree line is `Key: value, Key2: value`, and a value runs until the next
+    KNOWN key. Appending `Secondary Actions: ShowMenu` without registering the
+    key left the value running to end of line, so
+    `Description: First Text View` became
+    `First Text View, Secondary Actions: ShowMenu` — and four save scenarios
+    stopped finding their targets the moment observations started naming
+    actions. Two of them had been failing for a while and were read as
+    environment.
+    """
+
+    def test_the_key_terminates_the_value_before_it(self):
+        from nlc.flow import Selector
+        line = "  12 TextArea  Description: First Text View, Secondary Actions: ShowMenu"
+        self.assertEqual(Selector._attr(line, "Description"), "First Text View")
+        self.assertEqual(Selector._attr(line, "Secondary Actions"), "ShowMenu")
+
+    def test_an_ordinary_line_is_unaffected(self):
+        from nlc.flow import Selector
+        line = "  5 Button  Description: 7, Identifier: Seven"
+        self.assertEqual(Selector._attr(line, "Description"), "7")
+        self.assertEqual(Selector._attr(line, "Identifier"), "Seven")
+
+    def test_a_selector_still_matches_past_the_actions(self):
+        from nlc.flow import Selector
+        line = "  12 TextArea  Description: First Text View, Secondary Actions: ShowMenu"
+        self.assertTrue(Selector(role="TextArea", desc="First Text View").matches(line))
+        # And a wrong one still does not: terminating the value must not have
+        # turned exact matching back into "starts with".
+        self.assertFalse(Selector(role="TextArea", desc="First Text").matches(line))
+
+    def test_the_marker_keys_still_terminate_too(self):
+        from nlc.flow import Selector
+        line = ("  3 Button  Description: Mode, Secondary Actions: ShowMenu, "
+                "Increment [disabled]")
+        self.assertEqual(Selector._attr(line, "Description"), "Mode")

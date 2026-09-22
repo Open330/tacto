@@ -340,8 +340,11 @@ class Observation:
             # Surface enabled state in the tree text so a replay precondition can
             # check it after re-resolving a selector (elements default enabled).
             disabled = "" if _attr(el, "AXEnabled") in (None, True) else " [disabled]"
+            extra = _secondary_actions(el)
+            actions = (", Secondary Actions: "
+                       + ", ".join(a[2:] for a in extra)) if extra else ""
             self.lines.append(f"{indent}{idx} {role[2:] if role.startswith('AX') else role}"
-                              + (f"  {label}" if label else "") + disabled)
+                              + (f"  {label}" if label else "") + disabled + actions)
         children = _attr(el, "AXChildren") or []
         for child in children[:MAX_CHILDREN_PER_NODE]:
             self.walk(child, depth + 1)
@@ -349,6 +352,31 @@ class Observation:
             self.truncated = True
             self.lines.append("  " * (depth + 1)
                               + f"… ({len(children) - MAX_CHILDREN_PER_NODE}개 더 있음)")
+
+
+# What `secondary_action` will actually carry. An AX action name goes straight
+# to AXUIElementPerformAction, so the launcher enumerates what may cross, and
+# an observation that advertised anything else would be describing a refusal.
+SECONDARY_ACTIONS = ("AXShowMenu", "AXIncrement", "AXDecrement",
+                     "AXConfirm", "AXCancel")
+
+
+def _secondary_actions(el):
+    """The actions this element offers beyond being pressed.
+
+    Nothing said which elements accept a `secondary_action`, so a caller could
+    only find out by trying one and reading the refusal — the capability was
+    announced and unusable. Press is left out because it is what `click`
+    already means; what is here is what is otherwise invisible.
+    """
+    from ApplicationServices import AXUIElementCopyActionNames
+    try:
+        error, names = AXUIElementCopyActionNames(el, None)
+    except Exception:
+        return ()
+    if error != 0 or not names:
+        return ()
+    return tuple(n for n in SECONDARY_ACTIONS if n in names)
 
 
 class Driver:
@@ -382,6 +410,11 @@ class Driver:
         "custom_select.label_only",
         # Said separately because the browser's `press_key` includes Escape and
         # this one does not.
+        # The observation names which elements accept a secondary action.
+        # Announcing `action.secondary_action` while saying nothing about where
+        # it applies left a caller to find out by trying one and reading the
+        # refusal — a capability that was advertised and unusable.
+        "observe.secondary_actions",
         # A coordinate can be an address: `capture` reports a viewport in
         # window points, and a point in that space resolves to the real
         # element under it — which is how a control that draws itself and
@@ -518,9 +551,14 @@ class Driver:
         element, role AXApplication, which would recurse into the whole menu
         bar). Walking windows, not the whole app, avoids thousands of menu items.
         """
-        app_el = AXUIElementCreateApplication(obs.pid)
-        windows = [w for w in (_attr(app_el, "AXWindows") or [])
-                   if _attr(w, "AXRole") == "AXWindow"]
+        # The same list `capture` and point-addressing use, and for the same
+        # reason: macOS's screen-capture badge is a window in the app's own
+        # AXWindows, so while the control indicator was up every observation of
+        # the app being driven began with a phantom `Window  Title: Window,
+        # Identifier: _NS:8` — our own way of saying "NLC is working here"
+        # walked into the tree it was working on, and shifted every element
+        # index behind it.
+        windows = _real_windows(obs.pid)
         for w in windows:
             start = len(obs.lines)
             obs.walk(w)
