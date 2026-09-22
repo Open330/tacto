@@ -4341,6 +4341,17 @@ def main():
         if ok is None or isinstance(ok, str):
             print(f"  SKIP  {name}  ({ok or '이 환경에서는 실행 불가'})")
             continue
+        # A screen that locked DURING the run is not a contract that broke.
+        # The lock is checked once, before anything starts, and after that a
+        # lock turns every screen-touching scenario into a failure: eight of
+        # them at once, read as eight defects. Asked again on the way out, the
+        # reason is one sentence and the suite says which it is.
+        if not ok and "gui" in need:
+            late = _gui_reason()
+            if late:
+                print(f"  SKIP  {name}  (실행 중에 {late} — 판정하지 않습니다)")
+                blind = late
+                continue
         required += 1
         passed += bool(ok)
         print(f"  {'PASS' if ok else 'FAIL'}  {name}  ({dt:.0f}ms)")

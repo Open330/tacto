@@ -277,3 +277,60 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         python = (ROOT / "nlc/overlay.py").read_text()
         self.assertIn("localizedName", swift)
         self.assertIn("localizedName", python)
+
+
+class TheIndicatorCanBeActedOn(unittest.TestCase):
+    """An indicator you cannot act on is half of what it promises.
+
+    It said "NLC is working on Calculator · Esc" and that was the whole of it:
+    someone who did not know about Esc was told something was happening and
+    given nothing to do about it. Codex Computer Use's own status item carries
+    a menu (`ComputerUseIPCCodexStatusItemMenuState`); macOS has no system
+    indicator for accessibility control to inherit one from — Control Center's
+    sensor indicators cover camera, microphone and screen capture, and nothing
+    else — so this is ours to build.
+    """
+
+    def test_the_indicator_has_a_menu(self):
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertIn("func controlMenu(for appName: String?) -> NSMenu", text)
+        self.assertIn("item.menu = controlMenu(for: who)", text)
+
+    def test_the_menu_names_what_is_being_driven(self):
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        body = text[text.index("func controlMenu(for appName"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("appName.map", body)
+
+    def test_stopping_goes_through_the_one_abort_everything_consults(self):
+        # Not a second flag. Every action already asks `abortState`, and a
+        # menu that set its own would be a second answer to one question.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        body = text[text.index("@objc func stopNow(_ sender: Any?)"):]
+        body = body[:body.index("\n    }\n")]
+        self.assertIn("abortState.stopNow()", body)
+
+    def test_the_menu_stop_is_not_routed_through_the_staleness_check(self):
+        # `note(at:)` exists because an Esc can reach the run loop after the
+        # run it was aimed at ended. A click on an indicator that only exists
+        # during this run cannot be stale, and manufacturing a timestamp to
+        # pass that test would be asking a question whose answer is known.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertIn("func stopNow() {", text)
+        body = text[text.index("@objc func stopNow(_ sender: Any?)"):]
+        body = body[:body.index("\n    }\n")]
+        self.assertNotIn("note(at:", body)
+
+    def test_the_menu_target_cannot_be_read_before_it_exists(self):
+        # `showControlIndicator` is reachable from diagnostic flags that exit
+        # before a global declared further down would have been initialised —
+        # the trap that silently ate the logger's output earlier today. A
+        # type's static is created on first use.
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        self.assertIn("static let shared = ControlMenuTarget()", text)
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            self.assertNotIn("let controlMenuTarget =", stripped,
+                             "a top-level global here depends on source order")

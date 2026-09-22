@@ -1797,12 +1797,32 @@ var controlItem: NSStatusItem?
 /// refusal: acting without the person being able to see it is the situation
 /// this whole mechanism exists to prevent, so a failure here must stop the
 /// action rather than silently proceed (advisor finding).
+/// What the indicator's menu does when someone chooses to stop.
+///
+/// `static let` rather than a global, and the position is load-bearing for the
+/// same reason the logger's was: `main.swift` initialises top-level globals in
+/// source order, and `showControlIndicator` is reachable from diagnostic flags
+/// that exit long before `abortState`'s line would have run. A type's static
+/// is created on first use, so it cannot be read before it exists.
+final class ControlMenuTarget: NSObject {
+    static let shared = ControlMenuTarget()
+
+    @objc func stopNow(_ sender: Any?) {
+        abortState.stopNow()
+        note("nlc-helper: 표시 메뉴에서 중단했습니다")
+        DispatchQueue.main.async {
+            controlItem?.button?.title = "● NLC 중단됨"
+        }
+    }
+}
+
 @discardableResult
 func showControlIndicator(forPID pid: pid_t) -> Bool {
     let who = NSRunningApplication(processIdentifier: pid)?.localizedName
     let title = who.map { "● NLC · \($0) · Esc" } ?? "● NLC 조작 중 · Esc"
     if let existing = controlItem {
         existing.button?.title = title      // the target can change mid-run
+        existing.menu = controlMenu(for: who)
         return true
     }
     // `variableLength`, because the app's name is in the title and a fixed
@@ -1814,8 +1834,29 @@ func showControlIndicator(forPID pid: pid_t) -> Bool {
     }
     button.title = title
     button.toolTip = "NLC가 이 앱을 조작하고 있습니다. Esc로 즉시 멈춥니다."
+    // A menu, because an indicator you cannot act on is only half of what it
+    // promises. Esc stops the run, and someone who does not know that was
+    // being told something was happening and given nothing to do about it.
+    item.menu = controlMenu(for: who)
     controlItem = item
     return true
+}
+
+/// The indicator's menu: what is being driven, and a way to stop it.
+func controlMenu(for appName: String?) -> NSMenu {
+    let menu = NSMenu()
+    let what = appName.map { "NLC이 \($0) 을(를) 조작하고 있습니다" }
+        ?? "NLC이 이 화면을 조작하고 있습니다"
+    let header = NSMenuItem(title: what, action: nil, keyEquivalent: "")
+    header.isEnabled = false
+    menu.addItem(header)
+    menu.addItem(.separator())
+    let stop = NSMenuItem(title: "중단", action: #selector(ControlMenuTarget.stopNow(_:)),
+                          keyEquivalent: "\u{1b}")          // Esc, shown as ⎋
+    stop.keyEquivalentModifierMask = []
+    stop.target = ControlMenuTarget.shared
+    menu.addItem(stop)
+    return menu
 }
 
 /// The capture stream whose only product is macOS's own recording indicator.
@@ -2172,6 +2213,19 @@ final class AbortState: @unchecked Sendable {
     func note(at when: TimeInterval) {
         lock.lock(); defer { lock.unlock() }
         if when >= epoch { stopped = true }
+    }
+
+    /// A stop that is not a queued event, so there is nothing to compare.
+    ///
+    /// The timestamp check above exists because an Esc can reach the run loop
+    /// after the run it was aimed at has ended. A click on the indicator
+    /// cannot be stale in that way: the indicator only exists while this run
+    /// does, and the click happened now, on it. Routing it through `note` with
+    /// a manufactured timestamp would be asking a question whose answer is
+    /// known.
+    func stopNow() {
+        lock.lock(); defer { lock.unlock() }
+        stopped = true
     }
 
     var isStopped: Bool {
@@ -3020,6 +3074,48 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
 // launcher starts IS such a descendant, so it could spawn this helper itself
 // and reach handle() without passing through the launcher's message vetting
 // (advisor finding: a bypass of the boundary we had just built). No fallback.
+// `--indicator-menu-probe <seconds>`: show the indicator, then CHOOSE STOP
+// from its own menu and report whether the run is actually stopped.
+//
+// An indicator that changes its own label and leaves the run going would be
+// worse than no indicator, so the menu item is not trusted to mean what it
+// says: this performs the real NSMenuItem's action through its real target and
+// then asks `abortState`, which is the thing every action consults.
+if let index = CommandLine.arguments.firstIndex(of: "--indicator-menu-probe"),
+   index + 1 < CommandLine.arguments.count,
+   let seconds = Double(CommandLine.arguments[index + 1]) {
+    let app = NSApplication.shared
+    _ = app.setActivationPolicy(.accessory)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        abortState.begin()
+        let shown = showControlIndicator(forPID: getpid())
+        let menu = controlItem?.menu
+        let stop = menu?.items.last
+        var report = "{\"shown\": \(shown)"
+        report += ", \"menu_items\": \(menu?.items.count ?? 0)"
+        report += ", \"stop_title\": \"\(stop?.title ?? "none")\""
+        report += ", \"header\": \"\(menu?.items.first?.title ?? "none")\""
+        report += ", \"stopped_before\": \(abortState.isStopped)"
+        // The real item, its real target, its real action.
+        if let stop, let target = stop.target, let action = stop.action {
+            _ = target.perform(action, with: stop)
+        }
+        Thread.sleep(forTimeInterval: 0.3)
+        report += ", \"stopped_after\": \(abortState.isStopped)}"
+        note("nlc-helper: indicator menu probe \(report)")
+        if let out = CommandLine.arguments.firstIndex(of: "--probe-out"),
+           out + 1 < CommandLine.arguments.count {
+            try? report.write(toFile: CommandLine.arguments[out + 1],
+                              atomically: true, encoding: .utf8)
+        }
+    }
+    DispatchQueue.global().asyncAfter(deadline: .now() + min(120, max(1, seconds))) {
+        exit(0)
+    }
+    app.run()
+    exit(0)
+}
+
 // `--hold-indicator <seconds>`: run the PRODUCTION gate and photograph it.
 //
 // Every previous attempt to see this either raced the run or tested a probe
