@@ -159,6 +159,16 @@ class TakingTheScreenIsOptIn(unittest.TestCase):
     reachable".
     """
 
+    def setUp(self):
+        # The switch is process-wide on purpose — every harness that could take
+        # focus reads the same one. That also means a test which turns it on
+        # leaves it on for the next, so it is restored here rather than left
+        # for the next test to discover.
+        from nlc import evaluation
+        was = evaluation.foreground_allowed()
+        self.addCleanup(evaluation.allow_foreground, was)
+        evaluation.allow_foreground(False)
+
     def _module(self):
         spec = importlib.util.spec_from_file_location(
             "eval_fg", ROOT / "examples/eval.py")
@@ -236,3 +246,75 @@ class TakingTheScreenIsOptIn(unittest.TestCase):
         # And it warns, because the person may not be expecting to lose the
         # screen they are looking at.
         self.assertIn("빼앗습니다", printed)
+
+
+class EverySwitchIsTheSameSwitch(unittest.TestCase):
+    """A guard that covers only the paths you remembered is not a guard.
+
+    `examples/eval.py` and `tests/test_helper_contract.py` each have their own
+    `_bring_forward`. Gating the first left the second wide open, so
+    `every_transport_answers_the_same` went on pulling Finder and the select
+    fixture in front of whoever was working — from a run that believed it could
+    not take focus at all.
+
+    The earlier test only read scenario BODIES for `_bring_forward`, and that
+    scenario reaches focus through another module, so it saw nothing. These
+    check the property itself.
+    """
+
+    def setUp(self):
+        from nlc import evaluation
+        was = evaluation.foreground_allowed()
+        self.addCleanup(evaluation.allow_foreground, was)
+        evaluation.allow_foreground(False)
+
+    def test_the_contract_harness_refuses_by_default_too(self):
+        spec = importlib.util.spec_from_file_location(
+            "contract_fg", ROOT / "tests/test_helper_contract.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertFalse(module._bring_forward("com.apple.finder", None))
+
+    def test_every_activation_in_the_tree_is_behind_the_switch(self):
+        """Found by reading the source, because the last one was missed.
+
+        Anything that calls `activateWithOptions_` is taking the screen. Each
+        such file has to consult the shared switch — not its own copy of a
+        flag, which is how the two drifted apart.
+        """
+        import re
+        roots = [ROOT / "examples", ROOT / "tests", ROOT / "nlc", ROOT / "helper"]
+        offenders = []
+        for root in roots:
+            for path in root.rglob("*.py"):
+                text = path.read_text(encoding="utf-8", errors="replace")
+                # A CALL, not a mention. `test_native_input_safety.py` keeps
+                # the same name in a list of symbols that must not appear in
+                # shipped code, and that file is the opposite of an offender.
+                takes = [line for line in text.splitlines()
+                         if ".activateWithOptions_(" in line
+                         and not line.strip().startswith("#")]
+                if not takes:
+                    continue
+                if "foreground_allowed" not in text:
+                    offenders.append(str(path.relative_to(ROOT)))
+        self.assertEqual([], offenders,
+                         "these take the screen without consulting the shared "
+                         "switch: " + ", ".join(offenders))
+
+    def test_a_fixture_that_activates_itself_is_behind_it_too(self):
+        """Focus has more than one door.
+
+        The select fixture calls `activate(ignoringOtherApps:)` when launched
+        with `--foreground`, which has nothing to do with `_bring_forward`.
+        Gating one and not the other left a run that believed it could not take
+        the screen pulling the fixture in front of it — measured: frontmost
+        went Finder -> NLC Select Fixture.
+        """
+        text = (ROOT / "tests/test_helper_contract.py").read_text()
+        launches = [line for line in text.splitlines()
+                    if '"--foreground"' in line and not line.strip().startswith("#")]
+        self.assertTrue(launches, "the fixture launch line moved")
+        for line in launches:
+            self.assertIn("foreground_allowed()", line,
+                          f"unconditional --foreground: {line.strip()}")
