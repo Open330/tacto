@@ -318,3 +318,32 @@ class EverySwitchIsTheSameSwitch(unittest.TestCase):
         for line in launches:
             self.assertIn("foreground_allowed()", line,
                           f"unconditional --foreground: {line.strip()}")
+
+
+class TheMiddleOfARunIsWitnessed(unittest.TestCase):
+    """Two ends that match say nothing about the middle.
+
+    A peer review pointed out that "frontmost was Finder before and after"
+    cannot see an app pulled forward and handed back in between. Measured with
+    a positive control: Calculator activated for 0.4s and Finder restored —
+    both ends read Finder, the witness recorded ['calculator', 'finder'].
+    """
+
+    def test_the_focus_sensitive_probes_fail_on_any_activation(self):
+        for name in ("background-menu-refusal.py", "canvas-point-click.py"):
+            with self.subTest(probe=name):
+                text = (ROOT / "examples/probes" / name).read_text()
+                self.assertIn("_witness_focus()", text)
+                self.assertIn("if report['activations']:", text)
+
+    def test_the_witness_subscribes_rather_than_polls(self):
+        # A poll every N ms cannot see a change shorter than N ms, and "we
+        # sampled and saw nothing" is a weaker claim than "nothing happened".
+        text = (ROOT / "examples/probes/focus_witness.py").read_text()
+        self.assertIn("NSWorkspaceDidActivateApplicationNotification", text)
+
+    def test_the_witness_is_armed_before_it_is_trusted(self):
+        # An activation before the subscription existed would be missed.
+        text = (ROOT / "examples/probes/focus_witness.py").read_text()
+        self.assertIn('"event": "ready"', text)
+        self.assertIn('raise RuntimeError("focus witness did not become ready")', text)
