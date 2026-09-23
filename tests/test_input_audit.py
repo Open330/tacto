@@ -4,7 +4,7 @@ import threading
 import unittest
 from unittest.mock import Mock
 
-from nlc.input_audit import InputAudit, InputSnapshot, MacInputReader
+from nlc.input_audit import NO_FOCUS, InputAudit, InputSnapshot, MacInputReader
 
 BASE = InputSnapshot(10, (100, 200), 'focus-a')
 
@@ -166,6 +166,36 @@ class MacReaderContract(unittest.TestCase):
         with InputAudit(lambda: snapshot, background=False) as audit:
             pass
         self.assertEqual('INCONCLUSIVE', audit.report()['status'])
+
+    def test_nothing_focused_is_a_reading_in_both_strategies(self):
+        # A frontmost app with every document closed answers -25212 for its
+        # focused element. That is "nothing is focused", a value an audit can
+        # compare, not a reader failure that stops the collector from starting.
+        for strategy in ('systemwide', 'application_frontmost'):
+            for code in (-25205, -25212):
+                reader, appkit, quartz, ax = self.reader()
+                reader.strategy = strategy
+                def copy(element, key, out, code=code):
+                    if key == 'AXFocusedUIElement':
+                        return (code, None)
+                    if key == 'AXFrontmost':
+                        return (0, True)
+                    return (0, SimpleNamespace(identity=1))
+                ax.AXUIElementCopyAttributeValue.side_effect = copy
+                snapshot = reader()
+                self.assertEqual(NO_FOCUS, snapshot.focus_identity, (strategy, code))
+                self.assertNotIn('focus_identity', snapshot.errors)
+                with InputAudit(reader, background=False) as audit:
+                    pass
+                self.assertEqual('UNCHANGED_SAMPLED', audit.report()['status'])
+
+    def test_other_focus_errors_stay_failures(self):
+        reader, appkit, quartz, ax = self.reader()
+        ax.AXUIElementCopyAttributeValue.side_effect = lambda element, key, out: (
+            (-25204, None) if key == 'AXFocusedUIElement' else (0, SimpleNamespace(identity=1)))
+        snapshot = reader()
+        self.assertIsNone(snapshot.focus_identity)
+        self.assertEqual('AXError:-25204', snapshot.errors['focus_identity'])
 
     def test_explicit_application_frontmost_strategy_and_sample_source(self):
         reader, appkit, quartz, ax = self.reader()

@@ -85,5 +85,36 @@ class ProviderResultTests(unittest.TestCase):
             self.assertFalse(Path(marker).exists(), 'provider descendant survived timeout')
 
 
+class CliUnavailableTests(unittest.TestCase):
+    def run_cli(self, code, stdout, stderr=''):
+        from nlc.authoring import _try_cli
+        done = subprocess.CompletedProcess([], code, stdout, stderr)
+        with patch('nlc.authoring.shutil.which', return_value='/bin/codex'), \
+             patch('nlc.authoring._run_provider', return_value=done):
+            return _try_cli('codex', 'q', 5)
+
+    def test_failed_run_is_named_when_a_person_can_fix_it(self):
+        from nlc.provider_result import ProviderUnavailable
+        for code, out, err, reason in ((1, '', 'usage limit reached SECRET', 'usage_limit'),
+                                       (0, 'Please run /login', '', 'not_logged_in')):
+            with self.assertRaises(ProviderUnavailable) as caught:
+                self.run_cli(code, out, err)
+            self.assertEqual(reason, caught.exception.reason)
+            self.assertNotIn('SECRET', str(caught.exception))
+
+    def test_unknown_failure_stays_no_answer_and_answers_stay_answers(self):
+        self.assertIsNone(self.run_cli(1, '', 'something else'))
+        self.assertEqual('the quota and rate limit are explained here',
+                         self.run_cli(0, 'the quota and rate limit are explained here'))
+
+    def test_attempts_carry_the_reason_code_not_provider_output(self):
+        from nlc.provider_result import ProviderUnavailable
+        with patch('nlc.authoring._try_muxa', return_value=None), \
+             patch('nlc.authoring._try_cli', side_effect=ProviderUnavailable('usage_limit')):
+            result = ask_model_result('q', 'codex', expect_json=True)
+        self.assertEqual('error', result.status)
+        self.assertIn('usage_limit', result.error.message)
+
+
 if __name__ == '__main__':
     unittest.main()

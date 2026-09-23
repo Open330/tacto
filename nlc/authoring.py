@@ -21,7 +21,7 @@ import subprocess
 import time
 import uuid
 
-from .provider_result import ProviderError, ProviderResult
+from .provider_result import ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable
 from .provider_observation import collecting_provider_calls, record_provider_result
 from .model_budget import remaining_model_seconds
 
@@ -242,12 +242,20 @@ def _try_cli(provider: str, prompt: str, timeout: int):
         return None
     out = _run_provider(argv + [prompt], timeout)
     text = out.stdout.strip()
-    if out.returncode != 0 or not text:
-        return None
     # A CLI that is installed but not signed in answers with a prompt to log in
-    # rather than failing, which would otherwise look like a model reply.
-    if "Please run /login" in text or "not logged in" in text.lower():
+    # rather than failing, and one past its quota says so on stderr. Either is
+    # a state a person can fix, so it is named rather than folded into "no
+    # answer" — the usage-limit case exits non-zero and would otherwise be
+    # indistinguishable from any other failure.
+    if out.returncode != 0 or not text:
+        reason = classify_unavailable(out.stdout, out.stderr)
+        if reason:
+            raise ProviderUnavailable(reason)
         return None
+    # Exit 0 is an answer unless it is the login prompt itself. Matched on the
+    # prompt, not on any mention of quotas, which a real answer may contain.
+    if classify_unavailable(text) == "not_logged_in" and len(text) < 200:
+        raise ProviderUnavailable("not_logged_in")
     return text
 
 
@@ -319,6 +327,9 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                     if observed.status == "timeout":
                         raise TimeoutError("provider deadline exceeded")
                     if observed.status != "ok" or not observed.text:
+                        code = getattr(observed.error, "code", None)
+                        if code in ("not_logged_in", "usage_limit"):
+                            raise ProviderUnavailable(code)
                         raise RuntimeError("structured provider failed")
                     reply = observed.text
                 if reply and time.monotonic() >= deadline:
@@ -327,7 +338,7 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                     _extract_json(reply)
             except Exception as e:
                 timed_out = timed_out or isinstance(e, (TimeoutError, subprocess.TimeoutExpired))
-                tried.append(f"{name}/{how}: {type(e).__name__}")
+                tried.append(f"{name}/{how}: {getattr(e, 'reason', None) or type(e).__name__}")
                 continue
             if reply:
                 if _metadata is not None and observed is not None:
@@ -361,9 +372,13 @@ def _model_result(prompt: str, provider: str, timeout: int,
     except Exception as exc:
         text = None
         status = "timeout" if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else "error"
+        # The attempts list is built from our own tokens — provider name,
+        # route, and a reason code or exception class — so it can travel with
+        # the error without carrying anything a provider printed.
+        attempts = str(exc).split("시도: ", 1)[1] if "시도: " in str(exc) else ""
         error = ProviderError(type(exc).__name__,
                               "Model request exceeded its deadline" if status == "timeout"
-                              else "Model request failed")
+                              else "Model request failed" + (f" — {attempts}" if attempts else ""))
     observed = metadata.get("observed")
     telemetry = ({key: getattr(observed, key) for key in (
         "model", "provider_request_id", "provider_thread_id", "input_tokens",

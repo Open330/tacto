@@ -347,3 +347,28 @@ class TheMiddleOfARunIsWitnessed(unittest.TestCase):
         text = (ROOT / "examples/probes/focus_witness.py").read_text()
         self.assertIn('"event": "ready"', text)
         self.assertIn('raise RuntimeError("focus witness did not become ready")', text)
+
+
+class ALaunchIsAnActivationUnlessToldOtherwise(unittest.TestCase):
+    """`open -a` activates the app it opens.
+
+    Dropping `--foreground` from the select fixture's launch did not stop it
+    coming forward, because LaunchServices activates by default. The focus
+    witness caught it in a default run — select-fixture, then finder — while
+    the frontmost app read Finder at both ends.
+    """
+
+    def test_every_harness_launch_asks_for_the_background(self):
+        import re
+        offenders = []
+        for root in (ROOT / "examples", ROOT / "tests"):
+            for path in root.rglob("*.py"):
+                for number, line in enumerate(
+                        path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                    stripped = line.strip()
+                    if stripped.startswith("#"):
+                        continue
+                    if re.search(r'\["open",\s*"-(n|a|b)"', stripped) and '"-g"' not in stripped:
+                        offenders.append(f"{path.relative_to(ROOT)}:{number}")
+        self.assertEqual([], offenders,
+                         "launches that will activate the app: " + ", ".join(offenders))

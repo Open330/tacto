@@ -110,7 +110,7 @@ class ClaudeResultTests(unittest.TestCase):
             self.assertNotIn('private prompt',argv)
             self.assertEqual('private prompt',json.loads(payload)['message']['content'][0]['text'])
             sid=argv[argv.index('--session-id')+1]
-            return 0,stream(events(sid))
+            return 0,stream(events(sid)),''
         with patch('nlc.claude_result._run_claude',side_effect=launch):
             result=claude_result('private prompt',model='requested-alias')
         self.assertEqual('ok',result.status)
@@ -125,7 +125,7 @@ class ClaudeResultTests(unittest.TestCase):
             result=claude_result('q')
         self.assertEqual('timeout',result.status)
         self.assertNotIn('SECRET',json.dumps(result.to_dict()))
-        with patch('nlc.claude_result._run_claude',return_value=(1,'')):
+        with patch('nlc.claude_result._run_claude',return_value=(1,'','')):
             self.assertEqual('error',claude_result('q').status)
         for timeout in (0,-1,True,float('nan'),float('inf')):
             with patch('nlc.claude_result._run_claude') as launch:
@@ -142,6 +142,31 @@ class ClaudeResultTests(unittest.TestCase):
                 _run_claude([sys.executable,'-c',parent],'stdin',0.2,folder)
             time.sleep(1.0)
             self.assertFalse(Path(marker).exists())
+
+    def test_commands_changed_notice_is_not_a_turn(self):
+        items = events()
+        items.insert(1, {'type': 'system', 'subtype': 'commands_changed', 'session_id': 'session-1'})
+        self.assertEqual('NLC-OK', parse_claude_events(stream(items), 'session-1')['text'])
+
+    def test_failed_run_names_a_fixable_state_without_keeping_output(self):
+        for stdout, stderr, reason in (
+                ('Not logged in · Please run /login SECRET', '', 'not_logged_in'),
+                ('', 'Claude AI usage limit reached SECRET', 'usage_limit')):
+            with patch('nlc.claude_result._run_claude', return_value=(1, stdout, stderr)):
+                result = claude_result('q')
+            self.assertEqual(('error', reason), (result.status, result.error.code))
+            self.assertNotIn('SECRET', json.dumps(result.to_dict()))
+
+    def test_an_answer_about_quotas_is_still_an_answer(self):
+        def launch(argv, payload, timeout, cwd):
+            sid = argv[argv.index('--session-id') + 1]
+            items = events(sid)
+            items[2]['message']['content'][0]['text'] = 'your usage limit and quota'
+            items[3]['result'] = 'your usage limit and quota'
+            return 0, stream(items), ''
+        with patch('nlc.claude_result._run_claude', side_effect=launch):
+            result = claude_result('q')
+        self.assertEqual('ok', result.status)
 
 
 class ClaudeInputTokenSemanticsTests(unittest.TestCase):

@@ -156,8 +156,26 @@ class ProcessInputAudit:
         if not self._ready or self._got_result:
             self._errors.append({'error': 'collector_not_ready'})
             self._finish()
-            raise InputAuditProcessError('collector_not_ready')
+            # Name the cause, not only the symptom. `collector_not_ready` alone
+            # sent three scenarios' failures to look like one broken collector,
+            # when every one of them was the same readable state: the frontmost
+            # app had nothing focused, and system-wide AXFocusedApplication
+            # answers -25204 in exactly that state.
+            causes = [e.get('error') for e in self._errors
+                      if e.get('error') != 'collector_not_ready']
+            detail = self._first_sample_errors()
+            raise InputAuditProcessError(
+                'collector_not_ready' + (': ' + ', '.join(causes) if causes else '')
+                + (' — ' + detail if detail else ''))
         return self
+
+    def _first_sample_errors(self):
+        """The first reason a baseline sample was unusable, if one was kept."""
+        report = getattr(self, '_raw', None) or {}
+        for sample in report.get('samples') or []:
+            if sample.get('errors'):
+                return '; '.join(f'{k}={v}' for k, v in sample['errors'].items())
+        return ''
 
     def _finish(self):
         if self._finished:

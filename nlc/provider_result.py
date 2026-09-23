@@ -97,3 +97,32 @@ def parse_provider_result(value: dict) -> ProviderResult:
         return ProviderResult(**data)
     except TypeError as exc:
         raise ValueError('incomplete provider result') from exc
+
+
+class ProviderUnavailable(RuntimeError):
+    """A provider that answered, but with a reason it cannot serve this request.
+
+    Carries a code from a closed set and nothing else. Provider output can hold
+    prompt text, account details or paths, so none of it is kept — only which
+    of these known states it was. "Model request failed" used to cover all of
+    them, including "not logged in" and "usage limit reached", which are the
+    two a person can fix and the one message that told them nothing.
+    """
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+_UNAVAILABLE = (
+    ("not_logged_in", ("please run /login", "not logged in")),
+    ("usage_limit", ("usage limit", "rate limit", "quota")),
+)
+
+
+def classify_unavailable(*outputs) -> str | None:
+    """Map provider output to a reason code, or None if it is not a known one."""
+    text = " ".join(o for o in outputs if isinstance(o, str)).lower()
+    for code, needles in _UNAVAILABLE:
+        if any(n in text for n in needles):
+            return code
+    return None
