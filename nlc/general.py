@@ -1034,6 +1034,21 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 return res
             visit.actions.append({**c, "do": a["do"],
                                   "read_attribute": "Value" if Selector._attr(c["line"], "Value") is not None else c["attr"],
+                                  # What else this could have been: the same
+                                  # kind of control on the same screen. A step
+                                  # that later becomes a decision may only
+                                  # choose among what was actually there.
+                                  "screen_options": list(dict.fromkeys(
+                                      x["label"] for x in cands
+                                      if x.get("role") == c.get("role") and x.get("label")))[:40],
+                                  # What the planner could SEE when it chose:
+                                  # a display's value is often the whole reason
+                                  # for a choice, even when it was never read.
+                                  "screen_reads": [
+                                      {k: x.get(k) for k in ("role", "attr", "match", "container", "label")}
+                                      | {"value": str(_value_of(x))[:80]}
+                                      for x in cands if "read" in x.get("can", ())
+                                      and "click" not in x.get("can", ())][:12],
                                   **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label") if k in action}})
             if a["do"] == "menu":
                 # Recorded so the recipe made from this run can check the
