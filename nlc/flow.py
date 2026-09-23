@@ -25,6 +25,26 @@ from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
                        validate, describe, ApprovalToken)
 from .protocol import Driver, ACTION_PARAMS
+
+# Steps the engine runs itself, with nothing sent to the app. Kept apart from
+# ACTION_PARAMS, which is what a driver may be asked to do.
+FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into"})}
+# The same rule as a `{{name}}` template, or the answer could never be used.
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
+
+
+def decide_problem(params: dict) -> str | None:
+    """Why a decide step's parameters are unusable, or None."""
+    q, choices, into = params.get("question"), params.get("choices"), params.get("into")
+    if not isinstance(q, str) or not q.strip() or len(q) > 500:
+        return "question must be a sentence"
+    if (not isinstance(choices, list) or not 2 <= len(choices) <= 20
+            or not all(isinstance(c, str) and c.strip() and len(c) <= 200 for c in choices)
+            or len(set(choices)) != len(choices)):
+        return "choices must be 2-20 distinct strings"
+    if not isinstance(into, str) or not _NAME.fullmatch(into):
+        return "into must be a name"
+    return None
 from .commit_evidence import make_event, evidence_error
 
 
@@ -604,6 +624,10 @@ class Flow:
     params: dict = field(default_factory=dict)    # name -> default value
     tables: dict = field(default_factory=dict)    # name -> {key: value} lookups
     derived: dict = field(default_factory=dict)   # name -> arithmetic over params
+    # The sentences this recipe answers, with its inputs as `{{name}}`:
+    # "계산기에서 {{n}}의 제곱근 구해줘". What lets a request find a recipe that
+    # a run promoted, rather than only one somebody wrote a rule for.
+    intents: list = field(default_factory=list)
 
     def bind(self, **values) -> "Flow":
         """Return a concrete, runnable Flow with parameters substituted and
@@ -614,6 +638,11 @@ class Flow:
             raise ValueError(f"파라미터가 필요합니다: {', '.join(missing)}")
         for name, expr in self.derived.items():
             ctx[name] = _arith(_render(expr, {**ctx, "__tables__": self.tables}))
+        # Names only the run can fill — a value read off the screen, a choice
+        # made mid-run — stay templates here and are rendered just before the
+        # step that uses them executes.
+        for name in self.runtime_names():
+            ctx.setdefault(name, "{{%s}}" % name)
         ctx["__tables__"] = self.tables
 
         out: list[Step] = []
@@ -629,10 +658,17 @@ class Flow:
         return Flow(name=self.name, target=_render(self.target, ctx), steps=out,
                     schema=self.schema)
 
+    def runtime_names(self) -> set:
+        """Values produced during a run: captures and decisions."""
+        out = {c.name for st in self.steps for c in st.captures}
+        out |= {st.params.get("into") for st in self.steps
+                if st.action == "decide" and isinstance(st.params.get("into"), str)}
+        return out
+
     def to_json(self) -> str:
         d = {"name": self.name, "target": self.target, "schema": self.schema,
              "steps": [{**asdict(s)} for s in self.steps]}
-        for k in ("params", "tables", "derived"):
+        for k in ("params", "tables", "derived", "intents"):
             if getattr(self, k):
                 d[k] = getattr(self, k)
         return json.dumps(d, ensure_ascii=False, indent=2)
@@ -653,11 +689,18 @@ class Flow:
             raise ValueError("Flow requires name and target")
         steps = []
         for s in d["steps"]:
-            if not isinstance(s, dict) or s.get("action") not in ACTION_PARAMS:
+            known = {**ACTION_PARAMS, **FLOW_ACTIONS}
+            if not isinstance(s, dict) or s.get("action") not in known:
                 raise ValueError("unknown Flow action")
             payload = s.get("params", {})
-            if not isinstance(payload, dict) or set(payload) - ACTION_PARAMS[s["action"]]:
+            if not isinstance(payload, dict) or set(payload) - known[s["action"]]:
                 raise ValueError("invalid action parameters; names and indices are not parameters")
+            if s["action"] in FLOW_ACTIONS:
+                if s.get("selector") or s.get("safety"):
+                    raise ValueError("a decide step touches nothing on screen")
+                problem = decide_problem(payload)
+                if problem:
+                    raise ValueError(f"decide: {problem}")
             if s["action"] in ("select_option", "select_custom_option") and not isinstance(payload.get("option_label"), str):
                 raise ValueError("selection requires option_label for effect classification")
             for key in ("require_enabled", "is_submit", "into_sensitive_field",
@@ -711,7 +754,65 @@ class Flow:
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=schema,
                     params=d.get("params", {}), tables=d.get("tables", {}),
-                    derived=d.get("derived", {}))
+                    derived=d.get("derived", {}), intents=_intents_from(d))
+
+
+def _intents_from(d: dict) -> list:
+    raw = d.get("intents", [])
+    if not isinstance(raw, list) or not all(isinstance(x, str) and x.strip() for x in raw):
+        raise ValueError("Flow.intents must be a list of sentences")
+    return list(raw)
+
+
+def intent_pattern(template: str, params: dict):
+    """A recipe's intent sentence as a pattern its inputs can be read out of.
+
+    Deliberately literal: the words around an input must be the words said,
+    give or take spacing and a closing mark. Anything looser is a guess about
+    what someone meant, and a guess that picks a recipe runs it unattended.
+    A person who says it differently goes through the reading step, whose
+    cleaned-up goal is matched the same way.
+    """
+    parts = re.split(r"\{\{\s*(\w+)\s*\}\}", template.strip())
+    out = []
+    for i, part in enumerate(parts):
+        if i % 2:
+            default = str(params.get(part, ""))
+            value = r"[0-9]+(?:\.[0-9]+)?" if re.fullmatch(r"[0-9.]+", default) else r".+?"
+            out.append(f"(?P<{part}>{value})")
+        else:
+            out.append(r"\s*".join(re.escape(w) for w in part.split()) if part.strip() else "")
+            if part[:1].isspace():
+                out[-1] = r"\s*" + out[-1]
+            if part[-1:].isspace():
+                out[-1] += r"\s*"
+    return re.compile(r"\s*" + "".join(out) + r"\s*[.!?。]*\s*")
+
+
+def _as_labelled(selector: "Selector", tree: str) -> "Selector":
+    """A re-aimed selector, named the way the element is actually named.
+
+    The judge is shown labels — "All Clear" — not which attribute carries
+    them, and Calculator carries that one as a Description. A model that wrote
+    it as a title named the right element in the wrong slot, and the re-aim
+    failed on the very target it had just picked. The other naming slot is
+    tried only if the given one finds nothing, and only a unique match counts.
+    """
+    try:
+        selector.resolve(tree)
+        return selector
+    except LookupError:
+        pass
+    for have, other in (("title", "desc"), ("desc", "title")):
+        label = getattr(selector, have)
+        if label and not getattr(selector, other):
+            swapped = replace(selector, **{have: None, other: label})
+            try:
+                swapped.resolve(tree)
+                return swapped
+            except LookupError:
+                pass
+    return selector
 
 
 def _captures_from(step: dict) -> list["Capture"]:
@@ -1226,9 +1327,41 @@ class ReplayResult:
             self.ok = False
 
 
+def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
+            res: "ReplayResult", narrate) -> bool:
+    """Run one decide step. False means the run stops here."""
+    q, choices, into = step.params["question"], step.params["choices"], step.params["into"]
+    if decide is None:
+        res.record(status="error", step=i, action="decide", error="decision_unavailable",
+                   detail=f"이 단계는 판단이 필요합니다 — '{q[:80]}' 에 답할 모델이 연결되지 않았습니다")
+        return False
+    # What the run has seen so far, minus anything marked sensitive: a
+    # password read off the screen is not something to hand a model.
+    sensitive = {c.name for st in flow.steps for c in st.captures if c.sensitive}
+    inputs = {k: v for k, v in captures.items() if k not in sensitive}
+    if narrate:
+        narrate(f"판단이 필요한 단계입니다: {q}")
+    try:
+        answer = decide(q, list(choices), dict(inputs))
+    except Exception as exc:
+        res.record(status="error", step=i, action="decide", error="decision_failed",
+                   detail=f"판단을 받지 못했습니다: {type(exc).__name__}")
+        return False
+    if answer not in choices:
+        res.record(status="error", step=i, action="decide", error="decision_invalid",
+                   detail="고를 수 있는 것 밖의 답이 왔습니다")
+        return False
+    captures[into] = answer
+    res.record(status="decided", step=i, action="decide", into=into, value=answer)
+    if narrate:
+        narrate(f"  → {answer}")
+    return True
+
+
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
-           after_commit=None, commit_expected: dict | None = None) -> ReplayResult:
+           after_commit=None, commit_expected: dict | None = None,
+           decide=None) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
@@ -1244,6 +1377,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     become a question instead. Screen-granularity is not "call a model every
     screen", it is "call one when the screen disagrees with the recipe".
 
+    decide:    callback(question, choices, inputs) -> one of choices, for
+               `decide` steps — the judgment a recipe PLANS to need, as opposed
+               to `escalate`, which is for the judgment it did not expect. Each
+               decide step asks once; without a callback it fails, never guesses.
+
     Consequential commits require typed host evidence, even if a UI
     postcondition succeeds. Hooks have the same shape as general.run and may
     come from the driver. commit_expected contains host expectations fixed
@@ -1258,7 +1396,30 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     spend = _Budget(budget if escalate is not None else 0)
     captures: dict = {}      # values read off the screen during this run
 
+    # A decision is a model's answer, and a model's answer is never consent.
+    # A step that needs approval is approved as DESCRIBED, before the run; a
+    # value chosen mid-run would change what it does after the person agreed.
+    decided = {st.params.get("into") for st in flow.steps if st.action == "decide"}
+    for i, st in enumerate(flow.steps):
+        if st.action == "decide" or not decided:
+            continue
+        used = json.dumps([asdict(st.selector) if st.selector else None, st.params],
+                          ensure_ascii=False, default=str)
+        if (any("{{%s}}" % name in used for name in decided)
+                and (st.safety is None or policy(st.safety).risk != "none")):
+            res.record(status="error", step=i, error="decision_drives_consent",
+                       detail="판단으로 정한 값은 승인이 필요한 단계에 쓸 수 없습니다")
+            return res
+
     for i, step in enumerate(flow.steps):
+        if step.action in FLOW_ACTIONS:
+            problem = (decide_problem(step.params) if isinstance(step.params, dict)
+                       else "params must be an object")
+            if problem or step.selector is not None or step.safety is not None:
+                res.record(status="error", step=i, error="invalid_action",
+                           detail=problem or "a decide step touches nothing on screen")
+                return res
+            continue
         if step.action not in ACTION_PARAMS or not isinstance(step.params, dict) \
                 or set(step.params) - ACTION_PARAMS.get(step.action, frozenset()):
             res.record(status="error", step=i, error="invalid_action")
@@ -1276,7 +1437,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             res.record(status="error", step=i, error="selection_label_required")
             return res
 
-    missing = [i for i, st in enumerate(flow.steps) if st.safety is None]
+    # A decide step acts on nothing, so it has nothing to contract for; what
+    # its answer may reach is checked above.
+    missing = [i for i, st in enumerate(flow.steps)
+               if st.safety is None and st.action not in FLOW_ACTIONS]
     if missing:
         res.record(status="error", error="contract_required",
                    detail=f"steps {missing} require a safety contract")
@@ -1325,6 +1489,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # promise the skill documents).
         if captures:
             step = _render_step(step, {**captures, "__tables__": flow.tables})
+        if step.action in FLOW_ACTIONS:
+            if not _decide(decide, step, i, captures, flow, res, narrate):
+                return res
+            continue
         # Idempotency, decided before anything is narrated, authorized or
         # performed: a step that exists to reach a state has nothing to do once
         # that state holds, and pressing a toggle anyway would undo it.
@@ -1380,7 +1548,18 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                                    error=kind,
                                    detail="승인이 필요한 단계의 대상은 바꿀 수 없습니다")
                         return res
-                    step = replace(step, selector=fix.selector)
+                    aimed = _as_labelled(fix.selector, obs["tree"])
+                    # The pins that described the OLD element would refuse the
+                    # new one on sight. Only a step that needs no consent gets
+                    # here, so nothing was agreed to about the old element; the
+                    # identity is re-pinned to what was chosen, and the app,
+                    # operation and parameter pins stay exactly as they were.
+                    binding = step.binding
+                    if binding is not None:
+                        binding = replace(binding, **{
+                            f: (getattr(aimed, f) if isinstance(getattr(aimed, f), str) else None)
+                            for f in ("role", "identifier", "title", "desc", "value", "ancestor")})
+                    step = replace(step, selector=aimed, binding=binding)
                     res.record(status="resolved", step=i, kind=kind,
                                reason=fix.reason)
                     continue

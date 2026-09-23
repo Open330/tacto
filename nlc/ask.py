@@ -278,14 +278,33 @@ _WHICH_TASK = """사용자의 말을 실행할 레시피를 고르십시오. JSO
 마십시오."""
 
 
-def which_task(goal: str, tasks: list[tuple[str, str]], excluded=()) -> Q:
+_WHICH_TASK_INPUTS = """입력이 있는 레시피({{이름}} 이 들어 있는 것)를 고르면, 그 입력의 값을
+함께 답하십시오:
+
+{"pick": "<레시피 이름>", "values": {"<입력 이름>": "<값>"}, "why": "..."}
+
+값은 **사용자가 한 말에 그대로 있는 글자**여야 합니다. 계산하거나 바꾸거나
+짐작한 값은 쓸 수 없습니다 — 그런 값이 필요하면 null 이 정답입니다."""
+
+
+def which_task(goal: str, tasks: list[tuple[str, str]], excluded=(), *,
+               inputs: dict | None = None, words: str = "") -> Q:
     """Which stored recipe carries out this goal — chosen from a closed list.
 
     The model names one of ours or says none fits. It cannot describe a new
     procedure here; that is what authoring is for.
+
+    A recipe with inputs (`inputs`: name -> {input: example}) also needs their
+    values, and those are checkable too: each has to be text the person
+    actually said (`words`), and a number where the example is one. A value
+    the model worked out is a value nobody said, and a recipe that replays
+    unattended must not run on it.
     """
+    inputs = inputs or {}
     listing = "\n".join(f"- {n}: {d}" for n, d in tasks)
-    prompt = (f"{_WHICH_TASK}\n\n# 할 일\n{goal[:300]}\n"
+    prompt = (f"{_WHICH_TASK}\n\n"
+              + (f"{_WHICH_TASK_INPUTS}\n\n# 사용자가 한 말\n{words[:300]}\n\n" if inputs else "")
+              + f"# 할 일\n{goal[:300]}\n"
               + (f"\n# 하지 말 것\n{', '.join(excluded)}\n" if excluded else "")
               + f"\n# 고를 수 있는 레시피\n{listing}")
     names = {n for n, _ in tasks}
@@ -296,7 +315,20 @@ def which_task(goal: str, tasks: list[tuple[str, str]], excluded=()) -> Q:
             return {"pick": None, "why": str(a.get("why", ""))[:200]}
         if pick not in names:                 # invented a name
             return None
-        return {"pick": pick, "why": str(a.get("why", ""))[:200]}
+        out = {"pick": pick, "why": str(a.get("why", ""))[:200]}
+        wanted = inputs.get(pick)
+        if wanted:
+            values = a.get("values")
+            if not isinstance(values, dict) or set(values) != set(wanted):
+                return None
+            for key, value in values.items():
+                if not isinstance(value, str) or not value.strip() or value not in words:
+                    return None
+                if re.fullmatch(r"[0-9.]+", str(wanted[key])) and not re.fullmatch(
+                        r"[0-9]+(?:\.[0-9]+)?", value):
+                    return None
+            out["values"] = dict(values)
+        return out
 
     return Q("which_task", prompt, check, shown={"goal": goal})
 
@@ -392,6 +424,12 @@ _HERE = """화면 하나를 보고, 목표를 향해 **지금 이 화면에서**
 한 번에 최대 8개입니다. 목표가 **이미 달성됐으면** `"done": true` 와 빈
 `actions` 가 정답입니다.
 
+**이번 실행에서 아직 한 일이 없다면**, 화면에 보이는 값은 이전 작업이 남긴
+것입니다. 목표가 무언가를 계산하거나 입력하거나 바꾸라는 것이면, 그 값이
+원하는 답과 같아 보여도 결과가 아닙니다 — 처음부터 하십시오. `done` 은 목표가
+상태("공학용으로 바꿔줘")나 읽기("화면에 뭐라고 쓰여 있어")이고 그것이 지금
+화면에서 이미 참일 때만입니다.
+
 번호는 목록에 있는 것만 쓸 수 있습니다. 목록에 없는 동작을 설명하거나 새
 절차를 제안할 수는 없습니다. 할 수 있는 일이 없으면 빈 `actions` 입니다.
 
@@ -437,7 +475,7 @@ def _here_question(goal: str, candidates: list[dict], done_so_far=(),
     prompt = (f"{_HERE}\n\n# 목표\n{goal if paged else goal[:300]}\n"
               + (f"\n# 지금까지 한 일\n"
                  + "\n".join(f"- {d}" for d in (list(done_so_far) if paged else list(done_so_far)[-6:])) + "\n"
-                 if done_so_far else "")
+                 if done_so_far else "\n# 지금까지 한 일\n(아직 없음 — 화면의 값은 이전 작업의 것입니다)\n")
               + f"\n# 이 화면에서 할 수 있는 것\n" + "\n".join(lines))
     has_next = paged and bool(indexed) and max(indexed) + 1 < total
     if paged:

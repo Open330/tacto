@@ -1248,10 +1248,14 @@ def scenario_save_chooses_its_folder():
     def run(flow, saving=False, body_edit=False):
         approvals, blocked = agent.authorize(flow, ask=lambda _w: True)
         if blocked:
-            return False
+            raise EvaluationFailure(flow.name, {"blocked": blocked})
         outcome = replay(d, flow, approvals=approvals,
                          **(_receipt_kwargs(receipt) if saving else {}))
-        return _body_edit_landed(outcome) if body_edit else outcome.ok
+        # Which of the three stages failed, with its steps — a bare False
+        # here was all a failing run left behind.
+        require_replay(outcome, flow.name, accepted=(
+            _body_edit_landed(outcome) if body_edit else outcome.ok))
+        return True
     try:
         return (run(textedit_new_document())
                 and run(textedit_write_note().bind(text=body), body_edit=True)
@@ -1494,6 +1498,71 @@ def scenario_escalation_is_off_by_default():
                       budget=0)                  # a resolver, but nothing to spend
     _tidy_textedit(d)
     return (not plain.ok) and (not budgeted.ok) and not calls
+
+
+def _parity_flow():
+    """Enter x, read it back, ask which key to multiply by, press it.
+
+    The question is the one step that needs judgment; everything around it is
+    an ordinary keypad replay. `x` is an input bound before the run; `shown` and
+    `k` exist only during it."""
+    from nlc.contract import Resource, SafetyContract
+    from nlc.flow import Capture, Postcondition
+    KP = "CalculatorKeypadView"
+    pad = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
+                         resource=Resource(object_type="계산기 입력", scope="entry"))
+    clear = SafetyContract(effects=["delete"], reversibility="reversible",
+                           resource=Resource(object_type="계산기 입력", scope="entry"))
+    display = Selector(role="ScrollArea", identifier="StandardInputView")
+    return Flow("parity_multiply", "com.apple.calculator", params={"x": "7"}, steps=[
+        Step("click", Selector(role="Button", identifier=["AllClear", "Clear"], ancestor=KP),
+             intent_text="초기화", safety=clear),
+        Step("click", Selector(role="Button", desc="{{item}}", ancestor=KP),
+             intent_text="x 입력", safety=pad, for_each="{{x}}"),
+        Step("read", display, intent_text="입력한 값 읽기", unverified_ok=True,
+             safety=SafetyContract(effects=["read"], reversibility="reversible",
+                                   resource=Resource(object_type="계산기 표시", scope="entry")),
+             captures=[Capture(name="shown", field=display, attribute="Value")]),
+        Step("decide", None, params={
+            "question": "계산기에 {{shown}} 이 있습니다. 짝수면 2를, 홀수면 3을 곱합니다. 몇을 곱해야 합니까?",
+            "choices": ["2", "3"], "into": "k"}),
+        Step("click", Selector(role="Button", identifier="Multiply", ancestor=KP),
+             intent_text="곱하기", safety=pad),
+        Step("click", Selector(role="Button", desc="{{k}}", ancestor=KP),
+             intent_text="고른 수", safety=pad),
+        Step("click", Selector(role="Button", identifier="Equals", ancestor=KP),
+             intent_text="계산", safety=pad, answers=True,
+             captures=[Capture(name="결과", field=display, attribute="Value")]),
+    ])
+
+
+def scenario_a_recipe_asks_only_where_it_planned_to():
+    """A decision is a step, asked once, answered from a closed list.
+
+    Everything else in the recipe replays without a model. The decider here is
+    stubbed with the rule itself, so what is under test is the engine: that it
+    asks exactly at the decide step, with what the screen said, and that the
+    answer drives the next step — 7 is odd, so 7 × 3 = 21, and 8 × 2 = 16."""
+    d = Driver()
+    if d._resolve("com.apple.calculator", launch=False) is None:
+        return "계산기가 실행 중이 아님"
+    asked = []
+
+    def decide(question, choices, inputs):
+        asked.append((question, tuple(choices), dict(inputs)))
+        value = int(str(inputs["shown"]).replace(",", "").strip("\u200e"))
+        return "2" if value % 2 == 0 else "3"
+
+    for x, want in (("7", "21"), ("8", "16")):
+        r = replay(d, _parity_flow().bind(x=x), decide=decide)
+        got = (r.log[-1].get("captured") or {}).get("결과")
+        require_replay(r, f"parity_{x}", accepted=r.ok and str(got) == want)
+    if (len(asked) != 2 or asked[0][1] != ("2", "3") or "{{" in asked[0][0]
+            or "7" not in asked[0][0] or "8" not in asked[1][0]):
+        raise EvaluationFailure("decide_calls", {"asked": asked})
+    # No decider: the run stops at the question instead of guessing.
+    r = replay(d, _parity_flow().bind(x="7"))
+    return (not r.ok) and r.log[-1].get("error") == "decision_unavailable"
 
 
 def scenario_escalation_only_where_declared():
@@ -4299,6 +4368,8 @@ SCENARIOS = [
      scenario_escalation_is_off_by_default),
     ("escalation_only_where_declared (a step names the surprise it expects)",
      scenario_escalation_only_where_declared),
+    ("a_recipe_asks_only_where_it_planned_to (a decide step, asked once)",
+     scenario_a_recipe_asks_only_where_it_planned_to),
     ("escalation_clears_a_blocked_run (a surprise becomes a question)",
      scenario_escalation_clears_a_blocked_run),
     ("a_fix_is_not_quietly_kept (a one-off fix is news, not knowledge)",

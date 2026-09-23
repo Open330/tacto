@@ -9,7 +9,8 @@ Usage:
       (--verify runs the result once and lets the model fix what failed)
   python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
       (--provider codex|claude|gemini|opencode|cxweb|auto selects the model provider)
-      (--think [N] lets a run stop and ask when the screen disagrees; N calls, default 1)
+      (--think [N] lets a run stop and ask when the screen disagrees; N calls.
+       Unset: 0 for built-in recipes, 1 for ones promoted from a walk; --think 0 = never)
       (--strict turns off reading the request itself: only phrasings the
        patterns already know, and an honest "I did not understand" otherwise)
   python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
@@ -20,7 +21,11 @@ Usage:
   python -m nlc.cli replay <name>     # replay a saved flow by name
   python -m nlc.cli candidates        # what a screen-loop run would like to
                                       # become a recipe, and why it is not yet
-  python -m nlc.cli promote <name>    # make one a recipe, if its gate is clean
+  python -m nlc.cli promote <name> [-p 25=n]
+                                      # make one a recipe, if its gate is clean;
+                                      # -p turns a value from the request into an
+                                      # input, and the recipe then answers the
+                                      # same sentence with any value (nlc do "…")
 
   A step the policy will not run on its own authority (saving a file, sending a
   message) asks first. Answer at the prompt, or pass --yes for scripts; with no
@@ -35,6 +40,8 @@ Things it already knows how to do (nlc do "…"):
   “보고서.rtf” 로 저장해줘          이름을 정해 저장 — 확인을 묻습니다
 """
 
+import json
+import re
 import sys
 
 from .agent import Agent
@@ -130,6 +137,15 @@ def _general_limits_from(argv):
     return limits, rest
 
 
+def _same_steps(a, b) -> bool:
+    """Do two flows run the same actions against the same elements?"""
+    def shape(flow):
+        return [(st.action, json.dumps(st.selector.__dict__ if st.selector else None,
+                                       sort_keys=True, default=str),
+                 json.dumps(st.params, sort_keys=True, default=str)) for st in flow.steps]
+    return shape(a) == shape(b)
+
+
 def _params_from(argv):
     """Collect -p key=value pairs into a dict (and return the rest)."""
     out, rest = {}, []
@@ -193,14 +209,32 @@ def _run_flow(flow, argv):
     except Exception as exc:
         print(f"저장 결과 검증 준비 실패: {exc}")
         return 1
+    # A plain replay stays model-free. Only a recipe that PLANS a judgment
+    # gets something to ask, and only for those steps.
+    decider = None
+    if any(st.action == "decide" for st in flow.steps):
+        from .judge import model_decider
+        try:
+            provider, _ = _provider_from(argv)
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        decider = model_decider(provider=provider, narrate=lambda s: print(f"  {s}"))
     with _indicator_for(flow.target, argv):
         result = replay(driver, flow, approvals=approvals,
-                        narrate=lambda text: print(f"  … {text}"), **hooks)
+                        narrate=lambda text: print(f"  … {text}"), decide=decider, **hooks)
     if tracer:
         print(f"트레이스 저장: {tracer.trace.save(trace_path)}")
     if result.ok:
         value = result.log[-1].get("result") if result.log else None
-        print("done" + (f" — 결과: {value}" if value else ""))
+        # A recipe that ANSWERS says its answer: the run's closing entry holds
+        # every named capture (the last read of each), already redacted.
+        captured = result.log[-1].get("captured") if result.log else None
+        if not isinstance(captured, dict):
+            captured = {}
+        shown = value or (next(iter(captured.values())) if len(captured) == 1
+                          else "; ".join(f"{k}: {v}" for k, v in captured.items()))
+        print("done" + (f" — 결과: {shown}" if shown else ""))
     else:
         print(f"failed: {result.log[-1]}")
     return 0 if result.ok else 1
@@ -289,6 +323,10 @@ def main(argv=None):
             params = rec.get("parameters") or {}
             if params:
                 print(f"           부탁에서 온 값: {', '.join(params)}")
+            explored = (rec.get("candidate") or {}).get("explored") or []
+            if explored:
+                print("           살펴보기만 한 단계(레시피에서 뺌): "
+                      + ", ".join(str(a.get("label") or a.get("match")) for a in explored))
         print("\n  레시피로 만들려면:  nlc promote <이름>")
         return 0
 
@@ -309,9 +347,52 @@ def main(argv=None):
             return 1
         import json as _json
         flow = Flow.from_json(_json.dumps(rec["flow"]))
+        # Which values become inputs is the person's call, not the run's: the
+        # candidate only reports which ones came from the request.
+        offered = rec.get("parameters") or {}
+        chosen, _ = _params_from(rest[1:])
+        unknown = [lit for lit in chosen if lit not in offered]
+        if unknown:
+            print(f"  부탁에서 온 값이 아닙니다: {', '.join(unknown)}"
+                  f"  (고를 수 있는 값: {', '.join(offered) or '없음'})")
+            return 1
+        if chosen:
+            from .reparam import parameterize as _par, digits_table as _dt
+            concrete = flow
+            flow = _par(concrete, chosen, tables=_dt())
+            # The template, given back this run's values, must BE this run's
+            # recipe. Anything else means a value was not (or not only) where
+            # the template put it, and the recipe would replay something else.
+            if not _same_steps(flow.bind(**{p: lit for lit, p in chosen.items()}), concrete):
+                print("  입력으로 바꾼 레시피가 원래 실행을 그대로 재현하지 않습니다 — 만들지 않았습니다")
+                return 1
+            # The sentences it answers: what was said, and what the reading of
+            # it came to, each with the chosen values marked as inputs. Only a
+            # sentence where every value appears exactly once is kept — one
+            # where "25" appears twice cannot say which of them is the input.
+            said = [rec.get("request") or "", (rec.get("candidate") or {}).get("goal") or ""]
+            intents = []
+            for sentence in dict.fromkeys(x for x in said if x):
+                if all(len(re.findall(rf"(?<![0-9]){re.escape(lit)}(?![0-9])", sentence)) == 1
+                       for lit in chosen):
+                    for lit, p in chosen.items():
+                        sentence = re.sub(rf"(?<![0-9]){re.escape(lit)}(?![0-9])",
+                                          "{{%s}}" % p, sentence)
+                    intents.append(sentence)
+            flow.intents = intents
+        else:
+            flow.intents = [x for x in dict.fromkeys(
+                [rec.get("request") or "", (rec.get("candidate") or {}).get("goal") or ""]) if x]
         path = FlowStore().save(flow)
         print(f"  '{name}' 을 레시피로 만들었습니다 → {path}")
-        print(f"  이제 토큰 없이 재생됩니다:  nlc run {path}")
+        if flow.params:
+            example = " ".join(f"-p {p}=…" for p in flow.params)
+            print(f"  이제 토큰 없이 재생됩니다:  nlc replay {flow.name} {example}")
+        else:
+            print(f"  이제 토큰 없이 재생됩니다:  nlc run {path}")
+            if offered:
+                print(f"  값을 바꿔 쓰려면:  nlc promote {name} "
+                      + " ".join(f"-p {lit}=이름" for lit in offered))
         return 0
 
     if cmd == "list":
@@ -495,8 +576,10 @@ def main(argv=None):
         # --helper` sends "… --helper" to the intent matcher as if it were words
         # the person said.
         # `--think [N]`: let the run stop and ask when the screen disagrees with
-        # the recipe. Off by default, because `do` otherwise costs nothing.
-        think = 0
+        # the recipe. Unset, a built-in recipe asks nothing and one promoted
+        # from an agent's walk may ask once (see Agent.handle); `--think 0`
+        # turns that off too.
+        think = None
         if "--think" in rest:
             k = rest.index("--think")
             nxt = rest[k + 1] if k + 1 < len(rest) else ""
@@ -562,12 +645,18 @@ def main(argv=None):
                             approve=confirm, narrate=lambda m: print(f"  {m}"))
 
         judge = None
-        if think:
+        if think is None or think:
+            # Built lazily in effect: it costs nothing until a step that
+            # declared a surprise actually meets one.
             from .judge import model_judge
             judge = model_judge(provider=provider, narrate=lambda s: print(f"  {s}"))
+        decider = None
+        if interpret is not None:
+            from .judge import model_decider
+            decider = model_decider(provider=provider, narrate=lambda s: print(f"  {s}"))
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook, interpret=interpret,
-                      general=general_hook, judge=judge)
+                      general=general_hook, judge=judge, decide=decider)
         # The person should be able to see their computer being driven, and
         # stop it: outline the window while the task runs.
         from .store import FlowStore as _S

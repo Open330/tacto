@@ -234,7 +234,8 @@ class Agent:
                  interpret: Callable | None = None,
                  general: Callable | None = None,
                  outcome_context: Callable | None = None,
-                 commit_adapter_factory: Callable | None = None):
+                 commit_adapter_factory: Callable | None = None,
+                 decide: Callable | None = None):
         self.driver = driver if driver is not None else default_driver()
         self.store = store or FlowStore()
         self.narrate = narrate or (lambda s: None)
@@ -242,6 +243,9 @@ class Agent:
         # Injectable so a caller — a test, or a host with its own model — can
         # supply judgment without this module reaching for a provider.
         self.judge = judge
+        # Answers a recipe's planned `decide` steps. Unlike `judge`, which is
+        # for surprises, a recipe that has a decide step needs this every run.
+        self.decide = decide
         # Reading the request itself, for the requests the patterns decline.
         # Separate from `judge`: this one is given the user's words and never
         # the screen, which is why what it returns may say what the user wants.
@@ -287,10 +291,31 @@ class Agent:
                 continue
         # a request may also name a stored flow directly
         if not said:
+            hit = self._match_stored(intent)
+            if hit is not None:
+                return hit
             for name in self.store.list():
                 if name.lower() in intent.lower():
                     return Match(name, {})
         return None
+
+    def _match_stored(self, sentence: str) -> Match | None:
+        """A recipe a run promoted, found by the sentence it was promoted from.
+
+        Built-in recipes are found by rules someone wrote; a promoted one has
+        no rule, only the request it came from with its inputs marked. Exactly
+        one recipe must match: two means the sentence does not say which, and
+        picking one would run it unattended on a guess.
+        """
+        from .flow import intent_pattern
+        hits = []
+        for name, flow in self._stored_templates().items():
+            for template in flow.intents:
+                m = intent_pattern(template, flow.params).fullmatch(sentence)
+                if m is not None:
+                    hits.append(Match(name, m.groupdict()))
+                    break
+        return hits[0] if len(hits) == 1 else None
 
     def _match_from_goal(self, goal: str) -> Match | None:
         """Run the patterns against a cleaned-up goal rather than the raw words.
@@ -316,7 +341,7 @@ class Agent:
                 return Match(name, extract(m))
             except KeyError:
                 continue
-        return None
+        return self._match_stored(goal)
 
     def read_request(self, intent: str) -> tuple[Match | None, dict]:
         """What the user asked for, when the patterns could not say.
@@ -348,10 +373,27 @@ class Agent:
         if not known:
             return None, reading
         pick = self.interpret(which_task(
-            goal, known, excluded=reading.get("excluded", ())))
+            goal, known, excluded=reading.get("excluded", ()),
+            inputs=self._template_inputs(), words=intent))
         if pick and pick.get("pick"):
-            return Match(pick["pick"], {}), reading
+            return Match(pick["pick"], pick.get("values") or {}), reading
         return None, reading
+
+    def _stored_templates(self) -> dict:
+        """Promoted recipes that say which sentences they answer."""
+        out = {}
+        for name in self.store.list():
+            try:
+                flow = self.store.load(name)
+            except Exception:
+                continue
+            if flow.intents:
+                out[name] = flow
+        return out
+
+    def _template_inputs(self) -> dict:
+        return {name: dict(flow.params)
+                for name, flow in self._stored_templates().items() if flow.params}
 
     def _work_it_out(self, intent: str, reading: dict, ask) -> Turn:
         """Do a task with no recipe, one question per screen.
@@ -506,6 +548,11 @@ class Agent:
                 out.append((name, desc or name))
             except Exception:
                 out.append((name, name))
+        # A promoted recipe describes itself by the sentence it answers.
+        builtin = {n for n, _ in out}
+        for name, flow in sorted(self._stored_templates().items()):
+            if name not in builtin:
+                out.append((name, flow.intents[0][:120]))
         return out
 
     def unrepresented(self, intent: str) -> set[str]:
@@ -600,7 +647,7 @@ class Agent:
 
     def handle(self, intent: str, approvals: dict[int, bool] | None = None,
                ask: Callable[[str], bool] | None = None,
-               think: int = 0) -> Turn:
+               think: int | None = None) -> Turn:
         if self._TAKE_IT_BACK.search(intent.strip()):
             return self.take_it_back()
         match = self.resolve(intent)
@@ -685,6 +732,14 @@ class Agent:
         # `nlc do` broke while the suite — which binds explicitly — stayed green.
         # The values come from the request itself, so "문서 폴더 열어줘" and
         # "다운로드 폴더 열어줘" are one recipe, not two.
+        # A recipe promoted from an agent's walk recorded the screen as it was
+        # that once — a label like Calculator's `Clear`/`All Clear` depends on
+        # what the display held. Where its steps declared that surprise, it may
+        # ask once by default; a built-in recipe was written against the app,
+        # not an afternoon, and stays free unless asked.
+        walked = bool(flow.intents)
+        if think is None:
+            think = 1 if walked else 0
         if flow.params or flow.tables or flow.derived:
             try:
                 flow = flow.bind(**values)
@@ -716,7 +771,8 @@ class Agent:
             return Turn("failed", f"저장 결과를 검증할 준비를 하지 못했어요: {exc}", flow.name)
         hooks = self.commit_adapter_hooks(receipt)
         res = replay(self.driver, flow, approvals=approvals,
-                     narrate=self.narrate, escalate=judge, budget=think, **hooks)
+                     narrate=self.narrate, escalate=judge, budget=think,
+                     decide=self.decide, **hooks)
         self._report_what_it_asked(flow, res)
         return self._to_turn(flow, res)
 
