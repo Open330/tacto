@@ -282,9 +282,14 @@ def reach_model(prompt: str, provider: str = "auto",
         return result.text
     from .helper import InheritedHelperDriver
     if InheritedHelperDriver.available():
-        text = InheritedHelperDriver().ask_launcher(prompt, expect_json, provider=provider, timeout_seconds=timeout_seconds)
+        helper = InheritedHelperDriver()
+        text = helper.ask_launcher(prompt, expect_json, provider=provider, timeout_seconds=timeout_seconds)
         if not text:
-            raise RuntimeError("런처가 모델 답을 받지 못했습니다")
+            # The launcher's own error code, never provider text: which of its
+            # refusals this was is the only way to tell them apart from here.
+            code = getattr(helper, "last_ask_error", None)
+            code = code if isinstance(code, str) and re.fullmatch(r"[A-Za-z_]{1,40}", code) else "unknown"
+            raise RuntimeError(f"런처가 모델 답을 받지 못했습니다 ({code})")
         return text
     return _ask_model(prompt, provider, timeout=timeout_seconds, expect_json=expect_json)
 

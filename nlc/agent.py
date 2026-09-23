@@ -653,6 +653,7 @@ class Agent:
         match = self.resolve(intent)
         values: dict = {}
         reading: dict = {}
+        read_to_find = match is None     # did finding the recipe take a model?
         if match is None:
             # Read it whenever the patterns could not answer — not only when
             # one was held back. A request the patterns simply do not know went
@@ -738,6 +739,7 @@ class Agent:
         # ask once by default; a built-in recipe was written against the app,
         # not an afternoon, and stays free unless asked.
         walked = bool(flow.intents)
+        template = flow                  # the stored recipe, before binding
         if think is None:
             think = 1 if walked else 0
         if flow.params or flow.tables or flow.derived:
@@ -774,7 +776,48 @@ class Agent:
                      narrate=self.narrate, escalate=judge, budget=think,
                      decide=self.decide, **hooks)
         self._report_what_it_asked(flow, res)
-        return self._to_turn(flow, res)
+        turn = self._to_turn(flow, res)
+        if read_to_find and walked and turn.status == "done":
+            self._learn_phrasing(template, intent, values)
+        return turn
+
+    def _learn_phrasing(self, template: Flow, said: str, values: dict) -> None:
+        """Remember a new way of asking for a promoted recipe — once it worked.
+
+        Finding this recipe took a model: the words matched no sentence it
+        knew. The run then finished and checked out, so those words, with the
+        values that came from them marked as inputs, become one more sentence
+        it answers, and the same request next time costs nothing to find.
+
+        Only the finding is learned, never the doing: nothing about what the
+        recipe runs changes. And only a sentence that is not ambiguous: every
+        value appears in it exactly once, and no other recipe claims it.
+        """
+        import re as _re
+        from .flow import intent_pattern
+        sentence = " ".join(said.split())
+        if not sentence or len(sentence) > 200 or set(values) != set(template.params):
+            return
+        for key, value in values.items():
+            hits = _re.findall(rf"(?<![0-9]){_re.escape(str(value))}(?![0-9])", sentence)
+            if len(hits) != 1:
+                return
+            sentence = _re.sub(rf"(?<![0-9]){_re.escape(str(value))}(?![0-9])",
+                               "{{%s}}" % key, sentence)
+        if sentence in template.intents or len(template.intents) >= 20:
+            return
+        rx = intent_pattern(sentence, template.params)
+        for name, other in self._stored_templates().items():
+            if name != template.name and any(
+                    rx.fullmatch(t) or intent_pattern(t, other.params).fullmatch(said)
+                    for t in other.intents):
+                return
+        from dataclasses import replace as _replace
+        try:
+            self.store.save(_replace(template, intents=[*template.intents, sentence]))
+        except Exception:
+            return
+        self.narrate("다음부터는 이렇게 말씀하셔도 바로 알아들어요")
 
     def commit_adapter_for(self, flow):
         """Prepare per-run host evidence before any replay action changes UI.
@@ -843,6 +886,12 @@ class Agent:
             # `captured`, not in a verified result. Reporting only "다 됐어요"
             # for those would finish the task without saying what was found.
             captured = last.get("captured") or {}
+            # A value read only so a decision could be made is the recipe's
+            # working, not its answer. Where steps say which ones answer,
+            # only those are reported.
+            answering = {c.name for st in flow.steps if st.answers for c in st.captures}
+            if answering & set(captured):
+                captured = {k: v for k, v in captured.items() if k in answering}
             skipped = [e for e in res.log if e.get("status") == "skipped"]
             acted = [e for e in res.log if e.get("status") == "ok"]
             if value:

@@ -137,6 +137,46 @@ def _general_limits_from(argv):
     return limits, rest
 
 
+class _Refused(Exception):
+    pass
+
+
+def _promote_decisions(rec: dict, flow, provider: str):
+    """The recipe with the walk's judgment points turned into decide steps."""
+    from .contract import Envelope
+    from .promote import (Candidate, checked_decisions, decision_prompt,
+                          replays_the_walk, with_decisions)
+    if not isinstance(rec.get("candidate"), dict):
+        return flow
+    c = Candidate(**{k: v for k, v in rec["candidate"].items() if k != "envelope"},
+                  envelope=Envelope.minimal())
+    # Only a click made while something was visible to base it on can have
+    # been a judgment; a walk with none is not worth a model call.
+    if not any(a.get("do") == "click" and a.get("screen_reads") for a in c.actions):
+        return flow
+    from .authoring import _extract_json, reach_model
+    print("  🧠 판단이 필요했던 단계가 있는지 기록을 검토합니다…")
+    try:
+        answer = _extract_json(reach_model(decision_prompt(c), provider, expect_json=True))
+    except Exception as exc:
+        raise _Refused(f"기록을 검토하지 못했습니다 ({type(exc).__name__}) — "
+                       "판단 단계 없이 만들려면 --no-decisions") from None
+    proposed = answer.get("decisions") if isinstance(answer, dict) else None
+    decisions, refused = checked_decisions(c, proposed, rec.get("request") or c.goal)
+    for w in refused:
+        print(f"    · 받지 않은 제안: {w}")
+    if not decisions:
+        print("    판단 단계 없음 — 기록대로 재생합니다")
+        return flow
+    decided = with_decisions(flow, decisions)
+    if not replays_the_walk(decided, flow, decisions):
+        raise _Refused("판단 단계를 넣은 레시피가 원래 실행을 재현하지 않습니다 — 만들지 않았습니다")
+    for d in decisions:
+        print(f"    · {d['step']}번 단계는 재생할 때 묻습니다: {d['question']}"
+              f"  ({' / '.join(d['choices'])})")
+    return decided
+
+
 def _same_steps(a, b) -> bool:
     """Do two flows run the same actions against the same elements?"""
     def shape(flow):
@@ -347,10 +387,23 @@ def main(argv=None):
             return 1
         import json as _json
         flow = Flow.from_json(_json.dumps(rec["flow"]))
+        chosen, words = _params_from(rest[1:])
+        try:
+            provider, words = _provider_from(words)
+        except ValueError as exc:
+            print(str(exc)); return 2
+        # Where the walk chose by what it READ, replaying the choice blindly
+        # is wrong the first time the screen differs. A model reviews the
+        # walk once for such steps; the recording decides which proposals
+        # stand. Only a click made while a value was on screen can be one.
+        if "--no-decisions" not in words:
+            try:
+                flow = _promote_decisions(rec, flow, provider)
+            except _Refused as exc:
+                print(f"  {exc}"); return 1
         # Which values become inputs is the person's call, not the run's: the
         # candidate only reports which ones came from the request.
         offered = rec.get("parameters") or {}
-        chosen, _ = _params_from(rest[1:])
         unknown = [lit for lit in chosen if lit not in offered]
         if unknown:
             print(f"  부탁에서 온 값이 아닙니다: {', '.join(unknown)}"
@@ -385,11 +438,17 @@ def main(argv=None):
                 [rec.get("request") or "", (rec.get("candidate") or {}).get("goal") or ""]) if x]
         path = FlowStore().save(flow)
         print(f"  '{name}' 을 레시피로 만들었습니다 → {path}")
+        asks = sum(st.action == "decide" for st in flow.steps)
+        how = (f"재생할 때 판단 {asks}번만 모델에 묻습니다" if asks
+               else "이제 토큰 없이 재생됩니다")
+        # A value a decision now chooses is not an input any more.
+        decided = {c for st in flow.steps if st.action == "decide" for c in st.params["choices"]}
+        offered = {lit: at for lit, at in offered.items() if lit not in decided}
         if flow.params:
             example = " ".join(f"-p {p}=…" for p in flow.params)
-            print(f"  이제 토큰 없이 재생됩니다:  nlc replay {flow.name} {example}")
+            print(f"  {how}:  nlc replay {flow.name} {example}")
         else:
-            print(f"  이제 토큰 없이 재생됩니다:  nlc run {path}")
+            print(f"  {how}:  nlc run {path}")
             if offered:
                 print(f"  값을 바꿔 쓰려면:  nlc promote {name} "
                       + " ".join(f"-p {lit}=이름" for lit in offered))

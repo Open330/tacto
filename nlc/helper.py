@@ -184,6 +184,8 @@ class InheritedHelperDriver:
                      provider: str = "auto", *, timeout_seconds=420) -> str | None:
         response = self._ask_launcher_response(prompt, want_json, provider,
                                                timeout_seconds=timeout_seconds)
+        # The launcher's code for a refusal, kept for the caller's message.
+        self.last_ask_error = response.get("error")
         return response.get("text") if response.get("type") == "answer" else None
 
     def ask_launcher_result(self, prompt: str, want_json: bool = False,
