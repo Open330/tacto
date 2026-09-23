@@ -300,10 +300,17 @@ Trace v2는 요청 순서·인자와 원래 응답을 함께 기록합니다. �
 uv run python -m unittest discover -s tests -v  # 코어 회귀, 선택적 Chromium 테스트
 uv run python examples/corpus.py               # 144개 가상 앱 시나리오
 uv run python examples/eval.py --offline       # GUI·모델 호출 없이 가능한 시나리오
-./launcher/nlc eval                            # 실제 앱을 조작하는 통합 시나리오
+uv run python examples/eval.py --preview       # 화면을 조회하지 않고 평가 범위 확인
+uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
+./launcher/nlc eval background_menu_refusal     # 소유한 배경 앱의 메뉴 동작·거절 검증
 ```
 
 테스트 결과는 PASS / FAIL / SKIP을 구분합니다. Chromium 테스트에는 `web` extra와 Chromium이 필요합니다. 실제 앱 테스트에는 잠금 해제된 macOS 세션, AX 권한 및 빌드한 helper가 필요합니다.
+
+전체 GUI 평가는 사용자 앱에 대화상자를 열 수 있습니다. 앱을 앞으로 가져오는
+시나리오는 `--foreground`를 명시해야 실행됩니다. 전부 SKIP이면 성공으로 처리하지
+않고 종료 코드 2를 반환합니다. JSON 보고서의 범위·시간·실패 단계 해석은
+[평가 안내](docs/evaluation.md)를 참조하세요.
 
 2026-09-19의 가상 앱 corpus 결과는 시나리오 판정 통과 **83.3%**, 완료를 기대한 작업의 완료 **40/64 (62.5%)**입니다. 잘못된 성공 보고·검증 없는 성공 보고·범위 밖 효과·중복 효과는 각각 **0건**입니다. 24개 저장 작업은 저장 이름·위치를 검증할 수 없어 중단했습니다. 중단 기대 사례의 통과는 작업 완료에 포함하지 않습니다. 이 수치는 실제 모델이나 실제 앱의 성공률이 아닙니다.
 

@@ -29,6 +29,7 @@ except Exception:                       # pragma: no cover - non-mac only
     Driver = None
     HAS_NATIVE = False
 from nlc.safety import classify
+from nlc.evaluation import EvaluationFailure, require_replay
 
 
 def scenario_task_success():
@@ -360,9 +361,8 @@ def scenario_helper_menu():
 
     If it cannot, every task that lives in a menu — save, copy, open a folder —
     either does not run at all or quietly runs outside the permission boundary,
-    which is the one thing the boundary exists to prevent. This also covers the
-    activation the helper needs: as a background process it cannot raise an app
-    the ordinary way, and a background app reports its own menus as disabled."""
+    which is the one thing the boundary exists to prevent. A disabled command
+    is reported with its failing step; the harness never activates Finder."""
     try:
         from nlc.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
@@ -374,6 +374,7 @@ def scenario_helper_menu():
         from nlc.flow import replay
         from nlc.library import finder_open_folder
         r = replay(d, finder_open_folder().bind(folder="Documents"))
+        require_replay(r, "helper_menu: open Documents")
         return r.ok and r.log[-1]["status"] == "done"
     finally:
         d.close()
@@ -736,11 +737,43 @@ def _ensure_window(bundle, d, timeout=8.0):
     return False
 
 
+# Whether this run is allowed to take the person's focus.
+#
+# Off unless `--foreground` is passed, and this is not a guard bolted onto a
+# capability — it is the capability being scoped to what the PRODUCT does.
+#
+# Measured on an owned fixture, in the background (2026-09-22):
+#
+#   Direct Command    (target: the app delegate)   enabled = True
+#   Responder Command (target: the responder chain) enabled = False
+#
+# A menu item dispatched through the responder chain is validated against the
+# KEY window, and a background app has no key window. `File > Save As…` is that
+# kind; `File > Open…` is not, and answers enabled from the background. And a
+# background window cannot be made key — `makeKey()` was called, the counter
+# moved, `isKeyWindow` stayed false.
+#
+# So the driver is right to refuse those with `needs_foreground` and hand them
+# to a person. What was wrong was the SUITE: it wanted to watch the success
+# path, so it pulled apps to the front — over whoever was working. Nine
+# scenarios did that, on someone else's screen, in a project whose whole claim
+# is that it does not take your focus.
+#
+# Now the default run verifies what the product does without focus, including
+# that those refusals are correct. Watching the success path is a separate
+# thing to ask for.
+FOREGROUND_OK = False
+
+
 def _bring_forward(bundle, d, timeout=4.0):
     """Activate an app the way a person would, and wait until it really is front.
 
-    Only the harness does this. The driver refuses instead, and says so.
+    Only the harness does this, and only when the run was asked for it. The
+    refusal is HERE rather than at each call site, because a guard every caller
+    has to remember is one a new caller will not.
     """
+    if not FOREGROUND_OK:
+        return False
     from AppKit import NSWorkspace, NSRunningApplication
     pid = d._resolve(bundle, launch=False)
     if pid is None:
@@ -873,10 +906,12 @@ def scenario_save_file():
     def run(flow, saving=False, body_edit=False):
         approvals, blocked = agent.authorize(flow, ask=lambda _what: True)
         if blocked:
-            return False
+            raise EvaluationFailure(flow.name, {"authorization": str(blocked)})
         outcome = replay(d, flow, approvals=approvals,
                          **(_receipt_kwargs(receipt) if saving else {}))
-        return _body_edit_landed(outcome) if body_edit else outcome.ok
+        require_replay(outcome, flow.name,
+                       accepted=_body_edit_landed(outcome) if body_edit else outcome.ok)
+        return True
     try:
         return (run(textedit_new_document())
                 and run(textedit_write_note().bind(text=body), body_edit=True)
@@ -3196,6 +3231,9 @@ def scenario_every_transport_answers_the_same():
     if bad:
         print(f"\n      {len(bad)}건 실패")
         print("      " + "\n      ".join(bad[:8]))
+        raise EvaluationFailure("transport contract", {"failures": bad, "skipped": skipped})
+    if len(skipped) == len(drivers) * len(mod.CHECKS):
+        return "전송 계약 검사가 모두 실행되지 않았습니다"
     return not bad
 
 
@@ -3745,6 +3783,33 @@ def scenario_signed_window_capture():
     return True
 
 
+def scenario_background_menu_refusal():
+    """What a background app's menus can and cannot be told to do.
+
+    The measurement that settled the suite's focus-stealing, kept as a check.
+    macOS validates a responder-chain menu item against the KEY window, which a
+    background app has none of and cannot be given — so those commands are
+    unreachable from the background by design, and the driver refuses them with
+    `needs_foreground`. An item with a direct target has no such dependency and
+    works.
+
+    "A background app's menus are disabled" was the wrong rule, and believing
+    it is why nine scenarios pulled apps in front of whoever was working. This
+    one takes no focus, and checks that it took none.
+    """
+    import runpy
+    from pathlib import Path
+    d = Driver()
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "examples/probes/background-menu-refusal.py"))
+    output = root / "reviews/2026-09-22" / f"background-menu-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe["main"](d, output)
+    print("  background menu report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:600]
+    return True
+
+
 def scenario_canvas_point_click():
     """Capture, find the target in the picture, click the coordinate.
 
@@ -4024,6 +4089,8 @@ SCENARIOS = [
      scenario_signed_window_capture),
     ("signed_background_refusal (background window input is refused, not faked)",
      scenario_signed_background_refusal),
+    ("background_menu_refusal (a key window cannot be faked, so it is refused)",
+     scenario_background_menu_refusal),
     ("canvas_point_click (a coordinate reaches what AX cannot describe)",
      scenario_canvas_point_click),
     ("an_abort_lasts_the_run_and_no_longer (Esc holds; a ping cannot undo it)",
@@ -4096,6 +4163,7 @@ SCENARIO_REQUIREMENTS: dict = {
     "signed_background_refusal": {"gui", "native"},
     "signed_window_capture": {"gui", "native"},
     "canvas_point_click": {"gui", "native"},
+    "background_menu_refusal": {"gui", "native"},
     "native_select_model_fixture": {"gui", "model"},
     "native_select_fixture": {"gui"},
     "native_document_text": {"gui"},
@@ -4113,7 +4181,7 @@ SCENARIO_REQUIREMENTS: dict = {
     "answers_a_question": {"gui"},
     "app_name_is_the_app": {"gui"},
     "authored_steps_can_be_approved": {"gui"},
-    "authoring_handles_a_dialog": {"gui", "model"},
+    "authoring_handles_a_dialog": {"gui", "model", "foreground"},
     "authoring_produces_a_runnable_flow": {"gui", "model"},
     "authoring_still_catches_invented_targets": {"gui", "model"},
     "batch_invalidation": {"gui"},
@@ -4122,16 +4190,16 @@ SCENARIO_REQUIREMENTS: dict = {
     "capture": {"gui"},
     "cli_end_to_end": {"gui"},
     "consent_cannot_be_re_aimed": {"gui"},
-    "consent_is_about_the_file": {"gui"},
+    "consent_is_about_the_file": {"gui", "foreground"},
     "consent_required": {"gui"},
-    "dialog_recovery": {"gui"},
-    "escalation_clears_a_blocked_run": {"gui"},
-    "escalation_is_off_by_default": {"gui"},
+    "dialog_recovery": {"gui", "foreground"},
+    "escalation_clears_a_blocked_run": {"gui", "foreground"},
+    "escalation_is_off_by_default": {"gui", "foreground"},
     "escalation_only_where_declared": {"gui"},
     "every_transport_answers_the_same": {"gui"},
     "helper_menu": {"gui"},
     "helper_user_authority": {"gui"},
-    "input_verification": {"gui"},
+    "input_verification": {"gui", "foreground"},
     "large_tree_is_bounded": {"gui"},
     "mail_reads_inbox": {"gui"},
     "menu_command": {"gui"},
@@ -4143,12 +4211,12 @@ SCENARIO_REQUIREMENTS: dict = {
     "reads_a_list": {"gui"},
     "reparameterize": {"gui"},
     "safety_gate": {"gui"},
-    "save_chooses_its_folder": {"gui"},
-    "save_file": {"gui"},
+    "save_chooses_its_folder": {"gui", "foreground"},
+    "save_file": {"gui", "foreground"},
     "swift_helper": {"gui"},
     "task_success": {"gui"},
     "the_button_is_not_what_it_falls_on": {"gui"},
-    "toggle_converges": {"gui"},
+    "toggle_converges": {"gui", "foreground"},
     "trace_reproducibility": {"gui"},
     "vacuous_pass_is_fed_back": {"gui"},
 }
@@ -4279,85 +4347,164 @@ def _gui_reason() -> str:
     return ""
 
 
+def _parse_plan(argv):
+    """Resolve the whole selection before checking or changing the machine."""
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("scenarios", nargs="*", help="scenario name substrings (OR)")
+    parser.add_argument("--offline", action="store_true",
+                        help="never access the GUI or a model")
+    parser.add_argument("--foreground", action="store_true",
+                        help="allow scenarios to bring apps to the foreground")
+    parser.add_argument("--preview", action="store_true",
+                        help="show requirements without running scenarios or probing the GUI")
+    parser.add_argument("--report", metavar="PATH",
+                        help="write a JSON plan or result report")
+    args = parser.parse_args(argv)
+    if args.report:
+        from pathlib import Path
+        destination = Path(args.report)
+        if not destination.parent.is_dir() or destination.is_dir():
+            parser.error("--report requires a file path in an existing directory")
+    for query in args.scenarios:
+        if not any(query in name for name, _ in SCENARIOS):
+            parser.error(f"no scenario matches {query!r}")
+    selected = [(name, fn) for name, fn in SCENARIOS
+                if not args.scenarios or any(q in name for q in args.scenarios)]
+    if not selected:
+        parser.error("no scenarios selected")
+    isolated = [name.split(" ")[0] for name, _ in selected
+                if name.split(" ")[0] in ISOLATED]
+    if args.scenarios and isolated and len(selected) != 1:
+        parser.error("isolated scenarios require one launcher process each; "
+                     "select one exact name: " + ", ".join(isolated))
+    cases = []
+    for name, fn in selected:
+        need = _needs(fn, name)
+        key = name.split(" ")[0]
+        code = reason = None
+        if key in ISOLATED and not args.scenarios:
+            code, reason = "isolated_process", (
+                f"별도 런처 프로세스에서만: ./launcher/nlc eval {key}")
+        elif "native" in need and not HAS_NATIVE:
+            code, reason = "native_unavailable", "접근성 드라이버가 없는 환경"
+        elif args.offline and (need & {"gui", "model"}):
+            code, reason = "offline", (
+                f"--offline: {', '.join(sorted(need & {'gui', 'model'}))} 필요")
+        elif "foreground" in need and not args.foreground:
+            code, reason = "foreground_required", (
+                "화면을 앞으로 가져와야 합니다 — --foreground 로만 실행됩니다")
+        cases.append({"id": key, "name": name, "requirements": sorted(need),
+                      "isolated": key in ISOLATED,
+                      "status": "skipped" if code else "planned",
+                      "reason_code": code, "reason": reason,
+                      "duration_ms": None})
+    return args, selected, cases
+
+
 def main():
-    # An argument narrows the run to scenarios whose name contains it. A failure
-    # in one scenario used to mean sitting through all sixty to see it again.
-    only = [a for a in sys.argv[1:] if not a.startswith("-")]
-    offline = "--offline" in sys.argv
-    print("NLC evaluation\n" + "=" * 48)
-    if offline:
-        print("  ! --offline — 모델이 필요한 시나리오는 판정하지 않습니다\n")
-    if offline:
+    from nlc.evaluation import summarize, write_report
+    args, selected, cases = _parse_plan(sys.argv[1:])
+    global FOREGROUND_OK
+    FOREGROUND_OK = args.foreground
+    report = {"schema_version": 1, "kind": "plan" if args.preview else "run",
+              "options": {"scenarios": args.scenarios, "offline": args.offline,
+                          "foreground": args.foreground},
+              "cases": cases,
+              # This suite does not meter every provider invocation. Unknown is
+              # not free; never infer zero cost from a successful replay check.
+              "model_usage": None, "model_cost_usd": None}
+    print("NLC evaluation" + (" plan" if args.preview else "") + "\n" + "=" * 48)
+    if args.offline:
+        print("  ! --offline — GUI·모델이 필요한 시나리오는 판정하지 않습니다\n")
+    if FOREGROUND_OK and not args.preview:
+        print("  ! --foreground — 이 실행은 앱을 앞으로 가져옵니다. "
+              "쓰고 계신 화면을 빼앗습니다.\n")
+    started = time.monotonic()
+    if args.preview:
+        for case in cases:
+            need = ", ".join(case["requirements"]) or "none"
+            print(f"  {case['status'].upper()}  {case['name']}  "
+                  f"(requires: {need})" +
+                  (f"  ({case['reason']})" if case["reason"] else ""))
+        report["duration_ms"] = None
+        report["summary"] = summarize(cases)
+        print(f"  {len(cases)} selected; "
+              f"{report['summary']['planned']} planned; GUI availability not probed")
+        if args.report:
+            write_report(args.report, report)
+        # The same rule a real run follows: nothing to judge is inconclusive,
+        # never green. A plan whose every case is already excluded is exactly
+        # how a mistyped filter or a wrong flag passes CI unnoticed — which is
+        # what the exit-2 rule exists to catch, and preview was the one path
+        # left out of it.
+        sys.exit(0 if report["summary"]["planned"] else 2)
+
+    if args.offline:
         _seal_offline()
-    # `--offline` does not touch the screen either, so the GUI is treated as
-    # unavailable without going to look for it.
-    blind = "--offline" if offline else _gui_reason()
+    # Do not launch apps or even inspect the desktop for a purely local run.
+    gui_planned = any(c["status"] == "planned" and "gui" in c["requirements"]
+                      for c in cases)
+    blind = _gui_reason() if gui_planned else ""
     if blind:
         print(f"  ! {blind} — 화면이 필요한 시나리오는 판정하지 않습니다\n")
-    elif not only:
-        # Open what the suite drives, once, before anything is judged.
-        #
-        # Runs kept failing for a reason that had nothing to do with the code:
-        # Calculator running with no window, so `task_success` reported
-        # `no_window_content` and the five scenarios that reuse the flow store
-        # it fills went down after it. Every one of them passed alone. A suite
-        # that needs an app open should open it, the way a person would —
-        # judging a contract against an empty desk measures the desk.
+    elif gui_planned and not args.scenarios:
+        # Preserve suite setup; a named run owns its own prerequisites.
         for bundle, label in (("com.apple.calculator", "계산기"),
                               ("com.apple.TextEdit", "TextEdit")):
             if not _ensure_window(bundle, Driver()):
                 print(f"  ! {label} 창을 열지 못했습니다 — 그 앱이 필요한 "
                       f"시나리오는 그 이유로 실패합니다\n")
-    passed = required = 0
-    for name, fn in SCENARIOS:
-        if only and not any(o in name for o in only):
-            continue
-        key = name.split(" ")[0]
-        if key in ISOLATED and not only:
-            print(f"  SKIP  {name}  (별도 런처 프로세스에서만: "
-                  f"./launcher/nlc eval {key})")
-            continue
-        need = _needs(fn, name)
-        if "native" in need and not HAS_NATIVE:
-            print(f"  SKIP  {name}  (접근성 드라이버가 없는 환경)")
-            continue
-        if offline and (need & {"gui", "model"}):
-            print(f"  SKIP  {name}  "
-                  f"(--offline: {', '.join(sorted(need & {'gui', 'model'}))} 필요)")
-            continue
-        if blind and "gui" in need:
-            print(f"  SKIP  {name}  ({blind})")
+    for (_, fn), case in zip(selected, cases):
+        need = set(case["requirements"])
+        if case["status"] == "planned" and blind and "gui" in need:
+            case.update(status="skipped", reason_code="gui_unavailable", reason=blind)
+        if case["status"] == "skipped":
+            print(f"  SKIP  {case['name']}  ({case['reason']})")
             continue
         t0 = time.monotonic()
+        error = None
+        details = None
         try:
             ok = fn()
-        except Exception as e:
+        except Exception as exc:
             ok = False
-            name += f"  [error: {e}]"
-        dt = (time.monotonic() - t0) * 1000
-        # A scenario skips by returning the reason it skipped. One shared
-        # message for every skip hid which check was actually not running — the
-        # helper scenarios were reporting a missing web dependency.
+            error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, EvaluationFailure):
+                details = exc.details
+        case["duration_ms"] = (time.monotonic() - t0) * 1000
         if ok is None or isinstance(ok, str):
-            print(f"  SKIP  {name}  ({ok or '이 환경에서는 실행 불가'})")
-            continue
-        # A screen that locked DURING the run is not a contract that broke.
-        # The lock is checked once, before anything starts, and after that a
-        # lock turns every screen-touching scenario into a failure: eight of
-        # them at once, read as eight defects. Asked again on the way out, the
-        # reason is one sentence and the suite says which it is.
-        if not ok and "gui" in need:
-            late = _gui_reason()
-            if late:
-                print(f"  SKIP  {name}  (실행 중에 {late} — 판정하지 않습니다)")
+            case.update(status="skipped", reason_code="scenario_unavailable",
+                        reason=ok or "이 환경에서는 실행 불가")
+        else:
+            case.update(status="passed" if ok else "failed",
+                        reason_code=None if ok else "exception" if error else "assertion_failed",
+                        reason=error)
+            # A later environment observation cannot explain away a failure.
+            # Preserve it, and skip only GUI scenarios not yet attempted.
+            if not ok and "gui" in need and (late := _gui_reason()):
                 blind = late
-                continue
-        required += 1
-        passed += bool(ok)
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}  ({dt:.0f}ms)")
+                case["environment_after_failure"] = late
+        if error:
+            case["error"] = error
+        if details is not None:
+            case["details"] = details
+        label = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}[case["status"]]
+        print(f"  {label}  {case['name']}  ({case['duration_ms']:.0f}ms)" +
+              (f"  ({case['reason']})" if case["reason"] else ""))
+        if case.get("environment_after_failure"):
+            print("        실행 후 환경 관측: " + case["environment_after_failure"])
+    report["duration_ms"] = (time.monotonic() - started) * 1000
+    report["summary"] = summary = summarize(cases)
     print("=" * 48)
-    print(f"  {passed}/{required} scenarios passed")
-    sys.exit(0 if passed == required else 1)
+    print(f"  {summary['passed']}/{summary['scored']} scenarios passed; "
+          f"{summary['skipped']} skipped / {summary['selected']} selected")
+    if not summary["scored"]:
+        print("  NO RESULTS — 판정한 시나리오가 없습니다")
+    if args.report:
+        write_report(args.report, report)
+    # An empty or entirely skipped run is inconclusive, never green.
+    sys.exit(1 if summary["failed"] else 0 if summary["scored"] else 2)
 
 
 if __name__ == "__main__":

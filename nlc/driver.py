@@ -1556,6 +1556,14 @@ class Driver:
                     raise NotStarted(
                         f"앱에 열린 대화상자가 있어 '{' > '.join(walked)}' 메뉴를 "
                         f"쓸 수 없습니다. 대화상자를 닫고 다시 시도해 주세요")
+                if not self._frontmost(obs.pid):
+                    # Match the signed helper's handoff signal. A disabled
+                    # background menu may depend on the key window; do not
+                    # activate the app or claim foregrounding guarantees it.
+                    raise _NeedsForeground(
+                        f"메뉴 '{' > '.join(walked)}' 가 비활성 상태입니다. "
+                        "배경 앱에는 키 윈도우가 없어 사용할 수 없는 메뉴일 수 "
+                        "있습니다. 앱을 앞으로 가져온 뒤 다시 시도해 주세요")
                 raise NotStarted(f"메뉴 '{' > '.join(walked)}' 가 지금은 "
                                  f"비활성 상태입니다.{self._blocking_hint(obs)}")
             err = AXUIElementPerformAction(item, "AXPress")
