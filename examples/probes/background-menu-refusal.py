@@ -68,6 +68,16 @@ def _witness(pid, identifier):
     return _attr(found[0], 'AXValue') if found else None
 
 
+def _witness_focus():
+    """Start a focus witness from the probes directory, wherever we run from."""
+    import sys
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    from focus_witness import FocusWitness
+    return FocusWitness().__enter__()
+
+
 def _frontmost():
     from AppKit import NSWorkspace
     app = NSWorkspace.sharedWorkspace().frontmostApplication()
@@ -82,6 +92,7 @@ def main(driver, output: Path):
                                   'background; a responder-chain one is refused, '
                                   'not forced'}
     process = None
+    witness = None
     work = tempfile.TemporaryDirectory(prefix='nlc-menu-')
     try:
         binary = _build(work.name)
@@ -103,6 +114,10 @@ def main(driver, output: Path):
         # The premise, checked rather than assumed: this must be a BACKGROUND
         # app throughout, or the whole measurement means nothing.
         front_before = _frontmost()
+        # Armed before anything is asked of the fixture. Comparing the two ends
+        # cannot see an app pulled forward and handed back in between; this
+        # records every activation, from a run loop of its own.
+        witness = _witness_focus()
         if front_before is None:
             raise RuntimeError('frontmost application is not observable')
         if front_before == TARGET:
@@ -167,17 +182,25 @@ def main(driver, output: Path):
         if refused.get('needs_foreground') is not True:
             raise RuntimeError(f'a refusal must explain the required handoff: {refused}')
 
-        # And none of it cost anyone their screen.
+        # And none of it cost anyone their screen — not at the end, and not for
+        # a moment in the middle either.
         front_after = _frontmost()
         report['frontmost'] = [front_before, front_after]
+        witness.__exit__(None, None, None)
+        report['activations'] = witness.summary()['activations']
+        witness = None
         if front_after != front_before:
             raise RuntimeError(f'focus moved: {front_before} -> {front_after}')
+        if report['activations']:
+            raise RuntimeError(f'focus moved during the run: {report["activations"]}')
         report['passed'] = True
         return report
     except Exception as e:
         report['error'] = f'{type(e).__name__}: {e}'
         return report
     finally:
+        if witness is not None:
+            witness.__exit__(None, None, None)
         try:
             from nlc.evaluation import write_report
             write_report(output, report)

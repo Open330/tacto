@@ -120,6 +120,7 @@ def main(driver, output: Path):
               'what_this_proves': 'a coordinate read off a capture reaches a '
                                   'control accessibility cannot describe'}
     process = None
+    witness = None
     work = tempfile.mkdtemp(prefix='nlc-canvas-')
     try:
         binary = _fixture_app(work)
@@ -137,6 +138,9 @@ def main(driver, output: Path):
         if pid is None:
             raise RuntimeError('fixture_did_not_start')
         report['fixture_pid'] = pid
+        # Armed before observe, capture and the click: the frontmost app at
+        # the end says nothing about a moment in the middle.
+        witness = _witness_focus()
 
         observation = driver.observe(TARGET, 'tree_full')
         if observation.get('type') != 'observation':
@@ -194,19 +198,36 @@ def main(driver, output: Path):
         if after_count == before_count:
             raise RuntimeError('the label moved but the handler never ran')
 
-        # And it cost nobody their focus.
+        # And it cost nobody their focus — at the end or for a moment between.
         report['frontmost'] = [frontmost_before, _frontmost_bundle()]
+        witness.__exit__(None, None, None)
+        report['activations'] = witness.summary()['activations']
+        witness = None
         if _frontmost_bundle() == TARGET:
             raise RuntimeError('the fixture came to the front')
+        if report['activations']:
+            raise RuntimeError(f'focus moved during the run: {report["activations"]}')
         report['passed'] = True
         return report
     except Exception as e:                              # reported, never hidden
         report['error'] = f'{type(e).__name__}: {e}'
         return report
     finally:
+        if witness is not None:
+            witness.__exit__(None, None, None)
         output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
         if process is not None:
             process.terminate()
+
+
+def _witness_focus():
+    """Start a focus witness from the probes directory, wherever we run from."""
+    import sys
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    from focus_witness import FocusWitness
+    return FocusWitness().__enter__()
 
 
 def _frontmost_bundle():
