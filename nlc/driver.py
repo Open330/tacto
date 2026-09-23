@@ -210,8 +210,23 @@ def _elem_label(el):
     for name, v in zip(_LABEL_ATTRS, values):
         if not isinstance(v, (str, int, float)) or (v == "" and name != "AXValue"):
             continue
+        if isinstance(v, str):
+            v = _one_line(v)
         parts.append(f"{name[2:]}: {v}")   # strip the AX prefix
     return ", ".join(parts)
+
+
+# Every separator `str.splitlines` breaks on. A value that carried one used to
+# end its element's line early and start a new "line" at indent 0 — a Calendar
+# event's multi-line location did exactly that, and every selector scoped to
+# the focused window then climbed to that fragment, took it for the window, and
+# found nothing.
+_LINE_BREAKS = {ord(c): "\\n" for c in "\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"}
+
+
+def _one_line(text: str) -> str:
+    """A label as it must appear in the tree: on one line."""
+    return text.replace("\r\n", "\n").translate(_LINE_BREAKS)
 
 
 def _real_windows(pid):

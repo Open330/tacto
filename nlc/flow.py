@@ -141,6 +141,12 @@ class TargetAmbiguous(LookupError):
     """More than one element matched — never silently pick one (codex policy)."""
 
 
+# A tree line that is an element: indent, index, role. Only such a line can be a
+# container; a blank, a "… N개 더 있음" marker, or a fragment of a value that
+# once carried a line break says nothing about where a match sits.
+_NODE_LINE = re.compile(r"\s*\d+\s")
+
+
 @dataclass
 class Selector:
     """Stable way to re-find an element across observations.
@@ -275,7 +281,7 @@ class Selector:
         indent = len(lines[line_no]) - len(lines[line_no].lstrip())
         for j in range(line_no - 1, -1, -1):
             prev = lines[j]
-            if not prev.strip():
+            if not _NODE_LINE.match(prev):
                 continue
             pind = len(prev) - len(prev.lstrip())
             if pind < indent:
@@ -301,7 +307,7 @@ class Selector:
         top = lines[line_no]
         for j in range(line_no - 1, -1, -1):
             prev = lines[j]
-            if not prev.strip():
+            if not _NODE_LINE.match(prev):
                 continue
             pind = len(prev) - len(prev.lstrip())
             if pind < indent:
@@ -394,7 +400,7 @@ class Selector:
         indent = len(lines[start]) - len(lines[start].lstrip())
         for j in range(start - 1, -1, -1):
             prev = lines[j]
-            if not prev.strip():
+            if not _NODE_LINE.match(prev):
                 continue
             pind = len(prev) - len(prev.lstrip())
             if pind >= indent:
@@ -764,7 +770,7 @@ def _where(lines: list[str], i: int) -> str:
     window = container = ""
     for j in range(i - 1, -1, -1):
         prev = lines[j]
-        if not prev.strip():
+        if not _NODE_LINE.match(prev):
             continue
         pind = len(prev) - len(prev.lstrip())
         if pind >= indent:

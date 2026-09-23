@@ -23,6 +23,12 @@ class InputSnapshot:
     selected_text_range: tuple[int, int] | None = None
 
 
+# The focus identity of an app that has nothing focused. A value, distinct from
+# None (unknown), so a change from "nothing" to "a field" is still a change the
+# audit can see.
+NO_FOCUS = "no-focus"
+
+
 class MacInputReader:
     """Lazy reader with an explicitly selected, labeled foreground source.
 
@@ -111,9 +117,16 @@ class MacInputReader:
                                           + ';frontmost=' + str(frontmost)[:40])
                 return InputSnapshot(None, pointer, None, errors, self.strategy)
             error, element = ax.AXUIElementCopyAttributeValue(application, 'AXFocusedUIElement', None)
-            if error != 0:
+            # Same three-way contract as the systemwide path below: nothing
+            # focused is a reading, not a failure.
+            if error in (-25205, -25212):
+                element = None
+                # A reading, and it has to be one: None is what `missing` means,
+                # and "there is nothing focused" is not "we could not tell".
+                focus = NO_FOCUS
+            elif error != 0:
                 errors['focus_identity'] = 'AXError:' + str(error)
-            elif element is not None:
+            if element is not None:
                 focus = next((token for owner, old, token in self._focuses
                               if owner == pid and cf.CFEqual(old, element)), None)
                 if focus is None:
@@ -187,7 +200,20 @@ class MacInputReader:
                     return InputSnapshot(pid, pointer, focus, errors, self.strategy, selection)
                 application = ax.AXUIElementCreateApplication(pid)
                 error, element = ax.AXUIElementCopyAttributeValue(application, 'AXFocusedUIElement', None)
-                if error != 0:
+                # The three-way AX contract this project holds everywhere else:
+                # 0 is a value, -25205/-25212 are a LEGITIMATE absence, anything
+                # else is a failure. An app in front with nothing focused — a
+                # TextEdit whose documents are all closed — answers -25212, and
+                # "no focused element" is a reading, not an error. Treated as an
+                # error it made the audit refuse to start whenever such an app
+                # was frontmost, which three scenarios reported as a broken
+                # collector.
+                if error in (-25205, -25212):
+                    element = None
+                    # A reading, and it has to be one: None is what `missing` means,
+                    # and "there is nothing focused" is not "we could not tell".
+                    focus = NO_FOCUS
+                elif error != 0:
                     errors['focus_identity'] = 'AXError:' + str(error)
                 elif element is not None:
                     focus = next((token for owner, old, token in self._focuses

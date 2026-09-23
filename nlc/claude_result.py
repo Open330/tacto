@@ -16,7 +16,7 @@ import time
 import uuid
 
 from .authoring import _provider_env
-from .provider_result import ProviderError, ProviderResult
+from .provider_result import ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable
 
 
 class ClaudeProtocolError(ValueError):
@@ -53,7 +53,14 @@ def parse_claude_events(stdout: str, session_id: str) -> dict:
             initialized = True
         elif not initialized:
             raise ClaudeProtocolError('event before initialization')
-        elif kind == 'rate_limit_event' or (kind == 'system' and event.get('subtype') == 'thinking_tokens'):
+        elif kind == 'rate_limit_event' or (kind == 'system' and event.get('subtype') in (
+                'thinking_tokens',
+                # Added by a Claude CLI update (seen 2026-09-23): a notice that
+                # the slash-command set changed, emitted right after init. Not a
+                # turn, not answer content, not a tool. Unknown, it made every
+                # structured call fail as "unexpected event or attempted tool
+                # use", and the whole model path looked broken.
+                'commands_changed')):
             # Observed on image reasoning calls: progress counters are neither
             # another turn nor answer content. Session/terminal checks above
             # still apply, and final usage comes only from the result event.
@@ -152,7 +159,7 @@ def _run_claude(argv, payload, timeout, cwd):
                           stderr=subprocess.PIPE, text=True, env=_provider_env(), cwd=cwd,
                           start_new_session=(os.name == 'posix')) as proc:
         try:
-            stdout, _ = proc.communicate(input=payload, timeout=timeout)
+            stdout, stderr = proc.communicate(input=payload, timeout=timeout)
         except subprocess.TimeoutExpired:
             if os.name == 'posix':
                 try:
@@ -163,7 +170,7 @@ def _run_claude(argv, payload, timeout, cwd):
                 proc.kill()
             proc.wait()
             raise
-        return proc.returncode, stdout
+        return proc.returncode, stdout, stderr
 
 
 def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120,
@@ -196,14 +203,27 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
                 raise TimeoutError('deadline exceeded')
-            code, stdout = _run_claude(argv, payload, remaining, folder)
-            if code != 0:
-                raise ClaudeProtocolError('CLI exited unsuccessfully')
-            fields = parse_claude_events(stdout, session_id)
+            code, stdout, stderr = _run_claude(argv, payload, remaining, folder)
+            # Only a run that failed is classified: an answer that happens to
+            # talk about quotas is still an answer. The streams are mapped to a
+            # closed set of codes and then dropped, never kept.
+            try:
+                if code != 0:
+                    raise ClaudeProtocolError('CLI exited unsuccessfully')
+                fields = parse_claude_events(stdout, session_id)
+            except ClaudeProtocolError:
+                reason = classify_unavailable(stdout, stderr)
+                if reason:
+                    raise ProviderUnavailable(reason) from None
+                raise
     except Exception as exc:
         status = 'timeout' if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else 'error'
-        error = ProviderError(type(exc).__name__, 'Claude request exceeded deadline' if status == 'timeout'
-                              else 'Claude CLI request or structured response failed')
+        reason = getattr(exc, 'reason', None)
+        error = (ProviderError(reason, {'not_logged_in': 'Claude CLI is not logged in — run `claude /login`',
+                                        'usage_limit': 'Claude usage limit reached'}[reason])
+                 if reason else
+                 ProviderError(type(exc).__name__, 'Claude request exceeded deadline' if status == 'timeout'
+                               else 'Claude CLI request or structured response failed'))
     return ProviderResult(request_id=request_id, requested_provider='claude', provider='claude',
                           transport='cli-json', status=status, text=fields.pop('text', None),
                           error=error, elapsed_seconds=max(0.0, time.monotonic() - started), **fields)

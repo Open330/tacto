@@ -35,7 +35,10 @@ from nlc.evaluation import EvaluationFailure, require_replay
 def scenario_task_success():
     d = Driver()
     r = replay(d, calculator_12x34())
-    return r.ok and r.log[-1]["status"] == "done"
+    # The replay log travels with a failure: these ran green alone and
+    # failed only inside the full suite, where a bare False said nothing.
+    require_replay(r, "task_success", accepted=r.ok and r.log[-1]["status"] == "done")
+    return True
 
 
 def scenario_safety_block():
@@ -200,8 +203,9 @@ def scenario_input_verification():
     from nlc.contract import SafetyContract, Resource, ContextBinding
     from nlc.library import TEXT_AREA, textedit_new_document
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     # A running TextEdit is not the same as one with a document in it, and
     # `_textedit_ready` deliberately observes with require_window=False. Make
     # the thing this is supposed to type into.
@@ -293,7 +297,8 @@ def scenario_parameterized_flow():
         return False                                     # for_each expanded
     d = Driver()
     r = replay(d, f.bind(a="6", b="7"))
-    return r.ok and str(r.log[-1].get("result")) in ("42", "42.0")
+    require_replay(r, "calculator_template", accepted=r.ok and str(r.log[-1].get("result")) in ("42", "42.0"))
+    return True
 
 
 def scenario_reparameterize():
@@ -320,7 +325,8 @@ def scenario_reparameterize():
         return False
     from nlc.flow import replay
     r = replay(Driver(), t.bind(a="8", b="7"))
-    return r.ok and str(r.log[-1].get("result")) == "56"
+    require_replay(r, "reparameterize", accepted=r.ok and str(r.log[-1].get("result")) == "56")
+    return True
 
 
 def scenario_capture():
@@ -332,7 +338,8 @@ def scenario_capture():
         field=Selector(role="ScrollArea", identifier="StandardInputView"),
         attribute="Value")]
     r = replay(Driver(), f)
-    return r.ok and (r.log[-1].get("captured") or {}).get("answer") == "72"
+    require_replay(r, "capture", accepted=r.ok and (r.log[-1].get("captured") or {}).get("answer") == "72")
+    return True
 
 
 def scenario_swift_helper():
@@ -351,7 +358,8 @@ def scenario_swift_helper():
     try:
         from nlc.flow import calculator_multiply, replay
         r = replay(d, calculator_multiply().bind(a="9", b="8"))
-        return r.ok and str(r.log[-1].get("result")) == "72"
+        require_replay(r, "swift_helper", accepted=r.ok and str(r.log[-1].get("result")) == "72")
+        return True
     finally:
         d.close()
 
@@ -577,7 +585,8 @@ def scenario_menu_command():
     from nlc.library import finder_open_folder
     d = Driver()
     r = replay(d, finder_open_folder().bind(folder="Documents"))
-    return r.ok and r.log[-1]["status"] == "done"
+    require_replay(r, "finder_open_folder", accepted=r.ok and r.log[-1]["status"] == "done")
+    return True
 
 
 def scenario_menu_verification_required():
@@ -606,8 +615,9 @@ def scenario_toggle_converges():
     from nlc.library import (textedit_new_document, textedit_write_note,
                              textedit_emphasize)
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     # Make the document this needs instead of hoping one is lying around: the
     # suite now tidies up after itself, so nothing is.
     _tidy_textedit(d)
@@ -715,9 +725,38 @@ def _textedit_ready(d):
     IS that layer, so it does openly what the driver used to do by lying:
     bring TextEdit forward, through NSWorkspace, as a person would.
     """
-    if not _ensure_window("com.apple.TextEdit", d):
-        return False
-    return _bring_forward("com.apple.TextEdit", d)
+    return not _textedit_problem(d)
+
+
+def _textedit_problem(d):
+    """Why TextEdit is not ready, or "" if it is.
+
+    Two different failures used to come back as one `False`, and every caller
+    turned that into "TextEdit 이 실행 중이 아님" — including during a run
+    where TextEdit had opened twenty windows. A reason that is wrong sends the
+    reader to fix the wrong thing.
+
+    Running is what is needed, not a window: every scenario that uses this
+    makes its own document first, and `_tidy_textedit` closes them all between
+    scenarios, so demanding a window here failed on exactly the state the
+    previous scenario left behind.
+    """
+    import subprocess
+    if d._resolve("com.apple.TextEdit", launch=False) is None:
+        subprocess.run(["open", "-g", "-b", "com.apple.TextEdit"], check=False)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            d._pump()
+            if d._resolve("com.apple.TextEdit", launch=False) is not None:
+                break
+            time.sleep(0.2)
+        else:
+            return "TextEdit 을 실행하지 못했습니다"
+    if not foreground_allowed():
+        return "TextEdit 을 앞으로 가져와야 합니다 — --foreground 로만 실행됩니다"
+    if not _bring_forward("com.apple.TextEdit", d):
+        return "TextEdit 을 앞으로 가져오지 못했습니다"
+    return ""
 
 
 def _ensure_window(bundle, d, timeout=8.0):
@@ -813,10 +852,14 @@ def _bring_forward(bundle, d, timeout=4.0):
     app.activateWithOptions_(0)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        # `frontmostApplication()` is a snapshot the run loop refreshes, and a
+        # script runs no run loop — without the pump it kept answering Finder
+        # after Calendar had already come forward, and this timed out on an
+        # activation that had worked.
+        d._pump(0.05)
         front = workspace.frontmostApplication()
         if front is not None and int(front.processIdentifier()) == pid:
             return True
-        time.sleep(0.05)
     return False
 
 
@@ -921,8 +964,9 @@ def scenario_save_file():
     from nlc.library import (textedit_new_document, textedit_write_note,
                              textedit_save_as)
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     _tidy_textedit(d)
     name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
     body = "저장 시나리오 테스트"
@@ -955,8 +999,9 @@ def scenario_consent_is_about_the_file():
     from nlc.flow import replay
     from nlc.library import textedit_new_document, textedit_save_as
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     # Start from a clean slate rather than assuming one: a scenario that needs
     # exactly one dialog open cannot depend on whatever ran before it.
     _tidy_textedit(d)
@@ -1041,13 +1086,19 @@ def scenario_large_tree_is_bounded():
     t0 = time.monotonic()
     o = d.observe("Mail", "tree_full")
     took = time.monotonic() - t0
-    if o["type"] != "observation":
-        return False
     # Bounded in both senses: it finished, and it said what it left out. The
     # time ceiling is deliberately loose — the property is "answers instead of
     # hanging", and a tight one turns this into a benchmark that fails whenever
     # the machine is busy rather than when the driver is broken.
-    return took < 90 and o["element_count"] <= 2500 and o.get("truncated") is True
+    if not (o["type"] == "observation" and took < 90
+            and o["element_count"] <= 2500 and o.get("truncated") is True):
+        # Shape only: the tree is someone's mailbox.
+        raise EvaluationFailure("mail_observation", {
+            "type": o.get("type"), "seconds": round(took, 1),
+            "element_count": o.get("element_count"),
+            "truncated": o.get("truncated"),
+            "error": o.get("error"), "detail": str(o.get("detail", ""))[:160]})
+    return True
 
 
 def scenario_reads_a_list():
@@ -1081,11 +1132,20 @@ def scenario_calendar_reads_today():
     d = Driver()
     if d._resolve("Calendar", launch=False) is None:
         return "Calendar 가 실행 중이 아님"
+    # `View > Go to Today` goes through the responder chain, so a background
+    # Calendar reports it disabled and the driver refuses it with
+    # `needs_foreground` — correctly. This scenario needed the app in front and
+    # neither declared that nor brought it there, so the refusal came back as a
+    # bare failure.
+    if not _bring_forward("com.apple.iCal", d):
+        return "Calendar 를 앞으로 가져오지 못했습니다"
     t = datetime.date.today()
     f = calendar_today().bind(weekday_en=t.strftime("%A"),
                               weekday_ko=_WEEKDAY_KO[t.weekday()])
     r = replay(d, f)
-    return r.ok and "오늘 일정" in (r.log[-1].get("captured") or {})
+    require_replay(r, "calendar_today",
+                   accepted=r.ok and "오늘 일정" in (r.log[-1].get("captured") or {}))
+    return True
 
 
 def scenario_mail_reads_inbox():
@@ -1097,7 +1157,14 @@ def scenario_mail_reads_inbox():
         return "Mail 이 실행 중이 아님"
     r = replay(d, mail_inbox())
     got = r.log[-1].get("captured") or {}
-    return r.ok and bool(got.get("메일함")) and "제목" in got
+    if not (r.ok and bool(got.get("메일함")) and "제목" in got):
+        # What each step did and why it stopped — never what it read, which
+        # is someone's senders and subjects.
+        raise EvaluationFailure("mail_inbox", {
+            "ok": r.ok, "captured_keys": sorted(got),
+            "steps": [{k: e.get(k) for k in ("step", "action", "status", "error", "kind")
+                       if e.get(k) is not None} for e in r.log]})
+    return True
 
 
 def scenario_missing_target_says_what_is_there():
@@ -1137,8 +1204,9 @@ def scenario_dialog_recovery():
     from nlc.flow import replay
     from nlc.library import close_dialog, textedit_new_document
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     # Start from a clean slate rather than assuming one: a scenario that needs
     # exactly one dialog open cannot depend on whatever ran before it.
     _tidy_textedit(d)
@@ -1169,8 +1237,9 @@ def scenario_save_chooses_its_folder():
     from nlc.library import (textedit_new_document, textedit_write_note,
                              textedit_save_as)
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     _tidy_textedit(d)
     name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
     body = "폴더 지정 저장"
@@ -1241,7 +1310,10 @@ def scenario_authoring_produces_a_runnable_flow():
     try:
         flow = authoring.author("계산기 공학용으로", d,
                                 target="com.apple.calculator")
-        ok = replay(d, flow).ok
+        # The replay's own log, not a bare False: this failed only inside the
+        # full suite, and a failure without its steps cannot be diagnosed.
+        require_replay(replay(d, flow), "authored_replay")
+        ok = True
     finally:
         authoring._ask_model, authoring.reach_model = real_ask, real_reach
         back = d.observe("com.apple.calculator", "tree_full", require_window=False)
@@ -1286,8 +1358,9 @@ def scenario_authoring_handles_a_dialog():
     from nlc.flow import replay
     from nlc.library import textedit_new_document
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     _tidy_textedit(d)
     if not replay(d, textedit_new_document()).ok:
         return "빈 문서를 열지 못함"
@@ -1409,8 +1482,9 @@ def scenario_escalation_is_off_by_default():
     from nlc.flow import replay
     from nlc.library import textedit_save_as
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     if not _blocking_sheet(d):
         return "저장 시트를 띄우지 못함"
     calls = []
@@ -1460,8 +1534,9 @@ def scenario_escalation_clears_a_blocked_run():
     from nlc.flow import Resolution, replay
     from nlc.library import textedit_save_as
     d = Driver()
-    if not _textedit_ready(d):
-        return "TextEdit 이 실행 중이 아님 (open -a TextEdit)"
+    problem = _textedit_problem(d)
+    if problem:
+        return problem
     if not _blocking_sheet(d):
         return "저장 시트를 띄우지 못함"
 
@@ -3659,14 +3734,79 @@ def scenario_safety_classifier():
 
 
 def scenario_native_document_text():
+    """Read-only document witness, against a document this run creates itself.
+
+    It used to require a host-supplied `--document-fixture=` naming a document
+    someone had opened by hand, so it failed on any run that did not come with
+    one. Without that argument it now writes its own file with known text,
+    opens it in TextEdit in the background, reads it back through the same
+    checks, and closes it again — nothing of the person's is read or touched.
+    """
+    import json
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    if any(a.startswith('--document-fixture=') for a in sys.argv[1:]):
+        return _native_document_text_run(None)
+    work = Path(tempfile.mkdtemp(prefix='nlc-document-'))
+    document = work / 'nlc-document-witness.txt'
+    body = 'NLC document witness — 읽기 전용 확인 본문\n두 번째 줄'
+    document.write_text(body)
+    expectations = work / 'expectations.json'
+    expectations.write_text(json.dumps({'document_path': str(document.resolve()), 'text': body}))
+    subprocess.run(['open', '-g', '-a', 'TextEdit', str(document)], check=False)
+    try:
+        opened = _wait_for_textedit_document(document)
+        if opened is None:
+            return 'TextEdit 이 만든 문서를 열지 못했습니다'
+        return _native_document_text_run(str(expectations))
+    finally:
+        _close_textedit_document(document)
+
+
+def _wait_for_textedit_document(document, timeout=10):
+    """The TextEdit window showing `document`, once it exists."""
+    from ApplicationServices import AXUIElementCreateApplication
+    from nlc.driver import _attr
+    probe = Driver()
+    want = str(document.resolve())
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        probe._pump()
+        pid = probe._resolve('com.apple.TextEdit', launch=False)
+        if pid is not None:
+            for window in _attr(AXUIElementCreateApplication(pid), 'AXWindows') or []:
+                url = _attr(window, 'AXDocument')
+                if url and want in str(url).replace('%20', ' '):
+                    return window
+        time.sleep(0.2)
+    return None
+
+
+def _close_textedit_document(document):
+    """Close the window this run opened, by its own close button — never Save."""
+    from ApplicationServices import AXUIElementPerformAction
+    from nlc.driver import _attr
+    window = _wait_for_textedit_document(document, timeout=1)
+    if window is not None:
+        button = _attr(window, 'AXCloseButton')
+        if button is not None:
+            AXUIElementPerformAction(button, 'AXPress')
+    try:
+        document.unlink()
+    except OSError:
+        pass
+
+
+def _native_document_text_run(fixture_arg):
     """Explicit read-only document witness; fixture expectations are host input."""
     import json
     import os
     from pathlib import Path
     from nlc.helper import InheritedHelperDriver
     from nlc.input_audit_process import ProcessInputAudit
-    fixtures = [a.split('=', 1)[1] for a in sys.argv[1:]
-                if a.startswith('--document-fixture=')]
+    fixtures = ([fixture_arg] if fixture_arg else
+                [a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--document-fixture=')])
     assert len(fixtures) == 1, 'one --document-fixture=<expectations.json> required'
     fixture = json.loads(Path(fixtures[0]).read_text())
     expected_path = fixture.get('document_path')
@@ -3762,6 +3902,101 @@ def scenario_signed_provider_envelope():
     return True
 
 
+def _coordinate_fixture_self_contained(driver):
+    """The still-valid half of the coordinate-fixture check, with no supervisor."""
+    import plistlib
+    import subprocess
+    import sys as _sys
+    import tempfile
+    from pathlib import Path
+    from nlc.flow import Selector
+    from nlc.evaluation import EvaluationFailure
+    root = Path(__file__).resolve().parents[1]
+    _sys.path.insert(0, str(root / "examples/probes"))
+    from focus_witness import FocusWitness
+    target = "ai.callabo.nlc.coordinate-fixture"
+    sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
+    if not sdks:
+        return "macOS SDK 없음"
+    app = Path(tempfile.mkdtemp(prefix="nlc-coordinate-")) / "NLC Coordinate Fixture.app"
+    exe = app / "Contents/MacOS/NativeCoordinateFixture"
+    exe.parent.mkdir(parents=True)
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleIdentifier": target, "CFBundleExecutable": exe.name,
+        "CFBundleName": "NLC Coordinate Fixture", "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1", "LSUIElement": True}))
+    build = subprocess.run(
+        ["/Library/Developer/CommandLineTools/usr/bin/swiftc", "-parse-as-library",
+         "-sdk", str(sdks[-1]), str(root / "tests/fixtures/NativeCoordinateFixture.swift"),
+         "-o", str(exe)], capture_output=True, text=True)
+    if build.returncode != 0:
+        raise EvaluationFailure("coordinate fixture build", {"stderr": build.stderr[:300]})
+    process = subprocess.Popen([str(exe), "--timeout", "90"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    probe = Driver()
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            probe._pump()
+            if probe._resolve(target, launch=False) == process.pid:
+                break
+            time.sleep(0.1)
+        else:
+            raise EvaluationFailure("coordinate fixture launch", {"error": "did not start"})
+        time.sleep(0.5)
+
+        def count():
+            observation = probe.observe(target, "tree_full")
+            for line in observation.get("tree", "").splitlines():
+                if "nlc-coordinate-count" in line:
+                    return Selector._attr(line, "Value") or Selector._attr(line, "Title")
+            return None
+
+        with FocusWitness() as witness:
+            observation = driver.observe(target, "tree_full")
+            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
+            before = count()
+            refusals = []
+            for token, expectation in (("stale-observation", {"role": "Button"}),
+                                       (observation["obs_id"], {"role": "TextField"})):
+                refused = driver.act(token, target, {"name": "click", "element_index": index},
+                                     expect=expectation)
+                refusals.append(refused)
+            refused = driver._send({"type": "act", "obs_id": observation["obs_id"],
+                                    "target": target,
+                                    "action": {"name": "click", "element_index": index},
+                                    "click_deadline_uptime": time.monotonic() - 1})
+            refusals.append(refused)
+            unchanged = count()
+            observation = driver.observe(target, "tree_full")
+            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
+            acted = driver.act(observation["obs_id"], target,
+                               {"name": "click", "element_index": index},
+                               expect={"role": "Button", "enabled": True})
+            time.sleep(0.4)
+            after = count()
+        facts = {"refusals": refusals, "count": [before, unchanged, after],
+                 "acted": acted, "focus": witness.summary()}
+        wrong = [r for r in refusals
+                 if r.get("type") != "error" or r.get("effect") != "not_started"]
+        if wrong or unchanged != before:
+            raise EvaluationFailure("a refused click had an effect", facts)
+        # This fixture's button refuses AXPress on purpose: it exists to be
+        # clickable ONLY by pointer, which is what the coordinate experiments
+        # used to synthesise. This branch does not, so the honest answer is a
+        # refusal that names the pointer and hands off — and the witness count
+        # proves nothing was pressed anyway.
+        if acted.get("type") != "error" or not acted.get("needs_pointer"):
+            raise EvaluationFailure("a pointer-only control was not refused as one", facts)
+        if acted.get("effect") != "not_started" or str(after) != str(before):
+            raise EvaluationFailure("the refused click had an effect", facts)
+        if witness.activations:
+            raise EvaluationFailure("focus moved during the check", facts)
+        return True
+    finally:
+        process.terminate()
+
+
 def scenario_native_coordinate_fixture():
     """Explicit signed helper coordinate click on supervisor-owned fixture only."""
     import runpy
@@ -3770,6 +4005,17 @@ def scenario_native_coordinate_fixture():
     assert InheritedHelperDriver.available(), "signed launcher required"
     controls = [arg.split("=", 1)[1] for arg in sys.argv[1:]
                 if arg.startswith("--coordinate-control=")]
+    if not controls:
+        # Without a supervisor this used to fail outright, and the supervisor
+        # lived in reviews/ — ignored — so on a fresh clone it could never run.
+        # What still holds is checked on our own: through the signed helper,
+        # against an owned fixture in the background, a stale obs_id, a wrong
+        # expectation and an expired click deadline are each refused without
+        # effect, and a pointer-only button is refused as such rather than
+        # pressed by synthesis. The research paths the
+        # supervisor also drove (synthetic activation, title-bar CG clicks) are
+        # the input synthesis this branch removed.
+        return _coordinate_fixture_self_contained(InheritedHelperDriver())
     assert len(controls) == 1, "one explicit supervisor control directory required"
     root = Path(__file__).resolve().parents[1]
     control = Path(controls[0]).resolve(strict=True)
@@ -3887,6 +4133,57 @@ def scenario_signed_background_refusal():
     return True
 
 
+def _owned_select_fixture():
+    """Start the owned select fixture if nobody has, and say who owns it.
+
+    These scenarios used to require it already running, and the only code that
+    started it lived in reviews/ — ignored, so on a fresh clone nothing could
+    start it and the scenarios could never run. Launched like that supervisor
+    did: built into its own bundle, exec'd directly so it stays an accessory in
+    the background and is never activated. Returns the process to stop, or None
+    if one was already running (then it is not ours to stop).
+    """
+    import plistlib
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    from examples.probe_native_select import TARGET
+    probe = Driver()
+    probe._pump()
+    if probe._resolve(TARGET, launch=False) is not None:
+        return None
+    root = Path(__file__).resolve().parents[1]
+    sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
+    if not sdks:
+        raise RuntimeError("no_macos_sdk")
+    app = Path(tempfile.mkdtemp(prefix="nlc-owned-select-")) / "NLC Select Fixture.app"
+    executable = app / "Contents/MacOS/NativeSelectFixture"
+    executable.parent.mkdir(parents=True)
+    (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleIdentifier": TARGET, "CFBundleExecutable": executable.name,
+        "CFBundleName": "NLC Select Fixture", "CFBundlePackageType": "APPL",
+        "CFBundleVersion": "1", "LSUIElement": True}))
+    build = subprocess.run(
+        ["/Library/Developer/CommandLineTools/usr/bin/swiftc", "-parse-as-library",
+         "-sdk", str(sdks[-1]), str(root / "tests/fixtures/NativeSelectFixture.swift"),
+         "-o", str(executable)], capture_output=True, text=True)
+    if build.returncode != 0:
+        raise RuntimeError("fixture_compile_failed: " + build.stderr.strip()[:200])
+    process = subprocess.Popen([str(executable), "--timeout", "180"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        probe._pump()
+        if probe._resolve(TARGET, launch=False) == process.pid:
+            time.sleep(0.5)                 # window and controls, not just a pid
+            return process
+        if process.poll() is not None:
+            raise RuntimeError("fixture_exited_on_launch")
+        time.sleep(0.1)
+    process.terminate()
+    raise RuntimeError("fixture_did_not_start")
+
+
 def scenario_native_select_fixture():
     """Explicit owned AppKit popup probe; not part of the default UI suite."""
     import json
@@ -3898,7 +4195,12 @@ def scenario_native_select_fixture():
     transport = "inherited-helper" if signed else "in-process"
     root = Path(__file__).resolve().parents[1]
     output = root / "reviews/2026-09-19" / f"native-select-{transport}-{time.time_ns()}.json"
-    result = run_and_save(d, output=output, transport=transport)
+    owned = _owned_select_fixture()
+    try:
+        result = run_and_save(d, output=output, transport=transport)
+    finally:
+        if owned is not None:
+            owned.terminate()
     print("  native select report: " + str(output))
     assert result["passed"], json.dumps(result.get("error"), ensure_ascii=False)
     return True
@@ -3919,7 +4221,12 @@ def scenario_native_select_model_fixture():
     transport="inherited-helper" if signed else "in-process"
     root=Path(__file__).resolve().parents[1]
     output=root/"reviews/2026-09-19"/f"native-select-model-{transport}-{time.time_ns()}.json"
-    result=run_and_save(d,output=output,transport=transport,provider=provider)
+    owned = _owned_select_fixture()
+    try:
+        result=run_and_save(d,output=output,transport=transport,provider=provider)
+    finally:
+        if owned is not None:
+            owned.terminate()
     print("  native select report: " + str(output))
     assert result["passed"],json.dumps(result.get("error") or result.get("why"),ensure_ascii=False)
     return True
@@ -4211,7 +4518,7 @@ SCENARIO_REQUIREMENTS: dict = {
     "authoring_still_catches_invented_targets": {"gui", "model"},
     "batch_invalidation": {"gui"},
     "builtin_is_not_frozen": {"gui"},
-    "calendar_reads_today": {"gui"},
+    "calendar_reads_today": {"gui", "foreground"},
     "capture": {"gui"},
     "cli_end_to_end": {"gui"},
     "consent_cannot_be_re_aimed": {"gui"},
@@ -4518,6 +4825,16 @@ def main():
             case["error"] = error
         if details is not None:
             case["details"] = details
+            # A failure whose own evidence says "this needed the app in front"
+            # on a scenario that never declared it: still a failure, but the
+            # cause is named. calendar_reads_today reported a bare FAIL for a
+            # refusal that was correct, because it neither declared nor brought
+            # Calendar forward.
+            if (case["status"] == "failed" and "foreground" not in need
+                    and '"needs_foreground": true' in json.dumps(details).lower()):
+                case["reason_code"] = "undeclared_foreground"
+                case["reason"] = ("앞선 앱이 필요한 동작이 거절됐는데 이 시나리오는 "
+                                  "foreground 요구를 선언하지 않았습니다")
         label = {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}[case["status"]]
         print(f"  {label}  {case['name']}  ({case['duration_ms']:.0f}ms)" +
               (f"  ({case['reason']})" if case["reason"] else ""))

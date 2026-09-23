@@ -37,6 +37,7 @@ class FocusWitness:
         self.process = None
         self.initial = None
         self.activations = []
+        self.windows = []
 
     def __enter__(self):
         fd, name = tempfile.mkstemp(prefix="nlc-focus-", suffix=".jsonl")
@@ -64,8 +65,9 @@ class FocusWitness:
         # Let anything already posted reach the run loop before stopping.
         time.sleep(0.3)
         self._stop()
-        self.activations = [line for line in self._lines()
-                            if line.get("event") == "activated"]
+        lines = self._lines()
+        self.activations = [line for line in lines if line.get("event") == "activated"]
+        self.windows = [line for line in lines if line.get("event") == "window"]
         try:
             self.path.unlink()
         except OSError:
@@ -95,7 +97,9 @@ class FocusWitness:
 
     def summary(self):
         return {"initial": self.initial,
-                "activations": [a.get("bundle") for a in self.activations]}
+                "activations": [a.get("bundle") for a in self.activations],
+                "windows": [f'{w.get("owner")}: {w.get("title") or "(untitled)"}'
+                            for w in self.windows]}
 
 
 def _run(path):
@@ -127,9 +131,35 @@ def _run(path):
     front = workspace.frontmostApplication()
     write({"event": "ready",
            "frontmost": front.bundleIdentifier() if front else None})
+    # Windows are the other way to land on someone's screen. A dialog can
+    # appear over their work without any app becoming active, which the
+    # activation notification cannot see. Windows persist for at least a frame
+    # and usually far longer, so a short poll of the on-screen list is enough
+    # here where it was not for activations.
+    import Quartz
+
+    def on_screen():
+        seen = {}
+        for w in Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly
+                | Quartz.kCGWindowListExcludeDesktopElements,
+                Quartz.kCGNullWindowID) or []:
+            if w.get("kCGWindowLayer") != 0:
+                continue
+            seen[w["kCGWindowNumber"]] = (w.get("kCGWindowOwnerName"),
+                                         w.get("kCGWindowName"))
+        return seen
+
+    known = on_screen()
     loop = NSRunLoop.currentRunLoop()
     while not stop["now"]:
         loop.runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.1))
+        now = on_screen()
+        for number, (owner, title) in now.items():
+            if number not in known:
+                write({"event": "window", "owner": owner, "title": title,
+                       "number": number})
+        known = now
     out.close()
 
 

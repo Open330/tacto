@@ -400,10 +400,14 @@ def _bring_forward(bundle, d, timeout=4.0):
     app.activateWithOptions_(0)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        # `frontmostApplication()` is a snapshot the run loop refreshes, and a
+        # script runs no run loop — without the pump it kept answering Finder
+        # after Calendar had already come forward, and this timed out on an
+        # activation that had worked.
+        d._pump(0.05)
         front = workspace.frontmostApplication()
         if front is not None and int(front.processIdentifier()) == pid:
             return True
-        time.sleep(0.05)
     return False
 
 
@@ -552,7 +556,13 @@ def _select_fixture(d, lifetime=180):
     # let this process do the thing it was granted" has been how it was
     # started.
     launch = subprocess.run(
-        ["open", "-n", "-a", str(app), "--args",
+        # `-g`: LaunchServices activates what it opens unless told not to,
+        # so dropping `--foreground` from the fixture was not enough — the
+        # launch itself took the screen. Measured by the focus witness during a
+        # default run: ['ai.callabo.nlc.select-fixture', 'com.apple.finder'],
+        # with Finder frontmost at both ends. In foreground mode the fixture
+        # still comes forward, because `--foreground` makes it activate itself.
+        ["open", "-g", "-n", "-a", str(app), "--args",
          "--timeout", str(lifetime)]
         # `--foreground` makes the fixture activate itself, which is a
         # second way to take the screen and has nothing to do with
