@@ -361,8 +361,19 @@ def scenario_helper_menu():
 
     If it cannot, every task that lives in a menu — save, copy, open a folder —
     either does not run at all or quietly runs outside the permission boundary,
-    which is the one thing the boundary exists to prevent. A disabled command
-    is reported with its failing step; the harness never activates Finder."""
+    which is the one thing the boundary exists to prevent.
+
+    It used to prove that by opening Documents in the person's own Finder, so
+    checking it meant changing what they were looking at. The same property is
+    checked against an owned fixture now, through the signed helper, with a
+    witness the fixture's own handler writes: a direct-target command runs and
+    its counter moves by exactly one; a responder-chain command is refused with
+    `needs_foreground` and its counter does not move; and the frontmost app is
+    the same at the end as at the start. That is the in-process background-menu
+    check run over the transport that ships, so the two cannot drift apart.
+    """
+    import runpy
+    from pathlib import Path
     try:
         from nlc.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
@@ -371,11 +382,19 @@ def scenario_helper_menu():
     except Exception:
         return "서명된 런처 밖 — 상속 채널 없음"
     try:
-        from nlc.flow import replay
-        from nlc.library import finder_open_folder
-        r = replay(d, finder_open_folder().bind(folder="Documents"))
-        require_replay(r, "helper_menu: open Documents")
-        return r.ok and r.log[-1]["status"] == "done"
+        root = Path(__file__).resolve().parents[1]
+        probe = runpy.run_path(str(root / "examples/probes/background-menu-refusal.py"))
+        output = root / "reviews/2026-09-23" / f"helper-menu-{time.time_ns()}.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        report = probe["main"](d, output)
+        print("  helper menu report: " + str(output))
+        if not report.get("passed"):
+            raise EvaluationFailure("helper_menu", {
+                "error": report.get("error"),
+                "steps": report.get("steps"),
+                "refusal": report.get("refusal"),
+                "frontmost": report.get("frontmost")})
+        return True
     finally:
         d.close()
 
@@ -4203,7 +4222,7 @@ SCENARIO_REQUIREMENTS: dict = {
     "escalation_is_off_by_default": {"gui", "foreground"},
     "escalation_only_where_declared": {"gui"},
     "every_transport_answers_the_same": {"gui"},
-    "helper_menu": {"gui"},
+    "helper_menu": {"gui", "native"},
     "helper_user_authority": {"gui"},
     "input_verification": {"gui", "foreground"},
     "large_tree_is_bounded": {"gui"},
