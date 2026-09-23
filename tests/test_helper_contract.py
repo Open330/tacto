@@ -28,6 +28,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from nlc.evaluation import foreground_allowed
+
 CALC = "com.apple.calculator"
 
 # Nothing is imported from `nlc.driver` at module scope on purpose. It needs
@@ -381,6 +383,8 @@ def _bring_forward(bundle, d, timeout=4.0):
     background window is not somewhere a menu can be opened, and pretending
     otherwise is the synthetic activation this project removed.
     """
+    if not foreground_allowed():
+        return False
     import time
     from AppKit import NSWorkspace, NSRunningApplication
     pid = d._resolve(bundle, launch=False)
@@ -549,7 +553,12 @@ def _select_fixture(d, lifetime=180):
     # started.
     launch = subprocess.run(
         ["open", "-n", "-a", str(app), "--args",
-         "--timeout", str(lifetime), "--foreground"],
+         "--timeout", str(lifetime)]
+        # `--foreground` makes the fixture activate itself, which is a
+        # second way to take the screen and has nothing to do with
+        # `_bring_forward`. Gating one and not the other left the run
+        # pulling the fixture in front anyway.
+        + (["--foreground"] if foreground_allowed() else []),
         capture_output=True, text=True)
     if launch.returncode != 0:
         skip(f"픽스처를 열지 못했습니다: {launch.stderr.strip()[:160]}")

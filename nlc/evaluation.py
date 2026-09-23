@@ -6,6 +6,25 @@ from pathlib import Path
 import tempfile
 
 
+# Whether a harness may take the person's focus.
+#
+# One switch, imported by everyone who could take it. It lived in
+# examples/eval.py alone, and `tests/test_helper_contract.py` has its own
+# `_bring_forward` — so `every_transport_answers_the_same` went on pulling
+# Finder and the select fixture to the front while the default run believed it
+# could not. A guard that only covers the paths you remembered is not a guard.
+_foreground_allowed = False
+
+
+def allow_foreground(allowed: bool) -> None:
+    global _foreground_allowed
+    _foreground_allowed = bool(allowed)
+
+
+def foreground_allowed() -> bool:
+    return _foreground_allowed
+
+
 class EvaluationFailure(AssertionError):
     def __init__(self, stage, details):
         self.details = {"stage": stage, **details}

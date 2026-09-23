@@ -765,6 +765,12 @@ def _ensure_window(bundle, d, timeout=8.0):
 FOREGROUND_OK = False
 
 
+def foreground_allowed():
+    """The shared switch, read through one name."""
+    from nlc.evaluation import foreground_allowed as allowed
+    return allowed()
+
+
 def _bring_forward(bundle, d, timeout=4.0):
     """Activate an app the way a person would, and wait until it really is front.
 
@@ -772,7 +778,7 @@ def _bring_forward(bundle, d, timeout=4.0):
     refusal is HERE rather than at each call site, because a guard every caller
     has to remember is one a new caller will not.
     """
-    if not FOREGROUND_OK:
+    if not foreground_allowed():
         return False
     from AppKit import NSWorkspace, NSRunningApplication
     pid = d._resolve(bundle, launch=False)
@@ -4403,10 +4409,14 @@ def _parse_plan(argv):
 
 
 def main():
-    from nlc.evaluation import summarize, write_report
+    from nlc.evaluation import allow_foreground, summarize, write_report
     args, selected, cases = _parse_plan(sys.argv[1:])
     global FOREGROUND_OK
     FOREGROUND_OK = args.foreground
+    # One switch, shared with every harness that could take focus — including
+    # `tests/test_helper_contract.py`, which has its own `_bring_forward` and
+    # went on pulling apps forward while this module's flag said no.
+    allow_foreground(args.foreground)
     report = {"schema_version": 1, "kind": "plan" if args.preview else "run",
               "options": {"scenarios": args.scenarios, "offline": args.offline,
                           "foreground": args.foreground},
