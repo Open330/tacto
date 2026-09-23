@@ -5,6 +5,38 @@ from unittest.mock import patch
 
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'),'PyObjC unavailable')
 class MenuStateTests(unittest.TestCase):
+    def test_disabled_background_menu_hands_off_without_dispatch(self):
+        from types import SimpleNamespace
+        from nlc import driver as m
+        for enabled, front, modal, handoff in (
+                (False, False, None, True),
+                (False, True, None, False),
+                (False, False, object(), False),
+                (True, False, None, False)):
+            with self.subTest(enabled=enabled, front=front, modal=bool(modal)):
+                d = object.__new__(m.Driver)
+                obs = SimpleNamespace(pid=42, obs_id='o1', lines=[])
+                d._latest = {'fixture': obs}
+                with patch.object(d, '_showing_control'), \
+                     patch.object(d, '_menu_item', return_value=(object(), ['Probe', 'Command'])), \
+                     patch.object(m, '_attr', return_value=enabled), \
+                     patch.object(d, '_modal_sheet', return_value=modal), \
+                     patch.object(d, '_frontmost', return_value=front), \
+                     patch.object(m, '_aborted_now', return_value=False), \
+                     patch.object(m, 'AXUIElementPerformAction', return_value=0) as dispatch:
+                    result = d.act('o1', 'fixture', {'name': 'menu', 'path': ['Probe', 'Command']})
+                self.assertEqual(handoff, bool(result.get('needs_foreground')))
+                if enabled:
+                    self.assertEqual('acted', result['type'])
+                    dispatch.assert_called_once()
+                else:
+                    self.assertEqual('not_started', result['effect'])
+                    dispatch.assert_not_called()
+                if handoff:
+                    self.assertIn('앞으로', result['detail'])
+                elif modal:
+                    self.assertIn('대화상자', result['detail'])
+
     def test_menu_act_requires_boolean_enabled_before_dispatch(self):
         from types import SimpleNamespace
         from nlc import driver as m
@@ -12,6 +44,7 @@ class MenuStateTests(unittest.TestCase):
         for enabled in (None,1,0,'true',False,True):
             with self.subTest(enabled=enabled), patch.object(d,'_menu_item',return_value=(object(),['Probe','Command'])), \
                  patch.object(m,'_attr',return_value=enabled), patch.object(d,'_modal_sheet',return_value=None), \
+                 patch.object(d,'_frontmost',return_value=True), \
                  patch.object(m,'AXUIElementPerformAction',return_value=0) as dispatch:
                 if enabled is True:
                     d._perform(SimpleNamespace(pid=42,lines=[]),{'name':'menu','path':['Probe','Command']})
