@@ -38,14 +38,27 @@ def parameterize(flow: Flow, mapping: dict[str, str], *,
     reverse = {tname: {v: k for k, v in tbl.items()} for tname, tbl in tables.items()}
 
     def decoded(step):
-        """If this step types a single character via a table, return (table, char)."""
+        """If this step types a single character via a table, return
+        (table, char, field): which selector field names the key.
+
+        A key is named either by its identifier (`Two`, looked up in the
+        table) or by its label, which is the character itself (`2`). Recipes a
+        person wrote use the first; a path an agent walked uses whatever the
+        screen called the key, which is usually the second.
+        """
         sel = step.get("selector") or {}
         ident = sel.get("identifier")
         if isinstance(ident, str):
             for tname, rev in reverse.items():
                 if ident in rev:
-                    return tname, rev[ident]
-        return None, None
+                    return tname, rev[ident], "identifier"
+        for key in ("desc", "title"):
+            label = sel.get(key)
+            if isinstance(label, str) and not ident:
+                for tname, tbl in tables.items():
+                    if label in tbl:
+                        return tname, label, key
+        return None, None, None
 
     # A multi-character value ("12") was authored as consecutive single-character
     # steps, so match the RUN of steps that spells it and fold it into one
@@ -55,25 +68,28 @@ def parameterize(flow: Flow, mapping: dict[str, str], *,
     while i < len(steps):
         matched = False
         for literal, param in mapping.items():
-            run, j, tname = [], i, None
+            run, j, tname, named = [], i, None, None
             for ch in str(literal):
                 if j >= len(steps):
                     break
-                t, c = decoded(steps[j])
-                if c != ch or (tname and t != tname):
+                t, c, how = decoded(steps[j])
+                if c != ch or (tname and (t, how) != (tname, named)):
                     break
-                tname, run, j = t, run + [steps[j]], j + 1
+                tname, named, run, j = t, how, run + [steps[j]], j + 1
             if len(run) == len(str(literal)) and run:
                 folded = json.loads(json.dumps(run[0], ensure_ascii=False))
-                folded["selector"]["identifier"] = "{{%s[item]}}" % tname
+                # By identifier the item is looked up in the table; by label
+                # the item IS the label.
+                key = "{{%s[item]}}" % tname if named == "identifier" else "{{item}}"
+                folded["selector"][named] = key
                 folded["for_each"] = "{{%s}}" % param
                 folded["intent_text"] = f"{param} 의 {{{{item}}}} 입력"
-                # The identifier is an input now, so the binding pins the
-                # TEMPLATE, which Flow.bind() renders to the concrete value.
-                # Clearing the pin instead would drop the invariant entirely —
-                # the contract must still describe whatever actually runs.
+                # The key is an input now, so the binding pins the TEMPLATE,
+                # which Flow.bind() renders to the concrete value. Clearing the
+                # pin instead would drop the invariant entirely — the contract
+                # must still describe whatever actually runs.
                 if folded.get("binding"):
-                    folded["binding"]["identifier"] = "{{%s[item]}}" % tname
+                    folded["binding"][named] = key
                 out_steps.append(folded)
                 i, matched = j, True
                 break

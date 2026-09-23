@@ -12,6 +12,7 @@ the muxa-first transport without an inference-only guarantee.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import math
 import os
@@ -330,7 +331,13 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                         code = getattr(observed.error, "code", None)
                         if code in ("not_logged_in", "usage_limit"):
                             raise ProviderUnavailable(code)
-                        raise RuntimeError("structured provider failed")
+                        failure = RuntimeError("structured provider failed")
+                        # The code is ours — an exception class name or a
+                        # reason token — never provider text, so it may travel
+                        # in the attempts list and say which failure it was.
+                        if isinstance(code, str) and re.fullmatch(r"[A-Za-z_]{1,40}", code):
+                            failure.reason = code
+                        raise failure
                     reply = observed.text
                 if reply and time.monotonic() >= deadline:
                     raise TimeoutError("model reply arrived after deadline")

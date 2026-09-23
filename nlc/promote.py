@@ -46,6 +46,9 @@ class Candidate:
     envelope: Envelope | None = None
     verified: bool = False
     target_identity: str | None = None
+    # Steps the walk took that the recipe does not need — kept, not replayed,
+    # so what was left out can be seen and argued with.
+    explored: list = field(default_factory=list)
 
     def same_path_as(self, other: "Candidate") -> bool:
         """Two runs did the same job.
@@ -76,10 +79,49 @@ def candidate_from(result, target: str, goal: str, quote: str = "",
     # Pure menu discovery is not an executable replay action.
     if not actions or any(a.get("do") == "inspect_menu" for a in actions):
         return None
+    kept, explored = without_exploration(actions)
     return Candidate(goal=goal, target=target, quote=quote,
-                     screens=list(result.path), actions=actions,
+                     screens=list(result.path), actions=kept, explored=explored,
                      envelope=envelope, verified=True,
                      target_identity=getattr(result, "target_identity", None) or target_identity)
+
+
+def without_exploration(actions: list) -> tuple[list, list]:
+    """(the steps the recipe needs, the ones that were only looking around).
+
+    An agent working out a screen opens things to see what is in them —
+    Calculator's `Mode` popup, before it used View › Scientific instead. The
+    walk is honest about that; a recipe that repeats it opens a popup on every
+    run for nothing, and leaves it open behind the steps that matter.
+
+    Dropped only on the recording's own evidence, all of it:
+      * a click whose only effect was that new elements appeared — nothing
+        already there changed (`All Clear` changes the display, so it stays);
+      * none of what appeared is used by any later step;
+      * it was gone again after the next step: a popup, not a window that
+        stayed open and may be what the task was for;
+      * and a later step still acts, so the goal was not this click itself.
+    """
+    drop = set()
+    for i, a in enumerate(actions):
+        change = a.get("screen_change")
+        if a.get("do") != "click" or not isinstance(change, dict):
+            continue
+        appeared = {tuple(x) for x in change.get("appeared") or []}
+        if not appeared or change.get("changed"):
+            continue
+        later = actions[i + 1:]
+        if not any(b.get("do") not in ("read",) for b in later):
+            continue
+        if any((b.get("role"), b.get("match")) in appeared
+               or (b.get("role"), b.get("label")) in appeared for b in later):
+            continue
+        following = (later[0].get("screen_change") or {}) if later else {}
+        if not appeared <= {tuple(x) for x in following.get("vanished") or []}:
+            continue
+        drop.add(i)
+    return ([a for i, a in enumerate(actions) if i not in drop],
+            [a for i, a in enumerate(actions) if i in drop])
 
 
 # ------------------------------------------------------------- provenance
@@ -118,13 +160,28 @@ def parameters(c: Candidate) -> dict:
     is FOR, and this module does not get to make that claim on its own.
     """
     out: dict = {}
-    for i, a in enumerate(c.actions):
-        # What the control SAYS, not what it is called internally. A calculator
-        # key is identified as `One` and labelled `1`, and it is the 1 that the
-        # user said — matching on the identifier found nothing at all.
-        lit = str(a.get("value") or a.get("label") or "")
-        if provenance(lit, c.goal) == "request":
-            out.setdefault(lit, []).append(i)
+    # What the control SAYS, not what it is called internally. A calculator
+    # key is identified as `One` and labelled `1`, and it is the 1 that the
+    # user said — matching on the identifier found nothing at all.
+    said = [str(a.get("value") or a.get("label") or "") for a in c.actions]
+    numbers = set(re.findall(r"[0-9]+", c.goal))
+    i = 0
+    while i < len(said):
+        # Keys pressed one digit at a time spell ONE number the person said:
+        # "25" is a value, "2" and "5" are how it was typed. Reported as two,
+        # it could not become one parameter.
+        j = i
+        while (j < len(said) and len(said[j]) == 1 and said[j].isdigit()
+               and c.actions[j].get("do") == "click"):
+            j += 1
+        spelled = "".join(said[i:j])
+        if j - i > 1 and spelled in numbers:
+            out.setdefault(spelled, []).extend(range(i, j))
+            i = j
+            continue
+        if provenance(said[i], c.goal) == "request":
+            out.setdefault(said[i], []).append(i)
+        i += 1
     return out
 
 
@@ -155,7 +212,7 @@ def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondi
                 safety=env.contract_for(effects,a.get("label", " > ".join(path))),
                 binding=ContextBinding(bundle_id=c.target_identity or c.target,
                                        operation="menu",params_digest=pin_params(params)),
-                postcondition=(menu_postconditions or {}).get(index)))
+                postcondition=(menu_postconditions or {}).get(index) or _menu_check(a)))
             continue
         sel = Selector(role=a["role"], **{
             {"Title": "title", "Description": "desc",
@@ -185,8 +242,32 @@ def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondi
                                    params_digest=pin_params(params),
                                    ancestor=a.get("container") or None),
             captures=captures, answers=bool(captures),
-            unverified_ok=(a["do"] == "read")))
+            unverified_ok=(a["do"] == "read"),
+            # A walk names elements by what they said THAT time. Where acting
+            # on the wrong one costs nothing lasting, a missing or doubled
+            # target may be re-aimed by asking; a step that saves, sends or
+            # deletes never is — it fails, as it always did.
+            on_uncertain=(["target_missing", "target_ambiguous"]
+                          if effects <= {"read", "write_ephemeral"} else [])))
     return Flow(name=name, target=c.target, steps=steps, schema=2)
+
+
+def _menu_check(a: dict) -> Postcondition | None:
+    """The postcondition a walked menu step carries, from what the run SAW.
+
+    Only an observed change (see `general.menu_effect`) — never what the model
+    said it expected — because this check is what stands between an unattended
+    replay and a command that silently did nothing.
+    """
+    e = a.get("effect")
+    if not isinstance(e, dict) or not all(isinstance(e.get(k), str) and e.get(k)
+                                          for k in ("role", "attr", "match", "attribute", "equals")):
+        return None
+    key = {"Title": "title", "Description": "desc"}.get(e["attr"])
+    if key is None or e["attribute"] not in ("Identifier", "Value"):
+        return None
+    return Postcondition(field=Selector(role=e["role"], **{key: e["match"]}),
+                         equals=e["equals"], attribute=e["attribute"])
 
 
 # ------------------------------------------------------------------ gate
@@ -361,7 +442,7 @@ class CandidateStore:
             "candidate": {"goal": c.goal, "target": c.target, "quote": c.quote,
                           "target_identity": c.target_identity,
                           "screens": c.screens, "actions": c.actions,
-                          "verified": c.verified},
+                          "explored": c.explored, "verified": c.verified},
             "parameters": parameters(c),
             "blocked_by": why,
             "flow": json.loads(flow.to_json()) if flow else None,

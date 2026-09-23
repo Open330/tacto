@@ -141,7 +141,10 @@ def _place(lines: list[str], i: int) -> tuple[str, str]:
             window = name or "(제목 없음)"
             break
         if name and not container:
-            container = name
+            # The container's NAME, not what it says right now. A calculator
+            # display is identified as `StandardInputView;value:25`, and a
+            # recipe that remembered that could only ever find it showing 25.
+            container = Selector._stable_id(name)
     bits = ([f"안: {container}"] if container else []) + \
            ([f"창: {window}"] if window else [])
     return container, " / ".join(bits)
@@ -271,6 +274,80 @@ def screen_key(cands: list[dict]) -> str:
     names = sorted(f"{c['role']}:{Selector._stable_id(c['label'])}"
                    for c in cands if any(a in c.get("can", ()) for a in ("click", "inspect_menu", "menu")))
     return hashlib.sha1("|".join(names).encode()).hexdigest()[:12]
+
+
+def menu_effect(before: str, after: str, path) -> dict | None:
+    """What a menu command visibly changed, as something a recipe can check.
+
+    A menu command has no element to read back, so a recipe made from one had
+    nothing to verify and could not be promoted. What it does have is a
+    screen before and after. The effect is taken to be an element that exists
+    in both, is named the same in both, and whose state changed to something
+    that names the command's own leaf — Calculator's `Mode` button going from
+    `Mode: basic` to `Mode: scientific` after View › Scientific.
+
+    Exactly one such element, or nothing: two would be a guess about which one
+    the command meant, and a recipe built on a guess replays it unattended.
+    """
+    leaf = path[-1] if isinstance(path, (list, tuple)) and path else None
+    leaves = [x.lower() for x in (leaf if isinstance(leaf, list) else [leaf])
+              if isinstance(x, str) and x.strip()]
+    if not leaves:
+        return None
+
+    old, new = _named_elements(before), _named_elements(after)
+    found = []
+    for key, line in new.items():
+        if key not in old:
+            continue
+        for attribute in ("Identifier", "Value"):
+            was, now = Selector._attr(old[key], attribute), Selector._attr(line, attribute)
+            if now and was != now and any(x in now.lower() for x in leaves):
+                found.append({"role": key[0], "attr": key[1], "match": key[2],
+                              "attribute": attribute, "equals": now})
+    return found[0] if len(found) == 1 else None
+
+
+def _named_elements(tree: str) -> dict:
+    """(role, naming attribute, name) -> line, for elements named once."""
+    seen = {}
+    for line in tree.splitlines():
+        toks = line.strip().split()
+        if len(toks) < 2 or not toks[0].isdigit():
+            continue
+        name = _pick(line, ("Title", "Description"))
+        if name is None:
+            continue
+        key = (toks[1], name[0], name[1])
+        # A name that repeats cannot be found again by that name.
+        seen[key] = None if key in seen else line
+    return {k: v for k, v in seen.items() if v is not None}
+
+
+def screen_change(before: str, after: str) -> dict:
+    """What happened to the screen between two observations, by element.
+
+    `appeared` and `vanished` are named elements that came or went; `changed`
+    says whether any element present in both now reads differently. Kept
+    small and by name, so a recipe can reason about it without the trees.
+    """
+    old, new = _named_elements(before), _named_elements(after)
+    changed = any(Selector._attr(old[k], a) != Selector._attr(new[k], a)
+                  for k in old.keys() & new.keys() for a in ("Identifier", "Value"))
+    return {"appeared": sorted([k[0], k[2]] for k in new.keys() - old.keys()),
+            "vanished": sorted([k[0], k[2]] for k in old.keys() - new.keys()),
+            "changed": changed}
+
+
+def _observe_menu_effect(driver, target: str, before: str, path) -> dict | None:
+    """Wait briefly for a menu command's effect to show, and describe it."""
+    try:
+        got = driver.wait_until(
+            target, lambda t: menu_effect(before, t, path) is not None,
+            timeout_ms=2000)
+    except Exception:
+        return None
+    return menu_effect(before, got.get("tree") or "", path) if got else None
 
 
 def _value_of(c: dict) -> str:
@@ -498,6 +575,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         except Exception as exc:
             return {"type": "error", "error": "observation_failed", "detail": str(exc)}
 
+    planned_on = None     # the tree the previous batch was planned against
     for _ in range(max_screens):
         if stopped():
             return res
@@ -507,6 +585,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         if obs["type"] != "observation":
             res.why = f"화면을 볼 수 없습니다: {obs.get('error')}"
             return res
+        # What the last action of the previous batch left behind. Only the
+        # last one: the screen between two observations is the sum of the
+        # whole batch, and only for the final action is that sum its own.
+        if planned_on is not None and res.visits and res.visits[-1].actions:
+            res.visits[-1].actions[-1]["screen_change"] = screen_change(planned_on, obs["tree"])
+        planned_on = obs["tree"]
         try:
             with model_deadline(deadline):
                 menus.refresh()
@@ -951,6 +1035,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             visit.actions.append({**c, "do": a["do"],
                                   "read_attribute": "Value" if Selector._attr(c["line"], "Value") is not None else c["attr"],
                                   **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label") if k in action}})
+            if a["do"] == "menu":
+                # Recorded so the recipe made from this run can check the
+                # command landed, rather than trust that it did.
+                seen = _observe_menu_effect(driver, target, obs["tree"], c.get("menu_path"))
+                if seen:
+                    visit.actions[-1]["effect"] = seen
             if a["do"] == "read":
                 # Labels are abbreviated navigation aids, not read results.
                 # Preserve the actual value so the planner need not reread it.
