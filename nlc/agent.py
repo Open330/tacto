@@ -151,6 +151,25 @@ _MARKERS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+def _all_steps(steps) -> list:
+    """Every step, including those inside a decision's branches."""
+    out = []
+    for st in steps:
+        out.append(st)
+        if st.action == "decide":
+            for branch in (st.params.get("branches") or {}).values():
+                out.extend(_all_steps(branch))
+    return out
+
+
+def _shape(flow) -> list:
+    """What a flow does, for comparing a template's rendering to a walk."""
+    return [(st.action, st.selector and (st.selector.role, st.selector.identifier,
+             st.selector.title, st.selector.desc, st.selector.ancestor),
+             sorted(st.params.items()) if st.action != "decide" else None)
+            for st in flow.steps]
+
+
 def _markers(intent: str) -> set[str]:
     from .ask import _refuses
     low = intent.lower()
@@ -789,14 +808,85 @@ class Agent:
         except Exception as exc:
             return Turn("failed", f"저장 결과를 검증할 준비를 하지 못했어요: {exc}", flow.name)
         hooks = self.commit_adapter_hooks(receipt)
+        walk = None
+        if self.general is not None:
+            def walk(goal, question, choice):
+                return self._walk_branch(flow.target, goal, question, choice, ask)
         res = replay(self.driver, flow, approvals=approvals,
                      narrate=self.narrate, escalate=judge, budget=think,
-                     decide=self.decide, **hooks)
+                     decide=self.decide, walk=walk, **hooks)
         self._report_what_it_asked(flow, res)
         turn = self._to_turn(flow, res)
         if read_to_find and walked and turn.status == "done":
             self._learn_phrasing(template, intent, values)
+        learned = getattr(res, "learned", None)
+        if learned and turn.status == "done":
+            self._learn_branches(template, learned, values)
         return turn
+
+    def _walk_branch(self, target, goal, question, choice, ask) -> dict:
+        """Carry on from here with the agent, for an answer never seen before.
+
+        The steps before the decision already ran; the walk starts from the
+        screen they left. What it returns is a proposal: the steps count only
+        if the walk arrived, verified, and they would pass promotion.
+        """
+        from .contract import policy
+        from .promote import candidate_from, deployable
+        told = (f"{goal} — 이번 경우는 '{question}' 의 답이 '{choice}' 입니다. "
+                "앞 단계는 이미 했으니, 지금 화면에서 이어서 끝까지 하십시오.")
+        try:
+            r = self.general(target, told, ask, None, None)
+        except Exception as exc:
+            return {"ok": False, "why": f"화면을 보며 해봤지만 실패했어요: {exc}"}
+        if not (r.ok and r.verified):
+            return {"ok": False, "why": r.why}
+        steps = None
+        c = candidate_from(r, target, told, told, None,
+                           target_identity=getattr(r, "target_identity", None))
+        if c is not None:
+            walked_flow, why = deployable(c, "branch", told)
+            # A branch replays with no one asked, so only steps that need no
+            # consent may be kept in one.
+            if walked_flow is not None and all(
+                    st.safety is not None and policy(st.safety).risk == "none"
+                    for st in walked_flow.steps):
+                steps = walked_flow.steps
+        return {"ok": True, "said": list(r.said), "steps": steps}
+
+    def _learn_branches(self, template: Flow, learned: dict, values: dict) -> None:
+        """Keep the steps walked for a new answer as that answer's branch.
+
+        The walk ran with this run's values; kept as they are, the branch would
+        replay them for every later input. They are turned back into the
+        recipe's inputs, and kept only if doing so reproduces the walk.
+        """
+        from dataclasses import replace as _replace
+        from .reparam import digits_table, parameterize
+        steps = list(template.steps)
+        changed = False
+        for (into, choice), walked in learned.items():
+            at = next((k for k, st in enumerate(steps) if st.action == "decide"
+                       and st.params.get("into") == into and "branches" in st.params), None)
+            if at is None or not walked:
+                continue
+            branch = Flow(template.name, template.target, steps=list(walked))
+            mapping = {str(v): k for k, v in values.items()
+                       if isinstance(v, str) and v and k in template.params}
+            if mapping:
+                branch = parameterize(branch, mapping, tables=digits_table())
+                concrete = Flow(template.name, template.target, steps=list(walked))
+                if _shape(branch.bind(**{p: lit for lit, p in mapping.items()})) != _shape(concrete):
+                    continue
+            branches = {**steps[at].params["branches"], choice: branch.steps}
+            steps[at] = _replace(steps[at], params={**steps[at].params, "branches": branches})
+            changed = True
+            self.narrate(f"다음부터 '{choice}' 인 경우도 바로 할 수 있어요")
+        if changed:
+            try:
+                self.store.save(_replace(template, steps=steps))
+            except Exception:
+                pass
 
     def _learn_phrasing(self, template: Flow, said: str, values: dict) -> None:
         """Remember a new way of asking for a promoted recipe — once it worked.
@@ -906,7 +996,8 @@ class Agent:
             # A value read only so a decision could be made is the recipe's
             # working, not its answer. Where steps say which ones answer,
             # only those are reported.
-            answering = {c.name for st in flow.steps if st.answers for c in st.captures}
+            answering = {c.name for st in _all_steps(flow.steps) if st.answers
+                         for c in st.captures}
             if answering & set(captured):
                 captured = {k: v for k, v in captured.items() if k in answering}
             skipped = [e for e in res.log if e.get("status") == "skipped"]
