@@ -307,15 +307,32 @@ class Agent:
         one recipe must match: two means the sentence does not say which, and
         picking one would run it unattended on a guess.
         """
-        from .flow import intent_pattern
+        from .flow import content_match, intent_pattern
+        stored = self._stored_templates()
         hits = []
-        for name, flow in self._stored_templates().items():
+        for name, flow in stored.items():
             for template in flow.intents:
                 m = intent_pattern(template, flow.params).fullmatch(sentence)
                 if m is not None:
                     hits.append(Match(name, m.groupdict()))
                     break
-        return hits[0] if len(hits) == 1 else None
+        if hits:
+            return hits[0] if len(hits) == 1 else None
+        # Not the sentence, but the same request: the same content words and
+        # verb, one number per input. Still no model, and still only if exactly
+        # one recipe claims it — and every value it read must be one it can
+        # also see in what was said.
+        found = {}
+        for name, flow in stored.items():
+            for template in flow.intents:
+                values = content_match(template, flow.params, sentence)
+                if values is not None:
+                    found.setdefault(name, values)
+                    break
+        if len(found) != 1:
+            return None
+        (name, values), = found.items()
+        return Match(name, values)
 
     def _match_from_goal(self, goal: str) -> Match | None:
         """Run the patterns against a cleaned-up goal rather than the raw words.

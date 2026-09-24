@@ -757,6 +757,93 @@ class Flow:
                     derived=d.get("derived", {}), intents=_intents_from(d))
 
 
+# Endings that make a word the sentence's predicate — how the thing is asked
+# for (구해줘, 알려줄래, 계산해 주세요), not what is asked for.
+_PREDICATE = re.compile(r"(줘|줘요|주세요|줄래|줄래요|줄수있어|해|해요|해라|하기|한다|하다|"
+                        r"할래|할까|해줄래|봐|봐요|줄게|줄까)[?.!。]*$")
+# Particles that attach to a noun without changing which noun it is.
+_PARTICLES = sorted(["에서", "으로", "로", "을", "를", "이", "가", "은", "는", "의", "에",
+                     "와", "과", "도", "만", "까지", "부터", "한테", "에게"], key=len, reverse=True)
+# Words that soften a request without adding to it.
+_FILLERS = {"좀", "한번", "한", "번", "다시", "지금", "그냥", "빨리", "please", "나", "혹시"}
+_NUMBER = re.compile(r"^[0-9]+(?:\.[0-9]+)?$")
+
+
+def _content(sentence: str) -> tuple[list, list, list]:
+    """(content words, numbers, each number's particle) of a sentence, in order.
+
+    The predicate at the end and fillers anywhere are dropped, particles are
+    cut off nouns, and numbers are kept apart. What is left is WHAT was asked,
+    not how politely or in which verb.
+    """
+    words, numbers, roles = [], [], []
+    tokens = [t for t in re.split(r"\s+", sentence.strip()) if t]
+    # The verb at the end says WHAT to do as much as the nouns do — "곱해줘"
+    # and "나눠줘" differ by nothing else. Only its ending is dropped (줘,
+    # 주세요, 줄래…), and only a verb that says nothing beyond "work it out"
+    # or "tell me" (구해, 계산해, 알려) is dropped with it.
+    verb = None
+    if tokens and tokens[-1].strip("?.!。") in _AUXILIARY:
+        tokens.pop()                     # "나눠 줘", "계산해 주세요": helper apart
+        verb = tokens.pop() if tokens else None
+    elif tokens and _PREDICATE.search(tokens[-1]):
+        verb = tokens.pop()
+    if verb is not None:
+        stem = _ENDING.sub("", verb.strip("?.!。"))
+        stem = re.sub(r"하기$", "해", stem)
+        if stem and stem not in _GENERIC_VERBS:
+            tokens.append("~" + stem)    # marked, so it never equals a noun
+    for t in tokens:
+        t, role = t.strip("?.!,。"), ""
+        for p in _PARTICLES:
+            if t.endswith(p) and len(t) > len(p):
+                t, role = t[: -len(p)], _ROLE.get(p, p)
+                break
+        if not t or t in _FILLERS:
+            continue
+        if _NUMBER.match(t) or re.fullmatch(r"\{\{\s*\w+\s*\}\}", t):
+            numbers.append(t)
+            roles.append(role)
+        else:
+            words.append(t)
+    return words, numbers, roles
+
+
+_ENDING = re.compile(r"(줘요|주세요|줄래요|줄수있어|줄래|줄게|줄까|줘|봐요|봐|요)$")
+_GENERIC_VERBS = {"구해", "계산해", "알려", "해", "말해", "보여", "구하", "계산하"}
+# A helper verb written apart from the verb it helps.
+_AUXILIARY = {"줘", "줘요", "주세요", "줄래", "줄래요", "줄수있어", "줄게", "줄까", "봐", "봐요"}
+# Particles that mark the same role, spelled after a vowel or a consonant.
+_ROLE = {"를": "을", "로": "으로", "가": "이", "는": "은", "와": "과"}
+
+
+def content_match(template: str, params: dict, sentence: str) -> dict | None:
+    """The inputs, if `sentence` asks for exactly what `template` does.
+
+    The zero-token middle ground between the literal sentence and a model's
+    reading: the same content words — no fewer, and no more, because an extra
+    one ("두 배", "말고 제곱") is a different request — and one number for each
+    numeric input, in order. Inputs that are not numbers cannot be told from
+    the words around them this way, so such recipes are left to the reading.
+    """
+    want_words, slots, want_roles = _content(template)
+    got_words, numbers, got_roles = _content(sentence)
+    names = [re.sub(r"[{}\s]", "", s) for s in slots]
+    if (not want_words or sorted(want_words) != sorted(got_words)
+            or len(numbers) != len(names) or len(set(names)) != len(names)
+            # Two numbers are told apart by their particles, not their order:
+            # "9를 3으로 나눠" and "3으로 9를 나눠" are the same request.
+            or (len(names) > 1 and (sorted(want_roles) != sorted(got_roles)
+                                    or len(set(want_roles)) != len(want_roles)))
+            or any(not re.fullmatch(r"[0-9.]+", str(params.get(n, ""))) for n in names)
+            or any(not _NUMBER.match(x) for x in numbers)):
+        return None
+    if len(names) == 1:
+        return {names[0]: numbers[0]}
+    by_role = dict(zip(got_roles, numbers))
+    return {name: by_role[role] for name, role in zip(names, want_roles)}
+
+
 def _intents_from(d: dict) -> list:
     raw = d.get("intents", [])
     if not isinstance(raw, list) or not all(isinstance(x, str) and x.strip() for x in raw):
