@@ -182,6 +182,11 @@ def _promote_decisions(rec: dict, flow, provider: str):
     if not decisions:
         print("    판단 단계 없음 — 기록대로 재생합니다")
         return flow
+    # The recipe may already read some typed values afresh (lifted), which
+    # put steps in front of the walk's; decisions are counted in walk steps.
+    from .promote import lift_screen_values, shifted, to_flow
+    _, lifted = lift_screen_values(c, to_flow(c, "walk"), rec.get("request") or c.goal)
+    decisions = shifted(decisions, lifted)
     decided = with_decisions(flow, decisions, goal=c.goal)
     if not replays_the_walk(decided, flow, decisions):
         raise _Refused("판단 단계를 넣은 레시피가 원래 실행을 재현하지 않습니다 — 만들지 않았습니다")
@@ -281,7 +286,8 @@ def _run_flow(flow, argv):
         decider = model_decider(provider=provider, narrate=lambda s: print(f"  {s}"))
     with _indicator_for(flow.target, argv):
         result = replay(driver, flow, approvals=approvals,
-                        narrate=lambda text: print(f"  … {text}"), decide=decider, **hooks)
+                        narrate=lambda text: print(f"  … {text}"), decide=decider,
+                        confirm=_confirmer(argv), **hooks)
     if tracer:
         print(f"트레이스 저장: {tracer.trace.save(trace_path)}")
     if result.ok:

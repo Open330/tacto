@@ -272,7 +272,7 @@ def _menu_check(a: dict) -> Postcondition | None:
 
 # ------------------------------------------------------------------ gate
 
-def gate(c: Candidate, flow: Flow, request: str) -> list[str]:
+def gate(c: Candidate, flow: Flow, request: str, lifted=frozenset()) -> list[str]:
     """Every reason this may not be deployed. Empty means it may.
 
     Reasons rather than a score, because "8/10" does not tell anyone what to
@@ -336,6 +336,12 @@ def gate(c: Candidate, flow: Flow, request: str) -> list[str]:
         # is asserting the screen will say it again.
         for parameter in ('value', 'option_label'):
             lit = str(st.params.get(parameter) or "")
+            # A value the recipe will read afresh at replay (see
+            # `lift_screen_values`) is not carried — but only the walk's own
+            # value at that step is excused, never anything else put there.
+            if (i in lifted and parameter == "value" and i < len(c.actions)
+                    and lit == str(c.actions[i].get("value") or "")):
+                continue
             if lit and provenance(lit, request) == "screen":
                 why.append(f"{i}번 단계가 이번 실행에서 읽은 값을 그대로 담고 있습니다"
                            f" ({lit[:24]!r})")
@@ -390,14 +396,73 @@ def deployable(c: Candidate, name: str, request: str, *,
     including the version that looked fine.
     """
     flow = to_flow(c, name, menu_postconditions=menu_postconditions, preparation_postconditions=preparation_postconditions)
-    why = gate(c, flow, request)
+    replayable, lifted = lift_screen_values(c, flow, request)
+    why = gate(c, flow, request, lifted)
     if why:
         return None, why
     for label, broken, req in counterexamples(c, flow, request):
-        if not gate(c, broken, req):
+        if not gate(c, broken, req, lifted):
             return None, [f"게이트가 '{label}' 을 통과시킵니다 — "
                           f"검사가 아무것도 재고 있지 않습니다"]
-    return flow, []
+    return replayable, []
+
+
+def lift_screen_values(c: Candidate, flow: Flow, request: str) -> tuple[Flow, dict]:
+    """Typed values that came off the screen, read afresh instead of replayed.
+
+    A walk that typed what it read — a total, an order number — carries this
+    run's data; the gate refuses to deploy that, and rightly. But the step is
+    not wrong, only its value is frozen. So:
+
+      * typed the WHOLE of something it could see → read that again at replay
+        and type what it says now. No model.
+      * typed PART of something it could see → read it, then an `extract`
+        decision picks the part, and the answer must be literally inside what
+        was read.
+      * anything else stays as it was, and the gate still refuses it.
+
+    Returns the replayable flow and {walk step: steps inserted before it}.
+    """
+    from dataclasses import replace
+    from .contract import Resource, SafetyContract
+    steps, lifted, n = [], {}, 0
+    for i, (a, st) in enumerate(zip(c.actions, flow.steps)):
+        value = a.get("value")
+        if (a.get("do") != "set_value" or not isinstance(value, str) or not value.strip()
+                or provenance(value, request) != "screen"):
+            steps.append(st)
+            continue
+        seen = [r for r in a.get("screen_reads") or []
+                if isinstance(r.get("value"), str) and value in r["value"]
+                and r.get("attr") in ("Title", "Description", "Identifier")
+                and (r.get("role"), r.get("match")) != (a.get("role"), a.get("match"))]
+        if not seen:
+            steps.append(st)
+            continue
+        n += 1
+        whole = next((r for r in seen if r["value"].strip() == value.strip()), None)
+        if whole is not None:
+            read = _basis_read(whole, f"copied{n}")
+            steps += [read, replace(st, params={**st.params, "value": "{{copied%d}}" % n})]
+            lifted[i] = 1
+        else:
+            source = seen[0]
+            read = _basis_read(source, f"source{n}")
+            ask = Step("decide", None, params={
+                "question": (f"'{source['label']}' 에 보이는 글에서, 목표를 위해 입력할 부분을 "
+                             f"그대로 고르십시오. 목표: {c.goal[:200]}. "
+                             f"(처음 했을 때는 '{value[:80]}' 였습니다)"),
+                "extract_from": [f"source{n}"], "into": f"text{n}"})
+            steps += [read, ask, replace(st, params={**st.params, "value": "{{text%d}}" % n})]
+            lifted[i] = 2
+    steps += flow.steps[len(c.actions):]
+    return replace(flow, steps=steps), lifted
+
+
+def shifted(decisions: list, lifted: dict) -> list:
+    """Decisions renumbered from the walk's steps to the lifted recipe's."""
+    return [{**d, "step": d["step"] + sum(k for j, k in lifted.items() if j < d["step"])}
+            for d in decisions]
 
 
 # ------------------------------------------------------------------ store
@@ -510,7 +575,7 @@ def decision_prompt(c: Candidate) -> str:
                 str(x)[:40] for x in a["screen_options"][:40]) + ")"
         if a.get("screen_reads") and a.get("do") != "read":
             bit += "  (보이던 값: " + ", ".join(
-                f"{r.get('label')}={r.get('value')!r}" for r in a["screen_reads"][:12]) + ")"
+                f"{r.get('label')}={str(r.get('value'))[:120]!r}" for r in a["screen_reads"][:12]) + ")"
         lines.append(bit)
     return (f"{_DECISIONS}\n\n# 사용자의 요청\n{(c.quote or c.goal)[:300]}\n\n"
             f"# 목표\n{c.goal[:300]}\n\n# 기록\n" + "\n".join(lines))

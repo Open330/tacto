@@ -1046,9 +1046,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                   # for a choice, even when it was never read.
                                   "screen_reads": [
                                       {k: x.get(k) for k in ("role", "attr", "match", "container", "label")}
-                                      | {"value": str(_value_of(x))[:80]}
+                                      | {"value": str(_value_of(x))[:500]}
+                                      # Displays and text fields — a field's
+                                      # text is what a later step may copy.
                                       for x in cands if "read" in x.get("can", ())
-                                      and "click" not in x.get("can", ())][:12],
+                                      and ("click" not in x.get("can", ())
+                                           or "set_value" in x.get("can", ()))][:12],
                                   **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label") if k in action}})
             if a["do"] == "menu":
                 # Recorded so the recipe made from this run can check the

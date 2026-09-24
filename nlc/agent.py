@@ -15,6 +15,7 @@ Design stance (matches PROTOCOL.md):
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Callable
@@ -630,11 +631,18 @@ class Agent:
 
         approvals: dict = {}
         blocked: list[str] = []
+        decided = {st.params.get("into") for st in flow.steps if st.action == "decide"}
         for i, st in enumerate(flow.steps):
             if st.safety is None:
                 continue
             decision = policy(st.safety)
             if decision.risk == "none":
+                continue
+            # A value decided during the run is not known yet; consent to a
+            # step that uses one is asked when it is (replay's `confirm`).
+            used = json.dumps([st.selector and st.selector.__dict__, st.params],
+                              ensure_ascii=False, default=str)
+            if decision.risk == "confirm" and any("{{%s}}" % n in used for n in decided):
                 continue
             what = describe(st.safety, decision)
             if decision.risk == "handoff":
@@ -814,7 +822,8 @@ class Agent:
                 return self._walk_branch(flow.target, goal, question, choice, ask)
         res = replay(self.driver, flow, approvals=approvals,
                      narrate=self.narrate, escalate=judge, budget=think,
-                     decide=self.decide, walk=walk, **hooks)
+                     decide=self.decide, walk=walk,
+                     confirm=(lambda text: bool(ask(text))) if ask else None, **hooks)
         self._report_what_it_asked(flow, res)
         turn = self._to_turn(flow, res)
         if read_to_find and walked and turn.status == "done":

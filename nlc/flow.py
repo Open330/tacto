@@ -23,12 +23,13 @@ from dataclasses import dataclass, field, asdict, replace
 
 from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
-                       validate, describe, ApprovalToken)
+                       validate, describe, ApprovalToken, issue_approval)
 from .protocol import Driver, ACTION_PARAMS
 
 # Steps the engine runs itself, with nothing sent to the app. Kept apart from
 # ACTION_PARAMS, which is what a driver may be asked to do.
-FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into", "branches", "goal"})}
+FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into", "branches", "goal",
+                                     "extract_from"})}
 # The same rule as a `{{name}}` template, or the answer could never be used.
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
 
@@ -38,6 +39,19 @@ def decide_problem(params: dict) -> str | None:
     q, choices, into = params.get("question"), params.get("choices"), params.get("into")
     if not isinstance(q, str) or not q.strip() or len(q) > 500:
         return "question must be a sentence"
+    # An extraction answers with text rather than a choice — but only text
+    # that is literally inside values this run read (`extract_from`), so the
+    # answer is still checkable against something the model did not write.
+    if "extract_from" in params:
+        names = params["extract_from"]
+        if "choices" in params or "branches" in params or "goal" in params:
+            return "an extraction has no choices or branches"
+        if (not isinstance(names, list) or not 1 <= len(names) <= 5
+                or not all(isinstance(n, str) and _NAME.fullmatch(n) for n in names)):
+            return "extract_from must name 1-5 captured values"
+        if not isinstance(into, str) or not _NAME.fullmatch(into):
+            return "into must be a name"
+        return None
     if (not isinstance(choices, list) or not 2 <= len(choices) <= 20
             or not all(isinstance(c, str) and c.strip() and len(c) <= 200 for c in choices)
             or len(set(choices)) != len(choices)):
@@ -1439,7 +1453,9 @@ class ReplayResult:
 def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
             res: "ReplayResult", narrate) -> bool:
     """Run one decide step. False means the run stops here."""
-    q, choices, into = step.params["question"], step.params["choices"], step.params["into"]
+    q, into = step.params["question"], step.params["into"]
+    choices = step.params.get("choices")
+    sources = step.params.get("extract_from")
     if decide is None:
         res.record(status="error", step=i, action="decide", error="decision_unavailable",
                    detail=f"이 단계는 판단이 필요합니다 — '{q[:80]}' 에 답할 모델이 연결되지 않았습니다")
@@ -1448,15 +1464,32 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
     # password read off the screen is not something to hand a model.
     sensitive = {c.name for st in flow.steps for c in st.captures if c.sensitive}
     inputs = {k: v for k, v in captures.items() if k not in sensitive}
+    if sources is not None:
+        # Extracting from a value the model may not see would be extracting
+        # from nothing; and from a value never read, the same.
+        missing = [n for n in sources if n not in inputs]
+        if missing:
+            res.record(status="error", step=i, action="decide", error="decision_invalid",
+                       detail="판단의 재료가 읽히지 않았거나 보여줄 수 없는 값입니다: "
+                              + ", ".join(missing))
+            return False
     if narrate:
         narrate(f"판단이 필요한 단계입니다: {q}")
     try:
-        answer = decide(q, list(choices), dict(inputs))
+        # `None` for choices is how a decider is told to extract, not choose.
+        answer = decide(q, None if sources is not None else list(choices), dict(inputs))
     except Exception as exc:
         res.record(status="error", step=i, action="decide", error="decision_failed",
                    detail=f"판단을 받지 못했습니다: {type(exc).__name__}")
         return False
-    if answer not in choices:
+    if sources is not None:
+        pool = [str(inputs[n]) for n in sources]
+        if (not isinstance(answer, str) or not answer.strip() or len(answer) > 500
+                or not any(answer in text for text in pool)):
+            res.record(status="error", step=i, action="decide", error="decision_invalid",
+                       detail="읽은 글 안에 그대로 있는 답이 아닙니다")
+            return False
+    elif answer not in choices:
         res.record(status="error", step=i, action="decide", error="decision_invalid",
                    detail="고를 수 있는 것 밖의 답이 왔습니다")
         return False
@@ -1512,7 +1545,8 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
            after_commit=None, commit_expected: dict | None = None,
-           decide=None, walk=None, _seed: dict | None = None) -> ReplayResult:
+           decide=None, walk=None, confirm=None,
+           _seed: dict | None = None) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
@@ -1532,6 +1566,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                `decide` steps — the judgment a recipe PLANS to need, as opposed
                to `escalate`, which is for the judgment it did not expect. Each
                decide step asks once; without a callback it fails, never guesses.
+    confirm:   callback(description) -> bool, for a step that needs consent
+               and uses a value decided during this run. Such a step cannot be
+               approved before the run — nobody knew the value — so it is asked
+               here, with the value in the question. Without this callback such
+               a recipe is refused before it starts.
     walk:      callback(goal, question, choice) -> dict, for a branching
                decision whose answer has no steps yet: the agent carries on
                from the screen as it is. What it returns ({"ok", "said",
@@ -1556,16 +1595,22 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     # A step that needs approval is approved as DESCRIBED, before the run; a
     # value chosen mid-run would change what it does after the person agreed.
     decided = {st.params.get("into") for st in flow.steps if st.action == "decide"}
+    ask_then = {}                        # step -> decided names it uses
     for i, st in enumerate(flow.steps):
         if st.action == "decide" or not decided:
             continue
         used = json.dumps([asdict(st.selector) if st.selector else None, st.params],
                           ensure_ascii=False, default=str)
-        if (any("{{%s}}" % name in used for name in decided)
-                and (st.safety is None or policy(st.safety).risk != "none")):
-            res.record(status="error", step=i, error="decision_drives_consent",
-                       detail="판단으로 정한 값은 승인이 필요한 단계에 쓸 수 없습니다")
-            return res
+        names = [name for name in decided if "{{%s}}" % name in used]
+        if names and (st.safety is None or policy(st.safety).risk != "none"):
+            # Asked at the moment the value exists, or not at all. A contract
+            # and a binding are what the consent is bound to.
+            if confirm is None or st.safety is None or st.binding is None \
+                    or policy(st.safety).risk not in ("confirm",):
+                res.record(status="error", step=i, error="decision_drives_consent",
+                           detail="판단으로 정한 값은 승인이 필요한 단계에 쓸 수 없습니다")
+                return res
+            ask_then[i] = names
 
     for i, step in enumerate(flow.steps):
         if step.action in FLOW_ACTIONS:
@@ -1645,6 +1690,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # promise the skill documents).
         if captures:
             step = _render_step(step, {**captures, "__tables__": flow.tables})
+        if i in ask_then:
+            shown = ", ".join(f"{n}: {str(captures.get(n))[:120]!r}" for n in ask_then[i])
+            question = f"{describe(step.safety, policy(step.safety))} — {shown}"
+            try:
+                agreed = bool(confirm(question))
+            except Exception:
+                agreed = False
+            if not agreed:
+                res.record(status="gated", step=i, gate="declined",
+                           detail="판단으로 정한 값으로 진행하지 않았습니다")
+                res.ok = False
+                return res
+            approvals = {**approvals, i: issue_approval(step.binding, step.safety)}
         if step.action in FLOW_ACTIONS:
             if not _decide(decide, step, i, captures, flow, res, narrate):
                 return res
