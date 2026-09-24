@@ -168,12 +168,31 @@ def _promote_decisions(rec: dict, flow, provider: str):
     if not decisions:
         print("    판단 단계 없음 — 기록대로 재생합니다")
         return flow
-    decided = with_decisions(flow, decisions)
+    # A branch is filed under the answer the walk had. If the decider that
+    # will answer at replay, shown what the walk saw, would not say the same,
+    # the branch would replay for the wrong cases — so it is not kept.
+    from .judge import model_decider
+    decider = model_decider(provider=provider)
+    for d in [x for x in decisions if x.get("scope") == "rest"]:
+        said = decider(d["question"], d["choices"], {"seen_case": d["basis"].get("value")})
+        if said != d["taken"]:
+            print(f"    · 받지 않은 제안: {d['step']}번 — 기록의 화면을 보고 다시 물었더니 "
+                  f"'{said}' 라고 합니다 (기록은 '{d['taken']}')")
+            decisions = [x for x in decisions if x is not d]
+    if not decisions:
+        print("    판단 단계 없음 — 기록대로 재생합니다")
+        return flow
+    decided = with_decisions(flow, decisions, goal=c.goal)
     if not replays_the_walk(decided, flow, decisions):
         raise _Refused("판단 단계를 넣은 레시피가 원래 실행을 재현하지 않습니다 — 만들지 않았습니다")
     for d in decisions:
-        print(f"    · {d['step']}번 단계는 재생할 때 묻습니다: {d['question']}"
-              f"  ({' / '.join(d['choices'])})")
+        if d.get("scope") == "rest":
+            print(f"    · {d['step']}번 단계부터 경우가 나뉩니다: {d['question']}"
+                  f"  ({' / '.join(d['choices'])}) — '{d['taken']}' 은 이번에 한 대로, "
+                  "나머지는 처음 만날 때 화면을 보며 하고 배웁니다")
+        else:
+            print(f"    · {d['step']}번 단계는 재생할 때 묻습니다: {d['question']}"
+                  f"  ({' / '.join(d['choices'])})")
     return decided
 
 
@@ -444,6 +463,9 @@ def main(argv=None):
         # A value a decision now chooses is not an input any more.
         decided = {c for st in flow.steps if st.action == "decide" for c in st.params["choices"]}
         offered = {lit: at for lit, at in offered.items() if lit not in decided}
+        # Values inside a branch belong to that case, not to the request.
+        if any("branches" in st.params for st in flow.steps if st.action == "decide"):
+            offered = {}
         if flow.params:
             example = " ".join(f"-p {p}=…" for p in flow.params)
             print(f"  {how}:  nlc replay {flow.name} {example}")

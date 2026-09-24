@@ -28,7 +28,7 @@ from .protocol import Driver, ACTION_PARAMS
 
 # Steps the engine runs itself, with nothing sent to the app. Kept apart from
 # ACTION_PARAMS, which is what a driver may be asked to do.
-FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into"})}
+FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into", "branches", "goal"})}
 # The same rule as a `{{name}}` template, or the answer could never be used.
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
 
@@ -44,6 +44,17 @@ def decide_problem(params: dict) -> str | None:
         return "choices must be 2-20 distinct strings"
     if not isinstance(into, str) or not _NAME.fullmatch(into):
         return "into must be a name"
+    # A decision whose answer changes everything after it carries the steps
+    # for each answer it has seen; the ones it has not seen are walked.
+    if "branches" in params:
+        branches, goal = params["branches"], params.get("goal")
+        if (not isinstance(branches, dict) or not set(branches) <= set(choices)
+                or not all(isinstance(b, list) and b for b in branches.values())):
+            return "branches must map known choices to steps"
+        if not isinstance(goal, str) or not goal.strip():
+            return "a branching decision needs the goal a walk would pursue"
+    elif "goal" in params:
+        return "goal belongs to a branching decision"
     return None
 from .commit_evidence import make_event, evidence_error
 
@@ -687,8 +698,7 @@ class Flow:
             raise ValueError("Flow.steps must be a list")
         if not all(isinstance(d.get(k), str) and d[k] for k in ("name", "target")):
             raise ValueError("Flow requires name and target")
-        steps = []
-        for s in d["steps"]:
+        def parse(s):
             known = {**ACTION_PARAMS, **FLOW_ACTIONS}
             if not isinstance(s, dict) or s.get("action") not in known:
                 raise ValueError("unknown Flow action")
@@ -701,6 +711,14 @@ class Flow:
                 problem = decide_problem(payload)
                 if problem:
                     raise ValueError(f"decide: {problem}")
+                if "branches" in payload:
+                    # Each branch is steps of its own, parsed by the same rules
+                    # — a branch is not a way around any of them.
+                    payload = {**payload, "branches": {
+                        choice: [parse(x) for x in steps]
+                        for choice, steps in payload["branches"].items()}}
+                    if any(st.action in FLOW_ACTIONS for b in payload["branches"].values() for st in b):
+                        raise ValueError("decide: a branch may not decide again (yet)")
             if s["action"] in ("select_option", "select_custom_option") and not isinstance(payload.get("option_label"), str):
                 raise ValueError("selection requires option_label for effect classification")
             for key in ("require_enabled", "is_submit", "into_sensitive_field",
@@ -737,8 +755,8 @@ class Flow:
             binding = None
             if s.get("binding"):
                 binding = ContextBinding(**s["binding"])
-            steps.append(Step(action=s["action"], selector=sel,
-                              params=s.get("params", {}),
+            return Step(action=s["action"], selector=sel,
+                              params=payload,
                               risk_class=s.get("risk_class", "none"),
                               intent_text=s.get("intent_text", ""),
                               expect=s.get("expect"), postcondition=post,
@@ -750,7 +768,8 @@ class Flow:
                               for_each=s.get("for_each"),
                               captures=_captures_from(s),
                               skip_if=skip_if, answers=s.get("answers", False),
-                              on_uncertain=list(s.get("on_uncertain", []))))
+                              on_uncertain=list(s.get("on_uncertain", [])))
+        steps = [parse(s) for s in d["steps"]]
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=schema,
                     params=d.get("params", {}), tables=d.get("tables", {}),
@@ -1373,6 +1392,9 @@ class ReplayResult:
         self.events: list[dict] = []
         self.commit_evidence: dict = {}
         self._secrets: set[str] = set()
+        # Steps an agent walked for a decision's answer that had none:
+        # {(decision name, answer): [steps]}. Reported, never saved here.
+        self.learned: dict = {}
 
     def protect(self, value):
         if isinstance(value, str) and value:
@@ -1445,10 +1467,52 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
     return True
 
 
+def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
+                   res: "ReplayResult", *, narrate, escalate, budget, decide, walk,
+                   prepare_commit, after_commit) -> "ReplayResult":
+    """Run the steps for the answer given — or walk them, if there are none yet."""
+    into = step.params["into"]
+    choice = captures[into]
+    branch = step.params["branches"].get(choice)
+    if branch:
+        # Only steps that need no consent live in a branch (the caller checks
+        # that before saving one), so no approval is carried in.
+        sub = replay(driver, Flow(flow.name, flow.target, steps=list(branch),
+                                  tables=flow.tables),
+                     narrate=narrate, escalate=escalate, budget=budget, decide=decide,
+                     walk=walk, prepare_commit=prepare_commit, after_commit=after_commit,
+                     _seed=captures)
+        for entry in sub.log:
+            res.log.append({**entry, "branch": choice})
+        res.ok = res.ok and sub.ok
+        res.learned.update(sub.learned)
+        return res
+    if walk is None:
+        res.record(status="error", step=i, action="decide", error="branch_unwalked",
+                   detail=f"'{choice}' 인 경우는 아직 해 본 적이 없습니다")
+        return res
+    if narrate:
+        narrate(f"'{choice}' 인 경우는 처음이라 화면을 보면서 이어서 할게요")
+    try:
+        walked = walk(step.params["goal"], step.params["question"], choice) or {}
+    except Exception as exc:
+        walked = {"ok": False, "why": type(exc).__name__}
+    if not walked.get("ok"):
+        res.record(status="error", step=i, action="decide", error="branch_walk_failed",
+                   detail=str(walked.get("why") or "이어서 하지 못했습니다")[:200])
+        return res
+    said = walked.get("said") or []
+    if walked.get("steps"):
+        res.learned[(into, choice)] = walked["steps"]
+    res.record(status="done", steps=len(flow.steps), result=said[-1] if said else None,
+               captured={"결과": said[-1]} if said else None, walked=choice)
+    return res
+
+
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
            after_commit=None, commit_expected: dict | None = None,
-           decide=None) -> ReplayResult:
+           decide=None, walk=None, _seed: dict | None = None) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
@@ -1468,6 +1532,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                `decide` steps — the judgment a recipe PLANS to need, as opposed
                to `escalate`, which is for the judgment it did not expect. Each
                decide step asks once; without a callback it fails, never guesses.
+    walk:      callback(goal, question, choice) -> dict, for a branching
+               decision whose answer has no steps yet: the agent carries on
+               from the screen as it is. What it returns ({"ok", "said",
+               "steps"}) is reported in `res.learned`, never written here —
+               saving a new branch is the caller's decision.
 
     Consequential commits require typed host evidence, even if a UI
     postcondition succeeds. Hooks have the same shape as general.run and may
@@ -1481,7 +1550,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                    detail="migrate the flow to schema 2 before execution")
         return res
     spend = _Budget(budget if escalate is not None else 0)
-    captures: dict = {}      # values read off the screen during this run
+    captures: dict = dict(_seed or {})   # values read off the screen during this run
 
     # A decision is a model's answer, and a model's answer is never consent.
     # A step that needs approval is approved as DESCRIBED, before the run; a
@@ -1579,6 +1648,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if step.action in FLOW_ACTIONS:
             if not _decide(decide, step, i, captures, flow, res, narrate):
                 return res
+            if "branches" in step.params:
+                return _follow_branch(driver, flow, step, i, captures, res, narrate=narrate,
+                                      escalate=escalate, budget=spend.left, decide=decide,
+                                      walk=walk, prepare_commit=prepare_commit,
+                                      after_commit=after_commit)
             continue
         # Idempotency, decided before anything is narrated, authorized or
         # performed: a step that exists to reach a state has nothing to do once
