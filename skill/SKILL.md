@@ -263,6 +263,48 @@ the like, and it stays out of logs and traces.
 Traces are written redacted and owner-only, but tell the user what a trace
 contains before they send one.
 
+## Where judgment is needed: `decide` steps
+
+A recipe replays with no model. When one step genuinely depends on what the
+screen says — which key, which part of a text, what to write — make that step
+a **decision** instead of hard-coding what you saw. It touches nothing on
+screen; it asks once and later steps use the answer as `{{into}}`.
+
+```jsonc
+// choose — the answer is one of `choices`
+{ "action": "decide", "params": { "question": "화면의 수가 짝수입니까?",
+                                  "choices": ["2", "3"], "into": "k" } },
+{ "action": "click", "selector": { "role": "Button", "desc": "{{k}}",
+                                   "ancestor": "CalculatorKeypadView" }, ... },
+
+// extract — the answer must be literally inside the named captures
+{ "action": "decide", "params": { "question": "주문번호만",
+                                  "extract_from": ["source"], "into": "order" } },
+
+// compose — free text; may only be typed, never used to aim at an element
+{ "action": "decide", "params": { "question": "두 문장짜리 답장", "compose": true,
+                                  "into": "reply" } },
+
+// branch — the answer changes everything after it; a branch may decide again
+{ "action": "decide", "params": { "question": "짝수입니까, 홀수입니까?",
+    "choices": ["짝수", "홀수"], "into": "case", "goal": "짝수면 ×2, 홀수면 +1",
+    "branches": { "홀수": [ /* steps for this case, to the end */ ] } } }
+```
+
+Rules the engine enforces:
+
+- `into` is an ASCII name, unique across the whole recipe including branches.
+- Read what the decision rests on first (a `read` step with a `capture`); the
+  captures so far are what the model sees. `"sensitive": true` ones it never sees.
+- A decided value may reach a step that needs consent only if the run can ask
+  at that moment (`confirm`); the person then sees the actual value — the whole
+  text for `compose`. Otherwise the recipe is refused before it starts.
+- A branch answer with no steps is walked by the agent from that point when a
+  walker is available, and kept if the walk checks out. Without one:
+  `branch_unwalked`.
+
+Details and measurements: [`docs/recipes.md`](../docs/recipes.md).
+
 ## Turning a one-off into a reusable recipe
 
 If you already wrote a concrete recipe, promote it instead of rewriting:
@@ -272,6 +314,20 @@ nlc parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
     --digits --derived='result={{a}} * {{b}}'
 ```
 
+If the agent **walked** a task (`nlc do` with no recipe), the verified walk is
+already filed as a candidate. Promote that instead of writing one:
+
+```bash
+nlc candidates                      # candidates, the values that came from the request,
+                                    # and why one cannot become a recipe yet
+nlc promote <name> -p 25=n          # 25 becomes the input n; judgment points are
+                                    # reviewed once and kept only if the walk supports them
+nlc promote <name> --no-decisions   # skip that review
+```
+
+A recipe promoted from a walk may re-aim a missing target once (`--think 0` to
+forbid it), because it recorded labels the way the screen showed them that time.
+
 ## When a run fails
 
 | error | what it means |
@@ -279,7 +335,21 @@ nlc parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
 | `target_missing` / `target_ambiguous` | selector matched 0 / >1 — re-observe and tighten it |
 | `unverifiable_input_step` | a typing step has no `expect` |
 | `contract_invalidated` | the recorded facts changed; re-author, don't force it |
+| `contract_required` | a step that acts has no `safety` contract |
+| `invariant_unverifiable` | the binding pins something this run cannot re-observe — fail closed |
+| `unverifiable_action` | the policy blocks this effect outright (not a confirmation) |
+| `precondition_failed` | the target is `[disabled]` |
 | `postcondition_timeout` | reports the value actually read — usually the wrong field or format. The action itself was delivered, so this never means "nothing happened" |
+| `expect_not_met` | the step's `expect` text never appeared |
+| `retry_refused` | after a recovery, the one allowed re-run of an idempotent step was refused |
+| `capture_failed` | a non-optional `capture` found nothing to read |
+| `invalid_action` | unknown action, parameters it does not take, or a malformed `decide` |
+| `selection_label_required` | a select step has no `option_label` to classify its effect by |
+| `window_preparation_contract_required` / `window_preparation_target_required` | `prepare_window` without the capability, a window selector and an exact observed result |
+| `unsupported_schema` | not a schema 2 flow |
+| `decision_unavailable` / `decision_invalid` / `decision_failed` | a `decide` step had no model, got an answer outside what it allows, or the call failed |
+| `decision_drives_consent` / `composed_text_aims` | a decided value would reach a consent step with no way to ask, or written text would aim at an element |
+| `branch_unwalked` / `branch_walk_failed` | a branch answer has no steps and no walker, or the walk did not get there |
 | `no_window_content` | app has no window (minimised, or the screen is locked) |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 

@@ -17,8 +17,10 @@ Usage:
   python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
       (--helper routes through the signed Swift helper that holds the permissions)
-      (add --no-indicator to suppress the on-screen "being controlled" outline)
+      (add --no-indicator to hide the "● NLC" menu-bar item shown while it runs)
   python -m nlc.cli replay <name>     # replay a saved flow by name
+      (run/replay: --think N lets a step that declared a surprise ask N times;
+       unset, a recipe promoted from a walk may ask once, a written one never)
   python -m nlc.cli candidates        # what a screen-loop run would like to
                                       # become a recipe, and why it is not yet
   python -m nlc.cli promote <name> [-p 25=n]
@@ -26,6 +28,7 @@ Usage:
                                       # -p turns a value from the request into an
                                       # input, and the recipe then answers the
                                       # same sentence with any value (nlc do "…")
+      (a model reviews the walk once for judgment points; --no-decisions skips it)
 
   A step the policy will not run on its own authority (saving a file, sending a
   message) asks first. Answer at the prompt, or pass --yes for scripts; with no
