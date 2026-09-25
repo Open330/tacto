@@ -141,7 +141,7 @@ class _Refused(Exception):
     pass
 
 
-def _promote_decisions(rec: dict, flow, provider: str):
+def _promote_decisions(rec: dict, flow, provider: str, taken_names=frozenset()):
     """The recipe with the walk's judgment points turned into decide steps."""
     from .contract import Envelope
     from .promote import (Candidate, checked_decisions, decision_prompt,
@@ -187,7 +187,7 @@ def _promote_decisions(rec: dict, flow, provider: str):
     from .promote import lift_screen_values, shifted, to_flow
     _, lifted = lift_screen_values(c, to_flow(c, "walk"), rec.get("request") or c.goal)
     decisions = shifted(decisions, lifted)
-    decided = with_decisions(flow, decisions, goal=c.goal)
+    decided = with_decisions(flow, decisions, goal=c.goal, taken_names=taken_names)
     if not replays_the_walk(decided, flow, decisions):
         raise _Refused("판단 단계를 넣은 레시피가 원래 실행을 재현하지 않습니다 — 만들지 않았습니다")
     for d in decisions:
@@ -484,8 +484,9 @@ def main(argv=None):
                 [rec.get("request") or "", (rec.get("candidate") or {}).get("goal") or ""]) if x]
         path = FlowStore().save(flow)
         print(f"  '{name}' 을 레시피로 만들었습니다 → {path}")
-        asks = sum(st.action == "decide" for st in flow.steps)
-        how = (f"재생할 때 판단 {asks}번만 모델에 묻습니다" if asks
+        from .flow import every_step
+        asks = sum(st.action == "decide" for st in every_step(flow.steps))
+        how = (f"재생할 때 판단 지점 {asks}곳에서만 모델에 묻습니다" if asks
                else "이제 토큰 없이 재생됩니다")
         # A value a decision now chooses is not an input any more.
         decided = {c for st in flow.steps if st.action == "decide" for c in st.params["choices"]}
@@ -764,9 +765,16 @@ def main(argv=None):
         if interpret is not None:
             from .judge import model_decider
             decider = model_decider(provider=provider, narrate=lambda s: print(f"  {s}"))
+        review = None
+        if interpret is not None:
+            def review(rec, flow, taken):
+                try:
+                    return _promote_decisions(rec, flow, provider, taken_names=taken)
+                except _Refused:
+                    return flow
         agent = Agent(driver=driver, narrate=lambda s: print(f"  🗣  {s}"),
                       author=author_hook, interpret=interpret,
-                      general=general_hook, judge=judge, decide=decider)
+                      general=general_hook, judge=judge, decide=decider, review=review)
         # The person should be able to see their computer being driven, and
         # stop it: outline the window while the task runs.
         from .store import FlowStore as _S

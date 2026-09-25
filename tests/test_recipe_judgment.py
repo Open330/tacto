@@ -249,3 +249,14 @@ class OneReadingTests(unittest.TestCase):
                 match, _ = agent.read_request(self.WORDS)
             self.assertEqual(["what_was_asked"], calls)
             self.assertEqual(want, match and (match.name, match.params))
+
+
+class SubtractionIsNotExclusionTests(unittest.TestCase):
+    def test_a_number_being_subtracted_is_not_a_refusal(self):
+        from nlc.ask import _refuses
+        self.assertFalse(_refuses("그 결과가 20보다 크면 5를 빼고 아니면 5를 더해줘"))
+        self.assertFalse(_refuses("3을 빼고 저장해줘"))
+        # Still refusals: "except" with no number-and-particle before it.
+        for said in ("메일 빼고 문서 폴더 열어줘", "사진은 빼고 보내줘", "5 빼고 다 지워",
+                     "굵게 하지 마"):
+            self.assertTrue(_refuses(said), said)

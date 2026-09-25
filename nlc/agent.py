@@ -152,6 +152,29 @@ _MARKERS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 
+def _find_decision(steps, into) -> bool:
+    """Is there a branching decision called `into`, at any depth?"""
+    return any(st.action == "decide" and st.params.get("into") == into
+               and "branches" in st.params for st in _all_steps(steps))
+
+
+def _graft(steps, into, choice, new) -> list:
+    """`steps` with `new` kept as the `choice` branch of decision `into`,
+    wherever in the nesting that decision is."""
+    from dataclasses import replace as _replace
+    out = []
+    for st in steps:
+        if st.action == "decide" and "branches" in st.params:
+            branches = dict(st.params["branches"])
+            if st.params.get("into") == into:
+                branches[choice] = list(new)
+            else:
+                branches = {c: _graft(b, into, choice, new) for c, b in branches.items()}
+            st = _replace(st, params={**st.params, "branches": branches})
+        out.append(st)
+    return out
+
+
 def _all_steps(steps) -> list:
     """Every step, including those inside a decision's branches."""
     out = []
@@ -255,7 +278,8 @@ class Agent:
                  general: Callable | None = None,
                  outcome_context: Callable | None = None,
                  commit_adapter_factory: Callable | None = None,
-                 decide: Callable | None = None):
+                 decide: Callable | None = None,
+                 review: Callable | None = None):
         self.driver = driver if driver is not None else default_driver()
         self.store = store or FlowStore()
         self.narrate = narrate or (lambda s: None)
@@ -266,6 +290,10 @@ class Agent:
         # Answers a recipe's planned `decide` steps. Unlike `judge`, which is
         # for surprises, a recipe that has a decide step needs this every run.
         self.decide = decide
+        # Looks over a freshly walked branch for judgment points of its own,
+        # the way promotion looks over a walk: (record, flow, names in use)
+        # -> flow. Without it a learned branch replays exactly as walked.
+        self.review = review
         # Reading the request itself, for the requests the patterns decline.
         # Separate from `judge`: this one is given the user's words and never
         # the screen, which is why what it returns may say what the user wants.
@@ -507,7 +535,13 @@ class Agent:
             except Exception as exc:
                 return Turn("failed", f"실행 전에 필요한 정보를 확인하지 못했습니다: {exc}")
         try:
-            r = self.general(target, goal, ask, env, spec)
+            # The reading's goal is a summary, and a summary can drop the
+            # rules: "짝수면 ×2, 홀수면 +1, 그다음 20보다 크면 −5…" came back as
+            # "조건에 따라 두 단계 계산", and the walk had nothing left to do.
+            # The person's own words go along; the goal still leads.
+            told = goal if goal.strip() == intent.strip() else (
+                f"{goal}\n(사용자가 한 말 그대로: {intent[:400]})")
+            r = self.general(target, told, ask, env, spec)
         except Exception as e:
             return Turn("failed", f"화면을 보며 해봤지만 실패했어요: {e}")
         # A run that arrived is a proposal for a recipe. Filed, never deployed:
@@ -827,7 +861,8 @@ class Agent:
         walk = None
         if self.general is not None:
             def walk(goal, question, choice):
-                return self._walk_branch(flow.target, goal, question, choice, ask)
+                return self._walk_branch(flow.target, goal, question, choice, ask,
+                                         taken=flow.runtime_names())
         res = replay(self.driver, flow, approvals=approvals,
                      narrate=self.narrate, escalate=judge, budget=think,
                      decide=self.decide, walk=walk,
@@ -841,7 +876,7 @@ class Agent:
             self._learn_branches(template, learned, values)
         return turn
 
-    def _walk_branch(self, target, goal, question, choice, ask) -> dict:
+    def _walk_branch(self, target, goal, question, choice, ask, taken=frozenset()) -> dict:
         """Carry on from here with the agent, for an answer never seen before.
 
         The steps before the decision already ran; the walk starts from the
@@ -863,11 +898,20 @@ class Agent:
                            target_identity=getattr(r, "target_identity", None))
         if c is not None:
             walked_flow, why = deployable(c, "branch", told)
+            if walked_flow is not None and self.review is not None:
+                # The branch may itself have turned on something it saw.
+                try:
+                    walked_flow = self.review(
+                        {"candidate": {k: v for k, v in vars(c).items() if k != "envelope"},
+                         "request": told}, walked_flow, taken)
+                except Exception:
+                    pass                 # reviewing is never worth losing the walk
             # A branch replays with no one asked, so only steps that need no
-            # consent may be kept in one.
+            # consent may be kept in one — at any depth.
             if walked_flow is not None and all(
-                    st.safety is not None and policy(st.safety).risk == "none"
-                    for st in walked_flow.steps):
+                    st.action == "decide" or (st.safety is not None
+                                              and policy(st.safety).risk == "none")
+                    for st in _all_steps(walked_flow.steps)):
                 steps = walked_flow.steps
         return {"ok": True, "said": list(r.said), "steps": steps}
 
@@ -883,9 +927,7 @@ class Agent:
         steps = list(template.steps)
         changed = False
         for (into, choice), walked in learned.items():
-            at = next((k for k, st in enumerate(steps) if st.action == "decide"
-                       and st.params.get("into") == into and "branches" in st.params), None)
-            if at is None or not walked:
+            if not walked or not _find_decision(steps, into):
                 continue
             branch = Flow(template.name, template.target, steps=list(walked))
             mapping = {str(v): k for k, v in values.items()
@@ -895,8 +937,7 @@ class Agent:
                 concrete = Flow(template.name, template.target, steps=list(walked))
                 if _shape(branch.bind(**{p: lit for lit, p in mapping.items()})) != _shape(concrete):
                     continue
-            branches = {**steps[at].params["branches"], choice: branch.steps}
-            steps[at] = _replace(steps[at], params={**steps[at].params, "branches": branches})
+            steps = _graft(steps, into, choice, branch.steps)
             changed = True
             self.narrate(f"다음부터 '{choice}' 인 경우도 바로 할 수 있어요")
         if changed:
