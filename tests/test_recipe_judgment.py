@@ -184,3 +184,68 @@ class JudgeRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplayCommandBudgetTests(unittest.TestCase):
+    """`nlc replay`/`nlc run` give walked recipes the same one question as `do`."""
+    def budget(self, walked, argv):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from nlc import cli
+        seen = {}
+        done = type("R", (), {"ok": True, "log": [{"status": "done"}]})()
+        agent = patch("nlc.cli.Agent").start()
+        self.addCleanup(patch.stopall)
+        agent.return_value.authorize.return_value = ({}, [])
+        agent.return_value.commit_adapter_hooks.return_value = {}
+        with patch("nlc.flow.replay", side_effect=lambda *a, **k: seen.update(k) or done), \
+             patch("nlc.cli._make_driver"), patch("nlc.cli._indicator_for"), \
+             patch("nlc.judge.model_judge", return_value="judge"), redirect_stdout(StringIO()):
+            cli._run_flow(Flow("f", "t"), argv, walked=walked)
+        return seen["budget"], seen["escalate"]
+
+    def test_walked_asks_once_written_never_and_think_decides(self):
+        self.assertEqual((1, "judge"), self.budget(True, ["--yes"]))
+        self.assertEqual((0, None), self.budget(False, ["--yes"]))
+        self.assertEqual((0, None), self.budget(True, ["--yes", "--think", "0"]))
+        self.assertEqual((2, "judge"), self.budget(False, ["--yes", "--think", "2"]))
+
+
+class OneReadingTests(unittest.TestCase):
+    """Choosing the recipe is part of the first reading, not a second call."""
+    WORDS = "계산기로 16의 루트값 좀 알려줄래"
+    BASE = {"goal": "계산기로 16의 루트값 알아보기", "negated": False, "quote": "16의 루트값",
+            "excluded": [], "allows": ["read", "write_ephemeral"], "scope": "entry",
+            "reversibility": "reversible", "missing": [], "kind": None}
+
+    def q(self):
+        from nlc.ask import what_was_asked
+        return what_was_asked(self.WORDS, tasks=[("sqrt", "계산기에서 {{n}}의 제곱근 구해줘")],
+                              inputs={"sqrt": {"n": "25"}})
+
+    def test_the_pick_is_checked_like_which_task(self):
+        q = self.q()
+        self.assertIn("sqrt", q.prompt)
+        ok = q.check({**self.BASE, "pick": "sqrt", "pick_values": {"n": "16"}})
+        self.assertEqual(("sqrt", {"n": "16"}), (ok["pick"], ok["pick_values"]))
+        for pick, values in (("cube", {"n": "16"}), ("sqrt", {"n": "4"}),
+                             ("sqrt", {"n": "열여섯"}), ("sqrt", {})):
+            got = q.check({**self.BASE, "pick": pick, "pick_values": values})
+            self.assertIsNotNone(got)                  # the reading itself stands
+            self.assertIsNone(got["pick"], (pick, values))
+
+    def test_one_call_finds_it_and_a_seen_none_asks_nothing_more(self):
+        from nlc.agent import Agent
+        tpl = Flow("sqrt", "t", params={"n": "25"}, intents=["계산기에서 {{n}}의 제곱근 구해줘"])
+        store = type("S", (), {"list": lambda s: ["sqrt"], "load": lambda s, n: tpl})()
+        for pick, want in (("sqrt", ("sqrt", {"n": "16"})), (None, None)):
+            calls = []
+            def interpret(q, pick=pick):
+                calls.append(q.kind)
+                return q.check({**self.BASE, "pick": pick,
+                                "pick_values": {"n": "16"} if pick else {}})
+            agent = Agent(driver=object(), store=store, interpret=interpret)
+            with patch("nlc.library.builders", return_value={}):
+                match, _ = agent.read_request(self.WORDS)
+            self.assertEqual(["what_was_asked"], calls)
+            self.assertEqual(want, match and (match.name, match.params))

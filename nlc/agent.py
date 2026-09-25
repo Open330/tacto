@@ -395,7 +395,9 @@ class Agent:
         # "어제" has to mean the day before the moment they spoke, and keep
         # meaning it if the run crosses midnight.
         now = _time.strftime("%Y-%m-%d %H:%M %Z")
-        reading = self.interpret(what_was_asked(intent, now=now))
+        known = self._known_tasks()
+        reading = self.interpret(what_was_asked(
+            intent, now=now, tasks=known, inputs=self._template_inputs()))
         if not reading:
             return None, {}
         if reading.get("negated"):
@@ -406,7 +408,13 @@ class Agent:
         match = self._match_from_goal(goal)
         if match is not None:
             return match, reading
-        known = self._known_tasks()
+        if reading.get("picked"):
+            # The reading saw the list: its pick (checked) or its "none" is
+            # the answer, and asking which_task again would be the same
+            # question twice.
+            if reading.get("pick"):
+                return Match(reading["pick"], reading.get("pick_values") or {}), reading
+            return None, reading
         if not known:
             return None, reading
         pick = self.interpret(which_task(

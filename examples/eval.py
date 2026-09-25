@@ -829,6 +829,24 @@ def foreground_allowed():
     return allowed()
 
 
+def _failed_for_foreground(details) -> bool:
+    """Was the failure ITSELF a refusal for want of the foreground?
+
+    Not "does the evidence mention one": helper_menu's evidence always holds
+    the refusal it exists to provoke, and a run that failed because the
+    browser came forward mid-run was labelled `undeclared_foreground`, which
+    hid the real cause. The failure's own error decides; without one, the
+    step it stopped on.
+    """
+    if not isinstance(details, dict):
+        return False
+    if details.get("error"):
+        return "needs_foreground" in json.dumps(details["error"]).lower()
+    steps = details.get("steps") or []
+    last = steps[-1] if steps else details
+    return '"needs_foreground": true' in json.dumps(last, default=str).lower()
+
+
 def _bring_forward(bundle, d, timeout=4.0):
     """Activate an app the way a person would, and wait until it really is front.
 
@@ -4907,7 +4925,7 @@ def main():
             # refusal that was correct, because it neither declared nor brought
             # Calendar forward.
             if (case["status"] == "failed" and "foreground" not in need
-                    and '"needs_foreground": true' in json.dumps(details).lower()):
+                    and _failed_for_foreground(details)):
                 case["reason_code"] = "undeclared_foreground"
                 case["reason"] = ("앞선 앱이 필요한 동작이 거절됐는데 이 시나리오는 "
                                   "foreground 요구를 선언하지 않았습니다")

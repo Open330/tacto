@@ -181,3 +181,22 @@ class EvaluationReports(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ForegroundLabelTests(unittest.TestCase):
+    def label(self, details):
+        import sys
+        from pathlib import Path
+        sys.argv = ["eval.py"]
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
+        import eval as E
+        return E._failed_for_foreground(details)
+
+    def test_the_failures_own_cause_decides_not_the_evidence(self):
+        refusal = {"type": "error", "needs_foreground": True}
+        # helper_menu: the refusal is expected evidence; the failure was focus.
+        self.assertFalse(self.label({"error": "RuntimeError: focus moved during the run: ['x']",
+                                     "steps": [{"response": refusal}]}))
+        self.assertTrue(self.label({"steps": [{"ok": 1}, {"detail": refusal}]}))
+        self.assertFalse(self.label({"steps": [{"detail": refusal}, {"detail": "other"}]}))
+        self.assertTrue(self.label({"error": {"needs_foreground": True}}))
