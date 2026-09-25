@@ -1819,21 +1819,25 @@ final class ControlMenuTarget: NSObject {
 @discardableResult
 func showControlIndicator(forPID pid: pid_t) -> Bool {
     let who = NSRunningApplication(processIdentifier: pid)?.localizedName
-    let title = who.map { "● NLC · \($0) · Esc" } ?? "● NLC 조작 중 · Esc"
+    // Short on purpose: menu bar space is the person's, and "● NLC · Calculator
+    // · Esc" crowded it (reported). Which app, and how to stop, are one click
+    // away in the menu and on hover in the tooltip.
+    let title = "● NLC"
+    let tip = (who.map { "NLC가 \($0) 을(를) 조작하고 있습니다" } ?? "NLC가 이 화면을 조작하고 있습니다")
+        + ". Esc로 즉시 멈춥니다."
     if let existing = controlItem {
-        existing.button?.title = title      // the target can change mid-run
+        existing.button?.title = title
+        existing.button?.toolTip = tip      // the target can change mid-run
         existing.menu = controlMenu(for: who)
         return true
     }
-    // `variableLength`, because the app's name is in the title and a fixed
-    // width would truncate the one word that says which window this is about.
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     guard let button = item.button else {
         NSStatusBar.system.removeStatusItem(item)
         return false
     }
     button.title = title
-    button.toolTip = "NLC가 이 앱을 조작하고 있습니다. Esc로 즉시 멈춥니다."
+    button.toolTip = tip
     // A menu, because an indicator you cannot act on is only half of what it
     // promises. Esc stops the run, and someone who does not know that was
     // being told something was happening and given nothing to do about it.

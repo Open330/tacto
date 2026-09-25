@@ -459,6 +459,13 @@ def _here_question(goal: str, candidates: list[dict], done_so_far=(),
         bits = [f"{i}. {c.get('label', '(이름 없음)')}"]
         if c.get("role"):
             bits.append(f"[{c['role']}]")
+        # A display is labelled by what it shows, so two of them read "Beta"
+        # and "1" with nothing to say which is the result and which the count.
+        # Its identifier is the only thing that does — measured: asked for "the
+        # result display", the planner read the count one run in three.
+        if (c.get("attr") == "Identifier" and c.get("match")
+                and c.get("match") != c.get("label")):
+            bits.append(f"이름: {str(c['match'])[:60]}")
         if c.get("can"):
             bits.append("가능: " + "/".join(c["can"]))
         if "press_key" in c.get("can", ()) and "navigation_keys" in c:

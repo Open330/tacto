@@ -32,7 +32,7 @@ import subprocess
 import sys
 import time
 
-LABEL = "● NLC 조작 중 · Esc"
+LABEL = "● NLC"
 
 
 def run_indicator(pid: int, heartbeat: str | None = None, ttl: float = 4.0):
@@ -68,13 +68,16 @@ def run_indicator(pid: int, heartbeat: str | None = None, ttl: float = 4.0):
         # which is what `Indicator.alive()` reports to the driver.
         return
 
-    def title_for(target_pid):
+    def tip_for(target_pid):
         who = NSRunningApplication.runningApplicationWithProcessIdentifier_(target_pid)
         name = who.localizedName() if who is not None else None
-        return f"● NLC · {name} · Esc" if name else LABEL
+        return (f"NLC가 {name} 을(를) 조작하고 있습니다" if name
+                else "NLC가 이 화면을 조작하고 있습니다") + ". Esc로 즉시 멈춥니다."
 
-    button.setTitle_(title_for(pid))
-    button.setToolTip_("NLC가 이 앱을 조작하고 있습니다. Esc로 즉시 멈춥니다.")
+    # Short on purpose: the menu bar is the person's, and the app's name and
+    # the way to stop are in the tooltip rather than taking its width.
+    button.setTitle_(LABEL)
+    button.setToolTip_(tip_for(pid))
 
     class Ticker(objc.lookUpClass("NSObject")):
         def tick_(self, _timer):
@@ -89,7 +92,7 @@ def run_indicator(pid: int, heartbeat: str | None = None, ttl: float = 4.0):
                     return
             # The app being driven can change mid-run, and a stale name is a
             # worse answer than no name.
-            button.setTitle_(title_for(pid))
+            button.setToolTip_(tip_for(pid))
 
     ticker = Ticker.alloc().init()
     NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
