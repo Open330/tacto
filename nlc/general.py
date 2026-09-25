@@ -1062,7 +1062,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             if a["do"] == "read":
                 # Labels are abbreviated navigation aids, not read results.
                 # Preserve the actual value so the planner need not reread it.
-                done_so_far.append(f"{c['label']} (read) 읽은 값: " +
+                # Named as the planner saw it named: "Beta (read)" could be
+                # the popup or the result display, and a planner that cannot
+                # tell which it already read reads it again.
+                name = (f" [{c['match']}]" if c.get("attr") == "Identifier"
+                        and c.get("match") != c.get("label") else "")
+                done_so_far.append(f"{c['label']}{name} (read) 읽은 값: " +
                                    json.dumps(_value_of(c), ensure_ascii=False))
             else:
                 done_so_far.append(f"{c['label']} ({a['do']})")
