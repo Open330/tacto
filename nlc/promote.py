@@ -483,8 +483,14 @@ class CandidateStore:
     before anything starts running unattended.
     """
 
-    def __init__(self, path: str = "flows/_candidates"):
+    def __init__(self, path: str | None = None):
         import os
+        # Beside the recipes, wherever they live. A path relative to the
+        # working directory put candidates in whatever folder `nlc` happened
+        # to be run from once it was installed.
+        if path is None:
+            from .store import default_directory
+            path = os.path.join(default_directory(), "_candidates")
         self.path = path
         os.makedirs(path, exist_ok=True)
 

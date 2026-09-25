@@ -206,6 +206,11 @@ uv run nlc show calc_multiply           # IR 전문 보기
 uv run nlc parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
        --digits --derived='result={{a}} * {{b}}'
 
+# 에이전트가 처음 해 본 작업을 레시피로 — 아래 "실행 기록에서 레시피로" 참고
+uv run nlc candidates                   # 후보 목록과, 아직 레시피가 될 수 없는 이유
+uv run nlc promote <후보> -p 25=n       # 25 를 입력 n 으로 · 판단 지점 검토 후 저장
+uv run nlc replay <이름> -p n=49        # 모델 없이 재실행 (--think 0: 다시 지목도 끔)
+
 # 권한 경계를 거쳐 실행 (launcher/build.sh, helper/build.sh 로 빌드)
 ./launcher/nlc replay calc_multiply -p a=3 -p b=4 --helper
 ./launcher/nlc eval                     # 도우미 시나리오 포함 전체 평가
@@ -219,10 +224,13 @@ uv run python examples/eval.py          # 평가 재현
 > 학습 엔진은 사용자가 이미 로그인해 쓰는 에이전트 CLI입니다:
 > `claude → codex → opencode → cxweb` (`--compile-engine` 으로 지정).
 >
-> 실행 중에는 조작 대상 창에 **"NLC가 이 창을 조작 중입니다 · Esc로 중단"** 테두리가
-> 표시됩니다(`--no-indicator`로 끌 수 있음). 합성 입력에는 `NLC1` 마커가 붙어 사람
-> 입력과 구분됩니다. 처음 실행 시 macOS가 **손쉬운 사용** 권한을 요청합니다 —
-> `nlc doctor`가 정확한 설정 창을 열어줍니다.
+> 실행 중에는 메뉴 막대에 **`● NLC`** 가 표시됩니다(`--no-indicator`로 끌 수 있음).
+> 마우스를 올리면 어느 앱을 조작 중인지, 누르면 **중단** 메뉴가 나오고, Esc로도 즉시
+> 멈춥니다. 화면을 캡처할 때는 macOS가 자체 녹화 표시를 띄웁니다 — NLC가 그리지도,
+> 숨기지도 못하는 표시입니다. NLC는 포인터나 키보드를 합성하지 않고 접근성 API로만
+> 조작하며, 앞에 있는 앱을 바꾸지 않습니다(앱을 앞으로 가져와야 하는 단계는 사람에게
+> 넘깁니다). 처음 실행 시 macOS가 **손쉬운 사용**
+> 권한을 요청합니다(macOS 27에서는 설정의 "Device Control and Data Access") — `nlc doctor`가 정확한 설정 창을 열어줍니다.
 
 <br>
 
@@ -245,6 +253,32 @@ uv run nlc replay calc_multiply                   # 기본값 → 408
 
 템플릿 `{{a}}` · `{{item}}` · `{{digit[item]}}` 을 셀렉터·파라미터·검증조건 어디서나 쓸 수 있습니다.
 `derived`는 숫자와 `+ - * / // % **`만 허용하는 AST 평가라 `eval`을 쓰지 않습니다.
+
+<br>
+
+## 실행 기록에서 레시피로 — 판단은 필요한 곳에만
+
+레시피가 없는 요청은 에이전트가 화면을 보며 직접 해냅니다. 결과까지 검증된 실행은
+**후보**가 되고, 승격하면 매개변수가 있는 레시피가 됩니다. 이후에는 모델 없이 재실행하고,
+**판단이 필요한 지점에서만** 모델에 묻습니다.
+
+```bash
+$ nlc do "계산기에서 25의 제곱근 구해줘"        # 에이전트가 처음 해 봄 → 후보 저장
+$ nlc promote 계산기로_의_제곱근_ce4ab9 -p 25=n
+$ nlc do "계산기로 49 제곱근 좀 알려줘요"       # 모델 호출 0 — 결과 7
+```
+
+| 무엇 | 어떻게 확인하나 |
+|---|---|
+| 입력 (`-p 25=n`) | 요청에서 온 값만. 원래 값을 넣으면 원래 실행과 똑같아야 저장 |
+| 판단 단계 (`decide`) | 고르기는 선택지 안에서만, 뽑기는 읽은 글에 글자 그대로 있어야, 쓰기는 입력값으로만 |
+| 경우가 나뉘는 작업 | 처음 보는 경우는 그 지점부터 에이전트가 이어서 하고, 검증되면 그 경우의 분기로 저장 (분기 안에 또 분기 가능) |
+| 예상 못 한 화면 | 되돌릴 수 없는 결과를 남기지 않는 단계만 한 번 다시 지목 (`--think`) |
+| 판단 값이 저장·전송으로 | 값이 정해진 그 시점에 **실제 값(쓴 글은 전문)** 을 보여주고 승인 |
+
+레시피 찾기는 저장된 문장 → 핵심 단어(모델 0) → 요청 읽기(모델 1) 순서이며, 요청 읽기로
+찾은 말투는 성공하면 저장돼 다음부터 모델 0 입니다. 전체 설명과 실측은
+[`docs/recipes.md`](docs/recipes.md), Python에서 쓰는 법은 [`docs/api.md`](docs/api.md).
 
 <br>
 
@@ -384,7 +418,8 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
   없습니다. ChatGPT "Locked use"는 Apple authorization plug-in을 설치하는 **별도
   제품**이지 권한 플래그가 아닙니다. NLC는 `caffeinate`로 idle 잠금을 방지하고,
   실제 잠금 시엔 핸드오프합니다. → [`PROTOCOL.md` §5.1](PROTOCOL.md)
-- **authoring·일반 화면 판단·복구 판단·이미지 해석은 모델을 호출합니다.** 검증된 Flow의 결정론적 재생은 모델 호출 없이 동작합니다.
+- **authoring·일반 화면 판단·복구 판단·레시피의 판단 단계·이미지 해석은 모델을 호출합니다.** 검증된 Flow의 결정론적 재생은 모델 호출 없이 동작하며, 판단 단계가 있는 레시피는 그 단계에서만 묻습니다.
+- **판단의 근거가 화면에 나타난 적 없는 중간값일 수 있습니다.** 에이전트가 여러 단계를 한 번에 눌러 중간 결과를 띄우지 않았다면, 재생 때 그 시점의 화면에는 그 값이 없습니다. → [`docs/recipes.md`](docs/recipes.md#한계)
 - **실행 도중 실패하면 대화상자가 남습니다.** 여전히 **저절로 닫지 않습니다** —
   대화상자를 취소하는 건 아무도 요청하지 않은 행동이니까요. 대신 `대화상자 닫아줘`
   라고 하시면 (Cancel만) 닫아드리고, 막힌 실행은 그 방법을 함께 알려줍니다.
@@ -417,6 +452,19 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
 - [`docs/capabilities.md`](docs/capabilities.md) — backend별 기능과 실험 범위
 - [`docs/input-observation.md`](docs/input-observation.md) — 포커스·캐럿 표본 관측과 검증 한계
 - [`docs/artifact-receipts.md`](docs/artifact-receipts.md) — 실제 새 파일 readback을 통한 완료 증거
+- [`docs/recipes.md`](docs/recipes.md) — 실행 기록에서 레시피로, 판단 단계, 분기가 자라는 방식
+- [`docs/api.md`](docs/api.md) — Python API: `replay`·`Agent`·승격·판단 콜백
+- [`skill/SKILL.md`](skill/SKILL.md) — 에이전트가 레시피를 직접 쓰기 위한 스킬 (IR·판단 단계·오류표)
+- [`docs/evaluation.md`](docs/evaluation.md) — 평가 실행과 결과 읽기
+- [`docs/menu-discovery.md`](docs/menu-discovery.md) — 읽기 전용 메뉴 발견
+- [`docs/context-paging.md`](docs/context-paging.md) — 큰 관측값과 이력 조회
+- [`docs/model-deadlines.md`](docs/model-deadlines.md) — 모델 호출의 시간 예산
+- [`docs/provider-envelope.md`](docs/provider-envelope.md) — signed provider 응답 계약
+- [`docs/claude-adapter.md`](docs/claude-adapter.md) — Claude CLI 결과 어댑터
+- [`docs/native-window-input.md`](docs/native-window-input.md) — 네이티브 창별 클릭
+- [`docs/native-visual.md`](docs/native-visual.md) — 네이티브 창 이미지 읽기
+- [`docs/rtf-receipts.md`](docs/rtf-receipts.md) — RTF 저장 영수증
+- [`docs/textedit-save.md`](docs/textedit-save.md) — TextEdit 새 이름 저장의 호스트 증거
 
 <br>
 
