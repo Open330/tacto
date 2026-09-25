@@ -183,6 +183,22 @@ class TakingTheScreenIsOptIn(unittest.TestCase):
         # caller has to remember is one a new caller will not.
         self.assertFalse(module._bring_forward("com.apple.TextEdit", None))
 
+    def test_every_scenario_that_drives_a_real_screen_declares_it(self):
+        # One that did not ran against a locked screen and reported a FAILURE
+        # where every other GUI scenario was, rightly, skipped (2026-09-25).
+        import re
+        source = (ROOT / "examples/eval.py").read_text()
+        blocks = re.split(r"\ndef (scenario_\w+)\(", source)
+        module = self._module()
+        for i in range(1, len(blocks), 2):
+            name = blocks[i][len("scenario_"):]
+            body = blocks[i + 1].split("\ndef ")[0]
+            if not re.search(r"\bDriver\(\)", body):
+                continue
+            with self.subTest(scenario=name):
+                self.assertTrue({"gui", "native"} & module.SCENARIO_REQUIREMENTS.get(name, set()),
+                                f"{name} drives the screen without declaring it")
+
     def test_every_scenario_that_reaches_for_focus_declares_it(self):
         import re
         source = (ROOT / "examples/eval.py").read_text()
