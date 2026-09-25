@@ -174,7 +174,7 @@ null 이 정답입니다 — 비슷해 보이는 것을 고르면 그 종류가 
 적습니다. 날짜 얘기가 없으면 null 입니다."""
 
 
-def what_was_asked(utterance: str, now: str = "") -> Q:
+def what_was_asked(utterance: str, now: str = "", *, tasks=None, inputs=None) -> Q:
     """What the user asked for, as slots — from their words alone.
 
     No screen goes into this one. The utterance is the user's own, so what it
@@ -186,6 +186,15 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
     """
     prompt = (f"{_ASKED}\n\n# 기준시각\n{now or '(알 수 없음)'}\n\n"
               f"# 사용자가 한 말\n{utterance[:600]}")
+    # Which recipe carries it out used to be a second call. Asked here, over
+    # the same closed list and with the same checks, it is one call — and a
+    # reading that saw the list and picked nothing needs no second one.
+    tasks = list(tasks or [])
+    inputs = inputs or {}
+    names = {n for n, _ in tasks}
+    if tasks:
+        prompt += (f"\n\n{_PICK_TOO}\n\n# 고를 수 있는 레시피\n"
+                   + "\n".join(f"- {n}: {d}" for n, d in tasks))
 
     def check(a: dict) -> dict | None:
         quote = str(a.get("quote", "")).strip()
@@ -258,6 +267,10 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
                "scope": scope, "reversibility": rev,
                "missing": sorted({str(m) for m in missing}),
                "kind": kind, "values": values}
+        if tasks:
+            out["picked"] = True          # the list was seen; None means none fits
+            out["pick"], out["pick_values"] = _checked_pick(
+                a.get("pick"), a.get("pick_values"), names, inputs, utterance)
         for k in ("date_from", "date_to"):
             v = a.get(k)
             if isinstance(v, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
@@ -265,6 +278,33 @@ def what_was_asked(utterance: str, now: str = "") -> Q:
         return out
 
     return Q("what_was_asked", prompt, check, shown={"utterance": utterance})
+
+
+_PICK_TOO = """이 말을 실행할 레시피가 아래 목록에 있으면 같은 JSON에 함께 답하십시오:
+
+ "pick": "<목록에 정확히 있는 이름>" 또는 null,
+ "pick_values": {"<입력 이름>": "<값>"}   (입력이 {{이름}} 으로 적힌 레시피만)
+
+맞는 것이 없으면 null 이 정답입니다 — 비슷해 보이는 것을 고르는 것보다 낫습니다.
+하지 말라고 한 것을 실행하는 레시피는 고르지 마십시오. 입력 값은 사용자가 한 말에
+그대로 있는 글자여야 하고, 계산하거나 짐작한 값은 쓸 수 없습니다."""
+
+
+def _checked_pick(pick, values, names, inputs, words):
+    """(recipe, values) if the pick stands — same rules as `which_task`."""
+    if not isinstance(pick, str) or pick not in names:
+        return None, {}
+    wanted = inputs.get(pick) or {}
+    values = values if isinstance(values, dict) else {}
+    if set(values) != set(wanted):
+        return None, {}
+    for key, value in values.items():
+        if not isinstance(value, str) or not value.strip() or value not in words:
+            return None, {}
+        if re.fullmatch(r"[0-9.]+", str(wanted[key])) and not re.fullmatch(
+                r"[0-9]+(?:\.[0-9]+)?", value):
+            return None, {}
+    return pick, dict(values)
 
 
 # ------------------------------------------------------------------ 작업 선택

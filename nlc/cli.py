@@ -239,9 +239,20 @@ def _indicator_for(target, argv):
     return Indicator(pid, notify=lambda m: print(f"  {m}"))
 
 
-def _run_flow(flow, argv):
-    """All direct replay commands use the same consent and trace path."""
+def _run_flow(flow, argv, walked: bool = False):
+    """All direct replay commands use the same consent and trace path.
+
+    And the same judgment as `nlc do`: a recipe promoted from a walk may ask
+    once where a step declared a surprise, `--think N` sets how often, and
+    `--think 0` turns it off. Before this, the same recipe re-aimed its way
+    past Calculator's `Clear`/`All Clear` under `do` and failed under `replay`.
+    """
     from .flow import replay
+    think = 1 if walked else 0
+    if "--think" in argv:
+        k = argv.index("--think")
+        nxt = argv[k + 1] if k + 1 < len(argv) else ""
+        think = int(nxt) if nxt.isdigit() else 1
     driver = _make_driver(argv)
     trace_path = None
     tracer = None
@@ -284,10 +295,20 @@ def _run_flow(flow, argv):
             print(str(exc))
             return 2
         decider = model_decider(provider=provider, narrate=lambda s: print(f"  {s}"))
+    judge = None
+    if think:
+        from .judge import model_judge
+        try:
+            provider, _ = _provider_from(argv)
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        judge = model_judge(target=flow.target, provider=provider,
+                            narrate=lambda s: print(f"  {s}"))
     with _indicator_for(flow.target, argv):
         result = replay(driver, flow, approvals=approvals,
                         narrate=lambda text: print(f"  … {text}"), decide=decider,
-                        confirm=_confirmer(argv), **hooks)
+                        confirm=_confirmer(argv), escalate=judge, budget=think, **hooks)
     if tracer:
         print(f"트레이스 저장: {tracer.trace.save(trace_path)}")
     if result.ok:
@@ -585,9 +606,10 @@ def main(argv=None):
         from .flow import Flow as _F, replay as _replay
         with open(rest[0], encoding="utf-8") as fh:
             flow = _F.from_json(fh.read())
+        walked = bool(flow.intents)
         if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)          # parameterized recipe
-        return _run_flow(flow, rest)
+        return _run_flow(flow, rest, walked=walked)
 
     if cmd == "replay":
         if not rest:
@@ -596,9 +618,10 @@ def main(argv=None):
         if not rest:
             print("usage: replay <name> [-p a=12 -p b=34]"); return 2
         flow = FlowStore().load(rest[0])
+        walked = bool(flow.intents)      # binding drops it; decide first
         if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)
-        return _run_flow(flow, rest)
+        return _run_flow(flow, rest, walked=walked)
 
     if cmd == "do":
         try:
