@@ -98,7 +98,7 @@ class DecisionReviewTests(unittest.TestCase):
         reach.assert_called_once()
         saved = store.return_value.save.call_args.args[0]
         self.assertEqual(1, sum(s.action == "decide" for s in saved.steps))
-        self.assertIn("판단 1번만", out.getvalue())
+        self.assertIn("판단 지점 1곳에서만", out.getvalue())
         self.assertNotIn("-p 3=", out.getvalue())
 
     def test_a_walk_with_nothing_visible_costs_no_review(self):

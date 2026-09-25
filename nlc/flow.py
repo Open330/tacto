@@ -681,23 +681,16 @@ class Flow:
             ctx.setdefault(name, "{{%s}}" % name)
         ctx["__tables__"] = self.tables
 
-        out: list[Step] = []
-        for st in self.steps:
-            items = [None]
-            if st.for_each:
-                items = list(_render(st.for_each, ctx))
-            for it in items:
-                c = dict(ctx) if it is None else {**ctx, "item": it}
-                out.append(_render_step(st, c))
         # The target is rendered too: which app a recipe drives can itself be
         # an input, as it is for "close the dialog in <app>".
-        return Flow(name=self.name, target=_render(self.target, ctx), steps=out,
-                    schema=self.schema)
+        return Flow(name=self.name, target=_render(self.target, ctx),
+                    steps=_bind_steps(self.steps, ctx), schema=self.schema)
 
     def runtime_names(self) -> set:
-        """Values produced during a run: captures and decisions."""
-        out = {c.name for st in self.steps for c in st.captures}
-        out |= {st.params.get("into") for st in self.steps
+        """Values produced during a run: captures and decisions, at any depth."""
+        steps = every_step(self.steps)
+        out = {c.name for st in steps for c in st.captures}
+        out |= {st.params.get("into") for st in steps
                 if st.action == "decide" and isinstance(st.params.get("into"), str)}
         return out
 
@@ -742,8 +735,13 @@ class Flow:
                     payload = {**payload, "branches": {
                         choice: [parse(x) for x in steps]
                         for choice, steps in payload["branches"].items()}}
-                    if any(st.action in FLOW_ACTIONS for b in payload["branches"].values() for st in b):
-                        raise ValueError("decide: a branch may not decide again (yet)")
+                    # A branch may decide again; each decision needs its own
+                    # name, or what one answered would stand for another.
+                    names = [st.params.get("into") for st in every_step(
+                        [x for b in payload["branches"].values() for x in b])
+                        if st.action in FLOW_ACTIONS]
+                    if payload["into"] in names or len(set(names)) != len(names):
+                        raise ValueError("decide: every decision needs its own name")
             if s["action"] in ("select_option", "select_custom_option") and not isinstance(payload.get("option_label"), str):
                 raise ValueError("selection requires option_label for effect classification")
             for key in ("require_enabled", "is_submit", "into_sensitive_field",
@@ -886,6 +884,38 @@ def content_match(template: str, params: dict, sentence: str) -> dict | None:
         return {names[0]: numbers[0]}
     by_role = dict(zip(got_roles, numbers))
     return {name: by_role[role] for name, role in zip(names, want_roles)}
+
+
+def every_step(steps) -> list:
+    """Every step, including those inside decisions' branches, in order."""
+    out = []
+    for st in steps:
+        out.append(st)
+        if st.action == "decide":
+            for branch in (st.params.get("branches") or {}).values():
+                out.extend(every_step(branch))
+    return out
+
+
+def _bind_steps(steps, ctx) -> list:
+    """Steps with inputs filled and loops expanded — branches included.
+
+    Branches used to be left as they were, so a learned branch in a recipe
+    with inputs would have replayed "{{n}}" to the screen.
+    """
+    out = []
+    for st in steps:
+        items = [None]
+        if st.for_each:
+            items = list(_render(st.for_each, ctx))
+        for it in items:
+            c = dict(ctx) if it is None else {**ctx, "item": it}
+            bound = _render_step(st, c)
+            if bound.action == "decide" and "branches" in bound.params:
+                bound = replace(bound, params={**bound.params, "branches": {
+                    k: _bind_steps(v, ctx) for k, v in bound.params["branches"].items()}})
+            out.append(bound)
+    return out
 
 
 def _intents_from(d: dict) -> list:
@@ -1523,11 +1553,14 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
 
 def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                    res: "ReplayResult", *, narrate, escalate, budget, decide, walk,
-                   prepare_commit, after_commit) -> "ReplayResult":
+                   prepare_commit, after_commit, confirm=None) -> "ReplayResult":
     """Run the steps for the answer given — or walk them, if there are none yet."""
     into = step.params["into"]
     choice = captures[into]
     branch = step.params["branches"].get(choice)
+    outer = ({s.params.get("into") for s in every_step(flow.steps) if s.action == "decide"},
+             {s.params.get("into") for s in every_step(flow.steps)
+              if s.action == "decide" and s.params.get("compose")})
     if branch:
         # Only steps that need no consent live in a branch (the caller checks
         # that before saving one), so no approval is carried in.
@@ -1535,7 +1568,7 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                                   tables=flow.tables),
                      narrate=narrate, escalate=escalate, budget=budget, decide=decide,
                      walk=walk, prepare_commit=prepare_commit, after_commit=after_commit,
-                     _seed=captures)
+                     confirm=confirm, _seed=captures, _outer=outer)
         for entry in sub.log:
             res.log.append({**entry, "branch": choice})
         res.ok = res.ok and sub.ok
@@ -1567,7 +1600,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
            after_commit=None, commit_expected: dict | None = None,
            decide=None, walk=None, confirm=None,
-           _seed: dict | None = None) -> ReplayResult:
+           _seed: dict | None = None, _outer: tuple = (frozenset(), frozenset())) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
@@ -1615,9 +1648,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     # A decision is a model's answer, and a model's answer is never consent.
     # A step that needs approval is approved as DESCRIBED, before the run; a
     # value chosen mid-run would change what it does after the person agreed.
-    decided = {st.params.get("into") for st in flow.steps if st.action == "decide"}
-    composed = {st.params.get("into") for st in flow.steps
-                if st.action == "decide" and st.params.get("compose")}
+    # Decisions made here and — for a branch — above it: a step deep in a
+    # branch that uses an answer given earlier is held to the same rules.
+    decided = {st.params.get("into") for st in every_step(flow.steps)
+               if st.action == "decide"} | set(_outer[0])
+    composed = {st.params.get("into") for st in every_step(flow.steps)
+                if st.action == "decide" and st.params.get("compose")} | set(_outer[1])
     ask_then = {}                        # step -> decided names it uses
     for i, st in enumerate(flow.steps):
         if st.action == "decide" or not composed:
@@ -1747,7 +1783,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return _follow_branch(driver, flow, step, i, captures, res, narrate=narrate,
                                       escalate=escalate, budget=spend.left, decide=decide,
                                       walk=walk, prepare_commit=prepare_commit,
-                                      after_commit=after_commit)
+                                      after_commit=after_commit, confirm=confirm)
             continue
         # Idempotency, decided before anything is narrated, authorized or
         # performed: a step that exists to reach a state has nothing to do once

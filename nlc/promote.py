@@ -562,6 +562,9 @@ _DECISIONS = """에이전트가 한 작업의 기록입니다. 이 기록은 다
 - scope "rest": 판단에 따라 **이 단계부터 뒤가 통째로** 달라집니다(누르는 것도,
   순서도, 개수도). choices 는 판단의 답(예: "짝수", "홀수"), 2~6개의 짧은 말이고,
   taken 은 이 기록이 해당한 답입니다. 이 단계부터 끝까지가 그 답의 절차가 됩니다.
+  뒤에서 **또 한 번** 경우가 나뉘면 그것도 따로 적으십시오 — 앞 판단의 절차 안에
+  들어갑니다. 판단의 근거가 앞 단계들의 결과라면, 그 결과가 보이는 곳을
+  depends_on 으로 적으십시오.
 
 - 사용자의 요청에서 이미 정해진 값(요청에 적힌 숫자·이름)은 판단이 아닙니다.
 - 매번 같은 것을 누르는 단계(=, 초기화, 메뉴)는 판단이 아닙니다.
@@ -634,7 +637,7 @@ def checked_decisions(c: Candidate, proposed, request: str) -> tuple[list, list]
             seen.add(i)
             ok.append({"step": i, "scope": "rest", "question": question.strip()[:300],
                        "choices": list(choices), "taken": taken, "basis": basis})
-            break                        # everything after it is this branch
+            continue                     # a later one nests inside this branch
         options = set(a.get("screen_options") or [])
         # A value the request names is the request's, not a judgment — unless
         # the request names several of the choices ("짝수면 2, 홀수면 3"), in
@@ -658,39 +661,70 @@ def checked_decisions(c: Candidate, proposed, request: str) -> tuple[list, list]
     return ok, why
 
 
-def with_decisions(flow: Flow, decisions: list, goal: str = "") -> Flow:
+def with_decisions(flow: Flow, decisions: list, goal: str = "",
+                   taken_names=frozenset()) -> Flow:
     """The flow with each decided step asking first, then pressing the answer.
 
     A decision whose scope is the rest of the walk becomes a branch point:
     what the walk did from there is the branch for the answer it had, and the
     other answers start out empty, to be walked the first time they come up.
+    A later decision in the walk lands inside that branch — decisions nest.
+
+    Each decision dict is given the names it was built with ("into", "seen"),
+    which is what `replays_the_walk` follows. `taken_names` are names already
+    in use where these steps will live, so a branch learned into an existing
+    recipe cannot shadow one of its decisions.
     """
     from dataclasses import replace
-    from .contract import Resource, SafetyContract
-    steps = list(flow.steps)
-    rest = [d for d in decisions if d.get("scope") == "rest"]
-    if rest:
-        d = min(rest, key=lambda x: x["step"])
-        decisions = [x for x in decisions if x.get("scope") != "rest" and x["step"] < d["step"]]
-        i, into = d["step"], "case"
-        look = _basis_read(d["basis"], "seen_case")
-        steps = steps[:i] + [look, Step("decide", None, params={
-            "question": d["question"], "choices": d["choices"], "into": into,
-            "goal": goal or flow.name, "branches": {d["taken"]: steps[i:]}})]
-    for n, d in sorted(enumerate(decisions), key=lambda x: -x[1]["step"]):
-        i, into = d["step"], f"choice{n + 1}"
-        st = steps[i]
-        # Read what the choice rests on, fresh, right before asking: the
-        # replay's screen, not the walk's.
-        look = _basis_read(d["basis"], f"seen{n + 1}")
-        key = "desc" if st.selector.desc is not None else "title"
-        sel = replace(st.selector, **{key: "{{%s}}" % into})
-        binding = replace(st.binding, **{key: "{{%s}}" % into}) if st.binding else None
-        steps[i] = replace(st, selector=sel, binding=binding,
-                           intent_text=f"{d['question']} → {{{{{into}}}}}")
-        steps[i:i] = [look, Step("decide", None, params={
-            "question": d["question"], "choices": d["choices"], "into": into})]
-    return replace(flow, steps=steps)
+    used = set(taken_names)
+
+    def fresh(base, numbered):
+        n = 1
+        while True:
+            name = f"{base}{n}" if (numbered or n > 1) else base
+            if name not in used:
+                used.add(name)
+                return name
+            n += 1
+
+    def build(steps, ds):
+        ds = sorted(ds, key=lambda d: d["step"])
+        rest = [d for d in ds if d.get("scope") == "rest"]
+        if rest:
+            d = rest[0]
+            origin = d.get("_src", d)
+            i = d["step"]
+            head = build(steps[:i], [x for x in ds if x["step"] < i])
+            origin["into"] = fresh("case", False)
+            origin["seen"] = f"seen_{origin['into']}"
+            branch = build(steps[i:], [{**x, "step": x["step"] - i, "_src": x.get("_src", x)}
+                                       for x in ds if x["step"] > i])
+            return head + [_basis_read(d["basis"], origin["seen"]), Step("decide", None, params={
+                "question": d["question"], "choices": d["choices"], "into": origin["into"],
+                "goal": goal or flow.name, "branches": {d["taken"]: branch}})]
+        steps = list(steps)
+        for d in sorted(ds, key=lambda x: -x["step"]):
+            origin = d.get("_src", d)
+            origin["into"] = fresh("choice", True)
+            origin["seen"] = "seen" + origin["into"][len("choice"):]
+            i, into = d["step"], origin["into"]
+            st = steps[i]
+            key = "desc" if st.selector.desc is not None else "title"
+            sel = replace(st.selector, **{key: "{{%s}}" % into})
+            binding = replace(st.binding, **{key: "{{%s}}" % into}) if st.binding else None
+            steps[i] = replace(st, selector=sel, binding=binding,
+                               intent_text=f"{d['question']} → {{{{{into}}}}}")
+            # Read what the choice rests on, fresh, right before asking: the
+            # replay's screen, not the walk's.
+            steps[i:i] = [_basis_read(d["basis"], origin["seen"]), Step("decide", None, params={
+                "question": d["question"], "choices": d["choices"], "into": into})]
+        return steps
+
+    # Nested copies carry `_src` so names land on the caller's dicts.
+    for d in decisions:
+        d.pop("_src", None)
+    out = build(list(flow.steps), decisions)
+    return replace(flow, steps=out)
 
 
 def _basis_read(b: dict, name: str) -> Step:
@@ -706,30 +740,43 @@ def _basis_read(b: dict, name: str) -> Step:
 
 
 def replays_the_walk(template: Flow, concrete: Flow, decisions: list) -> bool:
-    """Given the walk's own answers, does the template do what the walk did?"""
+    """Given the walk's own answers, does the template do what the walk did?
+
+    Follows the template the way a replay would if every decision answered
+    as the walk did: into the walked branch at each branch point, the walked
+    label at each single-step choice, past the reads added to feed them.
+    """
     from .flow import _render_step
-    rest = [d for d in decisions if d.get("scope") == "rest"]
-    if rest:
-        # Before the branch point the steps are the walk's own, and the branch
-        # for the walk's answer is exactly what the walk did after it.
-        d = min(rest, key=lambda x: x["step"])
-        point = next((st for st in template.steps if st.action == "decide"
-                      and "branches" in st.params), None)
-        if point is None or point.params["branches"].get(d["taken"]) != concrete.steps[d["step"]:]:
+    answers, added = {}, set()
+    for d in decisions:
+        if "into" not in d:
             return False
-        head = [st for st in template.steps[:template.steps.index(point)]
-                if not (st.captures and st.captures[0].name == "seen_case")]
-        return replays_the_walk(Flow(template.name, template.target, steps=head),
-                                Flow(concrete.name, concrete.target,
-                                     steps=concrete.steps[:d["step"]]),
-                                [x for x in decisions if x.get("scope") != "rest"])
-    answers = {f"choice{n + 1}": concrete.steps[d["step"]].selector.desc
-               if concrete.steps[d["step"]].selector.desc is not None
-               else concrete.steps[d["step"]].selector.title
-               for n, d in enumerate(decisions)}
-    added = {f"seen{n + 1}" for n in range(len(decisions))}
-    replayed = [_render_step(st, answers) for st in template.steps
-                if st.action != "decide" and not {c.name for c in st.captures} & added]
+        added.add(d["seen"])
+        if d.get("scope") == "rest":
+            answers[d["into"]] = d["taken"]
+        else:
+            walked = concrete.steps[d["step"]].selector
+            answers[d["into"]] = walked.desc if walked.desc is not None else walked.title
+
+    def follow(steps):
+        out = []
+        for st in steps:
+            if st.action == "decide":
+                if "branches" in st.params:
+                    branch = st.params["branches"].get(answers.get(st.params["into"]))
+                    if branch is None:
+                        return None
+                    rest = follow(branch)
+                    if rest is None:
+                        return None
+                    out += rest
+                continue
+            if st.captures and {c.name for c in st.captures} & added:
+                continue
+            out.append(_render_step(st, answers))
+        return out
+
+    replayed = follow(template.steps)
     shape = lambda steps: [(s.action, s.selector and (s.selector.role, s.selector.desc,
                             s.selector.title, s.selector.ancestor)) for s in steps]
-    return shape(replayed) == shape(concrete.steps)
+    return replayed is not None and shape(replayed) == shape(concrete.steps)

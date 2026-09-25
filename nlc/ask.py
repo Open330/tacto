@@ -95,7 +95,15 @@ _NEGATION = re.compile(
 
 
 def _refuses(text: str) -> bool:
-    return _NEGATION.search(text) is not None
+    for m in _NEGATION.finditer(text):
+        # "5를 빼고" is subtraction, not "except 5": after a number and its
+        # object particle, 빼고 is the arithmetic verb. Read as a refusal, it
+        # made the reading of "…20보다 크면 5를 빼고…" contradict itself and
+        # be thrown away.
+        if m.group() == "빼고" and re.search(r"[0-9]+\s*[을를]\s*$", text[:m.start()]):
+            continue
+        return True
+    return False
 
 
 _ASKED = """사용자가 컴퓨터에게 한 말을 구조로 옮기십시오. JSON만, 설명 없이:
