@@ -29,7 +29,7 @@ from .protocol import Driver, ACTION_PARAMS
 # Steps the engine runs itself, with nothing sent to the app. Kept apart from
 # ACTION_PARAMS, which is what a driver may be asked to do.
 FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into", "branches", "goal",
-                                     "extract_from"})}
+                                     "extract_from", "compose"})}
 # The same rule as a `{{name}}` template, or the answer could never be used.
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
 
@@ -42,6 +42,17 @@ def decide_problem(params: dict) -> str | None:
     # An extraction answers with text rather than a choice — but only text
     # that is literally inside values this run read (`extract_from`), so the
     # answer is still checkable against something the model did not write.
+    # Composing answers with new text, which nothing can check. What keeps it
+    # safe is where it may go (replay: only into a typed value) and who sees
+    # it before anything consequential (replay: `confirm`, with the text).
+    if params.get("compose") is not None:
+        if params["compose"] is not True:
+            return "compose is true or absent"
+        if any(k in params for k in ("choices", "branches", "goal", "extract_from")):
+            return "a composition has no choices, branches or sources"
+        if not isinstance(into, str) or not _NAME.fullmatch(into):
+            return "into must be a name"
+        return None
     if "extract_from" in params:
         names = params["extract_from"]
         if "choices" in params or "branches" in params or "goal" in params:
@@ -1456,6 +1467,9 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
     q, into = step.params["question"], step.params["into"]
     choices = step.params.get("choices")
     sources = step.params.get("extract_from")
+    if step.params.get("compose"):
+        # Only a decider that says it can write may be asked to.
+        decide = getattr(decide, "compose", None)
     if decide is None:
         res.record(status="error", step=i, action="decide", error="decision_unavailable",
                    detail=f"이 단계는 판단이 필요합니다 — '{q[:80]}' 에 답할 모델이 연결되지 않았습니다")
@@ -1476,13 +1490,20 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
     if narrate:
         narrate(f"판단이 필요한 단계입니다: {q}")
     try:
-        # `None` for choices is how a decider is told to extract, not choose.
-        answer = decide(q, None if sources is not None else list(choices), dict(inputs))
+        # `None` for choices is how a decider is told to extract, not choose;
+        # a composer is its own callable and gets no choices at all.
+        answer = (decide(q, dict(inputs)) if step.params.get("compose")
+                  else decide(q, None if sources is not None else list(choices), dict(inputs)))
     except Exception as exc:
         res.record(status="error", step=i, action="decide", error="decision_failed",
                    detail=f"판단을 받지 못했습니다: {type(exc).__name__}")
         return False
-    if sources is not None:
+    if step.params.get("compose"):
+        if not isinstance(answer, str) or not answer.strip() or len(answer) > 2000:
+            res.record(status="error", step=i, action="decide", error="decision_invalid",
+                       detail="쓸 글을 받지 못했습니다")
+            return False
+    elif sources is not None:
         pool = [str(inputs[n]) for n in sources]
         if (not isinstance(answer, str) or not answer.strip() or len(answer) > 500
                 or not any(answer in text for text in pool)):
@@ -1595,7 +1616,20 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     # A step that needs approval is approved as DESCRIBED, before the run; a
     # value chosen mid-run would change what it does after the person agreed.
     decided = {st.params.get("into") for st in flow.steps if st.action == "decide"}
+    composed = {st.params.get("into") for st in flow.steps
+                if st.action == "decide" and st.params.get("compose")}
     ask_then = {}                        # step -> decided names it uses
+    for i, st in enumerate(flow.steps):
+        if st.action == "decide" or not composed:
+            continue
+        # Text a model wrote may be typed; it may never say what to act on.
+        aimed = json.dumps([asdict(st.selector) if st.selector else None,
+                            {k: v for k, v in st.params.items() if k not in ("value", "text")},
+                            st.for_each], ensure_ascii=False, default=str)
+        if any("{{%s}}" % name in aimed for name in composed):
+            res.record(status="error", step=i, error="composed_text_aims",
+                       detail="모델이 쓴 글은 입력할 내용으로만 쓸 수 있습니다")
+            return res
     for i, st in enumerate(flow.steps):
         if st.action == "decide" or not decided:
             continue
@@ -1691,7 +1725,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if captures:
             step = _render_step(step, {**captures, "__tables__": flow.tables})
         if i in ask_then:
-            shown = ", ".join(f"{n}: {str(captures.get(n))[:120]!r}" for n in ask_then[i])
+            # The whole of anything a model wrote; consent to part of a
+            # message is not consent to the message.
+            shown = ", ".join(f"{n}: {str(captures.get(n))[:2000 if n in composed else 120]!r}"
+                              for n in ask_then[i])
             question = f"{describe(step.safety, policy(step.safety))} — {shown}"
             try:
                 agreed = bool(confirm(question))

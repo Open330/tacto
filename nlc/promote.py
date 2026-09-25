@@ -419,7 +419,10 @@ def lift_screen_values(c: Candidate, flow: Flow, request: str) -> tuple[Flow, di
       * typed PART of something it could see → read it, then an `extract`
         decision picks the part, and the answer must be literally inside what
         was read.
-      * anything else stays as it was, and the gate still refuses it.
+      * typed something that was neither asked for nor on screen → the agent
+        WROTE it; a `compose` decision writes it afresh each run. Nothing can
+        check that text, so it may only be typed, and a step that saves or
+        sends it shows the person the whole of it first (replay's `confirm`).
 
     Returns the replayable flow and {walk step: steps inserted before it}.
     """
@@ -436,10 +439,15 @@ def lift_screen_values(c: Candidate, flow: Flow, request: str) -> tuple[Flow, di
                 if isinstance(r.get("value"), str) and value in r["value"]
                 and r.get("attr") in ("Title", "Description", "Identifier")
                 and (r.get("role"), r.get("match")) != (a.get("role"), a.get("match"))]
-        if not seen:
-            steps.append(st)
-            continue
         n += 1
+        if not seen:
+            ask = Step("decide", None, params={
+                "question": (f"목표: {c.goal[:200]}. '{a.get('label') or a.get('match')}' 에 "
+                             f"입력할 글을 쓰십시오. (처음 했을 때 쓴 글: '{value[:200]}')"),
+                "compose": True, "into": f"written{n}"})
+            steps += [ask, replace(st, params={**st.params, "value": "{{written%d}}" % n})]
+            lifted[i] = 1
+            continue
         whole = next((r for r in seen if r["value"].strip() == value.strip()), None)
         if whole is not None:
             read = _basis_read(whole, f"copied{n}")

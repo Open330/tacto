@@ -142,11 +142,25 @@ class LiftTests(unittest.TestCase):
         self.assertEqual(["source1"], flow.steps[1].params["extract_from"])
         self.assertEqual("{{text1}}", flow.steps[2].params["value"])
 
-    def test_a_value_seen_nowhere_is_still_refused(self):
+    def test_a_value_seen_nowhere_was_written_and_is_composed_afresh(self):
         from nlc.promote import deployable
-        flow, why = deployable(self.walk("B-1", TEXT), "t", "주문번호를 입력칸에 옮겨 적어줘")
-        self.assertIsNone(flow)
-        self.assertTrue(any("읽은 값을 그대로" in w for w in why), why)
+        flow, why = deployable(self.walk("안녕하세요, 확인해 보겠습니다", TEXT), "t",
+                               "문의에 짧게 답해줘")
+        self.assertEqual([], why)
+        self.assertEqual(["decide", "set_value", "read"], [s.action for s in flow.steps])
+        self.assertIs(True, flow.steps[0].params["compose"])
+        self.assertEqual("{{written1}}", flow.steps[1].params["value"])
+        Flow.from_json(flow.to_json())
+
+    def test_the_gate_still_refuses_anything_but_the_walks_own_value(self):
+        from dataclasses import replace
+        from nlc.promote import gate, lift_screen_values, to_flow
+        c = self.walk("안녕하세요", TEXT)
+        flow = to_flow(c, "t")
+        _, lifted = lift_screen_values(c, flow, "답해줘")
+        smuggled = replace(flow, steps=[replace(flow.steps[0], params={"value": "다른 값"}),
+                                        *flow.steps[1:]])
+        self.assertTrue(gate(c, smuggled, "답해줘", lifted))
 
     def test_decisions_are_renumbered_past_lifted_steps(self):
         from nlc.promote import shifted
@@ -155,3 +169,50 @@ class LiftTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComposeTests(unittest.TestCase):
+    def composer(self, text, seen=None):
+        def decide(*a):
+            raise AssertionError("a composition must not be asked as a choice")
+        decide.compose = lambda q, inputs: (seen.append((q, inputs)) if seen is not None else None) or text
+        return decide
+
+    def flow(self, safety=EDIT, binding=None, aim=False):
+        target = Selector(role="TextArea", identifier="{{reply}}") if aim else FIELD
+        return Flow("c", "t", steps=[
+            Step("decide", None, params={"question": "답장을 쓰십시오", "compose": True, "into": "reply"}),
+            Step("set_value", target, params={"value": "{{reply}}"}, intent_text="쓰기",
+                 safety=safety, unverified_ok=True, binding=binding)])
+
+    def test_written_text_is_typed(self):
+        doc, seen = Doc(), []
+        r = replay(doc, self.flow(), decide=self.composer("확인해 보겠습니다", seen))
+        self.assertTrue(r.ok, r.log)
+        self.assertEqual(["확인해 보겠습니다"], doc.sets)
+        self.assertEqual("답장을 쓰십시오", seen[0][0])
+
+    def test_a_decider_that_cannot_write_is_not_asked(self):
+        r = replay(Doc(), self.flow(), decide=lambda *a: "x")
+        self.assertEqual("decision_unavailable", r.log[-1]["error"])
+
+    def test_written_text_never_says_what_to_act_on(self):
+        doc = Doc()
+        r = replay(doc, self.flow(aim=True), decide=self.composer("doc"))
+        self.assertEqual(("composed_text_aims", []), (r.log[-1]["error"], doc.sets))
+
+    def test_saving_it_shows_the_whole_text_first(self):
+        long = "가" * 900
+        bind = ContextBinding(bundle_id="t", role="TextArea", identifier="doc",
+                              operation="set_value", params_digest=pin_params({"value": "{{reply}}"}))
+        doc, asked = Doc(), []
+        replay(doc, self.flow(SAVE, bind), decide=self.composer(long),
+               confirm=lambda text: asked.append(text) or True)
+        self.assertIn(long, asked[0])
+        self.assertEqual([long], doc.sets)
+
+    def test_empty_or_oversized_text_is_refused(self):
+        for text in ("", "   ", None, "x" * 2001):
+            doc = Doc()
+            r = replay(doc, self.flow(), decide=self.composer(text))
+            self.assertEqual(("decision_invalid", []), (r.log[-1]["error"], doc.sets))

@@ -4579,6 +4579,11 @@ SCENARIO_REQUIREMENTS: dict = {
     "a_role_is_not_a_word_in_a_label": {"native"},
     "the_button_is_not_what_it_falls_on": {"native"},
     "a_fix_is_not_quietly_kept": {"gui"},
+    "a_recipe_asks_only_where_it_planned_to": {"gui"},
+    # Both drive a real app (Calculator's Delete; an observation of Finder
+    # before the refusal) and ran against a locked screen undeclared.
+    "safety_block": {"gui"},
+    "menu_verification_required": {"gui"},
     "already_true_is_not_proof": {"gui"},
     "an_expectation_that_holds_does_not_refuse": {"gui"},
     "answers_a_question": {"gui"},
