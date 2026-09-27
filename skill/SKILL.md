@@ -29,6 +29,23 @@ Driving apps needs the permissions granted to NLC's signed helper. If `nlc apps`
 lists no apps, run `nlc doctor` and pass on what it says; do not try to grant
 permissions yourself.
 
+**NLC needs the real GUI session, so it cannot run inside an agent sandbox.** A
+sandbox (Codex's `workspace-write`, for instance) blocks the screen and the
+accessibility API, and `nlc` then refuses with a message that starts
+"NLC가 샌드박스 안에서 실행됐습니다" (exit code 3). That is not a permission
+problem — do not ask anyone to change permissions. Instead:
+
+- In Codex, run the `nlc` command outside the sandbox: request escalation for
+  that command (`sandbox_permissions: "require_escalated"`, with a one-line
+  justification such as "NLC drives the Calculator app through the GUI
+  session"). If escalation is not available, tell the user to rerun with
+  `--sandbox danger-full-access` (or approve it) — and stop there.
+- Elsewhere, ask the user to run it outside the sandbox.
+
+Reading and writing recipes (`nlc list`, `nlc show`, `nlc candidates`,
+`nlc promote`) works inside a sandbox; only commands that touch the screen
+(`apps`, `observe`, `run`, `replay`, `do`, `doctor`, `eval`) need it.
+
 ## The loop
 
 ```bash
