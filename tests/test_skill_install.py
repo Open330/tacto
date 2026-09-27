@@ -82,3 +82,62 @@ class SkillInstallTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SandboxTests(unittest.TestCase):
+    """Inside an agent sandbox the screen is unreachable; say so, not "grant permissions".
+
+    Measured with Codex's workspace-write sandbox (2026-09-28): `nlc apps` said
+    accessibility_permission_missing and `nlc doctor` asked for a permission
+    that was already granted. sandbox_check() answered 1 inside, 0 outside.
+    """
+    def test_this_process_is_not_sandboxed(self):
+        from nlc.session import sandboxed
+        self.assertFalse(sandboxed())
+
+    def test_screen_commands_stop_with_the_real_cause_and_the_rest_still_work(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        from nlc import cli
+        for cmd in ("doctor", "apps", "observe", "run", "replay", "do", "eval"):
+            out = StringIO()
+            with patch("nlc.session.sandboxed", return_value=True), redirect_stdout(out):
+                self.assertEqual(3, cli.main([cmd, "x"]), cmd)
+            self.assertIn("샌드박스", out.getvalue())
+            self.assertIn("권한 문제가 아니니", out.getvalue())
+        with patch("nlc.session.sandboxed", return_value=True), redirect_stdout(StringIO()):
+            self.assertEqual(0, cli.main(["list"]))
+
+    def test_the_skill_tells_an_agent_what_to_do_in_a_sandbox(self):
+        skill = (ROOT / "skill" / "SKILL.md").read_text()
+        self.assertIn("require_escalated", skill)
+        self.assertIn("danger-full-access", skill)
+        self.assertIn("exit code 3", skill)
+
+
+class DoctorUnderTheLauncherTests(unittest.TestCase):
+    """`nlc doctor` asked to grant a helper that was granted and working."""
+    def test_under_the_launcher_the_inherited_channel_is_what_is_checked(self):
+        from unittest.mock import patch
+        from nlc import onboard
+        with patch("nlc.helper.InheritedHelperDriver.available", return_value=True), \
+             patch("nlc.helper.InheritedHelperDriver.__init__", return_value=None), \
+             patch("nlc.helper.InheritedHelperDriver.__new__",
+                   side_effect=lambda cls: object.__new__(cls)), \
+             patch("nlc.helper.HelperDriver", side_effect=AssertionError("dialled directly")), \
+             patch("os.path.exists", return_value=True):
+            st = onboard.helper_status()
+        self.assertEqual((True, "launcher"), (st["trusted"], st["channel"]))
+
+    def test_a_real_refusal_on_that_channel_is_still_reported(self):
+        from unittest.mock import patch
+        from nlc import onboard
+        from nlc.helper import HelperUnavailable
+        with patch("nlc.helper.InheritedHelperDriver.available", return_value=True), \
+             patch("nlc.helper.InheritedHelperDriver.__new__",
+                   side_effect=HelperUnavailable("도우미에 접근성 권한이 없습니다")), \
+             patch("os.path.exists", return_value=True):
+            st = onboard.helper_status()
+        self.assertFalse(st["trusted"])
+        self.assertIn("접근성 권한이 없습니다", st["why"])

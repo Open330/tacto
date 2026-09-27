@@ -49,7 +49,7 @@ class CLIProvider(unittest.TestCase):
             here(goal,candidates,[])
             kwargs['ask_where']('recipient',candidates)
         modules = {'nlc.onboard':SimpleNamespace(run=lambda **kw:True),
-                   'nlc.session':SimpleNamespace(preflight=lambda:{'verdict':'ready'},
+                   'nlc.session':SimpleNamespace(preflight=lambda:{'verdict':'ready'}, sandboxed=lambda:False, SANDBOXED='',
                                                  KeepAwake=contextlib.nullcontext)}
         with patch.dict('sys.modules',modules), patch.object(cli,'Agent',Host), \
              patch.object(cli,'_make_driver',return_value=driver), \

@@ -18,6 +18,7 @@ manual lock, a security policy, a closed lid, or the screen saver.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass, asdict
 
@@ -107,3 +108,33 @@ def preflight(require_unlocked: bool = True) -> dict:
 if __name__ == "__main__":
     import json
     print(json.dumps(preflight(), indent=2, ensure_ascii=False))
+
+
+def sandboxed() -> bool:
+    """Is this process inside a macOS (seatbelt) sandbox?
+
+    A coding agent's sandbox — Codex's `workspace-write`, for one — blocks the
+    GUI session and the accessibility API, and from inside it every symptom
+    looks like a missing permission: `nlc apps` said
+    accessibility_permission_missing and `nlc doctor` told the agent to grant
+    Accessibility, which was already granted (2026-09-28). Asked of the system
+    rather than inferred from an agent's environment variables, so it holds
+    for any agent that sandboxes this way.
+    """
+    try:
+        import ctypes
+        check = ctypes.CDLL("/usr/lib/libSystem.dylib").sandbox_check
+        check.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int]
+        check.restype = ctypes.c_int
+        return check(os.getpid(), None, 0) == 1
+    except Exception:
+        return bool(os.environ.get("CODEX_SANDBOX"))
+
+
+SANDBOXED = (
+    "NLC가 샌드박스 안에서 실행됐습니다 — 화면(GUI) 세션과 접근성 API가 막혀 있어 앱을\n"
+    "조작할 수 없습니다. 권한 문제가 아니니 권한 설정은 바꾸지 마세요.\n"
+    "  · Codex: 이 명령을 샌드박스 밖에서 실행하도록 권한 상승을 요청하거나\n"
+    "    (sandbox_permissions: require_escalated), 사용자에게 --sandbox danger-full-access 로\n"
+    "    다시 실행해 달라고 하세요.\n"
+    "  · 그 밖의 에이전트: 샌드박스 밖에서 실행해 달라고 사용자에게 요청하세요.")

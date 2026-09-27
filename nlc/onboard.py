@@ -128,7 +128,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         if st["built"]:
             narrate("— 권한 경계 —")
             if run_helper_onboarding(narrate) :
-                narrate("   실행:  ./launcher/nlc <명령> --helper")
+                narrate("   실행:  nlc <명령> --helper   (설치 전이면 NLC 폴더에서 ./launcher/nlc)")
         else:
             narrate("○ 서명된 도우미를 빌드하면 권한을 파이썬 대신 도우미에만 "
                     "줄 수 있어요 (helper/build.sh && helper/bundle.sh).")
@@ -164,9 +164,20 @@ def helper_status() -> dict:
     if not out["built"]:
         return out
     try:
-        from .helper import HelperDriver
-        d = HelperDriver()          # its ping reports AX trust
-        d.close()
+        from .helper import HelperDriver, InheritedHelperDriver
+        if InheritedHelperDriver.available():
+            # Under the signed launcher, the channel it handed down is the
+            # only one the helper answers. Dialling the helper directly, as
+            # this did, is refused BY DESIGN (peer authentication) — so the
+            # check reported "grant NLC Helper" to people whose helper was
+            # granted and working, and told them to use the launcher they
+            # were already using (2026-09-28).
+            InheritedHelperDriver()     # its handshake checks AX trust
+            out["channel"] = "launcher"
+        else:
+            d = HelperDriver()          # its ping reports AX trust
+            d.close()
+            out["channel"] = "direct"
         out["trusted"] = True
     except Exception as e:
         out["trusted"] = False

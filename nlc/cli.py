@@ -336,6 +336,15 @@ def main(argv=None):
         return 0
     cmd, *rest = argv
 
+    # Everything that touches the screen, stopped before it can misreport a
+    # sandbox as a missing permission. Reading and writing recipes, and
+    # learning one, still work in a sandbox.
+    if cmd in ("doctor", "apps", "observe", "run", "replay", "do", "eval"):
+        from .session import SANDBOXED, sandboxed
+        if sandboxed():
+            print(SANDBOXED)
+            return 3
+
     if cmd == "doctor":
         from . import onboard
         ok = onboard.run(interactive="--check" not in rest)
