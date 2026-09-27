@@ -49,6 +49,24 @@ def check_all() -> list[Check]:
     ]
 
 
+def _screen_recording_for(c: "Check", helper: dict) -> "Check":
+    """The screen-recording line, about the process that will actually capture.
+
+    When the signed helper does the work, the grant that matters is the
+    helper's, and only the helper can say whether it has it. Otherwise it is
+    this interpreter's — named, because "enable this app" left people looking
+    for an app called "this app".
+    """
+    from dataclasses import replace
+    if helper.get("trusted") and isinstance(helper.get("screen_capture"), bool):
+        return replace(c, ok=helper["screen_capture"],
+                       title="화면 읽기 권한(화면 기록) — 'NLC Helper'",
+                       fix_hint="목록에서 'NLC Helper' 를 켜주세요. 창 이미지가 필요한 기능에서만 씁니다.")
+    import os, sys
+    name = os.path.basename(os.path.realpath(sys.executable))
+    return replace(c, fix_hint=f"목록에서 '{name}' 을(를) 켜주세요. 창 이미지가 필요한 기능에서만 씁니다.")
+
+
 def request_accessibility(prompt: bool = True) -> bool:
     """Trigger the system's own Accessibility prompt (one-time)."""
     opts = {"AXTrustedCheckOptionPrompt": True} if prompt else {}
@@ -77,6 +95,8 @@ def run(interactive: bool = True, narrate=print) -> bool:
 
     all_ok = True
     for c in check_all():
+        if c.key == "screen_recording":
+            c = _screen_recording_for(c, helper)
         if c.ok:
             narrate(f"✓ {c.title} — 이미 켜져 있어요.")
             continue
@@ -165,6 +185,7 @@ def helper_status() -> dict:
         return out
     try:
         from .helper import HelperDriver, InheritedHelperDriver
+        driver = None
         if InheritedHelperDriver.available():
             # Under the signed launcher, the channel it handed down is the
             # only one the helper answers. Dialling the helper directly, as
@@ -172,13 +193,17 @@ def helper_status() -> dict:
             # check reported "grant NLC Helper" to people whose helper was
             # granted and working, and told them to use the launcher they
             # were already using (2026-09-28).
-            InheritedHelperDriver()     # its handshake checks AX trust
+            driver = InheritedHelperDriver()    # its handshake checks AX trust
             out["channel"] = "launcher"
         else:
-            d = HelperDriver()          # its ping reports AX trust
-            d.close()
+            driver = HelperDriver()             # its ping reports AX trust
+            driver.close()
             out["channel"] = "direct"
         out["trusted"] = True
+        # Screen capture is the helper's grant too, and only it can report it.
+        shake = getattr(driver, "handshake", None) or {}
+        if isinstance(shake.get("screen_capture"), bool):
+            out["screen_capture"] = shake["screen_capture"]
     except Exception as e:
         out["trusted"] = False
         out["why"] = str(e)

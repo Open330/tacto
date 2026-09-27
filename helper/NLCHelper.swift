@@ -2984,7 +2984,12 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         // — and an ignored precondition looks exactly like a satisfied one.
         // Naming them here lets the caller refuse instead of guess (peer
         // request).
+        // Screen capture is granted to THIS process's identity (it is opened
+        // through LaunchServices), so only it can say whether it holds it; a
+        // Python asking about itself answered for the wrong app, and `nlc
+        // doctor` told people to enable "this app" without saying which.
         return ["type": "pong", "trusted": AXIsProcessTrusted(),
+                "screen_capture": CGPreflightScreenCaptureAccess(),
                 "capabilities": helperCapabilities]
     case "list_targets":
         let apps = NSWorkspace.shared.runningApplications

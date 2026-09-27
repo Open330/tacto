@@ -35,11 +35,12 @@ accessibility API, and `nlc` then refuses with a message that starts
 "NLC가 샌드박스 안에서 실행됐습니다" (exit code 3). That is not a permission
 problem — do not ask anyone to change permissions. Instead:
 
-- In Codex, run the `nlc` command outside the sandbox: request escalation for
-  that command (`sandbox_permissions: "require_escalated"`, with a one-line
-  justification such as "NLC drives the Calculator app through the GUI
-  session"). If escalation is not available, tell the user to rerun with
-  `--sandbox danger-full-access` (or approve it) — and stop there.
+- In Codex, run the `nlc` command outside the sandbox: call `exec_command` with
+  `"sandbox_permissions": "require_escalated"` and a one-line `"justification"`
+  such as "NLC drives the Calculator app through the GUI session" — the person
+  is asked to approve it. If escalation is not available (the session forbids
+  it, or approvals are off), tell the user to rerun with
+  `--sandbox danger-full-access` — and stop there.
 - Elsewhere, ask the user to run it outside the sandbox.
 
 Reading and writing recipes (`nlc list`, `nlc show`, `nlc candidates`,
