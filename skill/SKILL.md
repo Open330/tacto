@@ -11,6 +11,24 @@ deterministically with **no model call at all**. Your job in this skill is the
 learning half — and you are better placed for it than a subprocess, because you
 already have the user's intent and can ask when something is ambiguous.
 
+## Before you start: is `nlc` there?
+
+```bash
+command -v nlc || ls -l ~/.local/bin/nlc
+```
+
+`nlc` is the signed launcher from the NLC checkout, linked into `~/.local/bin`
+by that checkout's `skill/install.sh`. If neither command finds it, NLC is not
+installed on this machine — **stop and tell the user**: it is installed by
+running `skill/install.sh` inside their NLC checkout (after building it; the
+script says what is missing, and `skill/install.sh --check` changes nothing).
+Do not download or install an `nlc` from anywhere else, and do not look for a
+substitute — a different program by that name is not this one.
+
+Driving apps needs the permissions granted to NLC's signed helper. If `nlc apps`
+lists no apps, run `nlc doctor` and pass on what it says; do not try to grant
+permissions yourself.
+
 ## The loop
 
 ```bash
