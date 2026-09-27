@@ -101,6 +101,7 @@ class InheritedHelperDriver:
         # it). A check that can be retried past is not a check.
         try:
             pong = self._send({"type": "ping"})
+            self.handshake = pong       # what the helper said about itself
             if pong.get("type") != "pong":
                 raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
             if not pong.get("trusted"):
@@ -281,6 +282,7 @@ class HelperDriver:
                     "  (개발 중이라면 NLC_HELPER_REQUIREMENT 로 요구조건을 바꿀 수 "
                     "있습니다)") from None
             raise HelperUnavailable(f"도우미가 시작되지 못했습니다: {err.strip()[:200]}")
+        self.handshake = pong           # what the helper said about itself
         if pong.get("type") != "pong":
             raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
         if not pong.get("trusted"):

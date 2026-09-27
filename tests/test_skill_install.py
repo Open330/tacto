@@ -141,3 +141,27 @@ class DoctorUnderTheLauncherTests(unittest.TestCase):
             st = onboard.helper_status()
         self.assertFalse(st["trusted"])
         self.assertIn("접근성 권한이 없습니다", st["why"])
+
+
+class ScreenRecordingLineTests(unittest.TestCase):
+    """doctor said "enable this app" for screen recording without naming it."""
+    def check(self):
+        from nlc.onboard import Check
+        return Check("screen_recording", False, "화면 읽기 권한(화면 기록)", "…", "x-apple:…")
+
+    def test_the_helpers_own_answer_is_reported_when_it_does_the_work(self):
+        from nlc.onboard import _screen_recording_for
+        c = _screen_recording_for(self.check(), {"trusted": True, "screen_capture": True})
+        self.assertTrue(c.ok)
+        self.assertIn("NLC Helper", c.title)
+
+    def test_otherwise_the_interpreter_is_named(self):
+        import os, sys
+        from nlc.onboard import _screen_recording_for
+        c = _screen_recording_for(self.check(), {})
+        self.assertFalse(c.ok)
+        self.assertIn(os.path.basename(os.path.realpath(sys.executable)), c.fix_hint)
+
+    def test_the_helper_reports_screen_capture_in_its_handshake(self):
+        source = (ROOT / "helper" / "NLCHelper.swift").read_text()
+        self.assertIn('"screen_capture": CGPreflightScreenCaptureAccess()', source)
