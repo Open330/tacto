@@ -32,6 +32,24 @@ _BARE = os.path.join(_ROOT, "helper", "nlc-helper")
 HELPER = _BUNDLED if os.path.exists(_BUNDLED) else _BARE
 
 
+def _explain_no_window(target: str) -> dict:
+    """Lock state, reason and detail for a helper's bare no_window_content."""
+    try:
+        from AppKit import NSWorkspace
+        from .driver import _why_no_window
+        from .session import lock_state
+        lock = lock_state()
+        pid = next((int(a.processIdentifier())
+                    for a in NSWorkspace.sharedWorkspace().runningApplications()
+                    if target in (a.bundleIdentifier(), a.localizedName())), None)
+        if pid is None:
+            return {"lock": lock}
+        reason, detail = _why_no_window(pid, lock)
+        return {"lock": lock, "reason": reason, "detail": detail}
+    except Exception:
+        return {}
+
+
 class HelperUnavailable(RuntimeError):
     pass
 
@@ -324,8 +342,15 @@ class HelperDriver:
         # `require_window` travels on the wire because the two drivers have to
         # return the same tree for the same app: a recipe that starts from an
         # app with nothing open must behave identically whichever one runs it.
-        return self._send({"type": "observe", "target": target,
-                           "require_window": require_window})
+        out = self._send({"type": "observe", "target": target,
+                          "require_window": require_window})
+        if out.get("error") == "no_window_content" and "reason" not in out:
+            # The helper says only that there is no window. Which of the
+            # causes it is — a locked screen, a hidden app, minimised windows —
+            # is what tells a person what to do, and none of it needs the
+            # helper's permission to find out.
+            out = {**out, **_explain_no_window(target)}
+        return out
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
             intent_text="", approved=False):

@@ -175,6 +175,35 @@ def _line_attr(line: str, key: str):
     return m.group(1).strip() if m else None
 
 
+def _why_no_window(pid: int, lock: dict) -> tuple[str, str]:
+    """Which of the reasons an app shows no window this is — one, not a list.
+
+    The message used to offer three at once ("locked screen, hidden, or
+    minimized"), though the lock state was attached right beside it, so an
+    agent had to guess what a person should do (reported 2026-09-28: Safari,
+    on a screen that was in fact locked).
+    """
+    if lock.get("locked"):
+        return ("screen_locked",
+                "화면이 잠겨 있습니다 — 잠긴 화면에서는 어떤 앱의 창도 읽을 수 없습니다. "
+                "잠금을 풀면 다시 볼 수 있어요. (screen locked)")
+    try:
+        from AppKit import NSRunningApplication
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+        if app is not None and app.isHidden():
+            return ("app_hidden",
+                    "앱이 가려져(숨김) 있습니다 — Dock에서 앱을 눌러 다시 보이게 해 주세요. (app hidden)")
+    except Exception:
+        pass
+    windows = _attr(AXUIElementCreateApplication(pid), "AXWindows") or []
+    if windows and all(_attr(w, "AXMinimized") is True for w in windows):
+        return ("minimized",
+                "앱의 창이 모두 최소화돼 있습니다 — Dock에서 창을 다시 열어 주세요. (minimized)")
+    return ("no_visible_window",
+            "앱에 열린 창이 없거나, 창이 다른 데스크톱(Space)에 있습니다 — 창을 열거나 이 "
+            "데스크톱으로 가져와 주세요. (no visible window)")
+
+
 def _attr(el, name):
     err, value = AXUIElementCopyAttributeValue(el, name, None)
     return value if err == 0 else None
@@ -1109,10 +1138,10 @@ class Driver:
             # Keep no_window_content independent of lock (codex point D), but
             # attach the live lock state so callers can decide hand-off vs retry.
             from .session import lock_state
+            lock = lock_state()
+            reason, detail = _why_no_window(pid, lock)
             return {"type": "error", "error": "no_window_content", "target": target,
-                    "lock": lock_state(),
-                    "detail": "app exposes no AXWindows (locked screen, hidden, "
-                              "or minimized). Unlock/raise the app and re-observe."}
+                    "lock": lock, "reason": reason, "detail": detail}
         if not has_windows:
             # Menus belong to the application, not to a window, so a recipe whose
             # first move is "File > New" must be able to start from an app with
