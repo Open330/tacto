@@ -386,7 +386,7 @@ forbid it), because it recorded labels the way the screen showed them that time.
 | `decision_unavailable` / `decision_invalid` / `decision_failed` | a `decide` step had no model, got an answer outside what it allows, or the call failed |
 | `decision_drives_consent` / `composed_text_aims` | a decided value would reach a consent step with no way to ask, or written text would aim at an element |
 | `branch_unwalked` / `branch_walk_failed` | a branch answer has no steps and no walker, or the walk did not get there |
-| `no_window_content` | app has no window (minimised, or the screen is locked) |
+| `no_window_content` | the app shows no window; `reason` says why — `screen_locked` (the person must unlock; nothing can be read or done until then — never try to unlock it yourself), `app_hidden`, `minimized`, or `no_visible_window` (none open, or on another desktop). Report it and stop; the person has to act |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
 `nlc run <flow> --trace run.json` records what was on screen, so a failure can be
