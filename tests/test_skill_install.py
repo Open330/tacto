@@ -165,3 +165,29 @@ class ScreenRecordingLineTests(unittest.TestCase):
     def test_the_helper_reports_screen_capture_in_its_handshake(self):
         source = (ROOT / "helper" / "NLCHelper.swift").read_text()
         self.assertIn('"screen_capture": CGPreflightScreenCaptureAccess()', source)
+
+
+class KeepAwakeTests(unittest.TestCase):
+    """Every command that touches the screen holds the display awake, not only `do`."""
+    def test_screen_commands_hold_the_display_awake(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        from nlc import cli
+        for cmd in ("observe", "run", "replay", "eval", "apps", "doctor"):
+            held = []
+            with patch("nlc.session.sandboxed", return_value=False), \
+                 patch("nlc.session.KeepAwake.__enter__", side_effect=lambda: held.append(1)), \
+                 redirect_stdout(StringIO()):
+                try:
+                    cli.main([cmd, "--no-such-thing-xyz"])
+                except BaseException:
+                    pass
+            self.assertEqual([1], held, cmd)
+
+    def test_it_is_display_and_idle_sleep_and_it_dies_with_the_command(self):
+        import inspect
+        from nlc.session import KeepAwake
+        src = inspect.getsource(KeepAwake.__enter__)
+        self.assertIn('"-di"', src)
+        self.assertIn('"-w"', src)

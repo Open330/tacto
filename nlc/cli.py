@@ -344,6 +344,13 @@ def main(argv=None):
         if sandboxed():
             print(SANDBOXED)
             return 3
+        # Hold the display awake for as long as this command runs. Only `do`
+        # did, but an agent drives NLC one command at a time — observe, run,
+        # replay — and with this Mac's 3-minute screensaver lock the screen
+        # locked in the middle of its work (2026-09-28). `caffeinate -w` ends
+        # with this process, so nothing outlives the command.
+        from .session import KeepAwake
+        KeepAwake().__enter__()
 
     if cmd == "doctor":
         from . import onboard
