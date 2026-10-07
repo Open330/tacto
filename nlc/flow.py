@@ -769,6 +769,16 @@ class Flow:
             def _post(pc):
                 if not pc:
                     return None
+                # Checked here, not where it is used: an object under `absent`
+                # once reached `in tree` mid-replay and surfaced as a traceback.
+                for key in ("equals", "contains", "absent", "attribute"):
+                    if pc.get(key) is not None and not isinstance(pc[key], str):
+                        raise ValueError(
+                            f"postcondition.{key} must be text, not "
+                            f"{type(pc[key]).__name__}"
+                            + (" — absent is text that must not appear in the "
+                               "observed tree, e.g. an identifier like "
+                               "'GoToWindow'" if key == "absent" else ""))
                 pf = Selector(**pc["field"]) if pc.get("field") else None
                 return Postcondition(field=pf, equals=pc.get("equals"),
                                      contains=pc.get("contains"),

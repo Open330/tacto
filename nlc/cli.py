@@ -706,8 +706,14 @@ def _dispatch(cmd, rest):
                   '  built-in recipes: nlc list · nlc show <name> · nlc replay <name> -p key=value')
             return 2 if not rest else 0
         from .flow import Flow as _F, replay as _replay
-        with open(rest[0], encoding="utf-8") as fh:
-            flow = _F.from_json(fh.read())
+        try:
+            with open(rest[0], encoding="utf-8") as fh:
+                flow = _F.from_json(fh.read())
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            # The author is a model reading this output; a traceback buries
+            # the one line that says which field is wrong.
+            print(f"invalid_flow: {rest[0]}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
         walked = bool(flow.intents)
         if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)          # parameterized recipe
