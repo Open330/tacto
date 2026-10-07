@@ -97,62 +97,100 @@ class Provenance(unittest.TestCase):
 
 
 class OwnedDocumentTests(unittest.TestCase):
-    """textedit_edit_owned reads only the harness's own file, re-proved each time."""
+    """textedit_edit_owned reads and removes only the harness's own document."""
     P = comparison
 
-    def check(self, *, process=('pid', 1), windows=None, stored=None):
-        P = self.P
-        mine, other = object(), object()
-        windows = windows if windows is not None else [mine, other]
-        path = {mine: P._owned_path(), other: P._nfc(P.Path('/tmp/someone-else.txt'))}
-        P._OWNED.clear()
-        P._OWNED.update(process=('pid', 1), window=stored or mine)
-        read = []
-        with patch.object(P, '_textedit_process', return_value=(object(), process)), \
-             patch.object(P, '_textedit_windows', return_value=windows), \
-             patch.object(P, '_window_path', side_effect=lambda w: path.get(w, P._owned_path())), \
-             patch('CoreFoundation.CFEqual', side_effect=lambda a, b: a is b), \
-             patch.object(P, '_text_of', side_effect=lambda w: read.append(w) or P.TEXT):
-            result = P.owned_oracle(P.TEXT)
-        P._OWNED.clear()
-        return result, read, mine, other
+    def setUp(self):
+        self.P._OWNED.clear()
+        self.addCleanup(self.P._OWNED.clear)
 
-    def test_only_the_owned_window_is_read(self):
-        (ok, _seen), read, mine, other = self.check()
+    def own(self, path='/private/tmp/x/NLC.txt', window=None):
+        self.P._OWNED.update(path=path, directory='/private/tmp/x', inode=(1, 2),
+                             process=('pid', 1), window=window or object())
+        return self.P._OWNED['window']
+
+    def env(self, windows, paths, process=('pid', 1), read=None):
+        P = self.P
+        read = read if read is not None else []
+        return [patch.object(P, '_textedit_process', return_value=(object(), process)),
+                patch.object(P, '_textedit_windows', return_value=windows),
+                patch.object(P, '_window_path', side_effect=lambda w: paths.get(w)),
+                patch('CoreFoundation.CFEqual', side_effect=lambda a, b: a is b),
+                patch.object(P, '_text_of', side_effect=lambda w: read.append(w) or P.TEXT)]
+
+    def run_env(self, patches, fn):
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            return fn()
+
+    def test_only_the_owned_window_is_read_even_beside_the_same_text(self):
+        mine = self.own(); persons = object(); read = []
+        paths = {mine: self.P._owned_path(), persons: None}
+        ok, _ = self.run_env(self.env([persons, mine], paths, read=read),
+                             lambda: self.P.owned_oracle(self.P.TEXT))
         self.assertTrue(ok)
         self.assertEqual([mine], read)
 
-    def test_a_restarted_textedit_reads_nothing(self):
-        (ok, seen), read, *_ = self.check(process=('pid', 2))
-        self.assertEqual((False, []), (ok, read))
+    def test_restart_twin_or_swapped_window_reads_nothing(self):
+        for case in ('restart', 'twin', 'swap'):
+            self.P._OWNED.clear()
+            mine = self.own(); other = object(); read = []
+            windows, paths, process = [mine], {mine: self.P._owned_path()}, ('pid', 1)
+            if case == 'restart':
+                process = ('pid', 2)
+            elif case == 'twin':
+                windows, paths = [mine, other], {mine: self.P._owned_path(), other: self.P._owned_path()}
+            else:
+                windows, paths = [other], {other: self.P._owned_path()}
+            ok, _ = self.run_env(self.env(windows, paths, process, read),
+                                 lambda: self.P.owned_oracle(self.P.TEXT))
+            self.assertEqual((False, []), (ok, read), case)
 
-    def test_two_windows_on_the_path_or_a_swapped_window_read_nothing(self):
-        twin = object()
-        (ok, _), read, *_ = self.check(windows=[object(), twin])   # both resolve to our path
-        self.assertEqual((False, []), (ok, read))
-        (ok, _), read, *_ = self.check(stored=object())             # not the window we opened
-        self.assertEqual((False, []), (ok, read))
+    def test_unproven_cleanup_removes_nothing(self):
+        mine = self.own()
+        with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed unproven')), \
+             patch('ApplicationServices.AXUIElementPerformAction',
+                   side_effect=lambda *a: self.fail('pressed unproven')):
+            out = self.run_env(self.env([object()], {}), self.P.owned_cleanup)
+        self.assertEqual('not_provable_left_as_is', out)
+
+    def test_a_failed_close_or_a_window_still_open_keeps_the_folder(self):
+        mine = self.own()
+        paths = {mine: self.P._owned_path()}
+        for press, label in ((-25200, 'close_failed_left_as_is'), (0, 'still_open_left_as_is')):
+            with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed while open')), \
+                 patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
+                 patch('ApplicationServices.AXUIElementPerformAction', return_value=press), \
+                 patch.object(self.P.time, 'sleep'):
+                out = self.run_env(self.env([mine], paths), self.P.owned_cleanup)
+            self.assertEqual(label, out)
+
+    def test_setup_never_removes_an_existing_directory(self):
+        import os, tempfile
+        with patch('shutil.rmtree', side_effect=lambda *a: self.fail('setup removed a directory')), \
+             patch.object(self.P.subprocess, 'run'), \
+             patch.object(self.P, '_textedit_process', return_value=(None, None)), \
+             patch.object(self.P, '_textedit_windows', return_value=[]), \
+             patch.object(self.P.time, 'sleep'):
+            with self.assertRaises(RuntimeError):
+                self.P.owned_setup()
+        directory = self.P._OWNED['directory']
+        self.assertEqual(0o700, os.stat(directory).st_mode & 0o777)
+        self.assertTrue(os.path.basename(directory).startswith('nlc-compare-owned-'))
+        import shutil; shutil.rmtree(directory)
+
+    def test_only_local_file_urls_are_paths(self):
+        P = self.P
+        for url, ok in (('file:///tmp/a.txt', True), ('file://localhost/tmp/a.txt', True),
+                        ('file://evil.example/tmp/a.txt', False), ('file:///tmp/a.txt?x=1', False),
+                        ('https://x/tmp/a.txt', False)):
+            with patch('nlc.driver._attr', return_value=url):
+                self.assertEqual(ok, P._window_path(object()) is not None, url)
 
     def test_korean_names_compare_composed(self):
         import unicodedata
+        self.own(path='/private/tmp/x/NLC 비교 문서.txt')
         nfd = unicodedata.normalize('NFD', str(self.P._owned_path()))
         self.assertEqual(self.P._owned_path(), self.P._nfc(nfd))
-
-    def test_a_persons_window_holding_the_same_text_is_never_read_or_closed(self):
-        P = self.P
-        mine, persons = object(), object()
-        path = {mine: P._owned_path(), persons: None}       # an untitled document
-        P._OWNED.clear(); P._OWNED.update(process=('pid', 1), window=mine)
-        read, pressed = [], []
-        with patch.object(P, '_textedit_process', return_value=(object(), ('pid', 1))), \
-             patch.object(P, '_textedit_windows', return_value=[persons, mine]), \
-             patch.object(P, '_window_path', side_effect=lambda w: path[w]), \
-             patch('CoreFoundation.CFEqual', side_effect=lambda a, b: a is b), \
-             patch.object(P, '_text_of', side_effect=lambda w: read.append(w) or P.TEXT), \
-             patch('nlc.driver._attr', side_effect=lambda w, k: ('close', w) if k == 'AXCloseButton' else []), \
-             patch('ApplicationServices.AXUIElementPerformAction', side_effect=lambda el, a: pressed.append(el)), \
-             patch.object(P.time, 'sleep'):
-            P.owned_oracle(P.TEXT)
-            P.owned_cleanup()
-        self.assertEqual([mine], read)
-        self.assertEqual([('close', mine)], pressed)

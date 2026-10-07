@@ -137,16 +137,25 @@ def _text_of(window):
 
 
 def _owned_path():
-    return _nfc((OWNED_DIR / OWNED_NAME).resolve())
+    return _nfc(Path(_OWNED["path"])) if _OWNED.get("path") else None
 
 
 def _window_path(window):
+    """The window's document as a local file path, or None.
+
+    Only `file://` URLs with no host (or localhost), no query and no fragment
+    count; anything else is not a local file this harness could own.
+    """
     from urllib.parse import unquote, urlparse
     from nlc.driver import _attr
     doc = _attr(window, "AXDocument")
-    if not isinstance(doc, str) or not doc.startswith("file://"):
+    if not isinstance(doc, str):
         return None
-    return _nfc(Path(unquote(urlparse(doc).path)).resolve())
+    url = urlparse(doc)
+    if (url.scheme != "file" or url.netloc not in ("", "localhost")
+            or url.query or url.fragment or url.params):
+        return None
+    return _nfc(Path(unquote(url.path)).resolve())
 
 
 def _nfc(path):
@@ -172,15 +181,42 @@ def owned_window():
     return matches[0]
 
 
+def _owned_file_is_ours():
+    """The private directory is still the one mkdtemp made, holding only our file.
+
+    Not the file's inode: TextEdit saves by writing a new file and swapping it
+    in, so the inode changes on every save (measured 2026-10-07). The 0700
+    directory is created by mkdtemp and nothing else writes into it.
+    """
+    import os
+    try:
+        st = os.stat(_OWNED["directory"])
+        names = os.listdir(_OWNED["directory"])
+    except (KeyError, OSError):
+        return False
+    return ((st.st_dev, st.st_ino) == _OWNED.get("inode")
+            and set(names) <= {OWNED_NAME})
+
+
 def owned_setup():
-    import shutil
+    """Create the document in a new private directory and open it behind.
+
+    No existing path is removed or reused: every run gets its own directory
+    from mkdtemp, so there is nothing to clear and nothing to mistake for ours.
+    """
+    import os
+    import tempfile
     _OWNED.clear()
-    shutil.rmtree(OWNED_DIR, ignore_errors=True)
-    OWNED_DIR.mkdir()
-    _owned_path().write_text("")
+    directory = tempfile.mkdtemp(prefix="nlc-compare-owned-")       # 0700, unique
+    # Real path: mkdtemp answers /var/…, TextEdit reports /private/var/….
+    directory = os.path.realpath(directory)
+    path = os.path.join(directory, OWNED_NAME)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)  # never an existing file
+    os.close(fd)
+    st = os.stat(directory)
+    _OWNED.update(directory=directory, path=path, inode=(st.st_dev, st.st_ino))
     # -g: opened behind whatever the person is using, not made frontmost.
-    subprocess.run(["open", "-g", "-a", "TextEdit", str(_owned_path())],
-                   capture_output=True, timeout=20)
+    subprocess.run(["open", "-g", "-a", "TextEdit", path], capture_output=True, timeout=20)
     for _ in range(100):
         _app, identity = _textedit_process()
         found = [w for w in _textedit_windows() if _window_path(w) == _owned_path()]
@@ -200,29 +236,50 @@ def owned_oracle(text):
 
 
 def owned_cleanup():
-    """Close the harness's document and remove its file; nothing else."""
+    """Close the harness's document and remove its directory — or neither.
+
+    Every press is preceded by proving the window is still the harness's
+    (same process, one window on the owned path, the same AX window), and the
+    directory is removed only once that window is verifiably gone and the
+    file is still the inode created at setup. Anything unproven is left as it
+    is and reported. Returns "closed", or the reason nothing was removed.
+    """
+    import shutil
     from ApplicationServices import AXUIElementPerformAction
     from nlc.driver import _attr
+    if not _OWNED.get("path"):
+        return "nothing_owned"
     window = owned_window()
-    if window is not None:
-        close = _attr(window, "AXCloseButton")
-        if close is not None:
-            AXUIElementPerformAction(close, "AXPress")
-            time.sleep(0.8)
-            # A file-backed document autosaves; if TextEdit still asks, the
-            # question is about the harness's own file, so it is not kept —
-            # but only if that window is STILL provably the harness's.
-            window = owned_window()
-            for child in (_attr(window, "AXChildren") or []) if window is not None else []:
-                if _attr(child, "AXRole") == "AXSheet":
-                    for button in ("Don’t Save", "Don't Save", "Revert Changes", "Delete"):
-                        hit = _find_button(child, button)
-                        if hit is not None:
-                            AXUIElementPerformAction(hit, "AXPress")
-                            break
+    if window is None:
+        return "not_provable_left_as_is"
+    close = _attr(window, "AXCloseButton")
+    if close is None or owned_window() is None:
+        return "not_provable_left_as_is"
+    if AXUIElementPerformAction(close, "AXPress") != 0:
+        return "close_failed_left_as_is"
+    for _ in range(20):
+        time.sleep(0.1)
+        window = owned_window()
+        if window is None:
+            break
+        sheet = next((c for c in _attr(window, "AXChildren") or []
+                      if _attr(c, "AXRole") == "AXSheet"), None)
+        if sheet is None:
+            continue
+        # The question is about the harness's own, still-proven document.
+        for title in ("Don’t Save", "Don't Save", "Revert Changes", "Delete"):
+            hit = _find_button(sheet, title)
+            if hit is not None and owned_window() is not None:
+                AXUIElementPerformAction(hit, "AXPress")
+                break
+    # Gone means: no window shows that path any more — not merely "unprovable".
+    if any(_window_path(w) == _owned_path() for w in _textedit_windows()):
+        return "still_open_left_as_is"
+    if not _owned_file_is_ours():
+        return "file_changed_left_as_is"
+    shutil.rmtree(_OWNED["directory"])
     _OWNED.clear()
-    import shutil
-    shutil.rmtree(OWNED_DIR, ignore_errors=True)
+    return "closed"
 
 
 def _find_button(el, title, depth=0):
@@ -275,9 +332,11 @@ def _macos_version():
 
 
 TEXT = "NLC 비교 테스트 7781"
-OWNED_DIR = Path("/tmp/nlc-compare-owned")
 OWNED_NAME = "NLC 비교 문서.txt"
-_OWNED: dict = {}               # pid, launch, window of the harness's own document
+# The harness's own document: a fresh 0700 directory per run (mkdtemp), the
+# file created exclusively, the directory's inode remembered; plus the TextEdit process
+# and AX window that showed it. Nothing is assumed from a fixed path.
+_OWNED: dict = {}
 FOLDER = Path("/tmp/nlc-compare-folder")
 FOLDER_ITEMS = 7
 
@@ -441,8 +500,11 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     result["cleanup_status"] = "not_requested"
     if task.cleanup:
         try:
-            task.cleanup()
-            result["cleanup_status"] = "completed"
+            outcome = task.cleanup()
+            # A cleanup that could not prove what it owned says so instead of
+            # "completed" (owned_cleanup returns why it left things as they were).
+            result["cleanup_status"] = ("completed" if outcome in (None, "closed")
+                                        else str(outcome)[:60])
         except Exception as error:
             result["cleanup_status"] = "failed"
             result["cleanup_error"] = type(error).__name__[:80]
