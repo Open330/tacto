@@ -2140,7 +2140,22 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
 /// hides without telling anyone — so what the refusal hangs on is the stream,
 /// the signal that cannot hide.
 func ensureVisibleControl(forPID pid: pid_t) -> Bool {
-    _ = DispatchQueue.main.sync { showControlIndicator(forPID: pid) }
+    let shown = DispatchQueue.main.sync { showControlIndicator(forPID: pid) }
+    // An app with no window of its own (Finder showing only the desktop, an
+    // app whose documents are all closed) has nothing to look at, so there is
+    // no window to stream and nothing for the recording indicator to report.
+    // Refusing here blocked the very menu command that would open a window,
+    // and blamed a Screen Recording permission that was granted (2026-10-07).
+    // The menu-bar item still says NLC is acting; the stream starts on the
+    // next call, as soon as a window exists.
+    if realWindows(of: AXUIElementCreateApplication(pid)).isEmpty {
+        if let running = controlStream {
+            running.stopCapture { _ in }
+            controlStream = nil
+            controlStreamWindow = nil
+        }
+        return shown
+    }
     return ensureControlStream(forPID: pid)
 }
 

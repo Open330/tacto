@@ -225,8 +225,14 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         body = text[text.index("func ensureVisibleControl("):]
         body = body[:body.index("\n}\n")]
         self.assertIn("return ensureControlStream(forPID: pid)", body)
-        # The menu-bar item is best effort and must not be able to fail the run.
-        self.assertIn("_ = DispatchQueue.main.sync", body)
+        # With a window, the menu-bar item is best effort: the gate is the
+        # stream. With NO window of its own there is nothing to stream and
+        # nothing being read, and refusing blocked the menu command that would
+        # open one (Finder, 2026-10-07) — there, and only there, the item being
+        # shown IS the gate, and the stream returns once a window exists.
+        self.assertIn("realWindows(of: AXUIElementCreateApplication(pid)).isEmpty", body)
+        windowless = body[body.index("realWindows(of:"):body.index("return ensureControlStream")]
+        self.assertIn("return shown", windowless)
 
     def test_the_held_stream_sees_one_window_not_the_screen(self):
         # `SCContentFilter(display:)` stood here and captured everything, so an
