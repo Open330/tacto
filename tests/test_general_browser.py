@@ -13,6 +13,40 @@ except ImportError:
 
 @unittest.skipUnless(AVAILABLE, "optional playwright dependency not installed")
 class GeneralBrowser(unittest.TestCase):
+    def test_reopen_same_menu_after_command_changes_content(self):
+        from nlc.browser import BrowserDriver
+        from nlc.general import run
+        for changes in (True, False):
+            with self.subTest(content_changes=changes):
+                driver = BrowserDriver()
+                try:
+                    increment = "document.querySelector('output').textContent='1';" if changes else ''
+                    driver.goto('data:text/html,' + quote('''
+                        <button onclick="document.querySelector('section').hidden=false">Probe</button>
+                        <section hidden>
+                          <button onclick="''' + increment + '''document.querySelector('section').hidden=true">Direct Command</button>
+                          <button onclick="document.querySelector('output').textContent='2';document.querySelector('section').hidden=true">Responder Command</button>
+                        </section><output aria-label="counter">0</output>'''))
+                    stages = iter(['Probe', 'Direct Command', 'Probe', 'Responder Command'])
+                    calls = []
+                    def planner(goal, candidates, history):
+                        label = next(stages, None)
+                        if label is None:
+                            return {'done': True}
+                        candidate = next(c for c in candidates if c['label'] == label)
+                        calls.append(label)
+                        return {'actions': [{'do': 'click', 'candidate': candidate}]}
+                    result = run(driver, 'page', 'execute both commands once', planner,
+                                 max_screens=6, timeout_seconds=15)
+                    self.assertEqual(result.ok, changes, result.why)
+                    self.assertEqual(driver._page.locator('output').inner_text(), '2' if changes else '0')
+                    dispatched = [event for event in result.events if event['action']['name'] == 'click']
+                    self.assertEqual(len(dispatched), 4 if changes else 2)
+                    if not changes:
+                        self.assertIn('되풀이', result.why)
+                finally:
+                    driver.close()
+
     def test_save_has_real_disk_readback_and_rejects_wrong_destination(self):
         from nlc.browser import BrowserDriver
         from nlc.contract import Envelope

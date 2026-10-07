@@ -39,9 +39,14 @@ Continuous ctime changes cannot produce a receipt. This also applies to the
 last stat performed by the parent adapter via its strict-by-default protected
 hook; normal `FreshFileReceipt` behavior is unchanged. Input is bounded to 2 MiB. Stable bytes are passed on
 stdin to `/usr/bin/textutil -convert txt -format rtf -encoding UTF-8 -stdin -stdout`
-with the remaining receipt deadline. Decoder output over 4 MiB is rejected.
+with the remaining receipt deadline. Input and output pipes are handled
+concurrently, with at most 4 MiB plus one overflow-detection byte buffered for
+the decoded stream. Output overflow stops the decoder immediately, rather than
+checking the size after collecting its entire output.
 No output file is requested from textutil, and raw output/errors are not logged.
-The decoder process group is killed on timeout.
+The decoder process group is killed on timeout, output overflow, interruption,
+and exit, including descendants retaining a pipe after the parent exits. The
+decoder parent is reaped and both pipes are closed on every path.
 
 Decoded UTF-8 text must equal `expected_text` exactly. There is no trimming,
 newline removal, substring matching, or expectation inferred from the resulting
@@ -81,6 +86,9 @@ Actual textutil checks cover Korean text, empty documents and exact trailing
 newlines. Boundary tests cover existing destinations, wrong paths, corruption,
 missing artifacts, changed file/directory identity, symlinks/hardlinks, timeout,
 late results, event mismatch, repeated use and permissive directory modes.
+Additional subprocess checks cover continuous oversized output, simultaneous
+large input and full output pipes, exact-limit output, interruption cleanup,
+and an exited parent with a descendant retaining its output pipe.
 
 The ctime boundary tests perform real extended-attribute writes during decoding,
 during raw readback, and immediately before the parent's final check. On macOS

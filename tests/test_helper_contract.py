@@ -239,27 +239,14 @@ def _read_index_is_optional(d):
 NAVIGATION_KEYS = ("Tab", "shift+Tab", "Up", "Down", "Left", "Right")
 
 
-@check("어떤 키도 합성하지 않는다 — 여섯 개짜리 예외도 없다")
+@check("입력 요소를 지정하지 않은 탐색 키는 전송하지 않는다")
 def _no_key_is_synthesised(d):
-    """The navigation keys used to be the one allowed kind of synthetic input.
-
-    They are gone with the rest of it. A key press names no element: it goes
-    wherever focus happens to be, which is a place this process does not own
-    and cannot check afterwards — and getting focus there first is exactly the
-    theft this project exists to avoid. So every key is refused, the six that
-    were once allowed included, and the refusal says what to use instead.
-
-    This check was the inverse of itself until now, and it ran only inside the
-    signed launcher, so nothing noticed for three commits.
-    """
+    """The old target-less shape cannot address a window-bound input channel."""
     obs = _observe(d)
     for key in NAVIGATION_KEYS:
         r = d.act(obs["obs_id"], CALC, {"name": "press_key", "key": key})
-        assert r["type"] == "error", f"{key} 가 통과함: {r}"
-        assert r.get("effect") == "not_started", f"{key}: {r}"
-        # A refusal that does not say what to do instead reads as a defect.
-        assert "click" in str(r.get("detail", "")), \
-            f"{key} 거절이 대안을 말하지 않습니다: {r}"
+        assert r["type"] == "error", f"unbound {key} was sent: {r}"
+        assert r.get("effect") == "not_started", r
 
 
 @check("Escape 는 눌러주지 않는다 — 사용자가 중단하는 키다")
@@ -287,13 +274,14 @@ def _only_navigation(d):
         assert r.get("effect") == "not_started", f"{key!r}: {r}"
 
 
-@check("press_key 는 요소를 지정하지 않는다 — 포커스가 정한다")
+@check("창 자체는 탐색 키의 입력 요소가 아니다")
 def _press_key_has_no_element(d):
     obs = _observe(d)
     r = d.act(obs["obs_id"], CALC,
               {"name": "press_key", "key": "Tab", "element_index": 0})
-    # Naming an element would suggest the key goes there, and it does not.
-    assert r["type"] == "error", f"element_index 가 붙은 press_key 가 통과함: {r}"
+    # Index0 is the window, not the app current input element.
+    assert r["type"] == "error", f"window accepted an input-element key: {r}"
+    assert r.get("effect") == "not_started", r
 
 
 @check("대상이 없는 동작에 요소 기대를 걸면 거절된다")
@@ -997,7 +985,29 @@ def _no_borrowed_confirmation(_d):
 #     separate process can receive a click after the moment that asked for it
 #     stopped being true. In-process the call is synchronous; there is no gap
 #     for a stale click to arrive in.
-WIRE_ONLY = frozenset({"action.click.deadline_uptime"})
+# press_key also carries an absolute helper-wire deadline.
+WIRE_ONLY = frozenset({
+    "action.click.deadline_uptime", "action.press_key.deadline_uptime",
+})
+
+# These features are implemented by the signed helper, not by Driver.
+SIGNED_HELPER_ONLY = frozenset({
+    "action.click.save_panel_guard",
+    "evidence.document_rtf_export",
+    "evidence.save_panel",
+})
+
+
+def _assert_capability_contract(native, announced):
+    helper_only = WIRE_ONLY | SIGNED_HELPER_ONLY
+    assert helper_only <= announced, (
+        f"도우미 전용 약속이 빠졌습니다: {sorted(helper_only - announced)}")
+    assert not (helper_only & native), (
+        f"네이티브가 도우미 전용 약속을 말합니다: {sorted(helper_only & native)}")
+    assert (announced - helper_only) == native, (
+        f"공통 약속 목록이 어긋났습니다 — 도우미만: "
+        f"{sorted(announced - helper_only - native)}, "
+        f"네이티브만: {sorted(native - announced)}")
 
 
 @check("관측이 어느 요소에 secondary_action 이 통하는지 말한다")
@@ -1047,8 +1057,8 @@ def _capability_lists_agree(_d):
     capability, and two lists that can drift will.
 
     Exact equality is not the rule, and demanding it was wrong: a few
-    capabilities are about the WIRE, not about what can be done to a window,
-    and the in-process driver has no wire. Those are named one by one below,
+    capabilities describe the WIRE, and the in-process driver has no wire.
+    Other explicitly named features are implemented only by the signed helper. Those are named one by one below,
     with the reason, so that a genuine divergence still fails here instead of
     being waved through by a loosened comparison.
 
@@ -1066,16 +1076,7 @@ def _capability_lists_agree(_d):
                      if not line.strip().startswith("//"))
     announced = set(re.findall(r'"([^"]+)"', code))
     native = set(Driver.capabilities)
-    assert WIRE_ONLY <= announced, (
-        f"전송 전용이라던 약속을 도우미가 말하지 않습니다: "
-        f"{sorted(WIRE_ONLY - announced)}")
-    assert not (WIRE_ONLY & native), (
-        f"네이티브가 전송 전용 약속을 말합니다 — 지킬 수 있다면 "
-        f"WIRE_ONLY 에서 빼세요: {sorted(WIRE_ONLY & native)}")
-    assert (announced - WIRE_ONLY) == native, (
-        f"약속 목록이 어긋났습니다 — 도우미만: "
-        f"{sorted(announced - WIRE_ONLY - native)}, "
-        f"네이티브만: {sorted(native - announced)}")
+    _assert_capability_contract(native, announced)
 
 
 @check("도우미가 무엇을 지킬 수 있는지 먼저 말한다")
@@ -1148,6 +1149,27 @@ def run_all(report=print) -> int:
 # for having run the unit tests. It clicks a real Calculator key, so it stays
 # opt-in: NLC_CONTRACT_LIVE=1, or run this file directly (peer request).
 import unittest                                                  # noqa: E402
+
+
+class CapabilityContract(unittest.TestCase):
+    def test_explicit_backend_differences(self):
+        native = {"observe", "act"}
+        announced = native | WIRE_ONLY | SIGNED_HELPER_ONLY
+        _assert_capability_contract(native, announced)
+        invalid = [
+            (native, announced - {"observe"}),
+            (native - {"observe"}, announced),
+            (native, announced | {"unknown.future.capability"}),
+            (native | {"unknown.future.capability"}, announced),
+        ]
+        invalid.extend((native, announced - {cap})
+                       for cap in WIRE_ONLY | SIGNED_HELPER_ONLY)
+        invalid.extend((native | {cap}, announced)
+                       for cap in WIRE_ONLY | SIGNED_HELPER_ONLY)
+        for native_caps, helper_caps in invalid:
+            with self.subTest(native=native_caps, helper=helper_caps):
+                with self.assertRaises(AssertionError):
+                    _assert_capability_contract(native_caps, helper_caps)
 
 
 class HelperContract(unittest.TestCase):

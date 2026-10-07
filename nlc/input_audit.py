@@ -32,9 +32,10 @@ NO_FOCUS = "no-focus"
 class MacInputReader:
     """Lazy reader with an explicitly selected, labeled foreground source.
 
-    systemwide (default) cross-checks AXFocusedApplication against NSWorkspace.
+    systemwide (default) cross-checks AXFocusedApplication against a fresh
+    HIServices foreground-process sample rather than NSWorkspace's cache.
     application_frontmost independently requires direct AXFrontmost=True on the
-    NSWorkspace app before and after focus reading, plus stable workspace PID.
+    observed foreground app before and after focus reading, plus stable native PID.
     Neither source silently substitutes for the other on error. Opaque focus IDs
     use CFEqual rather than Python wrapper identity. No permission prompts.
     require_selection=True additionally reads AXSelectedTextRange as numeric
@@ -60,6 +61,11 @@ class MacInputReader:
             import CoreFoundation
             self._frameworks = (AppKit, Quartz, ApplicationServices, CoreFoundation)
         return self._frameworks
+
+    @staticmethod
+    def _foreground_pid():
+        from .native_frontmost import frontmost_pid
+        return frontmost_pid()
 
     def _selected_range(self, ax, cf, application, element, errors):
         """Read numeric CFRange only, bracketed by the same focused identity."""
@@ -108,7 +114,7 @@ class MacInputReader:
                 errors['focus_identity'] = 'accessibility_permission_missing'
                 return InputSnapshot(None, pointer, None, errors, self.strategy)
             if type(pid) is not int or pid <= 0:
-                errors['frontmost_pid'] = 'workspace_frontmost_unavailable'
+                errors['frontmost_pid'] = 'native_frontmost_unavailable'
                 return InputSnapshot(None, pointer, None, errors, self.strategy)
             application = ax.AXUIElementCreateApplication(pid)
             error, frontmost = ax.AXUIElementCopyAttributeValue(application, 'AXFrontmost', None)
@@ -141,10 +147,9 @@ class MacInputReader:
             if error != 0 or frontmost is not True:
                 errors['frontmost_pid'] = ('application_frontmost_recheck_failed:AXError=' + str(error)
                                           + ';frontmost=' + str(frontmost)[:40])
-            app_after = appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
-            pid_after = int(app_after.processIdentifier()) if app_after is not None else None
+            pid_after = self._foreground_pid()
             if pid_after != pid:
-                errors['frontmost_pid'] = 'workspace_frontmost_changed_during_read'
+                errors['frontmost_pid'] = 'native_frontmost_changed_during_read'
         except Exception as exc:
             errors['reader'] = type(exc).__name__
         return InputSnapshot(pid, pointer, focus, errors, self.strategy, selection)
@@ -157,8 +162,7 @@ class MacInputReader:
         errors = {}
         pid = pointer = focus = selection = None
         try:
-            app = appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
-            pid = int(app.processIdentifier()) if app is not None else None
+            pid = self._foreground_pid()
         except Exception as exc:
             errors['frontmost_pid'] = type(exc).__name__
         try:
@@ -170,6 +174,9 @@ class MacInputReader:
             pointer = (float(point.x), float(point.y))
         except Exception as exc:
             errors['pointer'] = type(exc).__name__
+        if pid is None:
+            errors['focus_identity'] = 'fresh_foreground_unavailable'
+            return InputSnapshot(None, pointer, None, errors, self.strategy)
         if self.strategy == 'application_frontmost':
             return self._application_frontmost(appkit, ax, cf, pid, pointer, errors)
         try:
@@ -177,13 +184,13 @@ class MacInputReader:
                 errors['frontmost_pid'] = 'accessibility_permission_missing_for_crosscheck'
                 errors['focus_identity'] = 'accessibility_permission_missing'
             else:
-                workspace_pid = pid
+                native_pid = pid
                 system = ax.AXUIElementCreateSystemWide()
                 error, focused_app = ax.AXUIElementCopyAttributeValue(system, 'AXFocusedApplication', None)
                 if error != 0 or focused_app is None:
                     errors['frontmost_pid'] = ('focused_application_unavailable:AXError=' + str(error)
                                                 + ';null=' + str(focused_app is None)
-                                                + ';workspace_pid=' + str(workspace_pid))
+                                                + ';native_pid=' + str(native_pid))
                     errors['focus_identity'] = 'foreground_application_unavailable'
                     pid = None
                 else:
@@ -194,8 +201,8 @@ class MacInputReader:
                         pid = None
                     else:
                         pid = int(focused_pid)
-                        if pid != workspace_pid:
-                            errors['frontmost_pid'] = 'workspace_ax_frontmost_disagree'
+                        if pid != native_pid:
+                            errors['frontmost_pid'] = 'native_ax_frontmost_disagree'
                 if pid is None:
                     return InputSnapshot(pid, pointer, focus, errors, self.strategy, selection)
                 application = ax.AXUIElementCreateApplication(pid)
@@ -235,8 +242,7 @@ class MacInputReader:
                     if error != 0 or pid_after != pid:
                         errors['reader'] = ('ax_frontmost_changed_during_read:AXError=' + str(error)
                                             + ';before_pid=' + str(pid) + ';after_pid=' + str(pid_after))
-            app_after = appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
-            pid_after = int(app_after.processIdentifier()) if app_after is not None else None
+            pid_after = self._foreground_pid()
             if pid_after != pid:
                 errors['reader'] = 'frontmost_changed_during_read'
         except Exception as exc:

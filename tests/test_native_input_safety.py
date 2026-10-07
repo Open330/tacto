@@ -44,13 +44,18 @@ class InputRoutingSourceTests(unittest.TestCase):
         self.assertEqual([], offenders, 'native runtime must not build, send, or activate')
         self.assertEqual([], front_writes, 'native runtime must not write AXFrontmost')
 
-    def test_the_signed_helper_synthesises_nothing_either(self):
-        """The transport that ships has to hold the same line.
+    def test_python_window_dispatch_has_one_pid_boundary_and_no_global_input(self):
+        source = (ROOT / 'nlc/native_window_dispatch.py').read_text()
+        tree = ast.parse(source)
+        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+        attributes = [n.func.attr for n in calls if isinstance(n.func, ast.Attribute)]
+        self.assertEqual(attributes.count('CGEventPostToPid'), 1)
+        for banned in ('CGEventPost','CGWarpMouseCursorPosition','CGDisplayMoveCursorToPoint',
+                       'activateWithOptions_', 'activate'):
+            self.assertNotIn(banned,attributes)
 
-        Measured 2026-09-20: Codex Computer Use ships zero input synthesis
-        across all 56 Mach-O binaries in its bundle, and drives macOS through
-        AXUIElementPerformAction / AXUIElementSetAttributeValue.
-        """
+    def test_signed_input_has_no_global_post_activation_or_pointer_warp(self):
+        """Window preparation has one PID post boundary; global input is absent."""
         source = (ROOT / 'helper/NLCHelper.swift').read_text()
         # Comments explain why these are absent, so only real code counts.
         code = '\n'.join(line for line in source.splitlines()
@@ -59,6 +64,17 @@ class InputRoutingSourceTests(unittest.TestCase):
                        'CGEventSource(', 'kAXFrontmostAttribute as CFString'):
             self.assertNotIn(banned, code, f'{banned} is back in the signed helper')
         self.assertIsNone(re.search(r'\bNSApplication\.shared\.activate\b', code))
+        for path in (ROOT / 'helper').glob('*.swift'):
+            code = '\n'.join(line for line in path.read_text().splitlines()
+                             if not line.lstrip().startswith(('//', '///')))
+            for banned in ('CGEventPost(', 'CGWarpMouseCursorPosition(',
+                           'CGDisplayMoveCursorToPoint(', '.post(tap:',
+                           'NSWorkspace.shared.open(', 'NSApplication.shared.activate('):
+                self.assertNotIn(banned, code, f'global input/activation in {path.name}')
+            if path.name != 'WindowDispatch.swift':
+                self.assertNotIn('.postToPid(', code, f'ungated PID posting in {path.name}')
+        dispatch = (ROOT / 'helper/WindowDispatch.swift').read_text()
+        self.assertEqual(dispatch.count('event.postToPid(pid)'), 1)
 
 
 @unittest.skipUnless(NATIVE_AVAILABLE, 'PyObjC unavailable; source routing regression still runs')

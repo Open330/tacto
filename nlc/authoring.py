@@ -22,7 +22,7 @@ import subprocess
 import time
 import uuid
 
-from .provider_result import ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable
+from .provider_result import ProviderAttempt, ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable
 from .provider_observation import collecting_provider_calls, record_provider_result
 from .model_budget import remaining_model_seconds
 
@@ -81,8 +81,13 @@ thousands of items. Address them by the title a person reads.
 
 Prefer a named control over synthesized keystrokes, and `set_value` over
 `type_text` when the element accepts it: it needs no focus and cannot leak into
-whatever window the user switches to. There is no `press_key` \u2014 the signed
-helper does not implement one, and `menu` covers what people used it for.
+whatever window the user switches to. For backends advertising
+`press_key.element_bound`, `press_key` accepts only Tab, shift+Tab, Up, Down,
+Left, or Right, with a specific observed input selector and params {"key":"Right"}.
+Require action.press_key capability, a binding for that input, write_ephemeral
+effects, and a postcondition naming a field, attribute, and equals or contains.
+The posted pair requires a fresh observed result before the next step. Escape,
+Return, and arbitrary shortcuts are unavailable on these native backends.
 
 `read` performs nothing; use it for a step that only captures.
 
@@ -211,7 +216,7 @@ def _run_provider(argv: list[str], timeout: int):
                           start_new_session=(os.name == "posix")) as process:
         try:
             stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except BaseException:
             if os.name == "posix":
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
@@ -241,6 +246,9 @@ def _try_cli(provider: str, prompt: str, timeout: int):
     argv = _CLI.get(provider)
     if argv is None or shutil.which(argv[0]) is None:
         return None
+    if provider == 'codex':
+        from .codex_result import codex_result
+        return codex_result(prompt, timeout=timeout)
     out = _run_provider(argv + [prompt], timeout)
     text = out.stdout.strip()
     # A CLI that is installed but not signed in answers with a prompt to log in
@@ -311,6 +319,9 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
     """
     order = PROVIDER_ORDER if provider in ("auto", None) else (provider,)
     tried = []
+    attempts = []
+    if _metadata is not None:
+        _metadata['attempts'] = attempts
     timed_out = False
     deadline = time.monotonic() + remaining_model_seconds(timeout)
     for name in order:
@@ -318,14 +329,17 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
             logging.getLogger(__name__).warning(
                 "Model auto fallback to provider=%s after %s", name, "; ".join(tried))
         routes = (("cli-json", _try_cli),) if name == "claude" else (
-            ("muxa", _try_muxa), ("cli", _try_cli))
+            ("muxa", _try_muxa), ("cli-json" if name == 'codex' else "cli", _try_cli))
         for how, fn in routes:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError("model request deadline exceeded; " + "; ".join(tried))
             if _metadata is not None:
-                _metadata.clear()
-                _metadata.update(provider=name, transport=how, attempts=list(tried))
+                _metadata.update(provider=name, transport=how)
+            started = time.monotonic()
+            observed = None
+            accepted = False
+            invalid_json = False
             try:
                 reply = fn(name, prompt, remaining)
                 observed = reply if isinstance(reply, ProviderResult) else None
@@ -347,11 +361,28 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                 if reply and time.monotonic() >= deadline:
                     raise TimeoutError("model reply arrived after deadline")
                 if reply and expect_json:
-                    _extract_json(reply)
+                    try:
+                        _extract_json(reply)
+                    except Exception:
+                        invalid_json = True
+                        raise
+                accepted = bool(reply)
             except Exception as e:
                 timed_out = timed_out or isinstance(e, (TimeoutError, subprocess.TimeoutExpired))
-                tried.append(f"{name}/{how}: {getattr(e, 'reason', None) or type(e).__name__}")
+                code = getattr(e, 'reason', None) or type(e).__name__
+                if not isinstance(code, str) or not re.fullmatch(r'[A-Za-z_]{1,40}', code):
+                    code = type(e).__name__
+                tried.append(f"{name}/{how}: {code}")
+                attempt_status = ('timeout' if isinstance(e, (TimeoutError, subprocess.TimeoutExpired))
+                                  else 'invalid_response' if invalid_json or (observed is not None and observed.status == 'ok')
+                                  else 'error')
+                attempts.append(_provider_attempt(name, how, attempt_status, started, observed, code))
                 continue
+            except BaseException as exc:
+                attempts.append(_provider_attempt(name, how, 'error', started, observed,
+                                                  type(exc).__name__))
+                raise
+            attempts.append(_provider_attempt(name, how, 'ok' if accepted else 'no_answer', started, observed))
             if reply:
                 if _metadata is not None and observed is not None:
                     _metadata["observed"] = observed
@@ -360,6 +391,19 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
     if timed_out:
         raise TimeoutError("model request timed out; " + "; ".join(tried))
     raise RuntimeError("모델을 호출하지 못했습니다. 시도: " + "; ".join(tried))
+
+
+_PROVIDER_TELEMETRY = (
+    'model', 'provider_request_id', 'provider_thread_id', 'input_tokens',
+    'output_tokens', 'cached_input_tokens', 'cost', 'cost_currency', 'cost_basis',
+    'input_tokens_basis', 'cache_creation_input_tokens', 'total_input_tokens')
+
+
+def _provider_attempt(provider, transport, status, started, observed, error_code=None):
+    telemetry = ({key: getattr(observed, key) for key in _PROVIDER_TELEMETRY}
+                 if observed is not None else {})
+    return ProviderAttempt(provider, transport, status, max(0.0, time.monotonic() - started),
+                           error_code=error_code, **telemetry)
 
 
 def _model_result(prompt: str, provider: str, timeout: int,
@@ -391,18 +435,25 @@ def _model_result(prompt: str, provider: str, timeout: int,
         error = ProviderError(type(exc).__name__,
                               "Model request exceeded its deadline" if status == "timeout"
                               else "Model request failed" + (f" — {attempts}" if attempts else ""))
+    except BaseException as exc:
+        record_provider_result(ProviderResult(
+            request_id=request_id, requested_provider=provider or 'auto',
+            provider=metadata.get('provider'), transport=metadata.get('transport'),
+            status='error', text=None,
+            error=ProviderError(type(exc).__name__, 'Model request interrupted'),
+            elapsed_seconds=max(0.0, time.monotonic() - started),
+            attempts=tuple(metadata.get('attempts', ()))))
+        raise
     observed = metadata.get("observed")
-    telemetry = ({key: getattr(observed, key) for key in (
-        "model", "provider_request_id", "provider_thread_id", "input_tokens",
-        "output_tokens", "cached_input_tokens", "cost", "cost_currency", "cost_basis",
-        "input_tokens_basis", "cache_creation_input_tokens", "total_input_tokens")}
+    telemetry = ({key: getattr(observed, key) for key in _PROVIDER_TELEMETRY}
         if status == "ok" and observed is not None else {})
     return record_provider_result(ProviderResult(request_id=request_id,
                           requested_provider=provider or "auto",
                           provider=metadata.get("provider"),
                           transport=metadata.get("transport"), status=status,
                           text=text, error=error,
-                          elapsed_seconds=max(0.0, time.monotonic() - started), **telemetry))
+                          elapsed_seconds=max(0.0, time.monotonic() - started),
+                          attempts=tuple(metadata.get('attempts', ())), **telemetry))
 
 
 def ask_model_result(prompt: str, provider: str = "auto", timeout: int = 420,
@@ -650,7 +701,9 @@ def author(intent: str, driver: Driver, target: str | None = None,
     if obs["type"] != "observation":
         raise RuntimeError(f"cannot observe {target}: {obs}")
     base = (f"{_SYSTEM}\n\n# 사용자 의도\n{intent}\n\n"
-            f"# 대상 앱 bundle id\n{target}\n\n# 접근성 트리\n{obs['tree']}")
+            f"# 대상 앱 bundle id\n{target}\n\n"
+            f"# Backend capabilities\n{', '.join(sorted(getattr(driver, 'capabilities', ()) or ())) or '(none advertised)'}\n\n"
+            f"# 접근성 트리\n{obs['tree']}")
 
     # One repair round. A model reading a static tree cannot see the
     # preconditions that only appear when the recipe runs — asked to italicize

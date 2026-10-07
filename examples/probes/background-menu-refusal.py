@@ -81,7 +81,12 @@ def _witness_focus():
 def _frontmost():
     from AppKit import NSWorkspace
     app = NSWorkspace.sharedWorkspace().frontmostApplication()
-    return app.bundleIdentifier() if app is not None else None
+    if app is None:
+        return None
+    # An app with no bundle id is still an app in front — a game another
+    # session had launched was, and reading it as "not observable" failed this
+    # probe for a reason that had nothing to do with menus (2026-10-07).
+    return app.bundleIdentifier() or f"{app.localizedName()}#{app.processIdentifier()}"
 
 
 def main(driver, output: Path):

@@ -118,8 +118,10 @@ def _run(path):
     class Observer(NSObject):
         def activated_(self, note):
             app = note.userInfo().get("NSWorkspaceApplicationKey")
+            # Named even without a bundle id: "None" hid which app it was.
             write({"event": "activated",
-                   "bundle": app.bundleIdentifier() if app else None,
+                   "bundle": (app.bundleIdentifier() or f"{app.localizedName()}#{app.processIdentifier()}")
+                             if app else None,
                    "pid": int(app.processIdentifier()) if app else None})
 
     observer = Observer.alloc().init()
@@ -130,7 +132,8 @@ def _run(path):
     signal.signal(signal.SIGTERM, lambda *_: stop.update(now=True))
     front = workspace.frontmostApplication()
     write({"event": "ready",
-           "frontmost": front.bundleIdentifier() if front else None})
+           "frontmost": (front.bundleIdentifier() or f"{front.localizedName()}#{front.processIdentifier()}")
+                        if front else None})
     # Windows are the other way to land on someone's screen. A dialog can
     # appear over their work without any app becoming active, which the
     # activation notification cannot see. Windows persist for at least a frame

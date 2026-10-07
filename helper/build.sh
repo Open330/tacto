@@ -15,8 +15,11 @@ trap 'rm -rf "$STAGE"' EXIT
 cp NLCHelper.swift "$STAGE/main.swift"
 cp PeerAuth.swift  "$STAGE/PeerAuth.swift"
 cp WindowInput.swift "$STAGE/WindowInput.swift"
+cp FrontmostProcess.swift "$STAGE/FrontmostProcess.swift"
+cp SavePanelObservation.swift "$STAGE/SavePanelObservation.swift"
+cp WindowDispatch.swift "$STAGE/WindowDispatch.swift"
 
-"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" -o nlc-helper
+"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" -o nlc-helper
 
 IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
   | grep -v CSSMERR | head -1 | sed -E 's/.*"(.*)"/\1/')}

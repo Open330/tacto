@@ -372,7 +372,7 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
 - 웹의 단일 선택 HTML select는 `select_option`으로 관측한 value와 label을 고정해 선택하고 값을 다시 읽습니다. 중복 value·비활성·변경된 옵션은 거절합니다. 명시적 `aria-controls`가 연결된 custom combobox는 `open_select` 후 재관찰하고 `select_custom_option`으로 보이는 옵션의 정확한 label을 선택합니다. 다중 선택은 지원하지 않습니다.
 - `general.run(timeout_seconds=..., cancelled=...)`는 모델·관측·행동 경계에서 작업 예산과 취소를 확인합니다. 이미 실행한 효과를 기록하고 재시도하지 않습니다. 내장 모델 호출에는 남은 시간 예산을 전달하며 페이지·provider fallback·witness 질문이 이를 공유합니다. 임의의 동기 callback과 AX 호출을 즉시 강제 종료하는 취소는 아닙니다. signed 모델 timeout 뒤에는 응답 혼선을 막기 위해 채널을 폐기합니다. [시간 예산의 범위](docs/model-deadlines.md)를 참고하세요. CLI에서는 `--general-timeout 120 --max-screens 12 --prompt-budget 16000 --max-pages 8`로 설정합니다. 시간 제한은 일반 실행 루프에만 적용되며 발화 해석·Flow 재생 전체의 제한은 아닙니다.
 - 저장·전송은 모델의 성공 문구만으로 확정하지 않습니다. 신뢰된 host의 `prepare_commit(event)`와 `after_commit(event, response, context)`가 실제 작업 영수증에 결합된 `CommitEvidence`를 제공해야 합니다. artifact 경로·내용 digest 또는 delivery 수신자·계정·본문 digest를 기대값과 대조합니다. 호스트 어댑터가 없는 실제 앱의 commit은 완료 미검증으로 남습니다.
-- 선택적 `nlc.visual.capture_browser`와 `query_visual`은 viewport 이미지의 읽기를 지원합니다. `plan_visual`과 `nlc.visual_actions.run_visual`은 명시적 host 승인·결과 검증 콜백으로 브라우저 좌표 클릭을 실행합니다. 현재 이미지 provider는 Codex·Claude CLI입니다. 별도 native 창 캡처 모듈은 구현됐지만 화면 기록 권한이 없어 실제 캡처 검증이 남아 있으며 native 시각 좌표 입력은 아직 연결하지 않았습니다. AX 요소에서 좌표를 도출하는 Python 클릭 fallback은 [창별 입력 문서](docs/native-window-input.md)에 별도로 설명합니다. 이미지 해석을 승인이나 완료 witness로 사용할 수 없습니다. 클릭 직전 DOM·scroll·viewport·PNG 일치를 확인하지만 캡처와 입력의 원자성은 보장하지 않으며, 애니메이션이 있는 화면은 변경 감지로 중단될 수 있습니다. 사용 예시는 [시각 API 문서](docs/visual.md)에 있습니다.
+- 선택적 `nlc.visual.capture_browser`와 `query_visual`은 viewport 이미지의 읽기를 지원합니다. `plan_visual`과 `nlc.visual_actions.run_visual`은 명시적 host 승인·결과 검증 콜백으로 브라우저 좌표 클릭을 실행합니다. 현재 이미지 provider는 Codex·Claude CLI입니다. signed helper의 소유 native 창 캡처와 이미지 좌표→대상 AX hit-test→AXPress는 실제 fixture에서 확인했습니다. AX hit-test도 제공하지 않는 surface와 자율 native 이미지 계획은 별도 검증이 필요합니다. native 좌표의 AX hit-test와 전경 창 준비의 지원 조건은 [창별 입력 문서](docs/native-window-input.md)에 설명합니다. 이미지 해석을 승인이나 완료 witness로 사용할 수 없습니다. 클릭 직전 DOM·scroll·viewport·PNG 일치를 확인하지만 캡처와 입력의 원자성은 보장하지 않으며, 애니메이션이 있는 화면은 변경 감지로 중단될 수 있습니다. 사용 예시는 [시각 API 문서](docs/visual.md)에 있습니다.
 
 - `nlc run`과 `nlc replay`는 같은 승인 경로를 사용합니다. `--yes`는 확인 가능한 승인에 적용되며 handoff·차단된 계약을 해제하지 않습니다.
 - Python 코어는 드라이버를 주입하여 macOS 없이 가져올 수 있습니다. 네이티브 드라이버는 macOS 전용이고 웹 드라이버는 선택적입니다. 브라우저의 관측 인덱스는 관측한 DOM 노드에 고정되며 같은 이름의 다른 노드로 바꾸지 않습니다.
@@ -442,7 +442,7 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
 - **폴더 목록은 화면에 보이는 것만입니다.** Finder는 폴더에 따라 파일 이름을 아예
   노출하지 않기도 합니다(이 기기에선 Downloads가 그렇습니다) — 그럴 땐 이름 대신
   개수로 답합니다.
-- **키 입력은 탐색 키로 제한됩니다.** signed helper는 Tab·shift+Tab·방향키만 제공하며 Return·임의 chord·Escape를 거절합니다. 현재 focus에 전달하므로 실제 결과는 다시 관측해야 합니다. 저장·복사·열기는 이름 붙은 `menu` 경로를 사용합니다.
+- **키 입력은 탐색 키로 제한됩니다.** Python driver와 signed helper는 배경 창과 관측한 현재 입력 요소에 결합한 Tab·shift+Tab·방향키를 제공하며 Return·임의 chord·Escape를 거절합니다. 실제 결과는 다시 관측해야 하며, 재생에는 입력 selector와 명시적 postcondition이 필요합니다. 저장·복사·열기는 이름 붙은 `menu` 경로를 사용합니다.
 - **native와 web은 별도 ID 공간** — Flow는 백엔드 간 이식되지 않습니다.
 - 음성 STT는 플러그형(기본은 타이핑 폴백); 실 엔진 연결은 배포 시.
 - **Python으로 충분합니다.** 비용은 AX 프로세스 간 호출이 지배합니다(관찰 78–172ms,
@@ -475,6 +475,8 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
 - [`docs/native-visual.md`](docs/native-visual.md) — 네이티브 창 이미지 읽기
 - [`docs/rtf-receipts.md`](docs/rtf-receipts.md) — RTF 저장 영수증
 - [`docs/textedit-save.md`](docs/textedit-save.md) — TextEdit 새 이름 저장의 호스트 증거
+- [`docs/save-directory-observation.md`](docs/save-directory-observation.md) — 저장 패널 디렉터리·설정의 읽기 전용 증거
+- [`docs/benchmark-records.md`](docs/benchmark-records.md) — 평가 계측과 외부 비교 기록 검증
 
 <br>
 

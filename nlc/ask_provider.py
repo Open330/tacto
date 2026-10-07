@@ -24,6 +24,7 @@ import json
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument("--image-envelope", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--result-envelope", action="store_true")
     parser.add_argument("--provider", default="auto")
@@ -37,8 +38,26 @@ def main() -> int:
     if args.result_envelope:
         from .authoring import ask_model_result
         try:
-            result = ask_model_result(prompt, args.provider, timeout=args.timeout,
-                                      expect_json=args.json)
+            if args.image_envelope:
+                from .provider_images import decode_image, validate_model
+                if len(prompt.encode('utf8')) > 8 * 1024 * 1024 or args.provider not in ('claude', 'codex'):
+                    raise ValueError('invalid image request')
+                envelope = json.loads(prompt)
+                if not isinstance(envelope, dict) or set(envelope) != {'prompt', 'image', 'model'}:
+                    raise ValueError('invalid image request')
+                question = envelope['prompt']
+                if not isinstance(question, str) or not question.strip() or len(question.encode('utf8')) > 400000:
+                    raise ValueError('invalid image prompt')
+                png = decode_image(envelope['image']); model = validate_model(envelope['model'])
+                if args.provider == 'claude':
+                    from .claude_result import claude_result
+                    result = claude_result(question, model=model, timeout=args.timeout, image_bytes=png)
+                else:
+                    from .codex_result import codex_result
+                    result = codex_result(question, model=model, timeout=args.timeout, image_bytes=png)
+            else:
+                result = ask_model_result(prompt, args.provider, timeout=args.timeout,
+                                          expect_json=args.json)
             encoded = json.dumps(result.to_dict(), ensure_ascii=False, allow_nan=False)
         except Exception:
             # Unexpected transport/serialization failures carry no raw prompt,
@@ -47,6 +66,8 @@ def main() -> int:
             return 1
         sys.stdout.write(encoded)
         return 0  # Structured error/timeout belongs to the envelope, not exit status.
+    if args.image_envelope:
+        parser.error("--image-envelope requires --result-envelope")
     from .authoring import _ask_model
     try:
         text = _ask_model(prompt, args.provider, timeout=args.timeout, expect_json=args.json)

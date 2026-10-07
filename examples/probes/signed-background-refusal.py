@@ -4,11 +4,9 @@ Runs under the signed launcher so the helper accepts the connection. Launches
 one owned accessory fixture (LSUIElement, orders its window back) and checks
 both halves against it:
 
-  prepare_window  window-bound input needs the app in front, so it is REFUSED
-                  with needs_foreground / not_started. Nothing is sent, and the
-                  app is never told it is active. (What stood here before was a
-                  synthetic ApplicationActivated event that made the app
-                  believe otherwise, and left that belief behind.)
+  press_key       general navigation is unsupported, so it is REFUSED with
+                  not_started. This test does
+                  not request the separate background window preparation path.
 
   click           an accessibility press does NOT need the front, so it still
                   WORKS on the background app — measured by the fixture's own
@@ -100,14 +98,13 @@ def main(driver, output: Path) -> dict:
                     button = int(parts[0])
             assert window is not None and button is not None, (window, button)
 
-            # Half one: window-bound input is refused, and nothing is sent.
+            # General navigation remains unsupported and sends no input.
             answer = driver.act(observation['obs_id'], TARGET,
-                                {'name': 'prepare_window', 'element_index': window})
+                                {'name': 'press_key', 'key': 'Tab'})
             after = state()
-            report['steps'].append({'action': 'prepare_window', 'response': answer,
+            report['steps'].append({'action': 'press_key', 'response': answer,
                                     'after': after, 'expected': 'refused'})
             assert answer.get('type') == 'error', answer
-            assert answer.get('needs_foreground') is True, answer
             assert answer.get('effect') == 'not_started', answer
             assert 'isActive=false' in (after['state'] or ''), after
             assert after['app_ax_frontmost'] is not True, after

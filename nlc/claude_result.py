@@ -20,7 +20,38 @@ from .provider_result import ProviderError, ProviderResult, ProviderUnavailable,
 
 
 class ClaudeProtocolError(ValueError):
-    pass
+    _CODES = {
+        'malformed JSONL': 'malformed_jsonl',
+        'invalid event': 'invalid_event',
+        'session mismatch': 'session_mismatch',
+        'event after terminal result': 'after_terminal',
+        'session exposed tools or restarted': 'tools_or_restart',
+        'event before initialization': 'before_init',
+        'assistant error or nested tool response': 'assistant_error',
+        'invalid assistant message': 'assistant_shape',
+        'missing observed model': 'missing_model',
+        'multiple response models': 'multiple_models',
+        'invalid content blocks': 'content_shape',
+        'invalid content block': 'content_shape',
+        'unexpected or tool content': 'tool_content',
+        'incomplete or failed turn': 'failed_turn',
+        'unverified final answer': 'answer_mismatch',
+        'missing completed-turn usage': 'missing_usage',
+        'invalid usage counter': 'invalid_usage',
+        'invalid cost telemetry': 'invalid_cost',
+        'unexpected event or attempted tool use': 'unexpected_event',
+        'provider refused request': 'model_refusal',
+        'provider initiated model fallback': 'model_fallback',
+        'missing terminal result': 'missing_terminal',
+        'CLI exited unsuccessfully': 'nonzero_exit',
+    }
+
+    def __init__(self, message, *, diagnostic=None):
+        super().__init__(message)
+        allowed = {'system_commands_changed', 'system_ui_invalidate', 'system_other', 'assistant', 'result', 'rate_limit_event', 'unknown'}
+        self.diagnostic = diagnostic if isinstance(diagnostic, str) and diagnostic in allowed else None
+        reason = self._CODES.get(message) if isinstance(message, str) else None
+        self.code = 'ClaudeProtocolError' + ('_' + reason if reason else '')
 
 
 def _count(mapping, key):
@@ -30,9 +61,95 @@ def _count(mapping, key):
     return value
 
 
+def _observed_refusal_fallback(stdout, session_id):
+    """Closed diagnostic only; a rejected response remains rejected.
+
+    CLI 2.1.286 emits informational/synthetic-user events before an explicit
+    refusal fallback notice. Do not loosen the one-turn parser to accept them.
+    Only a complete same-session stream can identify that failure more precisely.
+    """
+    try:
+        events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+        if (not events or len(events) > 1000
+                or any(not isinstance(event, dict) or event.get('session_id') != session_id
+                       for event in events)
+                or events[0].get('type') != 'system' or events[0].get('subtype') != 'init'
+                or events[0].get('tools') != [] or events[0].get('mcp_servers') != []
+                or sum(event.get('type') == 'result' for event in events) != 1
+                or events[-1].get('type') != 'result'):
+            return False
+        return any(event.get('type') == 'system'
+                   and event.get('subtype') == 'model_refusal_fallback'
+                   and event.get('trigger') == 'refusal'
+                   and event.get('direction') == 'retry'
+                   and event.get('scope') == 'session'
+                   and all(isinstance(event.get(key), str) and 0 < len(event[key]) <= 256
+                           for key in ('original_model', 'fallback_model'))
+                   for event in events)
+    except (ValueError, TypeError):
+        return False
+
+
+def _observed_refusal_no_fallback(stdout, session_id):
+    """Identify an explicit refusal in a complete failed isolated stream.
+
+    CLI 2.1.289 can exit nonzero after informational/synthetic-user events,
+    with a success-subtype result whose is_error is true and num_turns is two.
+    This is failure classification only, never accepted answer/usage evidence.
+    """
+    try:
+        if not isinstance(stdout, str) or len(stdout.encode('utf8')) > 8 * 1024 * 1024:
+            return False
+        events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+        if (not events or len(events) > 1000 or any(not isinstance(e, dict)
+                or e.get('session_id') != session_id for e in events)):
+            return False
+        initial = [i for i, e in enumerate(events)
+                   if e.get('type') == 'system' and e.get('subtype') == 'init']
+        if len(initial) != 1:
+            return False
+        init = events[initial[0]]
+        if init.get('tools') != [] or init.get('mcp_servers') != []:
+            return False
+        seen = set()
+        for e in events[:initial[0]]:
+            subtype = e.get('subtype')
+            if e.get('type') != 'system' or not isinstance(subtype, str) or subtype in seen:
+                return False
+            if subtype == 'commands_changed':
+                valid = set(e) == {'type', 'subtype', 'session_id', 'uuid', 'commands'} and e.get('commands') == []
+            elif subtype == 'ui_invalidate':
+                valid = set(e) == {'type', 'subtype', 'session_id', 'uuid', 'event'} and e.get('event') == 'ui.render'
+            else:
+                return False
+            value = e.get('uuid')
+            if not valid or not isinstance(value, str) or str(uuid.UUID(value)) != value:
+                return False
+            seen.add(subtype)
+        terminal = events[-1]
+        if (sum(e.get('type') == 'result' for e in events) != 1
+                or terminal.get('type') != 'result' or terminal.get('is_error') is not True
+                or terminal.get('subtype') not in ('success', 'error_during_execution')
+                or type(terminal.get('num_turns')) is not int or terminal['num_turns'] not in (1, 2)):
+            return False
+        notices = [e for e in events if e.get('type') == 'system'
+                   and e.get('subtype') == 'model_refusal_no_fallback']
+        if len(notices) != 1 or any(e.get('type') == 'system'
+                and e.get('subtype') == 'model_refusal_fallback' for e in events):
+            return False
+        notice = notices[0]
+        model, identity = notice.get('original_model'), notice.get('uuid')
+        return (isinstance(model, str) and 0 < len(model) <= 256
+                and isinstance(identity, str) and str(uuid.UUID(identity)) == identity)
+    except (ValueError, TypeError):
+        return False
+
+
 def parse_claude_events(stdout: str, session_id: str) -> dict:
     """Require one tool-free fresh session and an unambiguous complete answer."""
     initialized = False
+    pre_init_notice = False
+    pre_init_render_notice = False
     finished = False
     models = set()
     final_text = None
@@ -44,15 +161,58 @@ def parse_claude_events(stdout: str, session_id: str) -> dict:
             event = json.loads(line)
         except ValueError:
             raise ClaudeProtocolError('malformed JSONL') from None
-        if not isinstance(event, dict) or event.get('session_id') != session_id or finished:
-            raise ClaudeProtocolError('invalid session or terminal boundary')
+        if not isinstance(event, dict):
+            raise ClaudeProtocolError('invalid event')
+        if event.get('session_id') != session_id:
+            raise ClaudeProtocolError('session mismatch')
+        if finished:
+            raise ClaudeProtocolError('event after terminal result')
         kind = event.get('type')
         if kind == 'system' and event.get('subtype') == 'init':
             if initialized or event.get('tools') != [] or event.get('mcp_servers') != []:
                 raise ClaudeProtocolError('session exposed tools or restarted')
             initialized = True
         elif not initialized:
-            raise ClaudeProtocolError('event before initialization')
+            # CLI 2.1.286 can publish this empty slash-command advisory before
+            # init. It carries no answer/tool content. Accept only the exact
+            # observed shape once; initialization and terminal checks remain.
+            if (not pre_init_notice and kind == 'system'
+                    and event.get('subtype') == 'commands_changed'
+                    and set(event) == {'type', 'subtype', 'session_id', 'uuid', 'commands'}
+                    and event.get('commands') == []
+                    and isinstance(event.get('uuid'), str) and len(event['uuid']) == 36):
+                try:
+                    if str(uuid.UUID(event['uuid'])) != event['uuid']:
+                        raise ValueError('noncanonical notice identity')
+                except ValueError:
+                    raise ClaudeProtocolError('event before initialization') from None
+                pre_init_notice = True
+                continue
+            # CLI 2.1.289 also emits a content-free render invalidation during
+            # startup. Accept only the observed same-session exact shape once,
+            # before init. It is neither a UI instruction nor answer evidence.
+            if (not pre_init_render_notice and kind == 'system'
+                    and event.get('subtype') == 'ui_invalidate'
+                    and set(event) == {'type', 'subtype', 'event', 'session_id', 'uuid'}
+                    and event.get('event') == 'ui.render'
+                    and isinstance(event.get('uuid'), str) and len(event['uuid']) == 36):
+                try:
+                    if str(uuid.UUID(event['uuid'])) != event['uuid']:
+                        raise ValueError('noncanonical notice identity')
+                except ValueError:
+                    raise ClaudeProtocolError('event before initialization',
+                                              diagnostic='system_ui_invalidate') from None
+                pre_init_render_notice = True
+                continue
+            diagnostic = ('system_commands_changed' if kind == 'system' and event.get('subtype') == 'commands_changed'
+                          else 'system_ui_invalidate' if kind == 'system' and event.get('subtype') == 'ui_invalidate'
+                          else 'system_other' if kind == 'system'
+                          else kind if isinstance(kind, str) and kind in ('assistant','result','rate_limit_event') else 'unknown')
+            raise ClaudeProtocolError('event before initialization', diagnostic=diagnostic)
+        elif kind == 'system' and event.get('subtype') == 'model_refusal_no_fallback':
+            raise ClaudeProtocolError('provider refused request')
+        elif kind == 'system' and event.get('subtype') == 'model_refusal_fallback':
+            raise ClaudeProtocolError('provider initiated model fallback')
         elif kind == 'rate_limit_event' or (kind == 'system' and event.get('subtype') in (
                 'thinking_tokens',
                 # Added by a Claude CLI update (seen 2026-09-23): a notice that
@@ -160,7 +320,7 @@ def _run_claude(argv, payload, timeout, cwd):
                           start_new_session=(os.name == 'posix')) as proc:
         try:
             stdout, stderr = proc.communicate(input=payload, timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except BaseException:
             if os.name == 'posix':
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
@@ -196,6 +356,9 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
                 '--no-session-persistence', '--safe-mode', '--disable-slash-commands', '--no-chrome',
                 '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
                 '--session-id', session_id, '--system-prompt-snapshot', 'off',
+                # Preserve the single-turn/model contract. This applies only
+                # to this process and never edits the user's settings file.
+                '--settings', '{"switchModelsOnFlag":false}',
                 '--system-prompt', 'Return the requested short answer without tools.']
         if model is not None:
             argv += ['--model', model]
@@ -211,10 +374,16 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
                 if code != 0:
                     raise ClaudeProtocolError('CLI exited unsuccessfully')
                 fields = parse_claude_events(stdout, session_id)
-            except ClaudeProtocolError:
+            except ClaudeProtocolError as exc:
                 reason = classify_unavailable(stdout, stderr)
                 if reason:
                     raise ProviderUnavailable(reason) from None
+                if (exc.code in ('ClaudeProtocolError_nonzero_exit', 'ClaudeProtocolError_unexpected_event')
+                        and _observed_refusal_no_fallback(stdout, session_id)):
+                    raise ClaudeProtocolError('provider refused request') from None
+                if (exc.code == 'ClaudeProtocolError_unexpected_event'
+                        and _observed_refusal_fallback(stdout, session_id)):
+                    raise ClaudeProtocolError('provider initiated model fallback') from None
                 raise
     except Exception as exc:
         status = 'timeout' if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else 'error'
@@ -222,8 +391,10 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
         error = (ProviderError(reason, {'not_logged_in': 'Claude CLI is not logged in — run `claude /login`',
                                         'usage_limit': 'Claude usage limit reached'}[reason])
                  if reason else
-                 ProviderError(type(exc).__name__, 'Claude request exceeded deadline' if status == 'timeout'
-                               else 'Claude CLI request or structured response failed'))
+                 ProviderError(getattr(exc, 'code', type(exc).__name__), 'Claude request exceeded deadline' if status == 'timeout'
+                               else 'Claude CLI request or structured response failed'
+                               + (' (pre-init event: ' + exc.diagnostic + ')'
+                                  if isinstance(exc, ClaudeProtocolError) and exc.diagnostic else '')))
     return ProviderResult(request_id=request_id, requested_provider='claude', provider='claude',
                           transport='cli-json', status=status, text=fields.pop('text', None),
                           error=error, elapsed_seconds=max(0.0, time.monotonic() - started), **fields)

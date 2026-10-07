@@ -5,7 +5,7 @@ A stopped local CLI does not prove that its remote generation was cancelled.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 
@@ -13,6 +13,28 @@ from typing import Literal
 class ProviderError:
     code: str
     message: str
+
+
+@dataclass(frozen=True)
+class ProviderAttempt:
+    """One local route invocation; no prompt, answer, or raw error output."""
+    provider: str
+    transport: str
+    status: Literal['ok', 'error', 'timeout', 'no_answer', 'invalid_response']
+    elapsed_seconds: float
+    error_code: str | None = None
+    model: str | None = None
+    provider_request_id: str | None = None
+    provider_thread_id: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    total_input_tokens: int | None = None
+    input_tokens_basis: str | None = None
+    cost: float | None = None
+    cost_currency: str | None = None
+    cost_basis: str | None = None
 
 
 @dataclass(frozen=True)
@@ -38,10 +60,13 @@ class ProviderResult:
     input_tokens_basis: str | None = None
     cache_creation_input_tokens: int | None = None
     total_input_tokens: int | None = None
+    attempts: tuple[ProviderAttempt, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict:
         """JSON-compatible envelope; absent telemetry stays null, not zero."""
-        return asdict(self)
+        result = asdict(self)
+        result['attempts'] = [asdict(attempt) for attempt in self.attempts]
+        return result
 
 
 def parse_provider_result(value: dict) -> ProviderResult:
@@ -51,6 +76,37 @@ def parse_provider_result(value: dict) -> ProviderResult:
     if type(value) is not dict or set(value) - {f.name for f in fields(ProviderResult)}:
         raise ValueError('invalid provider result fields')
     data = dict(value)
+    attempts = data.pop('attempts', [])
+    if type(attempts) is not list:
+        raise ValueError('invalid provider attempts')
+    parsed_attempts = []
+    for attempt in attempts:
+        allowed = {f.name for f in fields(ProviderAttempt)}
+        if type(attempt) is not dict or set(attempt) - allowed:
+            raise ValueError('invalid provider attempt fields')
+        if any(type(attempt.get(name)) is not str or not attempt[name]
+               for name in ('provider', 'transport')):
+            raise ValueError('missing provider attempt route')
+        attempt_status = attempt.get('status')
+        if attempt_status not in ('ok', 'error', 'timeout', 'no_answer', 'invalid_response'):
+            raise ValueError('invalid provider attempt status')
+        import re
+        code = attempt.get('error_code')
+        if code is not None and (type(code) is not str or not re.fullmatch(r'[A-Za-z_]{1,40}', code)):
+            raise ValueError('invalid provider attempt code')
+        if attempt_status == 'ok' and code is not None:
+            raise ValueError('successful provider attempt with error')
+        # Reuse the envelope's strict telemetry checks, excluding text entirely.
+        telemetry = {k: v for k, v in attempt.items() if k not in ('status', 'error_code')}
+        parse_provider_result(dict(telemetry, request_id='attempt', requested_provider=attempt.get('provider'),
+            status='ok' if attempt_status == 'ok' else 'error',
+            text='observed' if attempt_status == 'ok' else None,
+            error=None if attempt_status == 'ok' else {'code': code or 'NoAnswer', 'message': 'Attempt failed'}))
+        try:
+            parsed_attempts.append(ProviderAttempt(**attempt))
+        except TypeError as exc:
+            raise ValueError('incomplete provider attempt') from exc
+    data['attempts'] = tuple(parsed_attempts)
     for name in ('request_id', 'requested_provider', 'status'):
         if type(data.get(name)) is not str or not data[name]:
             raise ValueError('missing provider identity/status')

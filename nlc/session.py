@@ -78,8 +78,14 @@ class KeepAwake:
         return self
 
     def __exit__(self, *exc):
-        if self._proc is not None:
-            self._proc.terminate()
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=2)
         return False
 
 

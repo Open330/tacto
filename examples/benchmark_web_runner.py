@@ -48,8 +48,7 @@ ORACLES = {
 
 
 def execute(task_id, provider='codex', timeout=45, planner=None):
-    from nlc.ask import what_to_do_here
-    from nlc.authoring import _ask_model, _extract_json
+    from nlc.ask import ask, what_to_do_here
     from nlc.browser import BrowserDriver
     from nlc.general import run
     from nlc.contract import Envelope
@@ -71,8 +70,8 @@ def execute(task_id, provider='codex', timeout=45, planner=None):
             return record(planner(goal, candidates, done))
         question = what_to_do_here(goal, candidates, done)
         try:
-            answer = _extract_json(_ask_model(question.prompt, provider, timeout=timeout, expect_json=True))
-            return record(question.check(answer))
+            return record(ask(question, provider=provider, timeout_seconds=timeout,
+                              validation_retries=1))
         except Exception:
             return record(None)
     with tempfile.TemporaryDirectory(prefix='nlc-benchmark-') as folder:
@@ -170,7 +169,8 @@ def execute(task_id, provider='codex', timeout=45, planner=None):
             return dict(event='benchmark_result', task_id=task_id,
                         passed=all(e['passed'] for e in evidence), evidence=evidence,
                         model_calls=calls, elapsed_seconds=time.monotonic()-started,
-                        why=result.why, plans=plans, planner_mode='fixed' if planner else 'real-model')
+                        why=result.why, plans=plans, provider_calls=result.provider_calls,
+                        planner_mode='fixed' if planner else 'real-model')
         finally:
             driver.close()
 

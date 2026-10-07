@@ -144,6 +144,31 @@ class RuntimeContract(unittest.TestCase):
         tree = "\n".join(f"{i} Button  Title: item{i}" for i in range(100))
         self.assertEqual(100, len(candidates(tree)))
 
+    def test_element_bound_navigation_preserves_candidate_and_expectations(self):
+        from nlc.general import candidates
+        app = App(action="Next")
+        app.capabilities = {"action.press_key", "press_key.element_bound", "press_key.no_escape"}
+        choices = candidates(app.tree, capabilities=app.capabilities)
+        self.assertNotIn("press_key", next(c for c in choices if c['role']=='StaticText')['can'])
+        text = next(c for c in choices if c['role']=='TextField')
+        self.assertNotIn('Escape', text['navigation_keys'])
+        seen = []
+        original = app.act
+        def act(*args, **kwargs):
+            seen.append(kwargs.get('expect'))
+            return original(*args, **kwargs)
+        app.act = act
+        def here(goal, cands, done):
+            if done: return {'done': True}
+            candidate = next(c for c in cands if c['role']=='TextField')
+            return {'actions':[{'do':'press_key','key':'Tab','candidate':candidate}]}
+        result = run(app, 'app', 'navigate', here)
+        self.assertTrue(result.ok, result.why)
+        self.assertEqual(app.calls[0]['element_index'], 2)
+        self.assertEqual(app.calls[0]['key'], 'Tab')
+        self.assertEqual(seen[0]['role'], 'TextField')
+        self.assertEqual(seen[0]['label'], 'recipient')
+
     def test_navigation_keys_require_capability_and_preserve_parameters(self):
         from nlc.general import candidates
         from nlc.promote import candidate_from, to_flow
@@ -474,8 +499,12 @@ class RuntimeContract(unittest.TestCase):
 
     def test_model_attempts_share_one_deadline(self):
         from nlc.authoring import _ask_model
-        with patch("nlc.authoring.time.monotonic", side_effect=[10, 10, 21]), \
-             patch("nlc.authoring._try_muxa", return_value=None), \
+        now = [10]
+        def exhausted_route(*args):
+            now[0] = 21
+            return None
+        with patch("nlc.authoring.time.monotonic", side_effect=lambda: now[0]), \
+             patch("nlc.authoring._try_muxa", side_effect=exhausted_route), \
              patch("nlc.authoring._try_cli") as cli:
             with self.assertRaises(TimeoutError):
                 _ask_model("q", "codex", timeout=10)

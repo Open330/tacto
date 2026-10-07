@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from nlc.commit_evidence import ArtifactEvidence, CommitEvidence
+from nlc.commit_evidence import ArtifactEvidence, CommitEvidence, SavePanelCommitPreparation
 from nlc.contract import Envelope
 from nlc.general import run
 from nlc.outcome import DONE, spec_for, verify
@@ -59,13 +59,15 @@ class FileMenuApp:
 
 
 class GeneralMenuCommitTests(unittest.TestCase):
-    def execute(self, app, receipt_mode="valid"):
+    def execute(self, app, receipt_mode="valid", *, guarded=False):
         env = Envelope(quote="save note.txt", allows=frozenset({"read", "write_persistent"}), scope="item")
         spec = spec_for("save_file", env,
                         {"저장 위치": app.folder, "저장한 이름": "note.txt", "다시 읽은 내용": "hello"},
                         {"저장 위치": "request", "저장한 이름": "request", "다시 읽은 내용": "prior"})
         stages = iter((("inspect_menu", "메뉴 목록 조회"), ("inspect_menu", "File"),
                        ("menu", "Save"), ("read", "readback")))
+        if guarded:
+            stages = iter((("click", "Save"), ("read", "readback")))
 
         def here(goal, candidates, history):
             stage = next(stages, None)
@@ -83,6 +85,7 @@ class GeneralMenuCommitTests(unittest.TestCase):
             return {"pick": candidates.index(candidate), "candidate": candidate}
 
         def after(event, response, before):
+            if guarded: before=before.receipt_context
             if receipt_mode == "missing" or app.writes != before + 1:
                 return None
             return CommitEvidence("unrelated-event" if receipt_mode == "wrong_event" else event["event_id"],
@@ -90,10 +93,40 @@ class GeneralMenuCommitTests(unittest.TestCase):
                                   ArtifactEvidence(f"write-{app.writes}", str(app.path),
                                                    hashlib.sha256(app.path.read_bytes()).hexdigest()))
 
+        def prepare(event):
+            if not guarded: return app.writes
+            return SavePanelCommitPreparation(event['event_id'], event['action_digest'],
+                event['obs_id'], 'panel', app.writes)
+
         result = run(app, "fixture", "save note.txt", here, envelope=env, spec=spec,
                      ask_where=where, approve=lambda _: True,
-                     prepare_commit=lambda event: app.writes, after_commit=after)
+                     prepare_commit=prepare, after_commit=after)
         return result, verify(spec, result, result.after_tree)
+
+    def test_general_uncertain_guarded_save_requires_receipt_before_more_planning(self):
+        class GuardedApp(FileMenuApp):
+            capabilities={'action.click.save_panel_guard'}
+            def tree(self): return super().tree() + '\n  5 Button Title: Save'
+            def act(self, obs_id, target, action, **kwargs):
+                if action['name']=='click':
+                    if kwargs.get('save_panel_token')!='panel' or kwargs.get('approved') is not True:
+                        raise AssertionError('missing native guard or approval')
+                    self.path.write_text('hello');self.writes+=1
+                    return {'type':'acted','unverified':'cannot_complete'}
+                return super().act(obs_id,target,action,**kwargs)
+        for mode in ('valid','missing','wrong_event'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as folder:
+                app=GuardedApp(folder)
+                result,receipt=self.execute(app,mode,guarded=True)
+                self.assertEqual(app.writes,1)
+                if mode=='valid':
+                    self.assertEqual(receipt.state,DONE,(result.why,receipt))
+                    self.assertEqual(result.events[0]['state'],'confirmed')
+                else:
+                    self.assertFalse(result.ok)
+                    self.assertEqual(result.events[0]['state'],'unknown')
+                    self.assertEqual(result.certainty,'unknown')
+                    self.assertEqual(result.commit_evidence,{})
 
     def test_allowed_save_menu_reaches_done_with_direct_witness_and_disk_receipt(self):
         with tempfile.TemporaryDirectory() as folder:

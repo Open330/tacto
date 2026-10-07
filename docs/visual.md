@@ -73,6 +73,17 @@ Freshness is best effort, not atomic. Rendering can change between validation an
 
 Claude is invoked with CLI tools and MCP servers disabled, using a fresh nonpersistent session. This does not imply remote provider data is never retained. Its stream parser accepts observed thinking-progress counters while retaining session and terminal boundaries.
 
-The current action vocabulary is a viewport click. Dragging, coordinate scrolling, visual typing, and native pixel input are not implemented here. An optional native window capture module is separate and still requires actual capture validation; native window pixel coordinates are explicitly rejected by the browser planner. Synthetic canvas success demonstrates this limited path, not equivalence to Codex computer use across real applications.
+The current action vocabulary is a viewport click. Dragging, coordinate scrolling, visual typing, and native pixel input are not implemented here. An optional native window capture module is separate and still requires actual capture validation; typed mapped native captures can use the shared planner with image-pixel proposals and the separate [native executor](native-visual.md). Browser execution still uses CSS pixels only. Synthetic canvas success demonstrates this limited path, not equivalence to Codex computer use across real applications.
 
 A real Claude canvas probe initially failed on an unrecognized progress event, then passed after the parser fix (one model call, one host-verified click). Both attempts are retained in `reviews/2026-09-19/visual-action-claude-probe.jsonl`; this is development evidence, not a frozen cross-provider benchmark.
+
+
+The signed transport forwards explicit PNG bytes through the authenticated
+launcher model relay, keeping provider CLIs outside the child's fixed PATH.
+Image requests pin Codex or Claude, reject paths/executables and noncanonical
+base64, and limit PNG bytes to 5 MiB. Both providers use structured adapters;
+Codex now requires completed JSONL usage plus matching final output, while
+Claude supplies observed model and token components. `query_visual` records
+success/error metadata through `capture_provider_calls`, without prompts,
+pixels or response text, and never silently falls back to another provider.
+Outer model timeouts do not guarantee cancellation of detached or remote work.

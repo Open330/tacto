@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -171,6 +172,67 @@ class TaskBenchmarkTests(unittest.TestCase):
         self.assertIsNone(summary['cohorts'][0]['measured_run_pass_rate'])
 
 
+class ExternalBenchmarkTests(unittest.TestCase):
+    def setUp(self):
+        self.manifest = json.loads(bench.DEFAULT_MANIFEST.read_text())
+
+    def test_observed_provider_metadata_preserves_unknown_and_attempt_totals(self):
+        from nlc.provider_result import ProviderResult, ProviderAttempt
+        observed = ProviderResult('request', 'auto', 'claude', 'cli', 'ok', 'secret', None, 1,
+            model='observed-model', output_tokens=4,
+            attempts=(ProviderAttempt('claude', 'cli', 'ok', 1, output_tokens=4),)).to_dict()
+        observed.pop('text')
+        result = {}
+        bench.attach_provider_metadata(result, {'provider_calls': [observed]})
+        self.assertEqual(result['provider'], 'claude')
+        self.assertEqual(result['model'], 'observed-model')
+        self.assertEqual(result['model_usage']['tokens']['output_tokens']['observed_sum'], 4)
+        self.assertIsNone(result['model_usage']['tokens']['total_input_tokens']['observed_sum'])
+        bench.attach_provider_metadata(result, {})
+        self.assertIsNone(result['provider'])
+        self.assertIsNone(result['model'])
+        with self.assertRaises(ValueError):
+            bench.attach_provider_metadata({}, {'provider_calls': [dict(observed, text='secret')]})
+        with self.assertRaises(ValueError):
+            bench.attach_provider_metadata({}, {'provider_calls': [None]})
+
+    def test_external_adapter_validates_conditions_artifact_bytes_and_oracle_links(self):
+        import hashlib
+        task = self.manifest['tasks'][0]
+        with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / 'raw.json'
+            artifact.write_text('{"observed":"NLC-2026-confirmed"}')
+            record = dict(task_id=task['id'], condition_id=bench.condition_id(task),
+                system='codex-computer-use', run_id='external-run', status='passed',
+                elapsed_seconds=10, provider=None, model=None, environment={'sky':'0.7.1'},
+                evidence=[dict(oracle=o, passed=True, observed='recorded', artifact='raw.json')
+                          for o in task['oracles']],
+                external_observation=dict(transport='trusted node_repl sky RPC',
+                    execution_mode='fixed-actions', artifacts=[dict(path='raw.json',
+                    sha256=hashlib.sha256(artifact.read_bytes()).hexdigest())]))
+            imported = bench.import_external_result(self.manifest, record, directory)
+            self.assertEqual(imported['measurement_mode'], 'fixed-actions')
+            self.assertNotIn('artifact_validation', record)
+            broken = copy.deepcopy(record)
+            broken['evidence'][0]['artifact'] = 'missing.json'
+            with self.assertRaises(ValueError):
+                bench.import_external_result(self.manifest, broken, directory)
+            broken = copy.deepcopy(record)
+            broken['external_observation']['artifacts'][0]['path'] = '../raw.json'
+            with self.assertRaises(ValueError):
+                bench.import_external_result(self.manifest, broken, directory)
+            artifact.write_text('changed')
+            with self.assertRaises(ValueError):
+                bench.import_external_result(self.manifest, record, directory)
+
+    def test_external_adapter_never_dispatches_or_relabels_unavailable(self):
+        record = bench.run_task(self.manifest, 'input-next-read', 'codex-computer-use')
+        with patch.object(bench, '_run_bounded') as runner:
+            with self.assertRaises(ValueError):
+                bench.import_external_result(self.manifest, record, '.')
+        runner.assert_not_called()
+
+
 try:
     import playwright.sync_api
     HAS_BROWSER = True
@@ -180,6 +242,35 @@ except ImportError:
 
 @unittest.skipUnless(HAS_BROWSER, 'optional playwright dependency not installed')
 class WebBenchmarkFixtureTests(unittest.TestCase):
+    def test_input_probe_records_actual_provider_requests_through_common_boundary(self):
+        from nlc.provider_result import ProviderResult
+        spec = importlib.util.spec_from_file_location('probe_browser_task',
+            bench.ROOT / 'examples/probe_browser_task.py')
+        probe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(probe)
+        answers = iter([
+            {'actions': [{'pick': 0, 'do': 'set_value', 'value': 'NLC-2026'},
+                         {'pick': 1, 'do': 'click'}]},
+            {'actions': [{'pick': 0, 'do': 'read'}]},
+            {'done': True, 'actions': []}])
+        calls = []
+        def provider(name, prompt, timeout):
+            calls.append(name)
+            return ProviderResult(request_id='owned-' + str(len(calls)),
+                requested_provider=name, provider=name, transport='cli-json', status='ok',
+                text=json.dumps(next(answers)), error=None, elapsed_seconds=.01,
+                model='observed-test-model', input_tokens=10, output_tokens=3)
+        output = io.StringIO()
+        with patch('sys.argv', ['probe_browser_task', '--provider', 'claude']), \
+             patch('sys.stdout', output), patch('nlc.authoring._try_cli', side_effect=provider):
+            self.assertEqual(0, probe.main(), output.getvalue())
+        result = json.loads(output.getvalue().splitlines()[-1])
+        self.assertTrue(result['passed'])
+        self.assertEqual(['claude'] * 3, calls)
+        self.assertEqual(3, len(result['provider_calls']))
+        self.assertTrue(all(c['model'] == 'observed-test-model' and c['input_tokens'] == 10
+                            for c in result['provider_calls']))
+
     def test_all_four_fixtures_with_fixed_planners(self):
         spec = importlib.util.spec_from_file_location('benchmark_web_runner', bench.ROOT / 'examples/benchmark_web_runner.py')
         web = importlib.util.module_from_spec(spec)

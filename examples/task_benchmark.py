@@ -83,15 +83,15 @@ def _cohorts(results):
     grouped = {}
     for result in results:
         key = (result['system'], result.get('provider'), result.get('model'),
-               result.get('requested_provider'), *_source_key(result))
+               result.get('requested_provider'), result.get('measurement_mode', 'unknown'), *_source_key(result))
         grouped.setdefault(key, []).append(result)
     cohorts = []
     for key, runs in grouped.items():
-        system, provider, model, requested_provider, source_hash, end_hash, stable = key
+        system, provider, model, requested_provider, measurement_mode, source_hash, end_hash, stable = key
         measured = [r for r in runs if r['status'] in ('passed', 'failed', 'timeout')]
         passed = sum(r['status'] == 'passed' for r in measured)
         cohorts.append({'system': system, 'provider': provider, 'model': model,
-                        'requested_provider': requested_provider,
+                        'requested_provider': requested_provider, 'measurement_mode': measurement_mode,
                         'source_sha256': source_hash, 'end_source_sha256': end_hash,
                         'source_status': 'unknown' if source_hash is None else
                                          'stable' if stable is True else 'changed' if stable is False else 'unknown',
@@ -207,6 +207,64 @@ def summarize(manifest, results):
             'limitation': 'Local fixture coverage only; missing, skipped and unavailable tasks are not successes. Multiple runs retain all failures; no best-run selection. Aggregate totals may mix source/provider cohorts; inspect cohorts before comparison. Missing source remains unknown. planned_task_completion_rate is planned coverage, not measured failure rate; measured_run_pass_rate is null when nothing was executed.'}
 
 
+def attach_provider_metadata(result, event):
+    """Use observed route identities; a requested provider is not a measurement."""
+    from nlc.provider_observation import summarize_provider_calls
+    records = event.get('provider_calls', [])
+    if type(records) is not list or any(type(r) is not dict or 'text' in r for r in records):
+        raise ValueError('invalid benchmark provider metadata')
+    summary = summarize_provider_calls(records)
+    providers = {r.get('provider') for r in records if r.get('provider') is not None}
+    models = {r.get('model') for r in records if r.get('model') is not None}
+    result.update(provider=next(iter(providers)) if len(providers) == 1 else None,
+                  model=next(iter(models)) if len(models) == 1 else None,
+                  provider_calls=records, model_usage=summary,
+                  measurement_mode=event.get('planner_mode', 'real-model'))
+    return result
+
+
+def import_external_result(manifest, record, artifact_root):
+    """Validate a manually recorded trusted-tool run and bind raw evidence bytes.
+
+    No UI is invoked. Supplied hashes prove file integrity, not outcome truth.
+    Independent oracle evidence must be inspected by the benchmark operator.
+    """
+    import copy
+    result = copy.deepcopy(record)
+    validate_result(result, manifest)
+    if result['system'] != 'codex-computer-use':
+        raise ValueError('external adapter is for the Codex computer-use baseline')
+    provenance = result.get('external_observation')
+    if type(provenance) is not dict or provenance.get('transport') != 'trusted node_repl sky RPC':
+        raise ValueError('trusted baseline transport provenance required')
+    if provenance.get('execution_mode') not in ('fixed-actions', 'autonomous-model'):
+        raise ValueError('baseline execution mode required')
+    if type(result.get('environment')) is not dict:
+        raise ValueError('baseline environment metadata required')
+    artifacts = provenance.get('artifacts')
+    if type(artifacts) is not list or not artifacts:
+        raise ValueError('raw baseline artifacts required')
+    root = Path(artifact_root).resolve(strict=True)
+    for artifact in artifacts:
+        if type(artifact) is not dict or set(artifact) != {'path', 'sha256'}:
+            raise ValueError('invalid baseline artifact reference')
+        relative = Path(artifact['path'])
+        if relative.is_absolute() or '..' in relative.parts:
+            raise ValueError('baseline artifact must be confined to artifact root')
+        resolved = (root / relative).resolve(strict=True)
+        if not resolved.is_relative_to(root) or not resolved.is_file():
+            raise ValueError('baseline artifact is outside artifact root')
+        if hashlib.sha256(resolved.read_bytes()).hexdigest() != artifact['sha256']:
+            raise ValueError('baseline artifact hash mismatch')
+    if result['status'] == 'passed':
+        paths = {a['path'] for a in artifacts}
+        if any(e.get('artifact') not in paths for e in result['evidence']):
+            raise ValueError('every baseline oracle must reference raw evidence')
+    result['measurement_mode'] = provenance['execution_mode']
+    result['artifact_validation'] = 'hashes-verified-outcomes-not-rejudged'
+    return result
+
+
 def _run_bounded(argv, timeout):
     with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, start_new_session=(os.name == 'posix')) as proc:
@@ -233,7 +291,7 @@ def run_task(manifest, task_id, system='nlc', provider='codex', *, manifest_path
     start_source = source_snapshot(manifest, manifest_path)
     environment = environment_versions()
     result = dict(task_id=task_id, condition_id=condition_id(task), system=system,
-                  provider=provider if system == 'nlc' and provider != 'auto' else None,
+                  provider=None,
                   requested_provider=provider if system == 'nlc' else None, model=None,
                   run_id=str(uuid.uuid4()), elapsed_seconds=0.0, status='unavailable',
                   reason=None, evidence=[])
@@ -265,6 +323,7 @@ def run_task(manifest, task_id, system='nlc', provider='codex', *, manifest_path
                 result.update(status='failed', reason='Missing or ambiguous fixture outcome.')
             else:
                 end = events[0]
+                attach_provider_metadata(result, end)
                 result['evidence'] = end.get('evidence', [])
                 result['diagnostics'] = {k: end.get(k) for k in ('why', 'model_calls', 'planner_mode', 'plans')}
                 passed = code == 0 and end.get('passed') is True and end.get('planner_mode') == 'real-model'
@@ -303,6 +362,13 @@ def run_task(manifest, task_id, system='nlc', provider='codex', *, manifest_path
                 result.update(status='failed', reason='Runner did not produce exactly one outcome record.')
             else:
                 end = finals[0]
+                attach_provider_metadata(result, end)
+                result['diagnostics'] = {
+                    'why': end.get('why'), 'model_calls': end.get('model_calls'),
+                    'planner_mode': 'real-model',
+                    'plans': [{key: event.get(key) for key in ('actions', 'done', 'accepted')}
+                              for event in events if isinstance(event, dict)
+                              and event.get('event') == 'plan']}
                 expected = 'NLC-2026-confirmed'
                 result['evidence'] = [
                     {'oracle': 'loop_done', 'passed': end.get('loop_ok') is True, 'observed': end.get('loop_ok')},
@@ -334,12 +400,17 @@ def main():
     run.add_argument('--task', default='input-next-read')
     run.add_argument('--system', choices=['nlc', 'codex-computer-use'], default='nlc')
     run.add_argument('--provider', default='codex')
+    external = commands.add_parser('import-baseline')
+    external.add_argument('record', type=Path)
+    external.add_argument('--artifact-root', type=Path, required=True)
     summary = commands.add_parser('summarize')
     summary.add_argument('results', type=Path)
     args = parser.parse_args()
     manifest = validate_manifest(json.loads(args.manifest.read_text()))
     if args.command == 'run':
         output = run_task(manifest, args.task, args.system, args.provider, manifest_path=args.manifest)
+    elif args.command == 'import-baseline':
+        output = import_external_result(manifest, json.loads(args.record.read_text()), args.artifact_root)
     else:
         output = summarize(manifest, [json.loads(line) for line in args.results.read_text().splitlines() if line.strip()])
     print(json.dumps(output, ensure_ascii=False, indent=None if args.command == 'run' else 2))

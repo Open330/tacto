@@ -39,6 +39,74 @@ class EvaluationReports(unittest.TestCase):
                 self.assertEqual(0o600, path.stat().st_mode & 0o777)
             return stopped.exception.code, report, output.getvalue()
 
+    def test_required_selection_routes_only_to_one_supported_owned_input_probe(self):
+        for name in ('native_navigation', 'signed_window_keys', 'navigation_model_claude',
+                     'navigation_model_codex', 'python_opaque_input', 'signed_opaque_input',
+                     'visual_input_fixed', 'visual_input_codex', 'visual_input_claude'):
+            fn = Mock(return_value=True)
+            self.m.SCENARIOS = [(name + ' (owned)', fn), ('local', Mock())]
+            self.m.SCENARIO_REQUIREMENTS = {name: {'gui', 'native'}}
+            self.m.ISOLATED = {name}
+            args, selected, cases = self.m._parse_plan([name, '--require-selection'])
+            self.assertTrue(args.require_selection)
+            selected[0][1]()
+            fn.assert_called_once_with(require_selection=True)
+            fn.reset_mock()
+            code, report, _ = self.run_eval(name, '--require-selection', '--offline', '--preview')
+            self.assertEqual(code, 2)
+            self.assertTrue(report['options']['require_selection'])
+            self.assertEqual(report['cases'][0]['reason_code'], 'offline')
+            fn.assert_not_called()
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.m._parse_plan(['local', '--require-selection'])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.m._parse_plan(['--require-selection'])
+
+    def test_owned_coordinate_options_bind_arguments_and_declare_model(self):
+        fn = Mock(return_value=True)
+        self.m.SCENARIOS = [("native_coordinate_fixture (owned)", fn)]
+        self.m.SCENARIO_REQUIREMENTS = {"native_coordinate_fixture": {"gui", "native"}}
+        self.m.ISOLATED = {"native_coordinate_fixture"}
+        with tempfile.TemporaryDirectory(dir=ROOT / "reviews") as control:
+            argv = ["native_coordinate_fixture", "--coordinate-control", control,
+                    "--prepare-window", "--general-prepare", "--coordinate-model=claude"]
+            args, selected, cases = self.m._parse_plan(argv)
+            self.assertIn("model", cases[0]["requirements"])
+            selected[0][1]()
+            fn.assert_called_once_with(coordinate_control=control, prepare_window=True,
+                general_prepare=True, coordinate_abort=False, coordinate_model="claude",
+                menu_unresponsive=False)
+            fn.reset_mock()
+            code, report, _ = self.run_eval(*argv, "--offline", "--preview")
+            self.assertEqual(code, 2)
+            self.assertEqual(report["cases"][0]["reason_code"], "offline")
+            self.assertEqual(report["options"]["coordinate_probe"]["coordinate_model"], "claude")
+            fn.assert_not_called()
+
+    def test_coordinate_options_reject_wrong_scope_and_incompatible_combinations(self):
+        fn = Mock()
+        self.m.SCENARIOS = [("native_coordinate_fixture (owned)", fn), ("local", fn)]
+        self.m.ISOLATED = {"native_coordinate_fixture"}
+        with tempfile.TemporaryDirectory(dir=ROOT / "reviews") as control:
+            prefix = ["native_coordinate_fixture", "--coordinate-control", control]
+            bad = [
+                ["local", "--coordinate-control", control],
+                ["native_coordinate_fixture", "--prepare-window"],
+                ["native_coordinate_fixture", "--coordinate-control", str(ROOT)],
+                ["native_coordinate_fixture", "--coordinate-control", str(ROOT / "reviews")],
+                prefix + ["--general-prepare"],
+                prefix + ["--coordinate-model=codex"],
+                prefix + ["--prepare-window", "--coordinate-abort"],
+                prefix + ["--menu-unresponsive", "--prepare-window"],
+                prefix + ["--coordinate-model=unknown"],
+            ]
+            for argv in bad:
+                with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()), \
+                        self.assertRaises(SystemExit) as stopped:
+                    self.m._parse_plan(argv)
+                self.assertEqual(stopped.exception.code, 2)
+        fn.assert_not_called()
+
     def test_preview_never_probes_or_executes_even_with_foreground(self):
         run = Mock(side_effect=AssertionError("executed preview"))
         self.m.SCENARIOS = [("screen", run)]

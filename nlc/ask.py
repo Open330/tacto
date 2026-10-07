@@ -57,20 +57,37 @@ class Q:
     shown: dict = field(default_factory=dict)
 
 
-def ask(q: Q, provider: str = "auto", narrate=None, *, timeout_seconds=420) -> dict | None:
+def ask(q: Q, provider: str = "auto", narrate=None, *, timeout_seconds=420,
+        validation_retries=0) -> dict | None:
     """Put one question and return the answer ONLY if it passes its check.
 
     Everything is inside the try: the model call, the JSON, and the check. A
     malformed answer is the ordinary case, not an exception to propagate.
     """
+    if type(validation_retries) is not int or not 0 <= validation_retries <= 2:
+        raise ValueError('validation_retries must be an integer from 0 to 2')
     try:
-        raw = _extract_json(reach_model(q.prompt, provider, expect_json=True, timeout_seconds=timeout_seconds))
-        if not isinstance(raw, dict):
-            raise ValueError(f"expected an object, got {type(raw).__name__}")
-        out = q.check(raw)
-        if out is None and narrate:
-            narrate(f"  (답을 받았지만 확인에 실패했습니다: {q.kind})")
-        return out
+        deadline = time.monotonic() + remaining_model_seconds(timeout_seconds)
+        prompt = q.prompt
+        for attempt in range(validation_retries + 1):
+            with model_deadline(deadline):
+                raw = _extract_json(reach_model(prompt, provider, expect_json=True,
+                    timeout_seconds=remaining_model_seconds(timeout_seconds)))
+            if not isinstance(raw, dict):
+                raise ValueError(f"expected an object, got {type(raw).__name__}")
+            out = q.check(raw)
+            if out is not None:
+                return out
+            if narrate:
+                narrate(f"  (답을 받았지만 확인에 실패했습니다: {q.kind})")
+            if attempt < validation_retries:
+                # No action has been dispatched. Retry only a rejected plan,
+                # never a provider failure or an uncertain UI operation.
+                prompt = q.prompt + ('\n\n이전 답은 호스트 검증을 통과하지 못했고 '
+                    '실행되지 않았습니다. 관측한 후보 번호와 각 후보의 가능 행동만 '
+                    '사용하여 JSON 구조와 필요한 필드를 다시 확인하십시오. '
+                    '이미 목표를 달성했다면 done=true와 빈 actions를 반환하십시오.')
+        return None
     except TimeoutError:
         raise
     except Exception as e:
@@ -767,7 +784,7 @@ def ask_here_paged(goal: str, candidates: list[dict], done_so_far=(),
             return {"done": False, "actions": [], "expect": None,
                     "stop_reason": "context_budget_overflow", "paging": metadata}
         with model_deadline(page_deadline):
-            answer = ask(q, provider=provider, narrate=narrate)
+            answer = ask(q, provider=provider, narrate=narrate, validation_retries=1)
         if text_page is not None:
             record = {"ref":text_page.ref,"start":text_page.start,"end":text_page.end,
                       "total":text_page.total,"text":text_page.text}

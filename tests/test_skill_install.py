@@ -191,3 +191,69 @@ class KeepAwakeTests(unittest.TestCase):
         src = inspect.getsource(KeepAwake.__enter__)
         self.assertIn('"-di"', src)
         self.assertIn('"-w"', src)
+
+
+class FocusedWindowViewTests(unittest.TestCase):
+    """observe shows the window being worked on; the others by title only."""
+    TREE = ("0 Window  Title: Notes, Identifier: a\n  1 TextArea  Value: x\n"
+            "2 Window  Title: Draft [focused]\n  3 TextArea  Value: y\n"
+            "4 Window  Title: Other\n  5 Button  Title: OK")
+
+    def test_only_the_focused_window_with_indices_unchanged(self):
+        from nlc.cli import focused_window_view
+        out = focused_window_view(self.TREE)
+        self.assertIn("2 Window  Title: Draft [focused]", out)
+        self.assertIn("3 TextArea  Value: y", out)
+        self.assertNotIn("1 TextArea", out)
+        self.assertIn("다른 창 2개: Notes, Other", out)
+
+    def test_one_window_is_printed_as_is(self):
+        from nlc.cli import focused_window_view
+        tree = "0 Window  Title: Calc\n  1 Button  Title: 1"
+        self.assertEqual(tree, focused_window_view(tree))
+
+
+class AgentFrictionTests(unittest.TestCase):
+    """What one traced Codex session tripped on, writing into TextEdit (2026-10-07)."""
+    def test_run_and_replay_help_print_usage_instead_of_crashing(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from nlc import cli
+        for cmd in ("run", "replay"):
+            out = StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(0, cli.main([cmd, "--help"]))
+            self.assertIn("usage:", out.getvalue())
+
+    def test_a_built_in_recipe_comes_from_the_code_not_a_stale_saved_copy(self):
+        from unittest.mock import patch
+        from nlc import cli
+        from nlc.library import builders
+        with patch("nlc.cli.FlowStore") as store:
+            flow = cli._load_recipe("textedit_write_note")
+        store.return_value.load.assert_not_called()
+        self.assertEqual(builders()["textedit_write_note"]().to_json(), flow.to_json())
+
+    def test_an_unsaved_document_write_is_reported_as_unverified_not_failed(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        from nlc import cli
+        from nlc.flow import Flow
+        result = type("R", (), {"ok": False, "log": [{"status": "unverified",
+                                                       "error": "commit_unverified",
+                                                       "effect": "unknown"}]})()
+        agent = patch("nlc.cli.Agent").start()
+        self.addCleanup(patch.stopall)
+        agent.return_value.authorize.return_value = ({}, [])
+        agent.return_value.commit_adapter_hooks.return_value = {}
+        out = StringIO()
+        with patch("nlc.flow.replay", return_value=result), patch("nlc.cli._make_driver"), \
+             patch("nlc.cli._indicator_for"), redirect_stdout(out):
+            cli._run_flow(Flow("f", "t"), ["--yes"])
+        self.assertTrue(out.getvalue().startswith("unverified"))
+
+    def test_the_skill_points_to_built_ins_and_its_docs_resolve(self):
+        skill = ROOT / "skill"
+        self.assertIn("nlc list", (skill / "SKILL.md").read_text())
+        self.assertTrue((skill / "docs" / "recipes.md").is_file())

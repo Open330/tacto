@@ -8,16 +8,48 @@ native backend가 아직 필요한 capability를 제공하지 않으므로 실�
 검증했다. `evidence.document_text`는 완전 본문·canonical AXDocument 경로와
 세션에 귀속된 문서 token을 제공한다. 앱 실행 인스턴스와 창/본문 AX 객체를
 전후 확인하며 다른 세션·교체된 문서·부분 조회·예산 초과는 거절한다.
-예산은 UTF-16 기준 0~1,000,000 units이고, 초기 문서가 여러 개면 고르지 않는다.
+예산은 UTF-16 기준 0~1,000,000 units이고, 초기 문서가 여러 개면 자동으로 고르지 않는다.
+Python direct 본문 읽기는 lock 대기를 포함한3초 operation 기한과 caller의 model
+기한을 공유한다. adapter 호출 전후 기한을 확인하고 native attribute/range마다
+남은 기한/0.5초 중 작은 messaging timeout을 설정한 뒤 reset한다. 기한을 넘긴
+본문과 새 token은 반환하지 않는다. native/lock 호출 강제 취소는 아니며 scoped
+observe나 저장 전체의 시간 상한을 보장하지 않는다. timeout 설정/reset 실패도
+성공으로 채우지 않고 호출자 중단은 reset을 시도한 뒤 그대로 전달한다.
+direct/signed의 `document_text(..., document_path=canonical_absolute_path)`는
+AXDocument 경로를 먼저 비교해 일치하는 창 하나의 본문만 읽는다. 경로와 token은
+동시에 받지 않는다. 경로로 발급한 token은 그 경로도 고정하며 경로 변경 후 거절한다.
+경로 필터를 쓰면 다른 문서의 본문 하위 트리를 순회하지 않는다. 이 추가 경로는
+주입 회귀 검증을 통과했으며 실제 여러 TextEdit 문서에서의 검증은 남아 있다.
 기존 token으로는 여러 문서 중 같은 문서를 계속 읽을 수 있다. 일반 observe
 갱신으로 token을 만료시키지 않으며 reader별 최근 발급 32개만 유지한다.
-AX가 노출한 문서 구조를 기준으로 하며, 표준 창에서 본문을 식별할 수 없으면
+`observe(..., document_token=token)`은 검증된 문서 창 하나만 관측한다. 관측 전후와
+후속 mapped action에서 token을 다시 검증한다. scoped 관측에서는 앱 전체 메뉴·
+selection 기대·대상 없는 동작을 허용하지 않는다. 이전 helper는 capability 검사로
+요청을 거절하며 전체 앱 조회로 대체하지 않는다. scoped 관측과 본문은 live trace에서
+전달만 하고 저장하지 않는다. trace replay에는 해당 capability를 주지 않는다.
+AX가 노출한 문서 구조를 기준으로 하며, 경로를 지정하지 않은 초기 조회에서 본문을 식별할 수 없으면
 다른 문서가 명확하더라도 전체 조회를 거절한다. AX가 숨긴 요소까지 존재하지
 않는다고 증명하는 기능은 아니다.
 
-이 API는 아래 `document_snapshot`과 다르다. 현재 문서 형식과 저장 패널의
-소유 관계/목적지/파일명/형식을 아직 증명하지 않으므로 저장 receipt를 활성화하지
-않는다. 연속 조회 사이의 변경 후 복귀(ABA)도 배제하지 않는다. live trace wrapper는
+이 API는 아래 `document_snapshot`과 다르다. 저장 패널 디렉터리·설정의 내부 reader와
+문서 token의 전후 검증은 구현했으며, 시험용 NSSavePanel에서 설정 변경·폴더 이동을
+검증했다. `SavePanelReader.bind_commit`은 내부 native 관측 맵에서 동일한 AX 객체인
+Save 버튼을 하나만 찾아 관측 ID·click index에 연결하고 설정을 전후 재검증한다.
+시험용 NSSavePanel에서 실제 `Observation.elements`와 연결하고 같은 패널의 설정
+변경 후 이전 증거가 거절됨을 확인했다. 읽기 전용 증거이며 action을 실행하지 않는다.
+signed helper의 별도 `evidence.save_panel`은 Swift로 설정·디렉터리를 읽고 현재
+관측 맵의 실제 Save 버튼에 결합한다. 시험용 패널의 signed 경로에서도 설정 변경과
+이전 토큰 거절을 확인했다. 이 API는 `authorizes_save: false`다. 선택적으로 TextEdit
+문서 token을 전달하면 같은 창·본문 객체·프로세스를 패널 읽기 전후에 검증하고
+패널 token에도 문서 token을 고정한다. 문서 결합은 주입 시험을 통과했으며 실제
+TextEdit 문서와 저장 패널의 결합 시험은 남아 있다. 이 API는 `document_snapshot`이
+아니다. 서명된 helper의 별도 `save_panel_token` click guard는 AXPress 직전에
+동일 패널의 설정·디렉터리·버튼·프로세스와 선택적 문서 token을 재검증한다.
+한 입력 시도 전에 token을 소모하므로 timeout 후 같은 token으로 다시 누르지 못한다.
+own NSSavePanel에서 실제 완료 콜백과 변경 후 클릭 거절을 시험한다. 실제 TextEdit의
+원본 형식·첨부 보존, 최종 입력과 파일 생성의 인과 증거는 남아 저장 receipt를
+활성화하지 않는다.
+연속 조회 사이의 변경 후 복귀(ABA)도 배제하지 않는다. live trace wrapper는
 호출을 전달하되 본문을 trace에 복사하지 않고, 기록 재생에는 이 capability를 주지 않는다.
 
 호스트가 `driver`, `target='com.apple.TextEdit'`, canonical `~/Downloads`의
@@ -31,7 +63,8 @@ AX가 노출한 문서 구조를 기준으로 하며, 표준 창에서 본문을
 
 ## 공통 backend 계약
 
-capability `evidence.document_snapshot`이 있어야 하며 다음 API를 제공해야 한다.
+capability `evidence.document_snapshot`과 `action.click.save_panel_guard`가 있어야 하며
+다음 API를 제공해야 한다.
 
 ```python
 driver.document_snapshot('com.apple.TextEdit', document_token=None)
@@ -43,6 +76,7 @@ driver.document_snapshot('com.apple.TextEdit', document_token=None)
 #   'document_path': None,  # unsaved; otherwise canonical absolute local path
 #   'source_format': 'rtf',  # existing recipe does not convert plain text to RTF
 #   'save_panel': {  # required at prepare, optional in initial/after snapshot
+#       'panel_token': '<connection-owned native panel token>',
 #       'document_token': '<same opaque document identity>',
 #       'directory': '<canonical absolute destination directory>',
 #       'filename': '보고서.rtf',
@@ -65,6 +99,7 @@ driver.document_snapshot('com.apple.TextEdit', document_token=None)
 요청된 token을 그대로 복사하거나 문서에 딸린 임의의 다른 패널을 반환하면 안 된다.
 backend는 해당 패널의 실제 절대 디렉터리·파일명·선택된 저장 형식을 읽어야 한다.
 초기에는 패널이 없어도 되지만 prepare 시에는 위 설정과 `commit_control`이 필수다.
+또한 bounded `panel_token`과 `action.click.save_panel_guard` capability가 필수다.
 `commit_control`은 해당 패널의 실제 활성 Save 버튼을 backend의 관측 ID/요소 맵에서
 찾은 결과여야 한다. 요청 action을 복사하거나 버튼 이름만으로 생성하면 안 된다.
 
@@ -80,6 +115,15 @@ token으로 동일 계약을 구현해야 한다. helper 사용 중 Python/PyObj
 AXDocument 목적지가 일치하고, 실제 RTF를 textutil로 읽은 텍스트가 초기 본문과
 정확히 일치해야 receipt를 발급한다. 실행 후 관측값을 기대 본문으로 바꾸지 않는다.
 실패 후 자동 재저장하지 않는다.
+
+prepare는 `SavePanelCommitPreparation`을 반환한다. 이 호스트 객체는 해당 이벤트·
+동작 digest·관측 ID에 패널 token과 원래 receipt context를 결합한다. replay와 일반
+루프는 literal approval을 재사용해 native guarded click에 token을 전달한다.
+TextEditReceipt는 after 단계에서도 결합을 확인하고 내부 RTF receipt context를
+검증한다. AXPress가 `acted/unverified: cannot_complete`를 반환해도 독립 파일·문서
+영수증이 정확하면 완료를 확인할 수 있다. 증거가 없거나 불일치하면 unknown으로
+중단하며 같은 Save를 다시 누르지 않는다. 순수 native helper의 snapshot capability는
+여전히 OFF이므로 이 연결 시험이 실제 TextEdit 전체 계약을 검증한 것은 아니다.
 
 prepare는 저장 패널의 소유 문서 token·절대 디렉터리·파일명·RTF 형식이 고정된
 기대값과 일치하는지 검사한다. 패널 증거 누락이나 불일치는 Save 실행 전에 거절한다.
@@ -109,3 +153,34 @@ Agent and direct CLI replay now prepare the host factory for the exact canonical
 
 
 File-reference URL support: Python and the signed helper resolve local file-reference URLs through Foundation after strict raw URL checks. An ordinary document path URL may name a missing file; a file reference must resolve at observation time and fails if unreachable. Neither an AXDocument path nor successful reference resolution guarantees that the file remains present after the read. The existing before/after document-path checks continue to reject changes during observation.
+
+
+## 서명된 문서 range RTF export
+
+`evidence.document_rtf_export`는 기존 문서 token으로 `AXRTFForRange`의 full
+UTF-16 range를 읽는 별도 읽기 API다. helper는 complete plain text를 세 번,
+RTF bytes를 두 번 읽어 서로 일치하는지 확인하고 각 phase 전후 PID/start·
+window/body CF identity·문서 경로를 검사한다. RTF는2MiB까지이며 header와
+bytes SHA256·canonical base64를 Python transport에서도 검증한다. text_sha256은
+별도로 읽은 plain text hash이고, RTF를 importer로 decode해서 얻은 hash가 아니다.
+임의 RTF의 외부 resource를 읽는 importer를 실행하지 않는다.
+
+operation deadline은3초 기본/최대6초이고 native document traversal의 각 읽기
+경계에서 확인한다. body messaging timeout은 phase마다 remaining budget과0.5초
+중 작은 값으로 설정한 뒤 reset한다. OS/AX 호출 강제 취소나 IPC 내부 할당을
+2MiB로 제한하는 보장은 아니며, 늦게 끝난 읽기는 반환하지 않는다. 두 export 사이
+변경 후 복귀(ABA)나 provider가 노출하지 않는 첨부는 배제하지 못한다.
+
+`source_format_verified:false`, `attachment_completeness_verified:false`,
+`authorizes_save:false`를 반환한다. plain-text 문서도 RTF range로 export될 수
+있으므로 이 API의 이름/RTF header를 원본 format 판별로 사용하면 안 된다.
+`document_snapshot`을 활성화하지 않으며 TextEditReceipt의 원본 형식/첨부 조건을
+대신하지 않는다. Live TracingDriver는 export를 기록하지 않고 TraceDriver는
+capability를 제거해 재생 증거로 사용하지 못하게 한다.
+
+`signed_document_rtf` eval은 이미 백그라운드에서 실행 중인 TextEdit에 새 자체
+RTF만 열어 path-selected token으로 조회한다. 앱 실행·사용자 문서 복원을 하지
+않으며 TextEdit가 전경이거나 실행되지 않으면 파일을 열기 전에 거절한다. 읽기
+시험의 신규 owned 문서는 다음 G7 실험을 위해 보존하며 사용자 문서를 닫지 않는다.
+최초 실측은 TextEdit process 부재로 document open 전에 실패했다. 이것을 실제
+TextEdit export 성공으로 계산하지 않는다.

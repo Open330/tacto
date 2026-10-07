@@ -62,7 +62,7 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
-                                 "probe", "selection", "ask", "document_text", "menu_state",
+                                 "probe", "selection", "ask", "document_text", "document_rtf_export", "save_panel", "menu_state",
                                  "menu_items", "capture"]
 // The largest complete document this channel will carry, in UTF-16 units. The
 // same ceiling the helper enforces: a budget is a promise about how much this
@@ -79,9 +79,9 @@ let maxDocumentUTF16Units = 1_000_000
 // did". Both sides validate, because the helper holds the grant and does not
 // depend on a caller having filtered on its behalf.
 //
-// The original note, which still says why a GENERIC key primitive stays out:
-// `press_key` was deliberately absent. The helper does not implement it, and a
-// generic key primitive is how "type into a field" becomes "run a command" —
+// A generic key primitive stays out: even a window-bound key must be from
+// the named navigation set. An unrestricted key turns an input field into
+// a command channel —
 // Return commits, and a modifier combination invokes. When it returns it should
 // return split into a navigation capability and an explicit submit/shortcut one,
 // so a recipe can fill a form without also being able to execute. Most of what
@@ -95,6 +95,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // question. `prepare_window` is not in the set on purpose: it takes a
     // WINDOW, and a point inside one resolves to whatever is drawn there.
     "click":            (["name"], ["element_index", "point", "window_index"]),
+    "click_point":      (["name", "element_index", "point"], []),
+    "window_input":     (["name", "element_index"], ["key", "text"]),
     "prepare_window":   (["name", "element_index"], []),
     "set_value":        (["name", "value"], ["element_index", "point", "window_index"]),
     "type_text":        (["name", "text"], ["element_index", "point", "window_index"]),
@@ -112,9 +114,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // actions, and refusing the field made that unreachable through the signed
     // path while it worked in-process (peer request).
     "read":             (["name"], ["element_index", "point", "window_index"]),
-    // No `element_index`: the key goes where the focus is, and naming an
-    // element would suggest otherwise.
-    "press_key":        (["name", "key"], []),
+    // Keys are bound to the observed app input, never global focus.
+    "press_key":        (["name", "key", "element_index"], []),
     // `value` is accepted for shape-compatibility with the browser's
     // select_option, and must equal `option_label`: a native menu item has a
     // title and nothing behind it, so there is no value space to name.
@@ -161,11 +162,11 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
-                                 "require_window", "prompt", "json", "path",
+let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", "coordinate_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
+                                 "require_window", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
-                                 "document_token", "max_utf16_units", "timeout_seconds",
-                                 "window_index"]
+                                 "document_token", "document_path", "max_utf16_units", "timeout_seconds",
+                                 "window_index", "window_element_index", "panel_token", "require_format"]
 
 // What a caller may claim its target still is. Reading one element's own
 // attributes is about a millisecond; re-walking Mail's tree to find out is
@@ -212,6 +213,58 @@ func vetted(_ msg: [String: Any]) -> String? {
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
     }
+    if msg["image"] != nil || msg["model"] != nil {
+        guard type == "ask", let image = msg["image"] as? [String: Any],
+              Set(image.keys) == Set(["media_type", "data"]),
+              image["media_type"] as? String == "image/png",
+              let encoded = image["data"] as? String,
+              encoded.utf8.count <= 4 * ((5 * 1024 * 1024 + 2) / 3),
+              let bytes = Data(base64Encoded: encoded), !bytes.isEmpty,
+              bytes.count <= 5 * 1024 * 1024,
+              bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]),
+              bytes.base64EncodedString() == encoded,
+              let provider = msg["provider"] as? String,
+              ["claude", "codex"].contains(provider) else { return "invalid image request" }
+        if let raw = msg["model"] {
+            guard let model = raw as? String, !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  model.utf8.count <= 128, !model.hasPrefix("-"),
+                  !model.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else {
+                return "invalid image model"
+            }
+        }
+    }
+    if msg["window_input_authorized"] != nil || (msg["action"] as? [String:Any])?["name"] as? String == "window_input" {
+        guard type == "act", (msg["action"] as? [String:Any])?["name"] as? String == "window_input",
+              let value = msg["window_input_authorized"] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
+            return "opaque window input authorization required"
+        }
+    }
+    if msg["coordinate_authorized"] != nil || (msg["action"] as? [String:Any])?["name"] as? String == "click_point" {
+        guard type == "act", (msg["action"] as? [String:Any])?["name"] as? String == "click_point",
+              let value = msg["coordinate_authorized"] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
+            return "coordinate authorization required"
+        }
+    }
+    if type != "save_panel" && ["window_element_index", "panel_token", "require_format"].contains(where: { msg[$0] != nil }) {
+        return "저장 패널 필드는 save_panel 에만 허용됩니다"
+    }
+    if let raw = msg["save_panel_token"] {
+        guard type == "act", let token = raw as? String, !token.isEmpty, token.count <= 128,
+              let action = msg["action"] as? [String:Any],
+              Set(action.keys) == Set(["name", "element_index"]),
+              action["name"] as? String == "click", isInt(action["element_index"] as Any),
+              let index = action["element_index"] as? NSNumber, index.intValue >= 0 else {
+            return "invalid save panel dispatch guard"
+        }
+    }
+    if msg["document_token"] != nil && !["observe", "document_text", "document_rtf_export", "save_panel"].contains(type) {
+        return "document_token 은 observe/document_text/save_panel 에만 허용됩니다"
+    }
+    if msg["document_path"] != nil && type != "document_text" {
+        return "document_path 는 document_text 에만 허용됩니다"
+    }
     if msg["path"] != nil && !["menu_state", "menu_items"].contains(type) {
         return "최상위 path 는 menu_state/menu_items 에만 허용됩니다"
     }
@@ -230,16 +283,22 @@ func vetted(_ msg: [String: Any]) -> String? {
         // One observed window, named by the observation that described it.
         // No path, no region, no display — the narrowing is the contract, so
         // the channel checks it rather than trusting the helper to.
-        guard Set(msg.keys).isSubset(of: ["type", "target", "obs_id", "window_index"]),
+        guard Set(msg.keys).isSubset(of: ["type", "target", "obs_id", "window_index", "timeout_seconds"]),
               let target = msg["target"] as? String, !target.isEmpty,
               let obsID = msg["obs_id"] as? String, !obsID.isEmpty, obsID.count <= 128 else {
             return "capture 형식 오류"
         }
         if let raw = msg["window_index"] {
             guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue == Double(number.intValue),
                   number.intValue >= 0, number.intValue < 64 else {
                 return "capture window_index 오류"
             }
+        }
+        if let raw = msg["timeout_seconds"] {
+            guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite, number.doubleValue > 0,
+                  number.doubleValue <= 10 else { return "capture timeout 오류" }
         }
     }
     if type == "probe" {
@@ -260,6 +319,27 @@ func vetted(_ msg: [String: Any]) -> String? {
             }
         }
     }
+    if type == "save_panel" {
+        guard let target = msg["target"] as? String, !target.isEmpty,
+              let obsID = msg["obs_id"] as? String, !obsID.isEmpty, obsID.count <= 128,
+              let index = msg["window_element_index"], isInt(index),
+              let number = index as? NSNumber, number.intValue >= 0, number.intValue < 5000 else {
+            return "save_panel 관측 형식 오류"
+        }
+        if let raw = msg["require_format"], CFGetTypeID(raw as CFTypeRef) != CFBooleanGetTypeID() {
+            return "require_format 은 boolean 이어야 합니다"
+        }
+        if let raw = msg["panel_token"] {
+            guard let token = raw as? String, !token.isEmpty, token.count <= 128 else { return "panel_token 형식 오류" }
+        }
+        if let raw = msg["document_token"] {
+            guard target == "com.apple.TextEdit", let token = raw as? String,
+                  !token.isEmpty, token.count <= 128 else { return "save_panel document_token 형식 오류" }
+        }
+        for key in msg.keys where !["type", "target", "obs_id", "window_element_index", "panel_token", "require_format", "document_token"].contains(key) {
+            return "save_panel 에 허용되지 않은 필드"
+        }
+    }
     if type == "document_text" {
         // Reading only, and only TextEdit — the same target restriction the
         // in-process reader states, checked here so a different bundle id
@@ -273,6 +353,14 @@ func vetted(_ msg: [String: Any]) -> String? {
                 return "document_token 형식 오류"
             }
         }
+        if let raw = msg["document_path"] {
+            guard msg["document_token"] == nil, let path = raw as? String,
+                  path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\\"),
+                  path.utf8.count <= 4096,
+                  !path.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else {
+                return "document_path 형식 오류"
+            }
+        }
         if let budget = msg["max_utf16_units"] {
             // Rejected here rather than clamped: a caller that asked for a
             // gigabyte should be told no, not quietly given something else.
@@ -281,20 +369,41 @@ func vetted(_ msg: [String: Any]) -> String? {
                 return "max_utf16_units 형식 오류"
             }
         }
-        for key in msg.keys where !["type", "target", "document_token",
+        for key in msg.keys where !["type", "target", "document_token", "document_path",
                                     "max_utf16_units"].contains(key) {
             return "document_text 에 허용되지 않은 필드: \(key)"
         }
     }
+    if type == "document_rtf_export" {
+        guard Set(msg.keys).isSubset(of:["type","target","document_token","max_utf16_units","timeout_seconds"]),
+              msg["target"] as? String == "com.apple.TextEdit",
+              let token = msg["document_token"] as? String, !token.isEmpty, token.count <= 128 else {
+            return "invalid document RTF export"
+        }
+        if let raw = msg["max_utf16_units"] {
+            guard isInt(raw), let number = raw as? NSNumber, !CFNumberIsFloatType(number as CFNumber), number.intValue >= 0,
+                  number.intValue <= maxDocumentUTF16Units else { return "invalid RTF export text budget" }
+        }
+        if let raw = msg["timeout_seconds"] {
+            guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite, number.doubleValue > 0, number.doubleValue <= 6 else {
+                return "invalid RTF export timeout"
+            }
+        }
+    }
     if type == "observe" {
         guard msg["target"] is String else { return "observe 에 target 없음" }
+        if let raw = msg["document_token"] {
+            guard msg["target"] as? String == "com.apple.TextEdit", let token = raw as? String,
+                  !token.isEmpty, token.count <= 128 else { return "document_token 형식 오류" }
+        }
         if let rw = msg["require_window"], !(rw is Bool) {
             return "require_window 형식 오류"
         }
     }
     if let raw = msg["click_deadline_uptime"] {
         guard type == "act", let action = msg["action"] as? [String: Any],
-              ["click", "prepare_window"].contains(action["name"] as? String ?? ""),
+              ["click", "click_point", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
               let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               number.doubleValue.isFinite, number.doubleValue > 0 else {
             return "invalid click deadline"
@@ -363,8 +472,28 @@ func vetted(_ msg: [String: Any]) -> String? {
             } else if action["window_index"] != nil {
                 return "window_index 는 point 와 함께만 씁니다"
             }
+        } else if name == "click_point" {
+            guard let point = action["point"] as? [String:Any], Set(point.keys) == Set(["x","y"]),
+                  let x = point["x"] as? NSNumber, let y = point["y"] as? NSNumber,
+                  CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
+                  x.doubleValue.isFinite, y.doubleValue.isFinite, x.doubleValue >= 0, y.doubleValue >= 0 else {
+                return "invalid window-relative coordinate"
+            }
         } else if action["point"] != nil || action["window_index"] != nil {
             return "\(name) 은 point 를 받지 않습니다"
+        }
+        if name == "window_input" {
+            guard let index = action["element_index"] as? NSNumber,
+                  CFGetTypeID(index) != CFBooleanGetTypeID(),
+                  !CFNumberIsFloatType(unsafeBitCast(index, to: CFNumber.self)),
+                  index.doubleValue.isFinite, index.doubleValue >= 0 else { return "opaque input requires a Window index" }
+            if Set(action.keys) == Set(["name", "element_index", "key"]) {
+                guard let key = action["key"] as? String, navigationKeys.contains(key) else { return "invalid opaque navigation key" }
+            } else if Set(action.keys) == Set(["name", "element_index", "text"]), let text = action["text"] as? String {
+                guard !text.isEmpty, text.utf16.count <= 64, !text.unicodeScalars.contains(where: {
+                    $0.properties.generalCategory == .control || $0.value == 0x2028 || $0.value == 0x2029 || (0xF700...0xF8FF).contains($0.value)
+                }) else { return "invalid opaque Unicode text" }
+            } else { return "opaque input requires exactly one key or text" }
         }
         if name == "press_key" {
             guard let key = action["key"] as? String else { return "key 형식 오류" }
@@ -838,7 +967,7 @@ enum ModelProcessError: Error { case timeout, ioFailure, outputLimit }
 }
 
 func askModel(_ prompt: String, _ wantJSON: Bool, _ provider: String,
-              timeout: Double = 420) throws -> [String: Any]? {
+              timeout: Double = 420, image: [String: Any]? = nil, model: String? = nil) throws -> [String: Any]? {
     let proc = Process()
     proc.executableURL = python
     proc.arguments = ["-I", "-m", "nlc.ask_provider", "--result-envelope", "--timeout", String(timeout)]
@@ -847,7 +976,15 @@ func askModel(_ prompt: String, _ wantJSON: Bool, _ provider: String,
     proc.currentDirectoryURL = root
     proc.environment = ProcessInfo.processInfo.environment
     proc.standardError = FileHandle.standardError
-    let data = try boundedModelProcess(proc, prompt: prompt, timeout: timeout)
+    var input = prompt
+    if let image {
+        proc.arguments! += ["--image-envelope"]
+        let body: [String: Any] = ["prompt": prompt, "image": image, "model": model as Any? ?? NSNull()]
+        let encoded = try JSONSerialization.data(withJSONObject: body)
+        guard let text = String(data: encoded, encoding: .utf8) else { throw ModelProcessError.ioFailure }
+        input = text
+    }
+    let data = try boundedModelProcess(proc, prompt: input, timeout: timeout)
     if proc.terminationStatus == 124 { throw ModelProcessError.timeout }
     guard proc.terminationStatus == 0 else { return nil }
     guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -895,7 +1032,8 @@ relayQueue.async {
             let provider = (msg["provider"] as? String) ?? "auto"
             let timeout = modelTimeout(msg["timeout_seconds"])!
             do {
-                if let result = try askModel(prompt, wantJSON, provider, timeout: timeout) {
+                if let result = try askModel(prompt, wantJSON, provider, timeout: timeout,
+                    image: msg["image"] as? [String: Any], model: msg["model"] as? String) {
                     if result["status"] as? String == "ok" {
                         writeJSONLine(relayEnd, ["type": "answer", "text": result["text"]!,
                                                 "provider_result_v1": result])

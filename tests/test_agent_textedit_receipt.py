@@ -13,7 +13,7 @@ from test_replay_commit_evidence import TextEditFixture, MemoryStore
 
 
 class SnapshotTextEdit(TextEditFixture):
-    capabilities = {'evidence.document_snapshot'}
+    capabilities = {'evidence.document_snapshot', 'action.click.save_panel_guard'}
     def __init__(self, directory):
         super().__init__()
         self.directory=directory
@@ -21,16 +21,21 @@ class SnapshotTextEdit(TextEditFixture):
         self.snapshot_calls=[]
         self.body='hello'
         self.change_body_on_menu=False
+        self.guarded_clicks=[]
     def document_snapshot(self, target, document_token=None):
         self.snapshot_calls.append((document_token,self.sheet,self.clicks))
         return dict(type='document_snapshot',document_token='document-1',
                     text=self.body,text_complete=True,document_path=self.document_path,
-                    source_format='rtf', save_panel=(dict(document_token='document-1',
+                    source_format='rtf', save_panel=(dict(panel_token='panel-1', document_token='document-1',
                     directory=str(self.directory), filename=self.name, format='rtf',
                     commit_control={'obs_id': 'obs', 'enabled': True,
                                     'action': {'name': 'click', 'element_index': 5}})
                     if self.sheet else None))
     def act(self, obs_id, target, action, **kwargs):
+        if action['name']=='click':
+            if kwargs.get('save_panel_token')!='panel-1' or kwargs.get('approved') is not True:
+                return {'type':'error','error':'save_panel_guard_unavailable','effect':'not_started'}
+            self.guarded_clicks.append(kwargs['save_panel_token'])
         out=super().act(obs_id,target,action,**kwargs)
         if action['name']=='menu' and self.change_body_on_menu:self.body='changed'
         if action['name']=='click':
@@ -52,6 +57,7 @@ class AgentTextEditReceiptTests(unittest.TestCase):
         turn=Agent(driver=self.d,store=MemoryStore()).handle('"보고서.rtf" 로 저장해줘',ask=lambda _:True)
         self.assertEqual('done',turn.status,turn)
         self.assertEqual(1,self.d.clicks)
+        self.assertEqual(self.d.guarded_clicks,['panel-1'])
         self.assertEqual((None,False,0),self.d.snapshot_calls[0])
         self.assertTrue((self.directory/'보고서.rtf').exists())
     def test_existing_file_or_document_change_stops_before_save_click(self):
@@ -83,4 +89,7 @@ class AgentTextEditReceiptTests(unittest.TestCase):
         self.assertEqual(1,self.d.clicks)
         self.assertTrue(self.d.snapshot_calls)
         self.assertNotIn('evidence.document_snapshot',TraceDriver(d.trace).capabilities)
+        self.assertNotIn('action.click.save_panel_guard',TraceDriver(d.trace).capabilities)
         self.assertFalse(any(e.get('kind')=='document_snapshot' for e in d.trace.events))
+        self.assertFalse(any(e.get('request',{}).get('action',{}).get('name')=='click'
+                             for e in d.trace.events))

@@ -1,15 +1,15 @@
 # 지원 경로와 검증 범위
 
-2026-09-20 개발 snapshot. 기능을 제공하는 것, 실제 결과를 확인한 것,
+2026-10-04 개발 snapshot. 기능을 제공하는 것, 실제 결과를 확인한 것,
 범용 앱에서 안정적으로 동작하는 것은 서로 다른 기준이다.
 
 | 기능 | macOS 접근성 / signed helper | 별도 Chromium 페이지 | 시각 API |
 | --- | --- | --- | --- |
-| 관측 | AX tree·probe·selection | CDP AX tree·DOM identity·probe | 브라우저 CSS viewport PNG; native 창 캡처 모듈은 실측 대기 |
-| 전체 문서 본문 | TextEdit 완전 본문·문서 token·경로, direct/signed 실측; 형식·저장 패널은 미검증 | 별도 API 없음 | 이미지로 전체 본문을 증명하지 않음 |
-| 클릭·입력 | 접근성 요소 | 관측한 DOM 요소 | host 승인된 좌표 클릭만 |
+| 관측 | AX tree·probe·selection | CDP AX tree·DOM identity·probe | 브라우저 CSS viewport PNG; signed helper의 소유 native 창 캡처 실측 |
+| 전체 문서 본문 | TextEdit 완전 본문·문서 token·경로, direct/signed 실측; 추가 경로 선택·token 범위 관측은 주입 회귀 검증, 다중 실문서 검증은 남음; 형식·최종 저장 미검증 | 별도 API 없음 | 이미지로 전체 본문을 증명하지 않음 |
+| 클릭·입력 | 접근성 요소; host 승인된 Window-bound point와 opaque window input 별도 제공 | 관측한 DOM 요소 | browser host 좌표; native 명시한 scope에서 fresh image와 창 결합·host 승인·결과 검증 |
 | 스크롤 | helper capability 확인 | 대상의 scroll container, 행동 후 재관찰 | 별도 좌표 scroll API 없음 |
-| 키보드 | Tab·shift+Tab·방향키, Escape는 사용자 중단 | 같은 탐색 키와 Escape | 별도 키보드 API 없음 |
+| 키보드 | Python/signed: 배경 입력 요소 탐색 키; host 승인 opaque Window에 여섯 탐색 키·최대64 UTF16 Unicode. Escape는 사용자 중단 | 같은 탐색 키와 Escape | host input_actions에 명시한 native key/text image proposal 지원 |
 | HTML select | 해당 없음 | value·label 고정, 변경·중복·disabled 거절 | 해당 없음 |
 | custom ARIA 선택 | 해당 없음 | 명시적 combobox/listbox 연결, 열기와 선택 분리 | 해당 없음 |
 | native 선택 | PopUpButton/ComboBox label 선택 구현; 조건 미실행 검사 발견으로 실앱 재검증 중 | 해당 없음 | 해당 없음 |
@@ -37,10 +37,21 @@ readonly input의 값, 실제 button 전체 표시 문자열뿐이다. 편집 �
 ## 사용자 포인터와 포커스
 
 native Python 드라이버와 signed helper는 메뉴·선택을 위해 앱을 강제로 활성화하지
-않는다. Python의 전역 HID 좌표 클릭과 포인터 복원 경로도 제거했다. AX 클릭을
-지원하지 않는 요소는 현재 거절하며, 검증된 백그라운드 좌표 클릭으로 대체하는
-작업은 남아 있다. type_text는 지정 요소가 해당 앱의 실제 입력 대상인지 확인하고,
+않는다. Python의 전역 HID 좌표 클릭과 포인터 복원 경로도 제거했다. host가 명시한
+Window-bound point 입력은 별도 승인·fresh 창 결합·입력 직전 재검증을 요구한다.
+owned native canvas에서 실제 receiving 결과를 확인했으며, 범용 앱에서 AX 실패를
+자동으로 좌표 클릭으로 바꾸는 기능은 아니다. [좌표 입력 범위](native-visual.md)와
+[opaque 창 입력](native-window-input.md)을 참조한다.
+type_text는 지정 요소가 해당 앱의 실제 입력 대상인지 확인하고,
 입력 중 대상이 바뀌면 나머지 문자를 보내지 않는다.
+
+전경 prepare_window는 실제 전경 앱 안의 AXMain/AXFocused 쓰기를 사용한다.
+signed helper와 Python driver의 배경 준비는 검증된 PID/window 이벤트 경로를
+제공한다. 배경 준비는 입력 상태 변화나 중단·실패 시
+추가 전송을 멈추고 전송 이후 실패를 unknown으로 보고한다. owned signed 시험에서
+실제 key window와 responder 메뉴 효과를 확인했지만 실제 앱·동시 입력은 미검증이다.
+전경 판정은 공개 HIServices API로 읽으며, 읽기 실패와 쓰기 중 전경 변경을
+허용 상태로 처리하지 않는다. 자세한 계약은 [현재 창 입력 경로](native-window-input.md)에 있다.
 
 이 변경만으로 모든 앱에서 포커스가 유지된다고 보장하지 않는다. 앱이 AX 요청에
 반응해 스스로 활성화되는 경우와 메뉴·팝업·저장의 앱별 차이를 실제로 측정해야 한다.
@@ -51,7 +62,25 @@ signed helper의 텍스트 입력·스크롤·팝업·저장과 사용자 동시
 남아 있다. 표본 사이의 짧은 변화까지 배제하는 증거는 아니다.
 [G0 원시 결과와 한계](../reviews/2026-09-19/background-input.md)를 참조한다.
 
+owned 네이티브 키/시각 입력9개 시험의 `--require-selection` 옵션은 numeric caret/
+selection 관측을 필수로 한다. 준비되지 않으면 fixture·입력·모델 호출 전에
+중단한다. 현재 전경 요소의 미지원으로 실제 실행은 INCONCLUSIVE였으며, 과거
+3개 항목 감사 성공을 caret 또는 동시 사용자 typing 보존으로 확대하지 않는다.
+[필수 관측 옵션](input-observation.md)에 명령과 남은 검증 조건이 있다.
+
 ## 모델과 예산
+
+서명된 헬퍼의 `evidence.save_panel`은 현재 관측의 창에 붙은 저장 패널에서
+디렉터리·파일명·명시된 형식·체크박스를 읽고 실제 Save 버튼의 관측 인덱스를
+결합한다. 패널 토큰은 설정·객체·프로세스가 달라지면 거절된다. 응답은
+`authorizes_save: false`이며, 원본 문서 형식·첨부나 저장 완료를 증명하지 않는다.
+임시 패널을 이용한 signed 경로 시험을 통과했다. 자세한 범위는
+[저장 패널 관측](save-directory-observation.md)에 있다.
+
+서명된 helper의 `action.click.save_panel_guard`는 호스트가 명시적으로 승인한
+indexed click에 패널 토큰을 결합한다. 입력 직전에 native 상태를 다시 검증하며
+한 번 시도한 토큰은 재사용할 수 없다. own NSSavePanel 완료 콜백을 확인했지만
+TextEdit 문서 저장·서식·첨부 보존이나 원자적인 설정 검증을 증명하지 않는다.
 
 텍스트 계획 provider는 명시한 provider를 유지한다. 실제 모델 검증은 로컬
 Chromium 과제를 Codex·Claude 백본으로 수행했다. 다른 provider가 설정 목록에
@@ -81,3 +110,18 @@ Codex·Claude CLI를 지원하며 두 백본의 실제 canvas 클릭을 확인�
 - [최신 단계별 결과](../reviews/2026-09-19/goal-progress-4.md)
 
 파일 receipt는 파일 쓰기만, 전송 receipt는 전송만 증명한다. 다른 중요한 효과가 함께 선언되면 같은 receipt로 완료 처리하지 않는다. 실제 저장 항목 삭제용 receipt는 아직 지원하지 않는다.
+
+
+서명된 helper의 `evidence.document_rtf_export`는 기존 문서 token의 full AX
+range RTF bytes를 읽는다. 반복 text/export·identity/path·기한·2MiB 출력 제한과
+클라이언트 digest 검증을 실행한다. 원본 형식이나 첨부 완전성·저장 승인을
+보장하지 않으며 document_snapshot은 OFF다. native handler의 주입 시험을
+통과했지만 첫 실제 TextEdit 시험은 process 부재로 문서 open 전에 거절됐다.
+[RTF range export 범위](textedit-save.md)를 참조한다.
+
+
+Opaque window input now has a raw host-authorized Python/signed path. Owned
+inaccessible responders must expose independent receiving evidence; an event
+pair never proves completion. See [window input](native-window-input.md). General visual and registered Flow key/text proposals require explicit host
+input_actions and receiving evidence. Real app IME/typing and caret preservation
+still require actual-user evidence.

@@ -36,7 +36,8 @@ class FileWritingUI:
 
 @unittest.skipUnless(Path('/usr/bin/textutil').is_file(), 'macOS textutil decoder')
 class RTFReplayTests(unittest.TestCase):
-    def run_save(self, text, raw, *, wrong_document=False, existing=False):
+    def run_save(self, text, raw, *, wrong_document=False, existing=False,
+                 timeout_seconds=.5):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         directory = Path(temporary.name).resolve()
@@ -44,7 +45,7 @@ class RTFReplayTests(unittest.TestCase):
         driver = FileWritingUI(path, raw, wrong_document)
         adapter = FreshRTFReceipt(directory, path.name, text,
                                   document_path=lambda: driver.document,
-                                  timeout_seconds=.5, poll_interval=.02)
+                                  timeout_seconds=timeout_seconds, poll_interval=.02)
         # Exercise the same driver hook discovery used by native/eval callers.
         driver.prepare_commit = adapter.prepare_commit
         driver.after_commit = adapter.after_commit
@@ -64,7 +65,10 @@ class RTFReplayTests(unittest.TestCase):
         for text, raw in [('한글', b'{\\rtf1\\ansi\\uc1 \\u54620?\\u44544?}'),
                           ('', b'{\\rtf1\\ansi }')]:
             with self.subTest(text=text):
-                driver, result = self.run_save(text, raw)
+                # Match the adapter's production readback budget for this
+                # positive integration with an external macOS decoder. Tight
+                # deadline refusal is covered separately in test_rtf_receipt.
+                driver, result = self.run_save(text, raw, timeout_seconds=3)
                 self.assertTrue(result.ok, result.log)
                 self.assertEqual(result.log[-1]['status'], 'done')
                 self.assertEqual(driver.dispatches, 1)

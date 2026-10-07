@@ -30,6 +30,32 @@ class Backend:
 
 
 class NativeWindowBindingTests(unittest.TestCase):
+    def test_opaque_window_point_needs_no_hit_test_and_is_revalidated(self):
+        backend=Backend()
+        backend.nodes['window']['AXSubrole']='AXStandardWindow'
+        backend.require_ready=lambda *a:None
+        backend.hit=lambda *a:self.fail('opaque point must not resolve a fictitious AX control')
+        with patch.object(binding, '_load_backend', return_value=backend):
+            point=binding.capture_binding('window',4,point_kind='window_point',relative_point=(80,90))
+        self.assertEqual(point.point,(90,110))
+        self.assertEqual(point.relative_point,(80,90))
+        self.assertIs(binding.validate_binding(point),point)
+        backend.nodes['window']['frame']=(11,20,300,200)
+        backend.cg[0]['bounds']=(11,20,300,200)
+        with self.assertRaises(binding.NativeWindowBindingError):binding.validate_binding(point)
+
+    def test_bad_coordinates_fail_before_native_imports_and_outside_points_fail(self):
+        with patch.object(binding,'_load_backend') as load:
+            for point in (None,(True,0),(-1,2),(float('nan'),2),(1,10**1000),(1,2,3),'1,2'):
+                with self.subTest(point=point),self.assertRaises(binding.NativeWindowBindingError):
+                    binding.capture_binding('window',4,point_kind='window_point',relative_point=point)
+            load.assert_not_called()
+        backend=Backend();backend.nodes['window']['AXSubrole']='AXStandardWindow'
+        backend.require_ready=lambda *a:None
+        for point in ((300,0),(0,200),(301,201)):
+            with patch.object(binding,'_load_backend',return_value=backend),self.assertRaises(binding.NativeWindowBindingError):
+                binding.capture_binding('window',4,point_kind='window_point',relative_point=point)
+
     def test_os_number_proxies_are_normalized_before_strict_geometry_checks(self):
         class Number:
             def __init__(self, value): self.value=value

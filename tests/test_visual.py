@@ -19,7 +19,14 @@ except ImportError:
 class VisualProvider(unittest.TestCase):
     def setUp(self):
         self.capture = VisualCapture('v1', 'b1', 'page', 'digest', 'state',
-                                     {'width': 20, 'height': 20}, 1, b'private pixels')
+                                     {'width': 20, 'height': 20}, 1, b'\x89PNG\r\n\x1a\nprivate pixels')
+
+    @staticmethod
+    def events(text):
+        return '\n'.join(json.dumps(event) for event in [
+            {'type':'thread.started','thread_id':'test'}, {'type':'turn.started'},
+            {'type':'item.completed','item':{'id':'final','type':'agent_message','text':text}},
+            {'type':'turn.completed','usage':{'input_tokens':10,'output_tokens':2}}])
 
     def test_metadata_and_private_explicit_artifact(self):
         self.assertNotIn('png', self.capture.to_dict())
@@ -27,13 +34,13 @@ class VisualProvider(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = self.capture.save(Path(directory) / 'image.png')
             self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
-            self.assertEqual(b'private pixels', path.read_bytes())
+            self.assertEqual(b'\x89PNG\r\n\x1a\nprivate pixels', path.read_bytes())
             with self.assertRaises(FileExistsError):
                 self.capture.save(path)
 
     def test_pinned_image_command_and_no_authority(self):
         roots = []
-        def run(argv, **kwargs):
+        def run(argv, prompt, timeout):
             self.assertEqual(['codex', 'exec'], argv[:2])
             self.assertIn('--ignore-user-config', argv)
             self.assertEqual('read-only', argv[argv.index('--sandbox') + 1])
@@ -41,10 +48,10 @@ class VisualProvider(unittest.TestCase):
             self.assertEqual('-', argv[-1])
             image = Path(argv[argv.index('--image') + 1])
             roots.append(image.parent)
-            self.assertEqual(b'private pixels', image.read_bytes())
+            self.assertEqual(b'\x89PNG\r\n\x1a\nprivate pixels', image.read_bytes())
             Path(argv[argv.index('--output-last-message') + 1]).write_text('{"answer":"blue square"}')
-            return subprocess.CompletedProcess(argv, 0)
-        with patch('nlc.visual._run_visual', side_effect=run):
+            return subprocess.CompletedProcess(argv, 0, self.events(Path(argv[argv.index('--output-last-message') + 1]).read_text()), '')
+        with patch('nlc.codex_result._run_codex', side_effect=run):
             result = query_visual(self.capture, 'What color?', model='chosen-model')
         self.assertEqual('blue square', result['answer'])
         self.assertEqual('visual_read', result['evidence_kind'])
@@ -53,11 +60,11 @@ class VisualProvider(unittest.TestCase):
         self.assertFalse(roots[0].exists())
 
     def test_unsupported_and_failed_provider_never_fallback(self):
-        with patch('nlc.visual._run_visual') as run:
+        with patch('nlc.codex_result._run_codex') as run:
             with self.assertRaisesRegex(VisualError, 'unsupported_visual_provider'):
                 query_visual(self.capture, 'read', provider='unsupported-provider')
             run.assert_not_called()
-            run.return_value = subprocess.CompletedProcess([], 1)
+            run.return_value = subprocess.CompletedProcess([], 1, '', '')
             with self.assertRaisesRegex(VisualError, 'visual_provider_failed'):
                 query_visual(self.capture, 'read')
             self.assertEqual(1, run.call_count)
@@ -81,10 +88,10 @@ class VisualProvider(unittest.TestCase):
         self.assertEqual(1, process.communicate.call_count)
 
     def test_invalid_provider_answer_is_not_accepted(self):
-        def run(argv, **kwargs):
+        def run(argv, prompt, timeout):
             Path(argv[argv.index('--output-last-message') + 1]).write_text('{"answer":"ok","authorize":true}')
-            return subprocess.CompletedProcess(argv, 0)
-        with patch('nlc.visual._run_visual', side_effect=run):
+            return subprocess.CompletedProcess(argv, 0, self.events(Path(argv[argv.index('--output-last-message') + 1]).read_text()), '')
+        with patch('nlc.codex_result._run_codex', side_effect=run):
             with self.assertRaisesRegex(VisualError, 'invalid_visual_response'):
                 query_visual(self.capture, 'read')
 

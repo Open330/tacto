@@ -32,6 +32,19 @@ _BARE = os.path.join(_ROOT, "helper", "nlc-helper")
 HELPER = _BUNDLED if os.path.exists(_BUNDLED) else _BARE
 
 
+def _unhide_target(target: str) -> bool:
+    """Unhide `target` without activating it; True if its windows came back."""
+    try:
+        from AppKit import NSWorkspace
+        from .driver import _unhide_quietly
+        pid = next((int(a.processIdentifier())
+                    for a in NSWorkspace.sharedWorkspace().runningApplications()
+                    if target in (a.bundleIdentifier(), a.localizedName())), None)
+        return pid is not None and _unhide_quietly(pid)
+    except Exception:
+        return False
+
+
 def _explain_no_window(target: str) -> dict:
     """Lock state, reason and detail for a helper's bare no_window_content."""
     try:
@@ -120,7 +133,7 @@ class InheritedHelperDriver:
         try:
             pong = self._send({"type": "ping"})
             self.handshake = pong       # what the helper said about itself
-            if pong.get("type") != "pong":
+            if not isinstance(pong, dict) or pong.get("type") != "pong":
                 raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
             if not pong.get("trusted"):
                 raise HelperUnavailable(
@@ -136,10 +149,17 @@ class InheritedHelperDriver:
                 raise HelperUnavailable(
                     "도우미가 오래된 판입니다 — 다시 빌드해 주세요 "
                     f"(./helper/build.sh). 빠진 기능: {', '.join(sorted(missing))}")
-        except Exception:
+        except BaseException:
             # Leave nothing a later construction could mistake for a working
             # channel, and drop the shared instance so the next attempt starts
             # over rather than inheriting this one.
+            for attr in ('_f', '_sock'):
+                resource = getattr(self, attr, None)
+                if resource is not None:
+                    try:
+                        resource.close()
+                    except Exception:
+                        pass
             for attr in ("_sock", "_f", "capabilities"):
                 if hasattr(self, attr):
                     delattr(self, attr)
@@ -150,7 +170,7 @@ class InheritedHelperDriver:
         self._ready = True
 
     def _ask_launcher_response(self, prompt: str, want_json: bool = False,
-                               provider: str = "auto", *, timeout_seconds=420) -> dict:
+                               provider: str = "auto", *, timeout_seconds=420, image=None, model=None) -> dict:
         """Put a question to a model through the launcher, which is outside.
 
         The same channel, a different destination: the launcher answers this
@@ -160,6 +180,13 @@ class InheritedHelperDriver:
         if (type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds)
                 or not 0 < timeout_seconds <= 420):
             raise ValueError("timeout_seconds must be finite, positive, and at most 420")
+        if image is not None:
+            from .provider_images import decode_image, validate_model
+            decode_image(image); validate_model(model)
+            if provider not in ('claude', 'codex'):
+                raise ValueError('image provider must be explicitly pinned')
+        elif model is not None:
+            raise ValueError('image model requires an image')
         if getattr(self, "_poisoned", False):
             raise HelperUnavailable("model channel is permanently closed")
         expired = threading.Event()
@@ -182,8 +209,13 @@ class InheritedHelperDriver:
                 error.provider_response = r
             return error
         try:
-            r = self._send({"type": "ask", "prompt": prompt, "json": want_json,
-                            "provider": provider, "timeout_seconds": timeout_seconds})
+            message = {"type": "ask", "prompt": prompt, "json": want_json,
+                       "provider": provider, "timeout_seconds": timeout_seconds}
+            if image is not None:
+                message['image'] = image
+                if model is not None:
+                    message['model'] = model
+            r = self._send(message)
             if r.get("error") == "model_timeout":
                 expire()
                 raise timeout_error()
@@ -208,14 +240,17 @@ class InheritedHelperDriver:
         return response.get("text") if response.get("type") == "answer" else None
 
     def ask_launcher_result(self, prompt: str, want_json: bool = False,
-                            provider: str = "auto", *, timeout_seconds=420):
+                            provider: str = "auto", *, timeout_seconds=420, image=None, model=None):
         import uuid
         from dataclasses import replace
         from .provider_result import ProviderError, ProviderResult, parse_provider_result
+        if image is None and model is not None:
+            raise ValueError('image model requires an image')
         started = time.monotonic()
         try:
+            extra = {'image': image, 'model': model} if image is not None else {}
             response = self._ask_launcher_response(prompt, want_json, provider,
-                                                   timeout_seconds=timeout_seconds)
+                                                   timeout_seconds=timeout_seconds, **extra)
         except TimeoutError as exc:
             response = getattr(exc, "provider_response", None)
             if not isinstance(response, dict) or "provider_result_v1" not in response:
@@ -232,6 +267,8 @@ class InheritedHelperDriver:
                         or response.get("text") is not None):
                     raise ValueError("provider error response mismatch")
             return replace(result, transport="launcher", elapsed_seconds=max(0, time.monotonic()-started))
+        if image is not None:
+            raise ValueError('image requests require a structured provider envelope')
         # Old launchers expose text only. Do not invent actual model/usage IDs.
         text = response.get("text") if response.get("type") == "answer" else None
         ok = isinstance(text, str) and bool(text)
@@ -289,32 +326,47 @@ class HelperDriver:
             stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
         self._last_action_at = 0.0
         try:
-            pong = self._send({"type": "ping", "token": self._token})
-        except HelperUnavailable:
-            err = (self._proc.stderr.read() if self._proc.stderr else "") or ""
-            self._proc.poll()
-            if self._proc.returncode == 3:
+            try:
+                pong = self._send({"type": "ping", "token": self._token})
+            except HelperUnavailable:
+                # Bound collection even if a broken helper closed stdout but
+                # stayed alive. communicate also reaps the exited process.
+                try:
+                    _, err = self._proc.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self._proc.kill()
+                    _, err = self._proc.communicate(timeout=2)
+                if self._proc.returncode == 3:
+                    raise HelperUnavailable(
+                        "도우미가 이 클라이언트를 거부했습니다. 서명된 런처를 통해 "
+                        "실행하세요:  ./launcher/nlc <명령> --helper\n"
+                        "  (개발 중이라면 NLC_HELPER_REQUIREMENT 로 요구조건을 바꿀 수 "
+                        "있습니다)") from None
+                raise HelperUnavailable(f"도우미가 시작되지 못했습니다: {(err or '').strip()[:200]}")
+            self.handshake = pong           # what the helper said about itself
+            if not isinstance(pong, dict) or pong.get("type") != "pong":
+                raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
+            if not pong.get("trusted"):
                 raise HelperUnavailable(
-                    "도우미가 이 클라이언트를 거부했습니다. 서명된 런처를 통해 "
-                    "실행하세요:  ./launcher/nlc <명령> --helper\n"
-                    "  (개발 중이라면 NLC_HELPER_REQUIREMENT 로 요구조건을 바꿀 수 "
-                    "있습니다)") from None
-            raise HelperUnavailable(f"도우미가 시작되지 못했습니다: {err.strip()[:200]}")
-        self.handshake = pong           # what the helper said about itself
-        if pong.get("type") != "pong":
-            raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
-        if not pong.get("trusted"):
-            raise HelperUnavailable(
-                "도우미에 접근성 권한이 없습니다 — 시스템 설정 > 개인정보 보호 및 "
-                "보안 > 손쉬운 사용 에서 'NLC Helper' 를 켜주세요 "
-                "(macOS 27 에서는 'Device Control and Data Access')")
+                    "도우미에 접근성 권한이 없습니다 — 시스템 설정 > 개인정보 보호 및 "
+                    "보안 > 손쉬운 사용 에서 'NLC Helper' 를 켜주세요 "
+                    "(macOS 27 에서는 'Device Control and Data Access')")
+        except BaseException:
+            self.close()
+            raise
 
     def close(self):
         try:
-            self._proc.stdin.close()
+            if self._proc.stdin:
+                self._proc.stdin.close()
             self._proc.wait(timeout=2)
-        except Exception:
+        except subprocess.TimeoutExpired:
             self._proc.kill()
+            self._proc.wait(timeout=2)
+        finally:
+            for stream in (self._proc.stdin, self._proc.stdout, self._proc.stderr):
+                if stream:
+                    stream.close()
 
     def _send(self, msg: dict) -> dict:
         self._proc.stdin.write(json.dumps(msg, ensure_ascii=False) + "\n")
@@ -333,7 +385,13 @@ class HelperDriver:
         return self._send({"type": "list_targets"})
 
     def observe(self, target: str, mode: str = "tree_full",
-                require_window: bool = True):
+                require_window: bool = True, *, document_token=None):
+        if document_token is not None and (target != 'com.apple.TextEdit'
+                or not isinstance(document_token, str) or not document_token or len(document_token) > 128):
+            return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started'}
+        if document_token is not None and 'observe.document_token' not in getattr(self, 'capabilities', ()):
+            return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started',
+                    'detail':'helper does not support scoped document observations'}
         # Same settle contract as the in-process driver: an action's effect may
         # land a moment after the call returns, so wait before capturing.
         settle = self._last_action_at + 1.0 - time.time()
@@ -342,18 +400,54 @@ class HelperDriver:
         # `require_window` travels on the wire because the two drivers have to
         # return the same tree for the same app: a recipe that starts from an
         # app with nothing open must behave identically whichever one runs it.
-        out = self._send({"type": "observe", "target": target,
-                          "require_window": require_window})
+        message = {"type":"observe", "target":target, "require_window":require_window}
+        if document_token is not None:
+            message['document_token'] = document_token
+        out = self._send(message)
         if out.get("error") == "no_window_content" and "reason" not in out:
             # The helper says only that there is no window. Which of the
             # causes it is — a locked screen, a hidden app, minimised windows —
             # is what tells a person what to do, and none of it needs the
             # helper's permission to find out.
             out = {**out, **_explain_no_window(target)}
+            if out.get("reason") == "app_hidden" and _unhide_target(target):
+                # Same as the in-process driver: a hidden app's windows come
+                # back without it being made frontmost, then look once more.
+                # Without this the `--helper` path still told agents to "click
+                # TextEdit in the Dock" (2026-10-07 comparison, run 0).
+                again = self._send({"type": "observe", "target": target,
+                                    "require_window": require_window})
+                if again.get("type") == "observation":
+                    return again
         return out
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False):
+            intent_text="", approved=False, *, save_panel_token=None):
+        if save_panel_token is not None:
+            if (not isinstance(save_panel_token, str) or not save_panel_token
+                    or len(save_panel_token) > 128
+                    or not isinstance(action, dict)
+                    or set(action) != {'name', 'element_index'}
+                    or action['name'] != 'click'
+                    or type(action['element_index']) is not int
+                    or action['element_index'] < 0
+                    or risk_class not in ('confirm', 'preapproved') or approved is not True
+                    or 'action.click.save_panel_guard' not in getattr(self, 'capabilities', ())):
+                return {'type': 'error', 'error': 'save_panel_guard_unavailable',
+                        'effect': 'not_started'}
+        if action.get('name') == 'window_input':
+            from .native_window_payload import window_input_problem, WINDOW_INPUT_CAPABILITIES
+            problem = window_input_problem(action)
+            if problem or not WINDOW_INPUT_CAPABILITIES <= set(getattr(self, 'capabilities', ())):
+                return {'type':'error', 'error':'window_input_unavailable', 'effect':'not_started', 'detail':problem}
+            if risk_class not in ('confirm','preapproved') or approved is not True:
+                return {'type':'error','error':'window_input_authorization_required','effect':'not_started'}
+        if action.get('name') == 'click_point':
+            if risk_class not in ('confirm','preapproved') or approved is not True:
+                return {'type':'error','error':'coordinate_authorization_required','effect':'not_started'}
+            if 'action.click_point' not in getattr(self,'capabilities',()):
+                return {'type':'error','error':'coordinate_authorization_required','effect':'not_started',
+                        'detail':'helper does not support authorized window points'}
         if risk_class not in RISK_CLASSES:
             return {"type": "error", "error": "unknown_risk_class",
                     "effect": "not_started",
@@ -372,7 +466,13 @@ class HelperDriver:
                     "risk_class": risk_class}
         msg = {"type": "act", "obs_id": obs_id, "target": target,
                "action": action}
-        if action.get("name") in ("click", "prepare_window"):
+        if save_panel_token is not None:
+            msg['save_panel_token'] = save_panel_token
+        if action.get('name') == 'click_point':
+            msg['coordinate_authorized'] = True
+        if action.get('name') == 'window_input':
+            msg['window_input_authorized'] = True
+        if action.get("name") in ("click", "click_point", "prepare_window", "press_key", "window_input"):
             from .model_budget import remaining_model_seconds
             # Capture before computing remaining time; never extend the budget
             # by serialization or time spent waiting for the helper.
@@ -417,25 +517,116 @@ class HelperDriver:
         the caller asked and says so; the original stays until the caller
         removes it.
         """
+        if (type(timeout_seconds) not in (int, float)
+                or not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 10):
+            raise ValueError('capture timeout must be finite, positive, and at most 10')
+        if (window_index is not None
+                and (type(window_index) is not int or not 0 <= window_index < 64)):
+            raise ValueError('invalid capture window index')
         if obs_id is None:
             return {"type": "error", "error": "stale_observation",
                     "effect": "not_started",
                     "detail": "observe first: a capture is of an OBSERVED window"}
-        message = {"type": "capture", "target": target, "obs_id": obs_id}
+        message = {"type": "capture", "target": target, "obs_id": obs_id,
+                   "timeout_seconds": timeout_seconds}
         if window_index is not None:
             message["window_index"] = window_index
         answer = self._send(message)
         if answer.get("type") == "capture" and path is not None:
+            import hashlib
             import shutil
+            created = False
             try:
-                shutil.copyfile(answer["path"], path)
+                # A screenshot destination is a new private artifact. Do not
+                # truncate an existing file, including one reached by a symlink.
+                with open(answer["path"], 'rb') as source:
+                    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    created = True
+                    with os.fdopen(fd, 'wb') as destination:
+                        shutil.copyfileobj(source, destination)
+                with open(path, 'rb') as copied:
+                    digest = hashlib.file_digest(copied, 'sha256').hexdigest()
+                if digest != answer.get('sha256'):
+                    raise OSError('capture artifact digest mismatch')
                 answer = {**answer, "path": str(path), "helper_path": answer["path"]}
             except OSError as exc:
+                if created:
+                    os.unlink(path)
                 return {"type": "error", "error": "visual_read_failed",
                         "effect": "not_started", "detail": str(exc)}
         return answer
 
-    def document_text(self, target, document_token=None, *, max_utf16_units=1000000):
+    def save_panel(self, obs_id, target, window_element_index, *, panel_token=None,
+                   document_token=None, require_format=False):
+        """Read observation-bound settings; this never authorizes Save."""
+        if (not isinstance(obs_id, str) or not obs_id.strip() or len(obs_id) > 128
+                or not isinstance(target, str) or not target
+                or type(window_element_index) is not int or not 0 <= window_element_index < 5000
+                or type(require_format) is not bool
+                or (panel_token is not None and (not isinstance(panel_token, str)
+                    or not panel_token or len(panel_token) > 128))
+                or (document_token is not None and (target != 'com.apple.TextEdit'
+                    or not isinstance(document_token, str) or not document_token or len(document_token) > 128))):
+            return {'type': 'error', 'error': 'save_panel_unavailable', 'effect': 'not_started',
+                    'detail': 'invalid save panel observation request'}
+        if 'evidence.save_panel' not in self.capabilities:
+            return {'type': 'error', 'error': 'save_panel_unavailable', 'effect': 'not_started',
+                    'detail': 'helper lacks save-panel observation capability'}
+        message = {'type': 'save_panel', 'target': target, 'obs_id': obs_id,
+                   'window_element_index': window_element_index, 'require_format': require_format}
+        if panel_token is not None:
+            message['panel_token'] = panel_token
+        if document_token is not None:
+            message['document_token'] = document_token
+        return self._send(message)
+
+    def document_rtf_export(self, target, document_token, *, max_utf16_units=1000000,
+                            timeout_seconds=3):
+        """Export the pinned AX text range; never certify its original format."""
+        if (target != 'com.apple.TextEdit' or not isinstance(document_token, str)
+                or not document_token or len(document_token) > 128
+                or type(max_utf16_units) is not int or not 0 <= max_utf16_units <= 1000000
+                or type(timeout_seconds) not in (int, float)
+                or not math.isfinite(timeout_seconds) or not 0 < timeout_seconds <= 6
+                or 'evidence.document_rtf_export' not in getattr(self, 'capabilities', ())):
+            return {'type':'error', 'error':'document_rtf_export_unavailable', 'effect':'not_started'}
+        response = self._send({'type':'document_rtf_export', 'target':target,
+            'document_token':document_token, 'max_utf16_units':max_utf16_units,
+            'timeout_seconds':timeout_seconds})
+        if not isinstance(response, dict):
+            return {'type':'error', 'error':'document_rtf_export_unavailable', 'effect':'not_started'}
+        if response.get('type') != 'document_rtf_export':
+            return response
+        import base64
+        import hashlib
+        import re
+        try:
+            encoded = response['rtf_base64']
+            count = response['utf16_length']
+            if (response.get('document_token') != document_token
+                    or type(count) is not int or not 0 <= count <= max_utf16_units
+                    or not isinstance(encoded, str) or len(encoded) > 4 * ((2097152 + 2) // 3)
+                    or any(response.get(k) is not False for k in
+                        ('source_format_verified', 'attachment_completeness_verified', 'authorizes_save'))
+                    or response.get('evidence_kind') != 'ax_range_rtf_export'
+                    or not isinstance(response.get('text_sha256'), str)
+                    or re.fullmatch('[0-9a-f]{64}', response['text_sha256']) is None
+                    or 'document_path' not in response):
+                raise ValueError('invalid document export metadata')
+            raw = base64.b64decode(encoded, validate=True)
+            if (not raw.startswith(b'{\\rtf') or len(raw) > 2097152
+                    or base64.b64encode(raw).decode('ascii') != encoded
+                    or hashlib.sha256(raw).hexdigest() != response.get('rtf_sha256')):
+                raise ValueError('invalid document export bytes')
+            if response['document_path'] is not None:
+                from .native_document import validate_document_selection_path
+                validate_document_selection_path(response['document_path'])
+        except (KeyError, ValueError, TypeError, UnicodeError):
+            return {'type':'error', 'error':'document_rtf_export_unavailable', 'effect':'not_started'}
+        return response
+
+    def document_text(self, target, document_token=None, *, max_utf16_units=1000000,
+                      document_path=None):
         """A pinned document's complete text, read over the signed channel.
 
         The same shape `Driver.document_text` answers with, and the same thing
@@ -450,13 +641,27 @@ class HelperDriver:
                 or not 0 <= max_utf16_units <= 1000000):
             return {"type": "error", "error": "document_snapshot_unavailable",
                     "effect": "not_started", "detail": "invalid max_utf16_units"}
+        if document_path is not None:
+            from .native_document import validate_document_selection_path, DocumentSnapshotError
+            try:
+                validate_document_selection_path(document_path)
+                if document_token is not None or target != 'com.apple.TextEdit':
+                    raise DocumentSnapshotError('invalid document selector combination')
+            except DocumentSnapshotError as exc:
+                return {'type':'error', 'error':'document_snapshot_unavailable',
+                        'effect':'not_started', 'detail':str(exc)}
+            if 'evidence.document_text.path_selector' not in getattr(self, 'capabilities', ()):
+                return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started',
+                        'detail':'helper does not support document path selection'}
         message = {"type": "document_text", "target": target,
                    "max_utf16_units": max_utf16_units}
         if document_token is not None:
-            if not isinstance(document_token, str) or not document_token:
+            if not isinstance(document_token, str) or not document_token or len(document_token)>128:
                 return {"type": "error", "error": "document_snapshot_unavailable",
                         "effect": "not_started", "detail": "invalid document token"}
             message["document_token"] = document_token
+        if document_path is not None:
+            message['document_path'] = document_path
         return self._send(message)
 
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
@@ -476,7 +681,7 @@ class HelperDriver:
 # `_send`, so the inherited-socket driver borrows the spawn driver's
 # implementations rather than keeping a second copy in step with the first.
 for _name in ("identity", "list_targets", "observe", "act", "probe",
-              "selection", "menu_state", "menu_items", "document_text", "capture",
+              "selection", "menu_state", "menu_items", "document_text", "document_rtf_export", "save_panel", "capture",
               "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(InheritedHelperDriver, _name, impl)

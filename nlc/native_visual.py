@@ -53,6 +53,7 @@ class NativeVisualCapture:
     captured_at: float
     binding: str
     png: bytes = field(repr=False)
+    window_frame: tuple | None = None
 
     def to_dict(self):
         return {"capture_id": self.capture_id, "obs_id": self.obs_id,
@@ -60,6 +61,9 @@ class NativeVisualCapture:
                 "window_index": self.window_index, "sha256": self.sha256,
                 "viewport": dict(self.viewport), "captured_at": self.captured_at,
                 "capture_kind": "native_window", "coordinate_space": "window_pixels",
+                "window_frame": list(self.window_frame) if self.window_frame else None,
+                "image_mapping": "full_window_no_shadow" if self.window_frame else None,
+                "width": self.viewport["width"], "height": self.viewport["height"],
                 "binding": self.binding, "consistency": "best_effort_window_metadata",
                 "evidence_kind": "visual_read", "authorizes_action": False,
                 "commit_witness": False}
@@ -174,7 +178,7 @@ class ScreenCaptureBackend:
         config.setHeight_(height)
         config.setShowsCursor_(False)
         config.setIgnoreShadowsSingleWindow_(True)
-        config.setScalesToFit_(False)
+        config.setScalesToFit_(True)
         if hasattr(config, "setIncludeChildWindows_"):
             config.setIncludeChildWindows_(False)
         image = _await_callback(lambda cb:
@@ -282,4 +286,4 @@ def capture_native(driver, obs_id, target, *, window_index=None,
     return NativeVisualCapture('nv' + uuid.uuid4().hex, obs_id, target, pid,
         window.window_id, index, hashlib.sha256(png).hexdigest(),
         {"width": size[0], "height": size[1], "coordinate_space": "window_pixels"},
-        time.time(), 'host_window_id' if pinned else 'best_effort_unique_window_correlation', png)
+        time.time(), 'host_window_id' if pinned else 'best_effort_unique_window_correlation', png, tuple(frame))

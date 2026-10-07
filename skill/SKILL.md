@@ -25,35 +25,89 @@ script says what is missing, and `skill/install.sh --check` changes nothing).
 Do not download or install an `nlc` from anywhere else, and do not look for a
 substitute — a different program by that name is not this one.
 
-Driving apps needs the permissions granted to NLC's signed helper. If `nlc apps`
-lists no apps, run `nlc doctor` and pass on what it says; do not try to grant
-permissions yourself.
+## Select the signed native backend
 
-**NLC needs the real GUI session, so it cannot run inside an agent sandbox.** A
-sandbox (Codex's `workspace-write`, for instance) blocks the screen and the
-accessibility API, and `nlc` then refuses with a message that starts
-"NLC가 샌드박스 안에서 실행됐습니다" (exit code 3). That is not a permission
-problem — do not ask anyone to change permissions. Instead:
+For macOS app work, use the installed signed launcher with `--helper` on
+`apps`, `observe`, `run`, `replay`, and `do`. Launching the signed executable alone
+still selects the Python direct backend for these commands when the flag is
+omitted. The direct backend has different capabilities and requires its own
+permissions; it is an explicit development route, not a fallback for a failed
+signed helper connection. A wheel's Python console script cannot create the
+signed channel even when passed `--helper`.
 
-- In Codex, run the `nlc` command outside the sandbox: call `exec_command` with
-  `"sandbox_permissions": "require_escalated"` and a one-line `"justification"`
-  such as "NLC drives the Calculator app through the GUI session" — the person
-  is asked to approve it. If escalation is not available (the session forbids
-  it, or approvals are off), tell the user to rerun with
-  `--sandbox danger-full-access` — and stop there.
-- Elsewhere, ask the user to run it outside the sandbox.
+```bash
+nlc doctor --check                         # check without opening permission settings
+nlc apps --helper                         # app metadata through the signed helper
+nlc observe com.apple.calculator --helper  # observe through that same backend
+nlc run flows/<name>.json --helper
+nlc replay <name> --helper
+nlc do '<task>' --helper
+```
+
+If `nlc` is absent from PATH but `~/.local/bin/nlc` links to this checkout's
+launcher, use that absolute command path for subsequent calls. If PATH resolves
+to another installation, inspect the link and run this checkout's
+`skill/install.sh --check` before choosing the entry point. Do not use `uv run nlc`
+or `.venv/bin/nlc` as a substitute for the signed native launcher.
+
+`doctor` checks the runtime's permission boundary itself; it does not need
+`--helper`. `eval` selects backends by scenario, so choose the documented signed
+scenario rather than adding `--helper` to evaluator arguments. Static flow
+commands such as `list`, `show`, `parameterize` and `promote` need no native flag.
+
+Driving apps needs the permissions granted to NLC's signed helper. If
+`nlc apps --helper` reports an error or no apps, run `nlc doctor --check` and
+report its result. Do not grant permissions or change the helper's signing
+requirement yourself. See [installation and backend paths](../docs/installation.md)
+when a launcher or helper connection fails.
+
+## Check the actual sandbox profile
+
+NLC needs a real GUI session. An actual agent sandbox can block screen and
+accessibility APIs; NLC then reports "NLC가 샌드박스 안에서 실행됐습니다"
+(exit code 3). This is separate from macOS app permissions.
+
+- With `danger-full-access` or unrestricted filesystem execution, run normally.
+  Do not request escalation or add `sandbox_permissions` when the current tool
+  policy forbids that argument. An approval policy of `never` does not itself
+  mean the process is sandboxed.
+- If execution is actually sandboxed and the current tool policy permits it,
+  use `sandbox_permissions: "require_escalated"` with a task-specific
+  justification to run outside that sandbox.
+- If an actual sandbox blocks NLC and escalation is unavailable, report the
+  blocker and ask the user to run in a GUI-capable environment, such as
+  `--sandbox danger-full-access`. Do not change permissions to fix a sandbox.
 
 Reading and writing recipes (`nlc list`, `nlc show`, `nlc candidates`,
 `nlc promote`) works inside a sandbox; only commands that touch the screen
 (`apps`, `observe`, `run`, `replay`, `do`, `doctor`, `eval`) need it.
 
+## Start from what already exists
+
+Before writing a recipe, look for one. NLC ships recipes for common tasks, and
+replaying one costs nothing:
+
+```bash
+nlc list                                  # built-in and saved recipes
+nlc show textedit_write_note              # its steps, and its inputs under "params"
+nlc replay textedit_new_document --helper --yes
+nlc replay textedit_write_note -p text="회의 준비" --helper --yes
+```
+
+Writing into a document ends `unverified — … 확인 영수증이 없습니다` when the
+document is not saved: the text was sent, and with no file there is nothing to
+read back. That is expected — confirm with `nlc observe <app>` and move on.
+
+The longer guides live beside this file: `docs/recipes.md` (recipes, decisions,
+branches) and `docs/api.md`.
+
 ## The loop
 
 ```bash
-nlc apps                                  # which apps are running (and can we see the GUI?)
-nlc observe com.apple.calculator          # the accessibility tree to write selectors against
+nlc apps --helper                         # running apps through the signed backend
+nlc observe com.apple.calculator --helper # the accessibility tree to write selectors against
 # ... you write flows/<name>.json ...
-nlc run flows/<name>.json                 # execute; prints the verified result
+nlc run flows/<name>.json --helper         # execute through the same backend
 ```
 
 Write the file yourself. Do **not** call `nlc compile` from here — that spawns
@@ -73,6 +127,10 @@ Each line is `<indent><index> <Role>  Key: value, Key2: value`:
 
 Indices are **volatile** — they change on every observation. Never put one in a
 recipe; select by meaning instead.
+
+`nlc observe` prints only the focused window, then one line naming the other
+windows (`… 다른 창 N개: …`). Add `--all-windows` when the element you need is
+in one of those; indices are the same either way.
 
 ## Writing the IR
 
@@ -134,8 +192,11 @@ inner text — match the label and act on the row with
 
 **Actions:** `click`, `set_value`, `type_text`, `scroll`, `secondary_action`,
 `menu`, `read` (look and change nothing, for a step that only captures). Prefer clicking a named control over typing — a button press is
-verifiable through the control itself. (`press_key` exists in the in-process
-driver only; the signed helper does not implement it, so do not author with it.)
+verifiable through the control itself. Python and the signed helper support
+only window/element-bound background `press_key` navigation. Inspect the backend
+capabilities and provide an input selector, ContextBinding and an explicit
+attribute postcondition; `unverified_ok` cannot waive this contract. Tab,
+shift+Tab and arrows are allowed; Escape and shortcuts are not.
 
 **Use `menu` for commands that live in the menu bar** — save, copy, open a
 folder, new window. It takes a title path and **no selector at all**; a real
@@ -151,9 +212,11 @@ may list alternatives, because menu titles are localized *and* state-dependent
   "postcondition": { "contains": "save-panel" } }
 ```
 
-Menu items are not in the observation tree (an app's menu bar is thousands of
-items), so they are addressed by title, and the app is raised to the front first
-— an app validates its menus only while it is active.
+Menu items are not in the ordinary observation tree (an app's menu bar can be
+large), so they are addressed by title. Neither backend raises the app to the
+user's foreground. A disabled responder command may require explicit observed
+window preparation and fresh menu-state verification; never infer its effect
+from successful dispatch alone.
 
 **A step whose success is not self-evident must be verifiable.** `type_text`,
 `press_key` and `menu` each need a `postcondition`/`expect`, or an explicit
@@ -381,6 +444,8 @@ forbid it), because it recorded labels the way the screen showed them that time.
 | `capture_failed` | a non-optional `capture` found nothing to read |
 | `invalid_action` | unknown action, parameters it does not take, or a malformed `decide` |
 | `selection_label_required` | a select step has no `option_label` to classify its effect by |
+| `navigation_contract_required` | Python window-bound keys without the capability, input selector/binding or explicit observed result; no input was sent |
+| `coordinate_authorization_required` | direct/signed `click_point` requires host-approved confirm/preapproved scope and helper support; no input was sent. This raw API is not a flow action or an AX click fallback. |
 | `window_preparation_contract_required` / `window_preparation_target_required` | `prepare_window` without the capability, a window selector and an exact observed result |
 | `unsupported_schema` | not a schema 2 flow |
 | `decision_unavailable` / `decision_invalid` / `decision_failed` | a `decide` step had no model, got an answer outside what it allows, or the call failed |
@@ -389,5 +454,28 @@ forbid it), because it recorded labels the way the screen showed them that time.
 | `no_window_content` | the app shows no window; `reason` says why — `screen_locked` (the person must unlock; nothing can be read or done until then — never try to unlock it yourself), `app_hidden`, `minimized`, or `no_visible_window` (none open, or on another desktop). Report it and stop; the person has to act |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
-`nlc run <flow> --trace run.json` records what was on screen, so a failure can be
+`nlc run <flow> --helper --trace run.json` records what was on screen, so a failure can be
 reproduced on another machine with no app and no permissions.
+
+
+Native image general mode is an explicit trusted Python integration:
+`nlc.general.run(..., visual_scope=NativeVisualScope(...))`. A model cannot
+supply a scope, approval callback or effect declaration. The host must know the
+window and reversible ephemeral operation region; the Envelope still bounds
+its effects. Host verification of the receiving result is required before
+completion or further input, including when switching back to AX. Consequential
+save/send effects and AX recipe promotion are not enabled by a pixel plan.
+See [native visual contracts](../docs/native-visual.md).
+
+
+Python host integrations may explicitly author `visual` steps referencing a
+registered `NativeVisualScope` via `replay(visual_scopes=...)`. Parameters are
+`scope`, `max_screens` (1–20), and `timeout_seconds` (positive, at most 120).
+Host callbacks and pixel coordinates must not be serialized. CLI has no scope
+registry. `visual_scope_required` means registration, capability or reversible
+contract validation failed before visual input. `visual_step_failed` means the
+bounded image loop raised and replay stopped. `visual_step_unverified` means no
+independent host receiving proof; input may already have occurred, so do not
+retry. `visual_reobserve_failed` stops after a verified image step when fresh AX
+observation for the following step fails. These steps may consume model tokens
+and do not supply consequential save receipts or automatic pixel promotion.

@@ -29,8 +29,31 @@ class WindowReadyTests(unittest.TestCase):
             with self.subTest(key=key,value=value),self.assertRaises(WindowNotReady):self.check()
     def test_window_replacement_during_read_refuses(self):
         calls=iter([['window'],['replacement']])
-        with self.assertRaises(WindowNotReady):
+        with self.assertRaisesRegex(WindowNotReady,'identities changed'):
             require_window_ready('window',lambda:next(calls),self.read,lambda a,b:a==b)
+
+    def test_order_only_change_is_distinguished_but_still_refused(self):
+        self.tree['second'] = dict(self.tree['window'], AXChildren=[])
+        calls=iter([['window','second'],['second','window']])
+        with self.assertRaisesRegex(WindowNotReady,'order changed'):
+            require_window_ready('window',lambda:next(calls),self.read,lambda a,b:a==b)
+
+    def test_duplicate_other_window_is_not_reported_as_order_only_change(self):
+        self.tree['second'] = dict(self.tree['window'], AXChildren=[])
+        self.tree['third'] = dict(self.tree['window'], AXChildren=[])
+        calls=iter([['window','second','second'],['second','window','third']])
+        with self.assertRaisesRegex(WindowNotReady,'identities changed'):
+            require_window_ready('window',lambda:next(calls),self.read,lambda a,b:a==b)
+
+    def test_order_diagnostic_comparisons_are_bounded_for_large_window_list(self):
+        nodes=['window']+[f'other-{i}' for i in range(64)]
+        for node in nodes[1:]:self.tree[node]=dict(self.tree['window'],AXChildren=[])
+        calls=iter([nodes,list(reversed(nodes))]); comparisons=[]
+        def equal(a,b):
+            comparisons.append((a,b));return a==b
+        with self.assertRaisesRegex(WindowNotReady,'identities changed'):
+            require_window_ready('window',lambda:next(calls),self.read,equal)
+        self.assertLessEqual(len(comparisons),len(nodes)+1)
 
     def test_late_modal_change_is_rechecked(self):
         def read(node,name):

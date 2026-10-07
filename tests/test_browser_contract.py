@@ -30,6 +30,63 @@ class BrowserContract(unittest.TestCase):
         denied = d.act(obs['obs_id'], 'page', action)
         self.assertEqual(('target_changed','not_started'), (denied['error'],denied['effect']))
 
+    def test_readonly_values_remain_readable_without_offering_or_dispatching_edits(self):
+        from nlc.general import candidates
+        d = self.driver
+        d.goto("data:text/html,<input aria-label='immutable' value='fixed' readonly>"
+               "<input aria-label='editable' value='free'>")
+        obs = d.observe()
+        fields = {c['label']: c for c in candidates(obs['tree']) if c['role'] == 'textbox'}
+        self.assertIn('read', fields['immutable']['can'])
+        from nlc.flow import Selector
+        self.assertEqual('fixed', Selector._attr(fields['immutable']['line'], 'Value'))
+        self.assertNotIn('set_value', fields['immutable']['can'])
+        self.assertIn('set_value', fields['editable']['can'])
+        for name, parameter in (('set_value', {'value': 'changed'}),
+                                ('type_text', {'text': 'changed'})):
+            denied = d.act(obs['obs_id'], 'page', {
+                'name': name, 'element_index': fields['immutable']['element_index'], **parameter})
+            self.assertEqual(('target_not_editable', 'not_started'),
+                             (denied['error'], denied['effect']))
+        self.assertEqual('fixed', d._page.locator('[aria-label=immutable]').input_value())
+        changed = d.act(obs['obs_id'], 'page', {'name': 'set_value',
+            'element_index': fields['editable']['element_index'], 'value': 'changed'})
+        self.assertEqual('acted', changed['type'], changed)
+        self.assertEqual('changed', d._page.locator('[aria-label=editable]').input_value())
+
+    def test_editability_drift_is_refused_before_fill_or_keyboard_input(self):
+        d = self.driver
+        d.goto("data:text/html,<input aria-label='draft' value='original' "
+               "oninput='window.edits=(window.edits||0)+1'>")
+        obs = d.observe()
+        index = next(i for i, node in enumerate(d._latest['page']['nodes'])
+                     if node['role'] == 'textbox')
+        for attribute in ('readOnly', 'disabled'):
+            d._page.locator('input').evaluate(
+                '(el, attribute) => {el.readOnly=false;el.disabled=false;el[attribute]=true}', attribute)
+            for name, parameter in (('set_value', {'value': 'changed'}),
+                                    ('type_text', {'text': 'changed'})):
+                denied = d.act(obs['obs_id'], 'page', {'name': name,
+                    'element_index': index, **parameter})
+                self.assertEqual(('target_not_editable', 'not_started'),
+                                 (denied['error'], denied['effect']))
+        self.assertEqual('original', d._page.locator('input').input_value())
+        self.assertEqual(0, d._page.evaluate('window.edits || 0'))
+
+    def test_readonly_marker_is_state_without_truncating_or_reclassifying_literal_text(self):
+        from nlc.flow import Selector
+        from nlc.general import candidates
+        d = self.driver
+        d.goto("data:text/html,<input aria-label='immutable' value='literal [readonly] text [readonly]' readonly>"
+               "<input aria-label='literal [readonly]' value='editable [readonly]'>")
+        fields = {c['label']: c for c in candidates(d.observe()['tree']) if c['role'] == 'textbox'}
+        self.assertNotIn('set_value', fields['immutable']['can'])
+        self.assertEqual('literal [readonly] text [readonly]',
+                         Selector._attr(fields['immutable']['line'], 'Value'))
+        self.assertIn('set_value', fields['literal [readonly]']['can'])
+        self.assertEqual('editable [readonly]',
+                         Selector._attr(fields['literal [readonly]']['line'], 'Value'))
+
     def test_select_option_refuses_ambiguous_values_and_disabled_control(self):
         d = self.driver
         d.goto("data:text/html,<select aria-label='Account'><option value='a'>First</option><option value='a'>Second</option><option value='b'>Third</option></select>")

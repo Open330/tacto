@@ -20,6 +20,23 @@
 `isolated` 시나리오는 기본 전체 실행에서 제외하며, 하나의 이름을 지정해
 별도 런처 프로세스로 실행해야 한다. 다른 시나리오와 함께 선택하면 거절한다.
 
+소유 fixture supervisor와 연결하는 `native_coordinate_fixture`는
+`--coordinate-control DIRECTORY`를 받는다. 디렉터리는 저장소 `reviews` 안에
+이미 존재해야 하며 이 격리 시나리오 하나만 선택해야 한다. 창 준비는
+`--prepare-window`, 일반 계획 루프는 추가로 `--general-prepare`, 실제 모델은
+추가로 `--coordinate-model=codex|claude`를 지정한다. 모델 옵션은 실행 계획에
+`model` 요구사항을 추가하므로 `--offline`에서 실행되지 않는다.
+`--coordinate-abort`와 `--menu-unresponsive`는 준비 평가와 별도로 실행한다.
+옵션만으로 supervisor나 임의 앱을 실행하지 않는다.
+
+owned navigation/opaque 키·시각 입력 시나리오 하나에는 `--require-selection`을
+추가할 수 있다. 전경 요소의 numeric caret/selection 초기 관측이 없으면 새 fixture
+프로세스·입력·모델 호출 전에 중단한다. 자체 fixture 컴파일은 수행될 수 있다.
+요구 옵션은 `options.require_selection`에 기록하며, 생략한 과거 기본 감사는
+caret 검증으로 해석하지 않는다. 지원 시나리오와 실제 readiness 실패 범위는
+[입력 관측 문서](input-observation.md)에 있다. 실제 사용자의 동시 typing 검증은
+별도로 필요하다.
+
 ## 결과 형식
 
 `--report PATH`는 UTF-8 JSON을 원자적으로 저장한다. 부모 디렉터리는 미리
@@ -91,3 +108,32 @@ python examples/agent_acceptance.py --list           # 지금 상태에서 무�
 - 공급자가 에이전트를 돌리지 못하면(사용량 한도, 로그인) **NOT RUN** 으로 보고합니다 — 통과도 실패도 아닙니다.
   판정한 사례가 없으면 종료 코드 2 입니다.
 - 모델 토큰을 씁니다(사례당 약 1–2만).
+
+
+`flow_visual_fixed`, `flow_visual_codex`, `flow_visual_claude` are isolated
+signed-launcher scenarios on the owned opaque canvas. They round-trip a Flow
+containing a named host scope, require a confirmed receiving event and A1/B0
+counters, retain metadata, and reject changed or inconclusive sampled input
+state. Run each separately (`./launcher/nlc eval flow_visual_fixed`). Fixed uses
+local color detection; the other two use the bounded image-provider relay.
+These Flow trials are a separate cohort from standalone/general image tests
+and do not establish actual-app or public-SDK parity.
+
+
+`./launcher/nlc eval signed_opaque_input` and `python_opaque_input` each run one
+owned background canvas with no AX editable control. A host-authorized click
+selects its first responder; native window input then sends Right and three
+Unicode payloads (Korean/emoji, combining/ZWJ, and 64 UTF-16 units). Independent
+A/B counters and exact base64 text readback verify every pair. Missing approval
+and wrong focused window must refuse before input. Trials retain sampled user
+input observation and source hashes; they do not prove actual-user caret,
+concurrent typing, IME behavior, model autonomy or public-SDK parity.
+
+
+`visual_input_fixed`, `visual_input_codex`, `visual_input_claude` are isolated
+signed scenarios for host-registered Flow image key/text input on the owned
+opaque canvas. They require Right once then exact Korean/emoji text, independent
+receiving counts and content, two confirmed events, an untouched second window
+and sampled input-state preservation. Host preparation selects the receiving
+view first; these are separate from autonomous setup, actual-app/IME or SDK
+parity. Each model case uses the bounded image relay and retains call metadata.

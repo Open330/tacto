@@ -67,3 +67,45 @@ class AXDocumentAdapterTests(unittest.TestCase):
         with patch.object(self.adapter, '_process', return_value=(123, process)):
             with self.assertRaisesRegex(RuntimeError, 'launch identity'):
                 self.adapter.process_identity('com.apple.TextEdit')
+
+    def test_native_read_caps_timeout_and_resets_after_callback_exception(self):
+        calls = []
+        def configure(element, timeout):
+            calls.append((element, timeout))
+            return 0
+        element = object()
+        with patch.object(self.module, 'AXUIElementSetMessagingTimeout', side_effect=configure):
+            with self.assertRaisesRegex(RuntimeError, 'read failed'):
+                self.module._bounded_read(element, lambda: (_ for _ in ()).throw(RuntimeError('read failed')))
+        self.assertEqual(calls, [(element, .5), (element, 0)])
+
+    def test_failed_configuration_or_reset_never_returns_native_result(self):
+        for statuses, expected_calls in (([1], 0), ([0, 1], 1)):
+            callback = unittest.mock.Mock(return_value=(0, 'must not return'))
+            with patch.object(self.module, 'AXUIElementSetMessagingTimeout', side_effect=statuses):
+                with self.assertRaisesRegex(RuntimeError, 'timeout'):
+                    self.module._bounded_read(object(), callback)
+            self.assertEqual(callback.call_count, expected_calls)
+
+    def test_caller_interrupt_propagates_even_if_timeout_reset_fails(self):
+        for reset in (1, RuntimeError('reset failed')):
+            callback = unittest.mock.Mock(side_effect=KeyboardInterrupt())
+            with patch.object(self.module, 'AXUIElementSetMessagingTimeout', side_effect=[0, reset]) as configure:
+                with self.assertRaises(KeyboardInterrupt):
+                    self.module._bounded_read(object(), callback)
+            self.assertEqual(configure.call_count, 2)
+
+    def test_late_native_read_is_rejected_and_remaining_budget_sets_timeout(self):
+        from nlc.model_budget import model_deadline
+        clock = [10.0]
+        element = object()
+        def read():
+            clock[0] = 10.3
+            return (0, 'late')
+        with patch('nlc.model_budget.time.monotonic', side_effect=lambda: clock[0]), \
+                model_deadline(10.25), \
+                patch.object(self.module, 'AXUIElementSetMessagingTimeout', return_value=0) as configure:
+            with self.assertRaises(TimeoutError):
+                self.module._bounded_read(element, read)
+        self.assertEqual(configure.call_args_list[0].args, (element, .25))
+        self.assertEqual(configure.call_args_list[1].args, (element, 0))

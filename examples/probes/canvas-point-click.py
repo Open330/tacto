@@ -112,7 +112,23 @@ def _find_colour(png_path, wanted, tolerance=40):
 
 
 def main(driver, output: Path):
+    from nlc.input_audit_process import ProcessInputAudit
+    audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
+    try:
+        with audit:
+            report = _capture_and_click(driver, output)
+    except Exception as exc:
+        report = {'passed': False, 'error': type(exc).__name__ + ': ' + str(exc)}
+    report['input_audit'] = audit.report()
+    if report['input_audit']['status'] != 'UNCHANGED_SAMPLED':
+        report['passed'] = False
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    return report
+
+
+def _capture_and_click(driver, output: Path):
     import tempfile
+    import shutil
     from nlc.driver import Driver, _attr, _elem_frame
     from ApplicationServices import AXUIElementCreateApplication
 
@@ -123,6 +139,8 @@ def main(driver, output: Path):
     witness = None
     work = tempfile.mkdtemp(prefix='nlc-canvas-')
     try:
+        if Driver()._resolve(TARGET, launch=False) is not None:
+            raise RuntimeError('fixture already running; cannot claim ownership')
         binary = _fixture_app(work)
         process = subprocess.Popen([str(binary), '--timeout', '120'],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -135,7 +153,7 @@ def main(driver, output: Path):
             if pid is not None and _label(pid, 'nlc-canvas-hit') is not None:
                 break
             time.sleep(0.2)
-        if pid is None:
+        if pid != process.pid:
             raise RuntimeError('fixture_did_not_start')
         report['fixture_pid'] = pid
         # Armed before observe, capture and the click: the frontmost app at
@@ -215,9 +233,15 @@ def main(driver, output: Path):
     finally:
         if witness is not None:
             witness.__exit__(None, None, None)
-        output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
         if process is not None:
-            process.terminate()
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        shutil.rmtree(work)
 
 
 def _witness_focus():

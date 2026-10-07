@@ -91,7 +91,7 @@ class CliUnavailableTests(unittest.TestCase):
         done = subprocess.CompletedProcess([], code, stdout, stderr)
         with patch('nlc.authoring.shutil.which', return_value='/bin/codex'), \
              patch('nlc.authoring._run_provider', return_value=done):
-            return _try_cli('codex', 'q', 5)
+            return _try_cli('opencode', 'q', 5)
 
     def test_failed_run_is_named_when_a_person_can_fix_it(self):
         from nlc.provider_result import ProviderUnavailable

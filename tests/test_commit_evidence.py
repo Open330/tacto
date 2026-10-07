@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import unittest
 
 from nlc.commit_evidence import (ArtifactEvidence, DeliveryEvidence, CommitEvidence,
+                                  SavePanelCommitPreparation, save_panel_dispatch_parameters,
                                   make_event, evidence_error)
 from nlc.outcome import Check, OutcomeSpec, verify, DONE
 
@@ -12,6 +13,22 @@ HASH = hashlib.sha256(b'hello').hexdigest()
 
 
 class CommitEvidenceTests(unittest.TestCase):
+    def test_native_dispatch_attachment_binds_event_action_observation_and_effects(self):
+        from dataclasses import replace
+        event=make_event({'name':'click','element_index':3}, ['write_persistent'], 'editor', obs_id='o')
+        context=SavePanelCommitPreparation(event['event_id'], event['action_digest'], 'o', 'panel', object())
+        caps={'action.click.save_panel_guard'}
+        self.assertEqual(save_panel_dispatch_parameters(event,context,caps), {'save_panel_token':'panel'})
+        for changed in (replace(context,event_id='other'), replace(context,obs_id='old'),
+                        replace(context,action_digest='0'*64), replace(context,panel_token=True),
+                        replace(context,panel_token=''), replace(context,panel_token='x'*129)):
+            with self.assertRaises(ValueError): save_panel_dispatch_parameters(event,changed,caps)
+        with self.assertRaises(ValueError): save_panel_dispatch_parameters(event,context,set())
+        for patch in ({'target':'other'}, {'action':{'name':'click','element_index':4}},
+                      {'effects':['write_persistent','delete']}, {'obs_id':'other'}):
+            with self.assertRaises(ValueError): save_panel_dispatch_parameters({**event,**patch},context,caps)
+        self.assertEqual(save_panel_dispatch_parameters(event,{'panel_token':'model-claim'},caps), {})
+
     def event(self):
         return make_event({'name': 'click', 'element_index': 3}, ['transmit'], 'mail', 'confirmed')
 

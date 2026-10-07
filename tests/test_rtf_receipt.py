@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from nlc.artifact_receipt import ArtifactReceiptError
 from nlc.commit_evidence import make_event, evidence_error
-from nlc.rtf_receipt import FreshRTFReceipt
+from nlc.rtf_receipt import FreshRTFReceipt, _ReadbackPending
 
 
 class RTFReceiptTests(unittest.TestCase):
@@ -168,6 +168,96 @@ class RTFReceiptTests(unittest.TestCase):
         self.path.write_bytes(b'{\\rtf1 Hello}')
         with patch.object(adapter,'_decode',return_value='Hello'), self.assertRaises(ArtifactReceiptError):
             adapter.after_commit(self.event,self.response,context)
+
+    def fake_decoder(self, source):
+        original = subprocess.Popen
+        children = []
+        def start(argv, **kwargs):
+            child = original([sys.executable, '-c', source], **kwargs)
+            children.append(child)
+            return child
+        return start, children
+
+    def test_decoder_flood_stops_at_byte_limit_and_reaps_child(self):
+        adapter = self.receipt(timeout_seconds=2)
+        adapter._MAX_TEXT_BYTES = 65536
+        adapter._decode_deadline = adapter._clock() + 2
+        start, children = self.fake_decoder(
+            "import os\nwhile True: os.write(1, b'x'*65536)")
+        started = time.monotonic()
+        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=start):
+            with self.assertRaisesRegex(_ReadbackPending, 'byte budget'):
+                adapter._decode(b'{\\rtf1 Hello}')
+        self.assertLess(time.monotonic() - started, 1.5)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        self.assertTrue(children[0].stdin.closed)
+        self.assertTrue(children[0].stdout.closed)
+
+    def test_decoder_drains_output_while_feeding_large_input_and_accepts_exact_limit(self):
+        adapter = self.receipt(timeout_seconds=3)
+        adapter._MAX_TEXT_BYTES = 65536
+        adapter._decode_deadline = adapter._clock() + 3
+        # Writing before reading deliberately fills the stdout pipe. Sequential
+        # input/output handling deadlocks on the much larger stdin payload.
+        start, children = self.fake_decoder(
+            "import sys\nsys.stdout.buffer.write(b'x'*65536)\n"
+            "sys.stdout.buffer.flush()\nraw=sys.stdin.buffer.read()\n"
+            "sys.exit(0 if len(raw)==1048576 else 1)")
+        raw = b'{\\rtf1 ' + b'a' * (1048576 - 8) + b'}'
+        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=start):
+            self.assertEqual(adapter._decode(raw), 'x' * 65536)
+        self.assertEqual(children[0].returncode, 0)
+
+    @unittest.skipUnless(hasattr(os, 'fork'), 'POSIX process-group cleanup')
+    def test_decoder_exited_parent_with_descendant_pipe_times_out_and_reaps(self):
+        adapter = self.receipt(timeout_seconds=.15)
+        adapter._decode_deadline = adapter._clock() + .15
+        child_path = self.directory / 'decoder-child.pid'
+        start, children = self.fake_decoder(
+            "import os,time\nif os.fork()==0:\n"
+            f" with open({str(child_path)!r}, 'w') as f: f.write(str(os.getpid()))\n"
+            " time.sleep(20)\n"
+            "else: os._exit(0)")
+        def exited_parent(argv, **kwargs):
+            proc = start(argv, **kwargs)
+            # Establish the condition under test before the readback budget:
+            # interpreter startup (especially with tracemalloc) is not the
+            # exited-parent/retained-descendant-pipe condition.
+            proc.wait(timeout=3)
+            ready_deadline = time.monotonic() + 3
+            while not child_path.exists():
+                if time.monotonic() >= ready_deadline:
+                    raise AssertionError('decoder descendant did not start')
+                time.sleep(.005)
+            adapter._decode_deadline = adapter._clock() + .15
+            return proc
+        started = time.monotonic()
+        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=exited_parent):
+            with self.assertRaisesRegex(_ReadbackPending, 'deadline'):
+                adapter._decode(b'{\\rtf1 Hello}')
+        self.assertLess(time.monotonic() - started, 4)
+        self.assertEqual(children[0].returncode, 0)
+        descendant = int(child_path.read_text())
+        # An exited orphan can briefly remain a zombie until the OS reaps it;
+        # it must not keep running after the group's deadline cleanup.
+        status = subprocess.run(['/bin/ps', '-o', 'stat=', '-p', str(descendant)],
+                                capture_output=True, text=True, timeout=1)
+        self.assertTrue(not status.stdout.strip() or
+                        status.stdout.strip().startswith('Z'), status.stdout)
+
+    def test_decoder_interruption_closes_pipes_and_reaps(self):
+        adapter = self.receipt(timeout_seconds=2)
+        adapter._decode_deadline = adapter._clock() + 2
+        start, children = self.fake_decoder('import time;time.sleep(20)')
+        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=start), \
+                patch('nlc.rtf_receipt.selectors.DefaultSelector.select',
+                      side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                adapter._decode(b'{\\rtf1 Hello}')
+        self.assertIsNotNone(children[0].returncode)
+        self.assertTrue(children[0].stdin.closed)
+        self.assertTrue(children[0].stdout.closed)
 
     def xattr(self, value):
         name='com.nlc.receipt-test' if sys.platform=='darwin' else 'user.nlc_receipt_test'

@@ -58,9 +58,17 @@ def require_window_ready(window, windows, read, equal, *, array_types=(list, tup
                 raise WindowNotReady('window readiness traversal budget exceeded')
             stack.extend((child, depth + 1) for child in reversed(children))
     after = windows()
-    if not isinstance(after, array_types) or len(after) != len(before) or any(
-            not equal(a, b) for a, b in zip(before, after)):
+    if not isinstance(after, array_types) or len(after) != len(before):
         raise WindowNotReady('application windows changed during validation')
+    if any(not equal(a, b) for a, b in zip(before, after)):
+        # Diagnostics only: reordered identity lists remain refused. Bound the
+        # native identity comparisons and never expose titles or document paths.
+        same_unique_identities = len(before) <= 64 and all(
+            sum(bool(equal(a, b)) for b in after) == 1 for a in before) and all(
+            sum(bool(equal(a, b)) for a in before) == 1 for b in after)
+        if same_unique_identities:
+            raise WindowNotReady('application window order changed during validation')
+        raise WindowNotReady('application window identities changed during validation')
     if value(window, 'AXMinimized') is not False or any(value(w, 'AXModal') is not False for w in before):
         raise WindowNotReady('window became minimized or modal during validation')
     return True

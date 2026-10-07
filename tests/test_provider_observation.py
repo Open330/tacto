@@ -6,6 +6,42 @@ from nlc.ask import Q, ask
 
 
 class ProviderObservationTests(unittest.TestCase):
+    def test_latest_failure_reason_uses_closed_codes_and_never_old_or_raw_messages(self):
+        from nlc.provider_observation import provider_failure_reason
+        failed = {'status': 'error', 'error': {'code': 'RuntimeError', 'message': 'PRIVATE'},
+                  'attempts': [{'error_code': 'ClaudeProtocolError_model_refusal'}]}
+        self.assertEqual('모델이 요청을 거절하여 작업을 중단했습니다', provider_failure_reason([failed]))
+        self.assertIsNone(provider_failure_reason([failed, {'status': 'ok'}]))
+        self.assertIsNone(provider_failure_reason([{**failed, 'attempts': [{'error_code': 'PRIVATE'}]}]))
+        self.assertIsNone(provider_failure_reason([{**failed, 'status': 'timeout'}]))
+        self.assertIsNone(provider_failure_reason([]))
+
+    def test_general_reports_explicit_provider_refusal_and_sends_no_input(self):
+        from nlc.general import run
+        from nlc.provider_result import ProviderResult, ProviderError
+        class App:
+            inputs = 0
+            def observe(self, *args, **kwargs):
+                return {'type': 'observation', 'obs_id': 'o',
+                        'tree': '0 Window Title: Test\n  1 StaticText Value: ready, Identifier: status'}
+            def act(self, *args, **kwargs):
+                self.inputs += 1
+                raise AssertionError('no input after refusal')
+        app = App()
+        failed = ProviderResult('request', 'claude', 'claude', 'cli-json', 'error', None,
+                               ProviderError('ClaudeProtocolError_model_refusal', 'PRIVATE'), .1)
+        def planner(*args):
+            return ask(Q('step', 'q', lambda obj: obj), provider='claude')
+        with patch('nlc.helper.InheritedHelperDriver.available', return_value=False), \
+             patch('nlc.authoring._try_cli', return_value=failed) as invoke:
+            result = run(app, 'fixture', 'read', planner)
+        self.assertFalse(result.ok)
+        self.assertEqual('모델이 요청을 거절하여 작업을 중단했습니다', result.why)
+        self.assertEqual(0, app.inputs)
+        self.assertEqual(1, len(result.provider_calls))
+        self.assertNotIn('PRIVATE', result.why)
+        invoke.assert_called_once()
+
     def test_existing_planner_text_path_calls_provider_once_without_text_in_log(self):
         with patch('nlc.helper.InheritedHelperDriver.available',return_value=False), \
              patch('nlc.authoring._try_muxa',return_value='{"answer":"PRIVATE"}') as provider:

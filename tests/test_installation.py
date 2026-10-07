@@ -24,6 +24,7 @@ class BlockNative(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, BlockNative())
 import nlc.agent, nlc.ask, nlc.browser, nlc.cli, nlc.flow, nlc.general
 import nlc.outcome, nlc.protocol, nlc.trace
+import nlc.native_visual, nlc.native_visual_actions, nlc.provider_images, nlc.general_visual, nlc.visual_replay, nlc.native_window_payload
 assert not any(name in sys.modules for name in ('ApplicationServices','Quartz','AppKit'))
 '''
 
@@ -144,7 +145,7 @@ class InstallationTests(unittest.TestCase):
                      'assert s.list() == []'], env=env)
             result = subprocess.run([str(executable), 'eval', '--offline'], cwd=work,
                                     capture_output=True, text=True, timeout=20)
-            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertIn('소스 checkout', result.stdout)
             self.assertNotIn('Traceback', result.stderr)
 

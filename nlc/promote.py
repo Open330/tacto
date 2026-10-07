@@ -61,8 +61,10 @@ class Candidate:
         return (self.target == other.target
                 and self.target_identity == other.target_identity
                 and self.screens == other.screens
-                and [(a["do"], a["match"]) for a in self.actions]
-                    == [(b["do"], b["match"]) for b in other.actions])
+                and [(a["do"], a["match"], a.get('key') if a['do']=='press_key' else None,
+                      a.get('window_key_bound') if a['do']=='press_key' else None) for a in self.actions]
+                    == [(b["do"], b["match"], b.get('key') if b['do']=='press_key' else None,
+                         b.get('window_key_bound') if b['do']=='press_key' else None) for b in other.actions])
 
 
 def candidate_from(result, target: str, goal: str, quote: str = "",
@@ -73,6 +75,8 @@ def candidate_from(result, target: str, goal: str, quote: str = "",
     A run that did not reach a verified end proposes nothing: the first thing a
     recipe has to be is a path that is known to arrive.
     """
+    if getattr(result, 'visual_used', False):
+        return None  # A pixel plan needs fresh image reasoning, not an AX selector replay.
     if not (result.ok and result.verified) or getattr(result, "identity_changed", False):
         return None
     actions = [a for v in result.visits for a in v.actions if a.get("match")]
@@ -188,7 +192,8 @@ def parameters(c: Candidate) -> dict:
 # ------------------------------------------------------------------ flow
 
 def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondition] | None = None,
-            preparation_postconditions: dict[int, Postcondition] | None = None) -> Flow:
+            preparation_postconditions: dict[int, Postcondition] | None = None,
+            navigation_postconditions: dict[int, Postcondition] | None = None) -> Flow:
     """The candidate as a concrete Flow — every step contracted and bound.
 
     Concrete on purpose. A template is a claim that some of this varies, and
@@ -229,7 +234,8 @@ def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondi
                     if a["do"] == "read" else [])
         steps.append(Step(
             a["do"], sel,
-            postcondition=(preparation_postconditions or {}).get(index) if a["do"] == "prepare_window" else None,
+            postcondition=((preparation_postconditions or {}).get(index) if a["do"] == "prepare_window"
+                           else (navigation_postconditions or {}).get(index) if a["do"] == "press_key" else None),
             params=params,
             intent_text=a.get("label", a["match"]),
             safety=env.contract_for(effects, a.get("label", a["match"])),
@@ -309,9 +315,27 @@ def gate(c: Candidate, flow: Flow, request: str, lifted=frozenset()) -> list[str
                 " > ".join(x for x in st.params.get("path", []) if isinstance(x,str)),target=c.target)
             if st.safety is not None and not actual <= set(st.safety.effects):
                 why.append(f"{i}번 메뉴의 실제 효과가 계약에 포함되지 않았습니다")
-        if st.action == "press_key" and (st.selector is not None or
-                                         (st.postcondition is None and st.expect is None)):
-            why.append(f"{i}번 탐색 키의 포커스와 실행 결과를 재생 계약에 고정하지 못했습니다")
+        if st.action == "press_key":
+            from .protocol import NAVIGATION_KEYS
+            recorded = c.actions[i] if i < len(c.actions) else {}
+            post = st.postcondition
+            anchor = {'Identifier':'identifier', 'Title':'title', 'Description':'desc'}.get(recorded.get('attr'))
+            expected = (Selector(role=recorded.get('role'), **{anchor:recorded.get('match')},
+                                 ancestor=recorded.get('container') or None) if anchor else None)
+            if (recorded.get('window_key_bound') is not True or recorded.get('do') != 'press_key'
+                    or type(st.params.get('key')) is not str or st.params['key'] not in NAVIGATION_KEYS - {'Escape'}
+                    or st.params != {'key': recorded.get('key')}
+                    or expected is None or st.selector != expected
+                    or st.binding is None or st.binding.operation != 'press_key'
+                    or st.binding.params_digest != pin_params(st.params)
+                    or st.binding.bundle_id != (c.target_identity or c.target)
+                    or st.binding.role != expected.role or st.binding.identifier != expected.identifier
+                    or st.binding.title != expected.title or st.binding.desc != expected.desc
+                    or st.binding.ancestor != expected.ancestor
+                    or not isinstance(post, Postcondition) or post.field is None or post.attribute is None
+                    or (post.equals is None and post.contains is None) or st.unverified_ok
+                    or st.safety is None or set(st.safety.effects) != {'write_ephemeral'}):
+                why.append(f"{i}번 탐색 키의 관측 입력 포커스와 결과 조건을 재생 계약에 고정하지 못했습니다")
         if st.safety is None:
             why.append(f"{i}번 단계에 계약이 없습니다")
             continue
@@ -388,14 +412,17 @@ def counterexamples(c: Candidate, flow: Flow, request: str) -> list[tuple]:
 
 def deployable(c: Candidate, name: str, request: str, *,
                menu_postconditions: dict[int, Postcondition] | None = None,
-               preparation_postconditions: dict[int, Postcondition] | None = None) -> tuple[Flow | None, list]:
+               preparation_postconditions: dict[int, Postcondition] | None = None,
+               navigation_postconditions: dict[int, Postcondition] | None = None) -> tuple[Flow | None, list]:
     """The whole decision: a recipe, or every reason there is not one.
 
     The counterexamples run against the same gate. If a knowingly broken
     version passes, the gate measured nothing and nothing is deployed —
     including the version that looked fine.
     """
-    flow = to_flow(c, name, menu_postconditions=menu_postconditions, preparation_postconditions=preparation_postconditions)
+    flow = to_flow(c, name, menu_postconditions=menu_postconditions,
+                   preparation_postconditions=preparation_postconditions,
+                   navigation_postconditions=navigation_postconditions)
     replayable, lifted = lift_screen_values(c, flow, request)
     why = gate(c, flow, request, lifted)
     if why:

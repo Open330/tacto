@@ -12,7 +12,7 @@ from nlc.textedit_receipt import make_textedit_receipt, TextEditReceiptUnavailab
 
 
 class SnapshotDriver:
-    capabilities = {'evidence.document_snapshot'}
+    capabilities = {'evidence.document_snapshot', 'action.click.save_panel_guard'}
 
     def __init__(self, path, text='한글'):
         self.path = path
@@ -22,7 +22,7 @@ class SnapshotDriver:
         self.calls = []
         self.dispatches = 0
         self.after_patch = {}
-        self.panel = dict(document_token='window-1', directory=str(path.parent),
+        self.panel = dict(panel_token='panel-1', document_token='window-1', directory=str(path.parent),
                           filename=path.name, format='rtf',
                           commit_control={'obs_id': 'o', 'enabled': True,
                                           'action': {'name': 'click', 'element_index': 0}})
@@ -40,6 +40,9 @@ class SnapshotDriver:
         return {'type': 'observation', 'obs_id': 'o', 'tree': '0 Button Title: Save'}
 
     def act(self, *args, **kwargs):
+        if (kwargs.get('save_panel_token') != self.panel['panel_token']
+                or kwargs.get('approved') is not True):
+            return {'type':'error', 'error':'save_panel_guard_unavailable', 'effect':'not_started'}
         self.dispatches += 1
         raw = b'{\\rtf1\\ansi\\uc1 \\u54620?\\u44544?}' if self.snapshot['text'] else b'{\\rtf1\\ansi }'
         self.path.write_bytes(raw)
@@ -78,9 +81,9 @@ class TextEditReceiptTests(unittest.TestCase):
                       commit_expected=adapter.commit_expected)
 
     def test_capability_is_required_without_backend_fallback(self):
-        self.driver.capabilities = set()
-        with self.assertRaises(TextEditReceiptUnavailable):
-            self.adapter()
+        for caps in (set(), {'evidence.document_snapshot'}, {'action.click.save_panel_guard'}):
+            self.driver.capabilities = caps
+            with self.assertRaises(TextEditReceiptUnavailable): self.adapter()
         self.assertEqual(self.driver.calls, [])
 
     def test_initial_snapshot_requires_complete_supported_exact_contract(self):
@@ -124,6 +127,8 @@ class TextEditReceiptTests(unittest.TestCase):
     def test_save_panel_must_match_pinned_document_directory_name_and_format(self):
         expected = dict(self.driver.panel)
         cases = [None, {}, {**expected, 'document_token': 'other-document'},
+                 {**expected, 'panel_token': None}, {**expected, 'panel_token': True},
+                 {**expected, 'panel_token': 'x'*129},
                  {**expected, 'directory': str(self.home / 'other' / 'Downloads')},
                  {**expected, 'filename': 'other.rtf'}, {**expected, 'format': 'text'}]
         for panel in cases:
@@ -137,6 +142,61 @@ class TextEditReceiptTests(unittest.TestCase):
                 self.assertEqual(result.events, [])
                 self.assertEqual(result.log[-1]['detail']['effect'], 'not_started')
                 self.assertFalse(self.path.exists())
+
+    def test_native_guard_refusal_after_host_prepare_never_writes_or_retries(self):
+        adapter=self.adapter()
+        def refuse(*args, **kwargs):
+            self.assertEqual(kwargs['save_panel_token'], 'panel-1')
+            self.assertIs(kwargs['approved'], True)
+            self.driver.dispatches += 1
+            return {'type':'error','error':'save_panel_guard_unavailable','effect':'not_started'}
+        self.driver.act=refuse
+        result=self.run_save(adapter)
+        self.assertFalse(result.ok)
+        self.assertEqual(self.driver.dispatches, 1)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(result.events, [])
+
+    def test_forged_prepared_event_refuses_before_native_dispatch(self):
+        from dataclasses import replace
+        adapter=self.adapter()
+        # Preserve the original callback while replay calls the forged one.
+        original=adapter.prepare_commit
+        adapter.prepare_commit=lambda event: replace(original(event), event_id='foreign-event')
+        result=self.run_save(adapter)
+        self.assertFalse(result.ok)
+        self.assertEqual(self.driver.dispatches,0)
+        self.assertFalse(self.path.exists())
+        self.assertEqual(result.events,[])
+
+    @unittest.skipUnless(Path('/usr/bin/textutil').is_file(),'macOS textutil decoder')
+    def test_uncertain_save_with_changed_document_never_confirms_or_retries(self):
+        adapter=self.adapter()
+        original=self.driver.act
+        def uncertain(*args,**kwargs):
+            original(*args,**kwargs)
+            self.driver.snapshot['text']='changed after dispatch'
+            return {'type':'acted','unverified':'cannot_complete'}
+        self.driver.act=uncertain
+        result=self.run_save(adapter)
+        self.assertFalse(result.ok)
+        self.assertEqual(self.driver.dispatches,1)
+        self.assertEqual(result.events[0]['state'],'unknown')
+        self.assertEqual(result.commit_evidence,{})
+
+    @unittest.skipUnless(Path('/usr/bin/textutil').is_file(),'macOS textutil decoder')
+    def test_uncertain_save_resolves_only_through_exact_host_readback_without_retry(self):
+        adapter=self.adapter()
+        original=self.driver.act
+        def uncertain(*args, **kwargs):
+            original(*args, **kwargs)
+            return {'type':'acted','unverified':'cannot_complete'}
+        self.driver.act=uncertain
+        result=self.run_save(adapter)
+        self.assertTrue(result.ok, result.log)
+        self.assertEqual(self.driver.dispatches, 1)
+        self.assertEqual(result.events[0]['state'], 'confirmed')
+        self.assertEqual(len(result.commit_evidence), 1)
 
     def test_wrong_action_or_observation_cannot_prepare_a_save(self):
         cases = [({'name': 'click', 'element_index': 999}, 'o'),

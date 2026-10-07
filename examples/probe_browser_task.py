@@ -26,8 +26,7 @@ def main():
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
-    from nlc.ask import what_to_do_here
-    from nlc.authoring import _ask_model, _extract_json
+    from nlc.ask import ask, what_to_do_here
     from nlc.browser import BrowserDriver
     from nlc.general import run
 
@@ -41,9 +40,8 @@ def main():
         emit('model_call', number=calls, candidates=len(candidates))
         question = what_to_do_here(goal, candidates, done)
         try:
-            raw = _extract_json(_ask_model(question.prompt, args.provider,
-                                          timeout=args.timeout, expect_json=True))
-            answer = question.check(raw) if isinstance(raw, dict) else None
+            answer = ask(question, provider=args.provider, timeout_seconds=args.timeout,
+                         validation_retries=1)
         except Exception as exc:
             emit('model_error', detail=str(exc))
             answer = None
@@ -61,7 +59,8 @@ def main():
         passed = result.ok and actual == 'NLC-2026-confirmed' and actual in result.said
         emit('result', passed=passed, loop_ok=result.ok, why=result.why,
              said=result.said, dom_result=actual, model_calls=calls,
-             seconds=round(time.monotonic() - started, 2), provider=args.provider)
+             seconds=round(time.monotonic() - started, 2), provider_calls=result.provider_calls,
+             requested_provider=args.provider)
         return 0 if passed else 1
     finally:
         driver.close()

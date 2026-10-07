@@ -204,6 +204,48 @@ def _promote_decisions(rec: dict, flow, provider: str, taken_names=frozenset()):
     return decided
 
 
+def _load_recipe(name: str):
+    """A recipe by name — a built-in always from the code, never a stale copy.
+
+    `nlc do` already worked this way; `nlc replay` and `nlc show` read the
+    saved copy, and the one in flows/ for textedit_write_note dated from
+    2026-09-16 and declared `write_ephemeral` where the code now says
+    `write_persistent`, so every replay was refused as a contract mismatch —
+    the very recipe the skill points agents to (2026-10-07).
+    """
+    from .library import builders
+    build = builders().get(name)
+    return build() if build is not None else FlowStore().load(name)
+
+
+def focused_window_view(tree: str) -> str:
+    """The window being worked on, and only the titles of the others.
+
+    An agent reads this on every step. Printing every window cost NLC twice
+    Sky's tokens on the same TextEdit task — 182 lines across 4 windows per
+    look, three of them unrelated documents (2026-10-07). Element indices are
+    unchanged, so nothing that refers to them breaks; `--all-windows` prints
+    everything.
+    """
+    blocks, current = [], None
+    for line in tree.splitlines():
+        if line and not line[0].isspace():
+            current = [line]
+            blocks.append(current)
+        elif current is not None:
+            current.append(line)
+    if len(blocks) <= 1:
+        return tree
+    keep = next((b for b in blocks if "[focused]" in b[0]), blocks[0])
+    others = [b[0] for b in blocks if b is not keep]
+    names = []
+    for head in others:
+        m = re.search(r"Title: (.*?)(?:, \w+:|\s*\[|$)", head)
+        names.append(m.group(1) if m else head.split()[1] if len(head.split()) > 1 else "?")
+    return ("\n".join(keep) + f"\n… 다른 창 {len(others)}개: " + ", ".join(names[:8])
+            + (" …" if len(names) > 8 else "") + "  (모두 보려면 --all-windows)")
+
+
 def _same_steps(a, b) -> bool:
     """Do two flows run the same actions against the same elements?"""
     def shape(flow):
@@ -325,7 +367,17 @@ def _run_flow(flow, argv, walked: bool = False):
                           else "; ".join(f"{k}: {v}" for k, v in captured.items()))
         print("done" + (f" — 결과: {shown}" if shown else ""))
     else:
-        print(f"failed: {result.log[-1]}")
+        last = result.log[-1] if result.log else {}
+        if last.get("error") == "commit_unverified" and last.get("effect") == "unknown":
+            # Not "it failed": the input was sent, and nothing can prove it
+            # was KEPT — an unsaved document has no file to read back. Said
+            # plainly, because the raw record sent an agent round three more
+            # times looking for what went wrong (2026-10-07).
+            print("unverified — 입력은 보냈지만 저장된 파일이 없어 확인 영수증이 없습니다 "
+                  "(저장하지 않은 문서라면 정상). 내용은 `nlc observe <앱>` 으로 확인하세요.\n"
+                  f"  detail: {last}")
+        else:
+            print(f"failed: {last}")
     return 0 if result.ok else 1
 
 
@@ -335,6 +387,17 @@ def main(argv=None):
         print(__doc__)
         return 0
     cmd, *rest = argv
+
+    # Wheels do not include source-only evaluator fixtures. Report that before
+    # importing native GUI dependencies, which an isolated install may lack.
+    if cmd == "eval":
+        import os as _os
+        evaluator = _os.path.join(_os.path.dirname(_os.path.dirname(
+            _os.path.abspath(__file__))), "examples", "eval.py")
+        if not _os.path.isfile(evaluator):
+            print("평가 fixture는 wheel에 포함되지 않습니다. 소스 checkout에서 "
+                  "examples/eval.py를 실행하세요.")
+            return 2
 
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
@@ -347,10 +410,17 @@ def main(argv=None):
         # Hold the display awake for as long as this command runs. Only `do`
         # did, but an agent drives NLC one command at a time — observe, run,
         # replay — and with this Mac's 3-minute screensaver lock the screen
-        # locked in the middle of its work (2026-09-28). `caffeinate -w` ends
-        # with this process, so nothing outlives the command.
+        # locked in the middle of its work (2026-09-28). Release the assertion
+        # when this invocation ends, even when main is called in a long-lived
+        # process or command dispatch raises. -w also covers abrupt exit.
         from .session import KeepAwake
-        KeepAwake().__enter__()
+        with KeepAwake():
+            return _dispatch(cmd, rest)
+
+    return _dispatch(cmd, rest)
+
+
+def _dispatch(cmd, rest):
 
     if cmd == "doctor":
         from . import onboard
@@ -378,8 +448,10 @@ def main(argv=None):
         return 0
 
     if cmd == "apps":
-        from .driver import Driver
-        r = Driver().list_targets()
+        r = _make_driver(rest).list_targets()
+        if r.get("type") == "error":
+            print(f"{r.get('error')}: {r.get('detail', '')}")
+            return 1
         if not r["apps"]:
             print("화면(GUI) 세션에 연결돼 있지 않습니다 — tmux 밖에서 실행하거나 "
                   "reattach-to-user-namespace 를 쓰세요.")
@@ -389,22 +461,22 @@ def main(argv=None):
         return 0
 
     if cmd == "observe":
-        if not rest:
-            print("usage: observe <bundle-id>")
+        targets = [value for value in rest if value not in ("--helper", "--all-windows")]
+        if len(targets) != 1 or targets[0].startswith("-"):
+            print("usage: observe <bundle-id> [--helper] [--all-windows]")
             return 2
-        from .driver import Driver
-        o = Driver().observe(rest[0], "tree_full")
+        o = _make_driver(rest).observe(targets[0], "tree_full")
         if o["type"] != "observation":
             print(f"{o.get('error')}: {o.get('detail','')}")
             return 1
-        print(o["tree"])
+        print(o["tree"] if "--all-windows" in rest else focused_window_view(o["tree"]))
         return 0
 
     if cmd == "show":
         if not rest:
             print("usage: show <flow-name>")
             return 2
-        print(FlowStore().load(rest[0]).to_json())
+        print(_load_recipe(rest[0]).to_json())
         return 0
 
     if cmd == "candidates":
@@ -620,9 +692,12 @@ def main(argv=None):
         # Execute a Flow IR straight from a file — skips intent resolution
         # entirely, which is what you want for scripting/CI.
         params, rest = _params_from(rest)
-        if not rest:
-            print('usage: run <flow.json> [-p a=12 -p b=34]')
-            return 2
+        if not rest or rest[0] in ("--help", "-h", "help"):
+            # `--help` used to be opened as a file and crash with
+            # FileNotFoundError — the first thing an agent tries (2026-10-07).
+            print('usage: run <flow.json> [-p a=12 -p b=34] [--helper] [--yes] [--think N]\n'
+                  '  built-in recipes: nlc list · nlc show <name> · nlc replay <name> -p key=value')
+            return 2 if not rest else 0
         from .flow import Flow as _F, replay as _replay
         with open(rest[0], encoding="utf-8") as fh:
             flow = _F.from_json(fh.read())
@@ -635,9 +710,11 @@ def main(argv=None):
         if not rest:
             print("usage: replay <name>"); return 2
         params, rest = _params_from(rest)
-        if not rest:
-            print("usage: replay <name> [-p a=12 -p b=34]"); return 2
-        flow = FlowStore().load(rest[0])
+        if not rest or rest[0] in ("--help", "-h", "help"):
+            print("usage: replay <name> [-p a=12 -p b=34] [--helper] [--yes] [--think N]\n"
+                  "  names: nlc list · inputs and steps: nlc show <name>")
+            return 2 if not rest else 0
+        flow = _load_recipe(rest[0])
         walked = bool(flow.intents)      # binding drops it; decide first
         if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)
@@ -662,7 +739,7 @@ def main(argv=None):
         if not onboard.run(interactive=False, narrate=lambda s: None):
             print("먼저 권한이 필요해요:  python -m nlc.cli doctor")
             return 1
-        from .session import preflight, KeepAwake
+        from .session import preflight
         pf = preflight()
         if pf["verdict"] == "session_locked":
             print("화면이 잠겨 있어요. 잠금을 풀어주시면 바로 이어서 할게요.")
@@ -810,7 +887,7 @@ def main(argv=None):
                 guess = builders()[hit.name]().target
         except Exception:
             guess = None
-        with KeepAwake(), _indicator_for(guess or "", rest):
+        with _indicator_for(guess or "", rest):
             turn = agent.handle(intent, ask=_confirmer(rest), think=think)
         if tracer is not None:
             tracer.trace.flow = turn.flow or "(unresolved)"

@@ -9,9 +9,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import signal
+import selectors
 import stat
 import subprocess
 import threading
+import time
 
 from .artifact_receipt import ArtifactReceiptError, FreshFileReceipt
 
@@ -89,20 +91,74 @@ class FreshRTFReceipt(FreshFileReceipt):
         with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL, start_new_session=True) as proc:
             try:
-                output, _ = proc.communicate(input=raw, timeout=remaining)
-            except subprocess.TimeoutExpired:
+                output = self._decode_stream(proc, raw, remaining)
+            finally:
+                # Also cover descendants retaining a pipe after the decoder
+                # exits, output overflow, cancellation, and unexpected errors.
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 proc.wait()
-                raise _ReadbackPending('RTF decoding exceeded deadline') from None
         if proc.returncode != 0 or len(output) > self._MAX_TEXT_BYTES:
             raise _ReadbackPending('RTF decoder did not return bounded text')
         try:
             return output.decode('utf-8')
         except UnicodeDecodeError:
             raise _ReadbackPending('RTF decoder returned invalid UTF-8') from None
+
+    def _decode_stream(self, proc, raw, remaining):
+        """Feed and drain concurrently without buffering unbounded stdout."""
+        deadline = time.monotonic() + remaining
+        output = bytearray()
+        pending = memoryview(raw)
+
+        def budget():
+            left = min(deadline - time.monotonic(),
+                       self._decode_deadline - self._clock())
+            if left <= 0:
+                raise _ReadbackPending('RTF decoding exceeded deadline')
+            return left
+
+        with selectors.DefaultSelector() as ready:
+            for stream, event in ((proc.stdin, selectors.EVENT_WRITE),
+                                  (proc.stdout, selectors.EVENT_READ)):
+                os.set_blocking(stream.fileno(), False)
+                ready.register(stream, event)
+            while ready.get_map():
+                events = ready.select(budget())
+                for key, _ in events:
+                    budget()
+                    if key.fileobj is proc.stdin:
+                        try:
+                            written = os.write(key.fd, pending[:65536])
+                            pending = pending[written:]
+                        except BlockingIOError:
+                            continue
+                        except BrokenPipeError:
+                            pending = pending[len(pending):]
+                        if not pending:
+                            ready.unregister(proc.stdin)
+                            proc.stdin.close()
+                    else:
+                        try:
+                            chunk = os.read(key.fd, min(65536,
+                                self._MAX_TEXT_BYTES + 1 - len(output)))
+                        except BlockingIOError:
+                            continue
+                        if not chunk:
+                            ready.unregister(proc.stdout)
+                            proc.stdout.close()
+                        else:
+                            output.extend(chunk)
+                            if len(output) > self._MAX_TEXT_BYTES:
+                                raise _ReadbackPending('RTF decoder exceeded text byte budget')
+            try:
+                proc.wait(timeout=budget())
+            except subprocess.TimeoutExpired:
+                raise _ReadbackPending('RTF decoding exceeded deadline') from None
+            budget()
+        return bytes(output)
 
     @staticmethod
     def _file_id(info):

@@ -162,7 +162,8 @@ class BrowserDriver:
                 "name": node.get("name", {}).get("value", ""),
                 "value": node.get("value", {}).get("value"),
                 "backendId": node.get("backendDOMNodeId"),
-                "disabled": props.get("disabled", False)}
+                "disabled": props.get("disabled", False),
+                "readonly": props.get("readonly") is True}
         if result["role"] in ("combobox", "listbox"):
             handle = None
             try:
@@ -203,6 +204,7 @@ class BrowserDriver:
         name = str(node.get("name", "")).replace("\n", " ")
         value = node.get("value")
         return (f"{'  '*depth}{idx} {node['role']}" +
+                (" [readonly]" if node.get("readonly") else "") +
                 (f"  Title: {name}" if name else "") +
                 (f", Value: {str(value).replace(chr(10), ' ')}" if value is not None else "") +
                 (" [disabled]" if node.get("disabled") else ""))
@@ -448,6 +450,10 @@ class BrowserDriver:
             elif name in ("click", "set_value", "type_text", "scroll", "secondary_action"):
                 node = cur["nodes"][action["element_index"]]
                 loc = self._locator(node)
+                if name in ("set_value", "type_text") and (
+                        node.get("readonly") or not loc.is_editable()):
+                    return {"type": "error", "error": "target_not_editable",
+                            "effect": "not_started"}
                 dispatched = True
                 if name == "click":
                     loc.click(timeout=4000)

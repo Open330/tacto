@@ -81,6 +81,8 @@ print("SWIFT_WINDOW_INPUT_PASS")
         source = (ROOT/'helper/NLCHelper.swift').read_text()
         function = 'func prepareWindow(' + source.split('func prepareWindow(', 1)[1]
         function = function.split('\n}\n', 1)[0] + '\n}\n'
+        function = function.replace('AXUIElementIsAttributeSettable(', 'fakeSettable(')
+        function = function.replace('AXUIElementSetAttributeValue(', 'fakeWrite(')
         harness = '''
 import Foundation
 import ApplicationServices
@@ -91,18 +93,38 @@ var latestTargetPID: pid_t = 1
 var frontmost = true
 var minimized = false
 var writes = 0
+var changeDuringRead = false
+var changeAfterWrite = false
+var writeError = false
+var backgroundCalls = 0
+func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
+                             _ pid: pid_t, deadline: Double) -> [String: Any] {
+    backgroundCalls += 1
+    return ["type":"acted", "input_route":"window_prepare", "unverified":"observe_effect"]
+}
 func processForWindowTarget(_ target: String) -> pid_t? { 1 }
 func isFrontmost(pid p: pid_t) -> Bool { frontmost }
 func attr(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
     if name == "AXMinimized" { return (minimized ? kCFBooleanTrue : kCFBooleanFalse) }
     return kCFBooleanTrue
 }
-func AXUIElementIsAttributeSettableShim() {}
+func fakeSettable(_ element: AXUIElement, _ name: CFString,
+                  _ value: UnsafeMutablePointer<DarwinBoolean>) -> AXError {
+    value.pointee = true
+    if changeDuringRead { frontmost = false }
+    return .success
+}
+func fakeWrite(_ element: AXUIElement, _ name: CFString, _ value: CFTypeRef) -> AXError {
+    writes += 1
+    if changeAfterWrite { frontmost = false }
+    return writeError ? .cannotComplete : .success
+}
 ''' + function + '''
 let element = AXUIElementCreateApplication(1)
 func refusalFor(_ setup: () -> Void) -> [String: Any] {
     abortState.isStopped = false; latestObsID = "test"; latestTargetPID = 1
     frontmost = true; minimized = false
+    writes = 0; changeDuringRead = false; changeAfterWrite = false; writeError = false
     setup()
     return prepareWindow("test", "fixture", element, 1,
                          deadline: ProcessInfo.processInfo.systemUptime + 10)
@@ -111,7 +133,6 @@ let cases: [(String, () -> Void)] = [
     ("stopped", { abortState.isStopped = true }),
     ("stale observation", { latestObsID = "other" }),
     ("other target", { latestTargetPID = 2 }),
-    ("background", { frontmost = false }),
     ("minimised", { minimized = true }),
 ]
 for (name, setup) in cases {
@@ -121,10 +142,10 @@ for (name, setup) in cases {
         fatalError("not refused before writing: " + name + " -> " + String(describing: out))
     }
 }
-// Only the background case may claim it needs the front.
+// Background is delegated; this test covers the foreground AX branch.
 let background = refusalFor({ frontmost = false })
-guard (background["needs_foreground"] as? Bool) == true else {
-    fatalError("a background refusal must say so")
+guard (background["type"] as? String) == "acted", backgroundCalls == 1, writes == 0 else {
+    fatalError("background preparation was not delegated without AX writes")
 }
 let stopped = refusalFor({ abortState.isStopped = true })
 guard stopped["needs_foreground"] == nil else {
@@ -137,6 +158,18 @@ let expired = prepareWindow("test", "fixture", element, 1,
                             deadline: ProcessInfo.processInfo.systemUptime - 1)
 guard (expired["effect"] as? String) == "not_started" else {
     fatalError("an expired deadline must refuse")
+}
+let readChange = refusalFor({ changeDuringRead = true })
+guard (readChange["effect"] as? String) == "not_started", writes == 0 else {
+    fatalError("foreground changed during AX query but a write was dispatched")
+}
+let writeChange = refusalFor({ changeAfterWrite = true })
+guard (writeChange["effect"] as? String) == "unknown", writes == 1 else {
+    fatalError("partial preparation must stop with unknown effect")
+}
+let failure = refusalFor({ writeError = true })
+guard (failure["effect"] as? String) == "unknown", writes == 1 else {
+    fatalError("failed AX write must not claim no effect")
 }
 print("SWIFT_PREPARE_GUARD_PASS")
 '''

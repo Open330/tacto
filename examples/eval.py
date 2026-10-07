@@ -1289,7 +1289,7 @@ def scenario_learning_is_reachable():
     so the condition could never be true: every unknown task was reported
     unconditionally and authoring had never once run from the CLI."""
     import nlc.cli as cli
-    src = __import__("inspect").getsource(cli.main)
+    src = __import__("inspect").getsource(cli._dispatch)
     # The flag must be read before the list it lives in is filtered.
     return ("learning = \"--learn\" in rest" in src
             and src.index("learning = ") < src.index("if r != \"--learn\""))
@@ -3757,8 +3757,13 @@ def scenario_authoring_teaches_the_real_vocabulary():
                 "skip_if", "absent", "empty_ok")
     if any(k not in _SYSTEM for k in required):
         return False
-    # field_identifier was the shape the parser silently dropped.
-    return "field_identifier" not in _SYSTEM and "There is no `press_key`" in _SYSTEM
+    # Native window keys now have an observed-input/result contract. A claim
+    # that no key primitive exists would suppress that implemented path.
+    navigation = ('press_key.element_bound', 'action.press_key', 'Tab', 'shift+Tab',
+                  'Up', 'Down', 'Left', 'Right', 'binding', 'write_ephemeral',
+                  'postcondition', 'attribute', 'Escape')
+    return ("field_identifier" not in _SYSTEM and "There is no `press_key`" not in _SYSTEM
+            and all(word in _SYSTEM for word in navigation))
 
 
 def scenario_resolver_honesty():
@@ -4084,40 +4089,271 @@ def _coordinate_fixture_self_contained(driver):
         process.terminate()
 
 
-def scenario_native_coordinate_fixture():
-    """Explicit signed helper coordinate click on supervisor-owned fixture only."""
+def scenario_native_coordinate_fixture(*, coordinate_control=None, prepare_window=False,
+                                       general_prepare=False, coordinate_abort=False,
+                                       coordinate_model=None, menu_unresponsive=False):
+    """Explicit signed helper probe against one supervisor-owned fixture only."""
     import runpy
     from pathlib import Path
     from nlc.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
-    controls = [arg.split("=", 1)[1] for arg in sys.argv[1:]
-                if arg.startswith("--coordinate-control=")]
-    if not controls:
-        # Without a supervisor this used to fail outright, and the supervisor
-        # lived in reviews/ — ignored — so on a fresh clone it could never run.
-        # What still holds is checked on our own: through the signed helper,
-        # against an owned fixture in the background, a stale obs_id, a wrong
-        # expectation and an expired click deadline are each refused without
-        # effect, and a pointer-only button is refused as such rather than
-        # pressed by synthesis. The research paths the
-        # supervisor also drove (synthetic activation, title-bar CG clicks) are
-        # the input synthesis this branch removed.
+    if coordinate_control is None:
         return _coordinate_fixture_self_contained(InheritedHelperDriver())
-    assert len(controls) == 1, "one explicit supervisor control directory required"
     root = Path(__file__).resolve().parents[1]
-    control = Path(controls[0]).resolve(strict=True)
-    assert control.is_relative_to(root / "reviews"), "review control directory required"
-    if "--menu-unresponsive" in sys.argv:
+    control = Path(coordinate_control).resolve(strict=True)
+    assert control.is_dir() and control.is_relative_to(root / "reviews"), "review control directory required"
+    if menu_unresponsive:
         probe = runpy.run_path(str(root / "examples/probes/probe-menu-unresponsive.py"))
         probe["signed_client"](InheritedHelperDriver(), control)
         return True
     client = runpy.run_path(str(root / "examples/probes/run-owned-menu-nlc-client.py"))
     client["main"](driver=InheritedHelperDriver(), control_dir=control, coordinate_only=True,
-                   prepare_window="--prepare-window" in sys.argv,
-                   general_prepare="--general-prepare" in sys.argv,
-                   test_abort="--coordinate-abort" in sys.argv,
-                   model_provider=next((arg.split("=",1)[1] for arg in sys.argv
-                                        if arg.startswith("--coordinate-model=")), None))
+                   prepare_window=prepare_window, general_prepare=general_prepare,
+                   test_abort=coordinate_abort, model_provider=coordinate_model)
+    return True
+
+
+def scenario_public_opaque_point():
+    """Authorized signed point pair on an owned opaque view, with host readback."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews/2026-10-01'/f'signed-public-opaque-point-{time.time_ns()}.json'
+    report=runpy.run_path(str(root/'examples/probes/native-opaque-point.py'))['main'](
+        output,public_driver=InheritedHelperDriver())
+    print('  public opaque point report: '+str(output))
+    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    return True
+
+
+
+def _native_visual_owned(provider, *, general=False, flow=False):
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    prefix='signed-flow-native-visual' if flow else ('signed-general-native-visual' if general else 'signed-native-visual')
+    output=root/'reviews/2026-10-01'/f'{prefix}-{provider}-{time.time_ns()}.json'
+    report=runpy.run_path(str(root/'examples/probes/native-opaque-point.py'))['main'](
+        output,public_driver=InheritedHelperDriver(),vision_provider=provider,general_visual=general,flow_visual=flow)
+    print('  native visual report: '+str(output))
+    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    return True
+
+
+def _opaque_window_input(*, signed, require_selection=False):
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    root=Path(__file__).resolve().parents[1]
+    if signed:assert InheritedHelperDriver.available(),'signed launcher required'
+    prefix='signed' if signed else 'python'
+    output=root/'reviews/2026-10-01'/f'{prefix}-opaque-window-input-{time.time_ns()}.json'
+    report=runpy.run_path(str(root/'examples/probes/native-opaque-input.py'))['main'](
+        output,public_driver=InheritedHelperDriver() if signed else None,require_selection=require_selection)
+    print('  opaque window input report: '+str(output))
+    assert report.get('passed'),json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    return True
+
+
+def _visual_opaque_input(provider, *, require_selection=False):
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    root=Path(__file__).resolve().parents[1]
+    assert InheritedHelperDriver.available(),'signed launcher required'
+    output=root/'reviews/2026-10-04'/f'visual-flow-window-input-{provider}-{time.time_ns()}.json'
+    report=runpy.run_path(str(root/'examples/probes/native-opaque-input.py'))['main'](
+        output,public_driver=InheritedHelperDriver(),visual_flow=True,vision_provider=provider,require_selection=require_selection)
+    print('  visual opaque input report: '+str(output))
+    assert report.get('passed'),json.dumps({key:report.get(key) for key in ('error','final')})[:1200]
+    return True
+
+
+def scenario_visual_input_fixed(*, require_selection=False):return _visual_opaque_input('fixed',require_selection=require_selection)
+def scenario_visual_input_codex(*, require_selection=False):return _visual_opaque_input('codex',require_selection=require_selection)
+def scenario_visual_input_claude(*, require_selection=False):return _visual_opaque_input('claude',require_selection=require_selection)
+
+
+def scenario_signed_opaque_input(*, require_selection=False):
+    return _opaque_window_input(signed=True,require_selection=require_selection)
+
+
+def scenario_python_opaque_input(*, require_selection=False):
+    return _opaque_window_input(signed=False,require_selection=require_selection)
+
+
+def scenario_native_image_fixed():
+    return _native_visual_owned('fixed')
+
+
+def scenario_native_image_codex():
+    return _native_visual_owned('codex')
+
+
+def scenario_native_image_claude():
+    return _native_visual_owned('claude')
+
+
+def scenario_flow_visual_fixed():
+    return _native_visual_owned('fixed',flow=True)
+
+
+def scenario_flow_visual_codex():
+    return _native_visual_owned('codex',flow=True)
+
+
+def scenario_flow_visual_claude():
+    return _native_visual_owned('claude',flow=True)
+
+
+def scenario_general_visual_fixed():
+    return _native_visual_owned('fixed',general=True)
+
+
+def scenario_general_visual_codex():
+    return _native_visual_owned('codex',general=True)
+
+
+def scenario_general_visual_claude():
+    return _native_visual_owned('claude',general=True)
+
+
+def scenario_signed_window_keys(*, require_selection=False):
+    """Signed window keys on owned controls, with independent readback."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
+    output = root / 'reviews/2026-10-01' / f'signed-native-navigation-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe['main'](InheritedHelperDriver(), output, require_selection=require_selection)
+    print('  signed native navigation report: ' + str(output))
+    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    return True
+
+
+def _scenario_navigation_model(provider, *, require_selection=False):
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
+    output = root / 'reviews/2026-10-01' / f'navigation-model-{provider}-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe['main'](InheritedHelperDriver(), output, model_provider=provider, require_selection=require_selection)
+    print('  model navigation report: ' + str(output))
+    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    return True
+
+
+def scenario_navigation_model_claude(*, require_selection=False):
+    return _scenario_navigation_model('claude',require_selection=require_selection)
+
+
+def scenario_navigation_model_codex(*, require_selection=False):
+    return _scenario_navigation_model('codex',require_selection=require_selection)
+
+
+def scenario_native_navigation(*, require_selection=False):
+    """Python PID/window navigation on owned controls with independent readback."""
+    import runpy
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
+    output = root / 'reviews/2026-10-01' / f'native-navigation-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe['main'](Driver(), output, require_selection=require_selection)
+    print('  native navigation report: ' + str(output))
+    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    return True
+
+
+def scenario_signed_background_window_prepare():
+    """Prepare an owned background window, verify responder effects independently."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "examples/probes/signed-background-window-prepare.py"))
+    output = root / "reviews/2026-10-01" / f"signed-background-window-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  signed background window report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:1000]
+    return True
+
+
+def scenario_signed_rtf_refusal():
+    """Signed request reaches the export handler without selecting any app body."""
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    driver=InheritedHelperDriver()
+    assert 'evidence.document_rtf_export' in driver.capabilities
+    assert 'evidence.document_snapshot' not in driver.capabilities
+    response=driver.document_rtf_export('com.apple.TextEdit','unknown-owned-document-token',
+                                        max_utf16_units=0,timeout_seconds=.2)
+    assert response.get('error')=='document_rtf_export_unavailable' and response.get('effect')=='not_started',response
+    root=Path(__file__).resolve().parents[1]
+    report={'passed':True,'scope':'signed native export handler unknown-token refusal; no body selected',
+            'capability_advertised':True,'document_snapshot_enabled':False,'response':response}
+    output=root/'reviews/2026-10-01'/f'signed-rtf-refusal-{time.time_ns()}.json'
+    output.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
+    print('  signed RTF refusal report: '+str(output))
+    return True
+
+
+def scenario_signed_document_rtf():
+    """Read one newly created background TextEdit source via its signed token."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews/2026-10-01'/f'signed-document-rtf-{time.time_ns()}.json'
+    probe=runpy.run_path(str(root/'examples/probes/signed-document-rtf.py'))
+    report=probe['main'](InheritedHelperDriver(),output)
+    print('  signed owned RTF export report: '+str(output))
+    assert report.get('passed'), str(report.get('error') or report['input_audit'].get('status'))
+    return True
+
+
+def scenario_guarded_panel_commit():
+    """One owned panel callback via guarded AXPress; no document file writer."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "examples/probes/signed-save-panel.py"))
+    output = root / "reviews/2026-10-01" / f"signed-guarded-panel-commit-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe["main"](InheritedHelperDriver(), output, guarded_commit=True)
+    print("  owned guarded panel report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:800]
+    return True
+
+
+def scenario_signed_save_panel():
+    """Read an owned save panel through the signed helper; never press Save."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "examples/probes/signed-save-panel.py"))
+    output = root / "reviews/2026-10-01" / f"signed-save-panel-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  signed save panel report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:800]
     return True
 
 
@@ -4201,12 +4437,7 @@ def scenario_canvas_point_click():
 
 
 def scenario_signed_background_refusal():
-    """Window-bound input into a background app is refused over the signed path.
-
-    The synthetic ApplicationActivated event that used to make a background app
-    believe it was active is gone; this is the behaviour that replaced it, run
-    through the transport that ships rather than in-process.
-    """
+    """Background navigation is refused; an ordinary AXPress still works."""
     import runpy
     from pathlib import Path
     from nlc.helper import InheritedHelperDriver
@@ -4506,9 +4737,35 @@ SCENARIOS = [
     # review).
     ("helper_user_authority (Esc aborts; cross-target refused)", scenario_helper_user_authority),
     ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
+    ("signed_background_window_prepare (owned key window and responder effects)",
+     scenario_signed_background_window_prepare),
+    ("native_navigation (owned Python window keys)", scenario_native_navigation),
+    ("signed_window_keys (owned signed window keys)", scenario_signed_window_keys),
+    ("public_opaque_point (owned authorized signed coordinates)", scenario_public_opaque_point),
+    ("native_image_fixed (owned signed pixel proposal)", scenario_native_image_fixed),
+    ("native_image_codex (owned signed Codex image proposal)", scenario_native_image_codex),
+    ("native_image_claude (owned signed Claude image proposal)", scenario_native_image_claude),
+    ("visual_input_fixed (owned signed Flow visual keys/text)", scenario_visual_input_fixed),
+    ("visual_input_codex (owned signed Flow Codex visual keys/text)", scenario_visual_input_codex),
+    ("visual_input_claude (owned signed Flow Claude visual keys/text)", scenario_visual_input_claude),
+    ("signed_opaque_input (owned inaccessible responder keys and Unicode)", scenario_signed_opaque_input),
+    ("python_opaque_input (owned direct inaccessible responder input)", scenario_python_opaque_input),
+    ("flow_visual_fixed (owned signed host-scoped Flow pixel proposal)", scenario_flow_visual_fixed),
+    ("flow_visual_codex (owned signed host-scoped Flow Codex proposal)", scenario_flow_visual_codex),
+    ("flow_visual_claude (owned signed host-scoped Flow Claude proposal)", scenario_flow_visual_claude),
+    ("general_visual_fixed (owned signed general pixel proposal)", scenario_general_visual_fixed),
+    ("general_visual_codex (owned signed general Codex image proposal)", scenario_general_visual_codex),
+    ("general_visual_claude (owned signed general Claude image proposal)", scenario_general_visual_claude),
+    ("navigation_model_claude (owned signed navigation with Claude)", scenario_navigation_model_claude),
+    ("navigation_model_codex (owned signed navigation with Codex)", scenario_navigation_model_codex),
+    ("signed_save_panel (owned settings and commit identity, read only)",
+     scenario_signed_save_panel),
+    ("guarded_panel_commit (owned callback; no file writer)", scenario_guarded_panel_commit),
+    ("signed_document_rtf (new owned TextEdit range export, no save)", scenario_signed_document_rtf),
+    ("signed_rtf_refusal (unknown token, no app body selected)", scenario_signed_rtf_refusal),
     ("signed_window_capture (one owned window, by the grant holder)",
      scenario_signed_window_capture),
-    ("signed_background_refusal (background window input is refused, not faked)",
+    ("signed_background_refusal (unsupported navigation is refused)",
      scenario_signed_background_refusal),
     ("background_menu_refusal (a key window cannot be faked, so it is refused)",
      scenario_background_menu_refusal),
@@ -4563,6 +4820,27 @@ _LOOKED = [False]
 #     ./launcher/nlc eval peer_authentication
 #     ./launcher/nlc eval an_abort_lasts
 ISOLATED = {
+    "signed_background_window_prepare",
+    "native_navigation",
+    "signed_window_keys",
+    "public_opaque_point",
+    "native_image_fixed",
+    "native_image_codex",
+    "native_image_claude",
+    "visual_input_fixed", "visual_input_codex", "visual_input_claude",
+    "signed_opaque_input",
+    "python_opaque_input",
+    "flow_visual_fixed",
+    "flow_visual_codex",
+    "flow_visual_claude",
+    "general_visual_fixed",
+    "general_visual_codex",
+    "general_visual_claude",
+    "navigation_model_claude", "navigation_model_codex",
+    "signed_save_panel",
+    "guarded_panel_commit",
+    "signed_document_rtf",
+    "signed_rtf_refusal",
     "signed_background_refusal",
     "signed_window_capture",
     "canvas_point_click",
@@ -4579,6 +4857,30 @@ ISOLATED = {
 }
 
 SCENARIO_REQUIREMENTS: dict = {
+    "signed_background_window_prepare": {"gui", "native"},
+    "native_navigation": {"gui", "native"},
+    "signed_window_keys": {"gui", "native"},
+    "public_opaque_point": {"gui", "native"},
+    "native_image_fixed": {"gui", "native"},
+    "native_image_codex": {"gui", "native", "model"},
+    "native_image_claude": {"gui", "native", "model"},
+    "visual_input_fixed": {"gui", "native"},
+    "visual_input_codex": {"gui", "native", "model"},
+    "visual_input_claude": {"gui", "native", "model"},
+    "signed_opaque_input": {"gui", "native"},
+    "python_opaque_input": {"gui", "native"},
+    "flow_visual_fixed": {"gui", "native"},
+    "flow_visual_codex": {"gui", "native", "model"},
+    "flow_visual_claude": {"gui", "native", "model"},
+    "general_visual_fixed": {"gui", "native"},
+    "general_visual_codex": {"gui", "native", "model"},
+    "general_visual_claude": {"gui", "native", "model"},
+    "navigation_model_claude": {"gui", "native", "model"},
+    "navigation_model_codex": {"gui", "native", "model"},
+    "signed_save_panel": {"gui", "native"},
+    "guarded_panel_commit": {"gui", "native"},
+    "signed_document_rtf": {"gui", "native"},
+    "signed_rtf_refusal": {"native"},
     "signed_provider_envelope": {"model"},
     "native_coordinate_fixture": {"gui"},
     "signed_background_refusal": {"gui", "native"},
@@ -4786,6 +5088,15 @@ def _parse_plan(argv):
                         help="show requirements without running scenarios or probing the GUI")
     parser.add_argument("--report", metavar="PATH",
                         help="write a JSON plan or result report")
+    parser.add_argument("--coordinate-control", metavar="DIRECTORY",
+                        help="supervisor-owned review directory for native_coordinate_fixture")
+    parser.add_argument("--prepare-window", action="store_true")
+    parser.add_argument("--general-prepare", action="store_true")
+    parser.add_argument("--coordinate-abort", action="store_true")
+    parser.add_argument("--coordinate-model", choices=("codex", "claude"))
+    parser.add_argument("--menu-unresponsive", action="store_true")
+    parser.add_argument("--require-selection", action="store_true",
+                        help="require foreground caret/selection readiness for one owned navigation/input probe")
     args = parser.parse_args(argv)
     if args.report:
         from pathlib import Path
@@ -4804,9 +5115,48 @@ def _parse_plan(argv):
     if args.scenarios and isolated and len(selected) != 1:
         parser.error("isolated scenarios require one launcher process each; "
                      "select one exact name: " + ", ".join(isolated))
+    probe_options = {key: getattr(args, key) for key in (
+        "coordinate_control", "prepare_window", "general_prepare", "coordinate_abort",
+        "coordinate_model", "menu_unresponsive")}
+    if any(probe_options.values()):
+        from pathlib import Path
+        from functools import partial
+        if len(selected) != 1 or selected[0][0].split(" ")[0] != "native_coordinate_fixture":
+            parser.error("coordinate probe options require only native_coordinate_fixture")
+        if not args.coordinate_control:
+            parser.error("coordinate probe options require --coordinate-control")
+        try:
+            control = Path(args.coordinate_control).resolve(strict=True)
+        except (OSError, RuntimeError):
+            parser.error("--coordinate-control requires an existing review directory")
+        root = Path(__file__).resolve().parents[1] / "reviews"
+        if not control.is_dir() or not control.is_relative_to(root) or control == root:
+            parser.error("--coordinate-control requires a directory inside repository reviews")
+        if args.general_prepare and not args.prepare_window:
+            parser.error("--general-prepare requires --prepare-window")
+        if args.coordinate_model and not args.general_prepare:
+            parser.error("--coordinate-model requires --general-prepare")
+        if args.coordinate_abort and args.prepare_window:
+            parser.error("abort and preparation probes must run separately")
+        if args.menu_unresponsive and any((args.prepare_window, args.general_prepare,
+                                          args.coordinate_abort, args.coordinate_model)):
+            parser.error("unresponsive menu probe must run separately")
+        name, fn = selected[0]
+        selected = [(name, partial(fn, **probe_options))]
+    if args.require_selection:
+        from functools import partial
+        supported = {'native_navigation', 'signed_window_keys', 'navigation_model_claude',
+                     'navigation_model_codex', 'python_opaque_input', 'signed_opaque_input',
+                     'visual_input_fixed', 'visual_input_codex', 'visual_input_claude'}
+        if len(selected) != 1 or selected[0][0].split(" ")[0] not in supported:
+            parser.error("--require-selection requires one owned navigation/input scenario")
+        name, fn = selected[0]
+        selected = [(name, partial(fn, require_selection=True))]
     cases = []
     for name, fn in selected:
         need = _needs(fn, name)
+        if args.coordinate_model:
+            need = need | {"model"}
         key = name.split(" ")[0]
         code = reason = None
         if key in ISOLATED and not args.scenarios:
@@ -4839,11 +5189,16 @@ def main():
     allow_foreground(args.foreground)
     report = {"schema_version": 1, "kind": "plan" if args.preview else "run",
               "options": {"scenarios": args.scenarios, "offline": args.offline,
-                          "foreground": args.foreground},
+                          "foreground": args.foreground, "require_selection": args.require_selection},
               "cases": cases,
               # This suite does not meter every provider invocation. Unknown is
               # not free; never infer zero cost from a successful replay check.
               "model_usage": None, "model_cost_usd": None}
+    if any(getattr(args, key) for key in ("coordinate_control", "prepare_window",
+            "general_prepare", "coordinate_abort", "coordinate_model", "menu_unresponsive")):
+        report["options"]["coordinate_probe"] = {
+            key: getattr(args, key) for key in ("coordinate_control", "prepare_window",
+                "general_prepare", "coordinate_abort", "coordinate_model", "menu_unresponsive")}
     print("NLC evaluation" + (" plan" if args.preview else "") + "\n" + "=" * 48)
     if args.offline:
         print("  ! --offline — GUI·모델이 필요한 시나리오는 판정하지 않습니다\n")

@@ -55,6 +55,40 @@ class CommitEvidence:
     evidence: ArtifactEvidence | DeliveryEvidence
 
 
+@dataclass(frozen=True)
+class SavePanelCommitPreparation:
+    """Host-only dispatch attachment; not approval or completion evidence."""
+    event_id: str
+    action_digest: str
+    obs_id: str
+    panel_token: str
+    receipt_context: object
+
+
+def save_panel_dispatch_parameters(event, context, capabilities):
+    """Validate a typed host attachment before passing its live token to act."""
+    if not isinstance(context, SavePanelCommitPreparation):
+        return {}
+    if (type(context) is not SavePanelCommitPreparation
+            or not _text(context.event_id) or context.event_id != event.get('event_id')
+            or not _text(context.obs_id) or context.obs_id != event.get('obs_id')
+            or not isinstance(context.panel_token, str) or not context.panel_token
+            or len(context.panel_token) > 128
+            or 'action.click.save_panel_guard' not in (capabilities or ())):
+        raise ValueError('invalid save-panel commit attachment')
+    action = event.get('action')
+    effects = set(event.get('effects', ()))
+    if (not isinstance(action, dict) or set(action) != {'name', 'element_index'}
+            or action['name'] != 'click' or type(action['element_index']) is not int
+            or action['element_index'] < 0 or 'write_persistent' not in effects
+            or effects - {'read', 'write_ephemeral', 'write_persistent'}):
+        raise ValueError('save-panel attachment requires one file-write click')
+    digest = action_digest(action, effects, event['target'], obs_id=context.obs_id)
+    if context.action_digest != digest or event.get('action_digest') != digest:
+        raise ValueError('save-panel commit action changed')
+    return {'save_panel_token': context.panel_token}
+
+
 def _text(value):
     return isinstance(value, str) and bool(value.strip())
 

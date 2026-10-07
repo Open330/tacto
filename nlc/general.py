@@ -44,7 +44,7 @@ from .contract import Envelope, describe, policy
 from .flow import Selector, _same_role
 from .outcome import OutcomeSpec
 from .model_budget import model_deadline
-from .provider_observation import capture_provider_calls
+from .provider_observation import capture_provider_calls, provider_failure_reason
 
 # What can be done to a thing depends on what it is, and saying so is what
 # stops "read the answer" from being offered as "click the answer". The first
@@ -81,9 +81,14 @@ def candidates(tree: str, *, capabilities=()) -> list[dict]:
         if role is None:
             continue
         can = _CAN[role]
+        if re.match(r"^\s*\d+\s+\S+\s+\[readonly\](?:\s{2}|,\s+Value:|$)", line):
+            can = tuple(action for action in can if action != "set_value")
         if role == "Window" and "action.prepare_window" not in capabilities:
             continue
-        if role != "Window" and "action.press_key" in capabilities:
+        key_bound = "press_key.element_bound" in capabilities
+        if (role != "Window" and "action.press_key" in capabilities
+                and (not key_bound or role in ("TextField", "TextArea", "textbox", "combobox",
+                    "Button", "CheckBox", "RadioButton", "PopUpButton", "Row", "Cell"))):
             can = (*can, "press_key")
         bucket = act if "click" in can or "prepare_window" in can else read
         # What to CALL it and what it IS are different questions, and a
@@ -408,6 +413,8 @@ class GeneralResult:
     commit_evidence: dict = field(default_factory=dict)  # typed host receipts, never model output
     target_identity: str | None = None
     identity_changed: bool = False
+    visual_used: bool = False
+    visual_history: list[dict] = field(default_factory=list)
 
     @property
     def did(self) -> list[str]:
@@ -446,7 +453,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         approve=None, narrate=None, envelope: Envelope | None = None,
         witnesses: list | None = None, ask_where=None,
         spec: OutcomeSpec | None = None, timeout_seconds: float | None = None,
-        cancelled=None, prepare_commit=None, after_commit=None) -> GeneralResult:
+        cancelled=None, prepare_commit=None, after_commit=None, visual_scope=None) -> GeneralResult:
     """Drive `target` toward `goal`, one question per screen.
 
     `ask_here(goal, candidates, done_so_far)` returns a checked answer or None.
@@ -465,6 +472,11 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
     is read-only; after_commit must inspect an actual operation receipt, not just
     a pre-existing matching file or a success label. Only typed, event-bound host
     evidence can confirm consequential effects. Model expect is a navigation hint.
+
+    visual_scope is an explicit trusted NativeVisualScope. It selects a known
+    window and reversible pixel-operation region, provides host authorization
+    and independent result verification, and enters at most one image click per
+    screen. It never widens the envelope or supplies consequential commit proof.
 
     Deadline/cancellation checks are cooperative boundaries for driver calls.
     Built-in model adapters inherit the remaining deadline; arbitrary callbacks
@@ -515,6 +527,13 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         if visit is not None and not any(v is visit for v in res.visits):
             res.visits.append(visit)
         return True
+
+    visual_session = None
+    if visual_scope is not None:
+        from .general_visual import NativeVisualScope, NativeVisualSession
+        if type(visual_scope) is not NativeVisualScope:
+            raise ValueError('visual_scope must be an explicit trusted NativeVisualScope')
+        visual_session = NativeVisualSession(visual_scope, driver, target, goal, env, deadline, stopped)
 
     original_ask_where = ask_where
     if original_ask_where is not None:
@@ -591,6 +610,24 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         if planned_on is not None and res.visits and res.visits[-1].actions:
             res.visits[-1].actions[-1]["screen_change"] = screen_change(planned_on, obs["tree"])
         planned_on = obs["tree"]
+        if visual_session is not None:
+            try:
+                use_visual = (visual_scope.when is None
+                    or visual_scope.when(deepcopy(obs), deepcopy(available(obs["tree"]))) is True)
+            except Exception as error:
+                res.why = '시각 scope 판별 실패: ' + type(error).__name__
+                return res
+            if stopped():
+                return res
+            if use_visual or visual_session.pending:
+                res.visual_used = True
+                before_visual = len(visual_session.history)
+                should_stop = visual_session.step(obs, res, allow_plan=use_visual)
+                if len(visual_session.history) > before_visual:
+                    done_so_far.append(visual_scope.label + ' (click_point)')
+                if should_stop:
+                    return res
+                continue
         try:
             with model_deadline(deadline):
                 menus.refresh()
@@ -623,7 +660,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         except Exception as exc:
             if stopped():
                 return res
-            res.why = f"판단을 받지 못했습니다: {exc}"
+            res.why = provider_failure_reason(calls) or f"판단을 받지 못했습니다: {exc}"
             return res
         finally:
             res.provider_calls.extend(calls)
@@ -631,7 +668,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         if stopped():
             return res
         if answer is None:
-            res.why = "다음에 할 일을 정하지 못했습니다"
+            res.why = provider_failure_reason(calls) or "다음에 할 일을 정하지 못했습니다"
             return res
         if answer.get("stop_reason"):
             res.stop_reason = str(answer["stop_reason"])
@@ -688,9 +725,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         # time instead of mistaking the stable tree for a failed action.
         navigating = any(a["do"] in ("scroll", "press_key") for a in acts)
         plan_key = key
-        if any(a["do"] == "menu" for a in acts):
-            # A repeated command may be intentional after observed content changes.
-            # This fingerprint permits replanning; it is not causal completion evidence.
+        if any(a["do"] in ("menu", "click") for a in acts):
+            # The same navigation click can be needed again after a different
+            # command changes content (open menu, run A, reopen menu, run B).
+            # Stable actionable layout alone must not stop that sequence.
+            # This permits replanning on changed observations; it is neither
+            # causal completion evidence nor a retry after dispatch failure.
             plan_key += ":" + hashlib.sha256(obs["tree"].encode()).hexdigest()
         if not navigating and seen_plans.get(plan_key) == plan:
             res.why = "같은 화면에서 같은 일을 되풀이하고 있습니다"
@@ -799,9 +839,10 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     res.visits.append(visit)
                     return res
                 action["key"] = a["key"]
-                action.pop("element_index", None)
-                for field in ("role", "label", "attribute", "enabled"):
-                    expect.pop(field, None)
+                if "press_key.element_bound" not in capabilities:
+                    action.pop("element_index", None)
+                    for field in ("role", "label", "attribute", "enabled"):
+                        expect.pop(field, None)
             elif a["do"] == "scroll":
                 from .ask import MAX_SCROLL_PAGES
                 direction, pages = a.get("direction", "down"), a.get("pages", 1)
@@ -945,12 +986,21 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 if stopped(visit):
                     return res
             try:
+                from .commit_evidence import save_panel_dispatch_parameters
+                dispatch_parameters = save_panel_dispatch_parameters(event, commit_context, capabilities)
+                if dispatch_parameters and (risk not in ('confirm', 'preapproved') or approved is not True):
+                    raise ValueError('save-panel dispatch requires explicit approval')
+            except Exception:
+                res.why = "커밋 전 호스트 dispatch 결합 검증에 실패했습니다"
+                res.visits.append(visit)
+                return res
+            try:
                 # Keep the run budget active through transport preparation,
                 # not only while asking the planner. Native click drivers
                 # use it to bound the absolute input-start deadline.
                 with model_deadline(deadline):
                     r = driver.act(obs["obs_id"], target, action, expect=expect,
-                                   risk_class=risk, intent_text=what, approved=approved)
+                                   risk_class=risk, intent_text=what, approved=approved, **dispatch_parameters)
             except Exception as exc:
                 r = {"type": "error", "error": "driver_exception", "effect": "unknown", "detail": str(exc)}
             dispatched = r.get("type") == "acted" or (
@@ -960,10 +1010,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             # For reversible navigation only, stop this batch and observe its
             # effect. This is not permission to retry uncertain AX actions or
             # to confirm a consequential operation without a receipt.
+            from .protocol import window_key_reobservation
             needs_observation = (
                 r.get("type") == "acted" and r.get("unverified") == "observe_effect"
-                and (action.get("name"), r.get("input_route")) in
+                and ((action.get("name"), r.get("input_route")) in
                     (("click", "window_bound_mouse"), ("prepare_window", "window_prepare"))
+                    or window_key_reobservation(action, r, capabilities))
                 and r.get("reobserve_required") is True
                 and not consequential
                 and effects <= {"read", "write_ephemeral"})
@@ -978,7 +1030,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 if needs_observation:
                     res.certainty = "unknown"
                     event["observation_required"] = True
-                if r.get("unverified") and not needs_observation:
+                if r.get("unverified") and not needs_observation and not consequential:
                     res.certainty = "unknown"
                     res.why = f"'{c['label']}' 실행 결과를 확인하지 못했습니다: {r['unverified']}"
                     visit.actions.append({**c, "do": a["do"], "result": r["unverified"]})
@@ -1000,6 +1052,11 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                 event["evidence_error"] = problem
                         except Exception:
                             event["evidence_error"] = "host_commit_evidence_failed"
+                    if r.get('unverified') and event['state'] != 'confirmed':
+                        res.why = "불확실한 커밋을 확인할 호스트 영수증이 없습니다"
+                        visit.actions.append({**c, 'do':a['do'], 'result':'commit_unverified'})
+                        res.visits.append(visit)
+                        return res
             if stopped():
                 visit.actions.append({**c, "do": a["do"],
                                       "result": r.get("error") or r.get("type")})
@@ -1052,7 +1109,8 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                       for x in cands if "read" in x.get("can", ())
                                       and ("click" not in x.get("can", ())
                                            or "set_value" in x.get("can", ()))][:12],
-                                  **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label") if k in action}})
+                                  **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label") if k in action},
+                                  **({'window_key_bound': True} if window_key_reobservation(action, r, capabilities) else {})})
             if a["do"] == "menu":
                 # Recorded so the recipe made from this run can check the
                 # command landed, rather than trust that it did.

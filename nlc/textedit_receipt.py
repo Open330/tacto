@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .artifact_receipt import ArtifactReceiptError
 from .rtf_receipt import FreshRTFReceipt
+from .commit_evidence import SavePanelCommitPreparation, save_panel_dispatch_parameters
 
 
 TARGET = 'com.apple.TextEdit'
@@ -52,8 +53,9 @@ class TextEditReceipt:
         if target != TARGET:
             raise ValueError('TextEdit receipt requires explicit com.apple.TextEdit target')
         if (SNAPSHOT_CAPABILITY not in (getattr(driver, 'capabilities', ()) or ())
+                or 'action.click.save_panel_guard' not in (getattr(driver, 'capabilities', ()) or ())
                 or not callable(getattr(driver, 'document_snapshot', None))):
-            raise TextEditReceiptUnavailable('driver lacks evidence.document_snapshot')
+            raise TextEditReceiptUnavailable('driver lacks document snapshot or native save-panel guard')
         directory = os.fspath(directory)
         expected_directory = str((Path.home() / 'Downloads').resolve())
         if directory != expected_directory:
@@ -110,14 +112,23 @@ class TextEditReceipt:
                 or control.get('action') != action
                 or type(control.get('action', {}).get('element_index')) is not int):
             raise ArtifactReceiptError('action is not the observed save-panel commit control')
-        return self._receipt.prepare_commit(event)
+        token = panel.get('panel_token')
+        if not isinstance(token, str) or not token or len(token) > 128:
+            raise ArtifactReceiptError('save panel lacks a bounded native token')
+        prepared = SavePanelCommitPreparation(event['event_id'], event['action_digest'],
+            obs_id, token, self._receipt.prepare_commit(event))
+        save_panel_dispatch_parameters(event, prepared, getattr(self._driver, 'capabilities', ()))
+        return prepared
 
     def _after_document_path(self):
         # FreshRTFReceipt checks the returned path against its predetermined path.
         return self._current()['document_path']
 
     def after_commit(self, event, driver_result, context):
-        return self._receipt.after_commit(event, driver_result, context)
+        if type(context) is not SavePanelCommitPreparation:
+            raise ArtifactReceiptError('save requires a typed native dispatch attachment')
+        save_panel_dispatch_parameters(event, context, getattr(self._driver, 'capabilities', ()))
+        return self._receipt.after_commit(event, driver_result, context.receipt_context)
 
 
 def make_textedit_receipt(driver, *, target, directory, filename,

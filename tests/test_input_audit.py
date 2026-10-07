@@ -127,6 +127,7 @@ class MacReaderContract(unittest.TestCase):
         ax.AXUIElementCopyAttributeValue.return_value = (0, SimpleNamespace(identity=1))
         cf.CFEqual.side_effect = lambda first, second: first.identity == second.identity
         reader._frameworks = (appkit, quartz, ax, cf)
+        reader._foreground_pid = Mock(return_value=10)
         return reader, appkit, quartz, ax
 
     def test_focus_uses_cf_identity_not_wrapper_identity(self):
@@ -148,12 +149,12 @@ class MacReaderContract(unittest.TestCase):
         ax.AXIsProcessTrustedWithOptions.assert_not_called()
         quartz.CGEventPost.assert_not_called()
 
-    def test_workspace_cache_disagreement_is_reported(self):
+    def test_native_foreground_disagreement_is_reported(self):
         reader, appkit, quartz, ax = self.reader()
         ax.AXUIElementGetPid.return_value = (0, 11)
         snapshot = reader()
         self.assertEqual(11, snapshot.frontmost_pid)
-        self.assertEqual('workspace_ax_frontmost_disagree', snapshot.errors['frontmost_pid'])
+        self.assertEqual('native_ax_frontmost_disagree', snapshot.errors['frontmost_pid'])
 
     def test_ax_failure_preserves_code_without_success_fallback(self):
         reader, appkit, quartz, ax = self.reader()
@@ -162,7 +163,7 @@ class MacReaderContract(unittest.TestCase):
         self.assertIsNone(snapshot.frontmost_pid)
         self.assertIsNone(snapshot.focus_identity)
         self.assertIn('AXError=-25212', snapshot.errors['frontmost_pid'])
-        self.assertIn('workspace_pid=10', snapshot.errors['frontmost_pid'])
+        self.assertIn('native_pid=10', snapshot.errors['frontmost_pid'])
         with InputAudit(lambda: snapshot, background=False) as audit:
             pass
         self.assertEqual('INCONCLUSIVE', audit.report()['status'])
@@ -224,15 +225,33 @@ class MacReaderContract(unittest.TestCase):
             self.assertEqual('INCONCLUSIVE', audit.report()['status'])
             ax.AXUIElementCreateSystemWide.assert_not_called()
 
-    def test_application_strategy_rejects_workspace_change(self):
+    def test_application_strategy_rejects_native_foreground_change(self):
         reader, appkit, quartz, ax = self.reader()
         reader.strategy = 'application_frontmost'
         app_before, app_after = Mock(), Mock()
         app_before.processIdentifier.return_value = 10
         app_after.processIdentifier.return_value = 11
-        appkit.NSWorkspace.sharedWorkspace.return_value.frontmostApplication.side_effect = [app_before, app_after]
+        reader._foreground_pid.side_effect = [10, 11]
         ax.AXUIElementCopyAttributeValue.side_effect = lambda app,key,out: (0, True if key=='AXFrontmost' else SimpleNamespace(identity=1))
-        self.assertEqual('workspace_frontmost_changed_during_read', reader().errors['frontmost_pid'])
+        self.assertEqual('native_frontmost_changed_during_read', reader().errors['frontmost_pid'])
+
+    def test_cached_workspace_is_never_used_as_foreground_authority(self):
+        reader, appkit, quartz, ax = self.reader()
+        reader._foreground_pid.return_value = 12
+        ax.AXUIElementGetPid.return_value = (0, 12)
+        snapshot = reader()
+        self.assertEqual(snapshot.frontmost_pid, 12)
+        self.assertEqual(snapshot.errors, {})
+        appkit.NSWorkspace.sharedWorkspace.assert_not_called()
+
+    def test_unavailable_fresh_read_cannot_use_cached_pid(self):
+        from nlc.native_frontmost import FrontmostUnavailable
+        reader, appkit, quartz, ax = self.reader()
+        reader._foreground_pid.side_effect = FrontmostUnavailable('unavailable')
+        snapshot = reader()
+        self.assertIsNone(snapshot.frontmost_pid)
+        self.assertTrue(snapshot.errors)
+        appkit.NSWorkspace.sharedWorkspace.assert_not_called()
 
     def test_strategy_is_explicit_and_mixing_sources_is_inconclusive(self):
         self.assertEqual('systemwide', MacInputReader().strategy)

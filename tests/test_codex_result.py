@@ -23,6 +23,20 @@ def stream(items):
 
 
 class CodexResultTests(unittest.TestCase):
+    def test_nonterminal_startup_diagnostics_require_a_complete_matching_turn(self):
+        diagnostic = {'type': 'item.completed', 'item': {
+            'id': 'startup-warning', 'type': 'error', 'message': 'PRIVATE startup diagnostic'}}
+        source = events()
+        complete = [source[0], diagnostic] + source[1:]
+        parsed = parse_codex_events(stream(complete), '{"done":true}')
+        self.assertEqual(parsed['input_tokens'], 100)
+        self.assertNotIn('PRIVATE', str(parsed))
+        for bad in ([diagnostic] + source, complete[:-1],
+                    source[:2] + [diagnostic] + source[2:],
+                    [source[0]] + [diagnostic]*33 + source[1:]):
+            with self.subTest(sequence_length=len(bad)), self.assertRaises(CodexProtocolError):
+                parse_codex_events(stream(bad), '{"done":true}')
+
     def test_parses_observed_usage_and_thread_separately(self):
         result = parse_codex_events(stream(events()), '{"done":true}\n')
         self.assertEqual('thread-1', result['provider_thread_id'])
@@ -62,7 +76,7 @@ class CodexResultTests(unittest.TestCase):
             paths.append(path)
             self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
             path.write_text('{"done":true}')
-            return 0, stream(events())
+            return subprocess.CompletedProcess(argv, 0, stream(events()), '')
         with patch('nlc.codex_result._run_codex', side_effect=launch):
             result = codex_result('sensitive prompt', model='requested-model')
         self.assertEqual('ok', result.status)
@@ -74,7 +88,7 @@ class CodexResultTests(unittest.TestCase):
         self.assertFalse(paths[0].exists())
 
     def test_nonzero_exit_and_timeout_are_not_success(self):
-        with patch('nlc.codex_result._run_codex', return_value=(1, stream(events()))):
+        with patch('nlc.codex_result._run_codex', return_value=subprocess.CompletedProcess([], 1, stream(events()), '')):
             result = codex_result('q')
         self.assertEqual('error', result.status)
         with patch('nlc.codex_result._run_codex', side_effect=subprocess.TimeoutExpired('PRIVATE', 1)):
@@ -84,9 +98,19 @@ class CodexResultTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(result.to_dict()))
 
     def test_process_helper_passes_stdin_without_shell(self):
-        code, text = _run_codex([sys.executable, '-c', 'import sys;print(sys.stdin.read())'], 'literal $(not shell)', 3)
-        self.assertEqual(0, code)
-        self.assertEqual('literal $(not shell)', text.strip())
+        result = _run_codex([sys.executable, '-c', 'import sys;print(sys.stdin.read())'], 'literal $(not shell)', 3)
+        self.assertEqual(0, result.returncode)
+        self.assertEqual('literal $(not shell)', result.stdout.strip())
+
+    def test_login_and_quota_errors_remain_safe_reason_codes(self):
+        for code, stdout, stderr, reason in ((1, '', 'usage limit reached SECRET', 'usage_limit'),
+                                            (0, 'Please run /login', '', 'not_logged_in')):
+            response = subprocess.CompletedProcess([], code, stdout, stderr)
+            with patch('nlc.codex_result._run_codex', return_value=response):
+                result = codex_result('private prompt')
+            self.assertEqual(result.status, 'error')
+            self.assertEqual(result.error.code, reason)
+            self.assertNotIn('SECRET', json.dumps(result.to_dict()))
 
     def test_invalid_deadline_rejected_before_launch(self):
         for value in (0, -1, float('nan'), float('inf'), True):

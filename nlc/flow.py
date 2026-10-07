@@ -30,8 +30,22 @@ from .protocol import Driver, ACTION_PARAMS
 # ACTION_PARAMS, which is what a driver may be asked to do.
 FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into", "branches", "goal",
                                      "extract_from", "compose"})}
+HOST_FLOW_ACTIONS = {'visual': frozenset({'scope', 'max_screens', 'timeout_seconds'})}
 # The same rule as a `{{name}}` template, or the answer could never be used.
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
+
+
+def visual_problem(params):
+    if (not isinstance(params, dict) or set(params) - HOST_FLOW_ACTIONS['visual']
+            or not isinstance(params.get('scope'), str) or not _NAME.fullmatch(params['scope'])):
+        return 'visual requires a bounded host scope name'
+    screens, timeout = params.get('max_screens', 2), params.get('timeout_seconds', 10)
+    if type(screens) is not int or not 1 <= screens <= 20:
+        return 'visual max_screens must be an integer from 1 to 20'
+    import math
+    if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 120:
+        return 'visual timeout_seconds must be finite, positive, and at most 120'
+    return None
 
 
 def decide_problem(params: dict) -> str | None:
@@ -717,12 +731,14 @@ class Flow:
         if not all(isinstance(d.get(k), str) and d[k] for k in ("name", "target")):
             raise ValueError("Flow requires name and target")
         def parse(s):
-            known = {**ACTION_PARAMS, **FLOW_ACTIONS}
+            known = {**ACTION_PARAMS, **FLOW_ACTIONS, **HOST_FLOW_ACTIONS}
             if not isinstance(s, dict) or s.get("action") not in known:
                 raise ValueError("unknown Flow action")
             payload = s.get("params", {})
             if not isinstance(payload, dict) or set(payload) - known[s["action"]]:
                 raise ValueError("invalid action parameters; names and indices are not parameters")
+            if s['action'] == 'visual' and visual_problem(payload):
+                raise ValueError(visual_problem(payload))
             if s["action"] in FLOW_ACTIONS:
                 if s.get("selector") or s.get("safety"):
                     raise ValueError("a decide step touches nothing on screen")
@@ -1446,6 +1462,9 @@ class ReplayResult:
         self.log: list[dict] = []
         self.events: list[dict] = []
         self.commit_evidence: dict = {}
+        self.visual_used = False
+        self.visual_history: list[dict] = []
+        self.provider_calls: list[dict] = []
         self._secrets: set[str] = set()
         # Steps an agent walked for a decision's answer that had none:
         # {(decision name, answer): [steps]}. Reported, never saved here.
@@ -1553,7 +1572,7 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
 
 def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                    res: "ReplayResult", *, narrate, escalate, budget, decide, walk,
-                   prepare_commit, after_commit, confirm=None) -> "ReplayResult":
+                   prepare_commit, after_commit, confirm=None, visual_scopes=None) -> "ReplayResult":
     """Run the steps for the answer given — or walk them, if there are none yet."""
     into = step.params["into"]
     choice = captures[into]
@@ -1568,10 +1587,15 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                                   tables=flow.tables),
                      narrate=narrate, escalate=escalate, budget=budget, decide=decide,
                      walk=walk, prepare_commit=prepare_commit, after_commit=after_commit,
-                     confirm=confirm, _seed=captures, _outer=outer)
+                     confirm=confirm, visual_scopes=visual_scopes, _seed=captures, _outer=outer)
         for entry in sub.log:
             res.log.append({**entry, "branch": choice})
         res.ok = res.ok and sub.ok
+        res.events.extend(sub.events)
+        res.commit_evidence.update(sub.commit_evidence)
+        res.visual_used |= sub.visual_used
+        res.visual_history.extend(sub.visual_history)
+        res.provider_calls.extend(sub.provider_calls)
         res.learned.update(sub.learned)
         return res
     if walk is None:
@@ -1599,7 +1623,7 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
            after_commit=None, commit_expected: dict | None = None,
-           decide=None, walk=None, confirm=None,
+           decide=None, walk=None, confirm=None, visual_scopes=None,
            _seed: dict | None = None, _outer: tuple = (frozenset(), frozenset())) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
@@ -1620,6 +1644,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                `decide` steps — the judgment a recipe PLANS to need, as opposed
                to `escalate`, which is for the judgment it did not expect. Each
                decide step asks once; without a callback it fails, never guesses.
+    visual_scopes: host registry for explicit image steps; these may invoke a
+               planner and require an independent receiving-result callback.
     confirm:   callback(description) -> bool, for a step that needs consent
                and uses a value decided during this run. Such a step cannot be
                approved before the run — nobody knew the value — so it is asked
@@ -1637,6 +1663,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     before execution; a receipt must never be reused as its own expectation.
     """
     approvals = approvals or {}
+    # Host registration is fixed for this replay and its selected branches.
+    visual_scopes = dict(visual_scopes) if isinstance(visual_scopes, dict) else visual_scopes
     res = ReplayResult()
     if type(flow.schema) is not int or flow.schema != 2:
         res.record(status="error", error="unsupported_schema",
@@ -1683,6 +1711,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             ask_then[i] = names
 
     for i, step in enumerate(flow.steps):
+        if step.action == 'visual':
+            from .visual_replay import scope_problem
+            problem = scope_problem(step, visual_scopes, driver)
+            if problem:
+                res.record(status='error', step=i, error='visual_scope_required', detail=problem)
+                return res
+            continue
         if step.action in FLOW_ACTIONS:
             problem = (decide_problem(step.params) if isinstance(step.params, dict)
                        else "params must be an object")
@@ -1703,6 +1738,20 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     or step.safety is None or set(step.safety.effects) != {"write_ephemeral"}):
                 res.record(status="error", step=i, error="window_preparation_contract_required",
                            detail="prepare_window needs capability, window selector and exact observed result")
+                return res
+        if step.action == "press_key" and "press_key.element_bound" in getattr(driver, "capabilities", ()):
+            from .protocol import NAVIGATION_KEYS
+            if ("action.press_key" not in getattr(driver, "capabilities", ())
+                    or type(step.params.get('key')) is not str or step.params['key'] not in NAVIGATION_KEYS - {'Escape'}
+                    or step.binding is None or step.binding.operation != 'press_key'
+                    or step.binding.params_digest != pin_params(step.params)
+                    or step.selector is None or step.postcondition is None or step.postcondition.field is None
+                    or step.postcondition.attribute is None
+                    or (step.postcondition.equals is None and step.postcondition.contains is None)
+                    or step.unverified_ok or step.safety is None
+                    or set(step.safety.effects) != {"write_ephemeral"}):
+                res.record(status="error", step=i, error="navigation_contract_required",
+                           detail="window navigation needs an input selector and explicit observed result")
                 return res
         if step.action in ("select_option", "select_custom_option") and not isinstance(step.params.get("option_label"), str):
             res.record(status="error", step=i, error="selection_label_required")
@@ -1783,7 +1832,17 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return _follow_branch(driver, flow, step, i, captures, res, narrate=narrate,
                                       escalate=escalate, budget=spend.left, decide=decide,
                                       walk=walk, prepare_commit=prepare_commit,
-                                      after_commit=after_commit, confirm=confirm)
+                                      after_commit=after_commit, confirm=confirm, visual_scopes=visual_scopes)
+            continue
+        if step.action == 'visual':
+            from .visual_replay import run_step
+            if not run_step(driver, flow.target, step, i, res, visual_scopes):
+                return res
+            if i + 1 < len(flow.steps):
+                obs = driver.observe(flow.target, 'tree_full')
+                if obs.get('type') != 'observation':
+                    res.record(status='error', step=i, error='visual_reobserve_failed', detail=obs)
+                    return res
             continue
         # Idempotency, decided before anything is narrated, authorized or
         # performed: a step that exists to reach a state has nothing to do once
@@ -1975,11 +2034,23 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 except Exception:
                     return {"type": "error", "error": "host_evidence_preparation_failed",
                             "effect": "not_started"}
+            from .commit_evidence import save_panel_dispatch_parameters
+            try:
+                dispatch_parameters = save_panel_dispatch_parameters(
+                    event, context, getattr(driver, 'capabilities', ()))
+                # Validate the attachment before consuming a one-shot approval.
+                # Reuse the decision; authorizes/spend must run only once.
+                dispatch_approved = _approved(approvals, i, step, payload)
+                if dispatch_parameters and (risk not in ('confirm', 'preapproved')
+                        or dispatch_approved is not True):
+                    raise ValueError('save-panel dispatch requires explicit approval')
+            except Exception:
+                return {"type":"error", "error":"host_evidence_preparation_failed", "effect":"not_started"}
             try:
                 response = driver.act(current["obs_id"], flow.target, payload,
                                       **({"expect": claim} if claim else {}),
                                       risk_class=risk, intent_text=gate_desc,
-                                      approved=_approved(approvals, i, step, payload))
+                                      approved=dispatch_approved, **dispatch_parameters)
             except Exception as exc:
                 response = {"type": "error", "error": "driver_exception",
                             "effect": "unknown", "detail": str(exc)}
@@ -1996,14 +2067,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 and response.get("unverified") == "observe_effect"
                 and response.get("reobserve_required") is True
                 and effects <= {"read", "write_ephemeral"})
+            from .protocol import window_key_reobservation
+            navigation_observation = (
+                window_key_reobservation(payload, response, getattr(driver, "capabilities", ()))
+                and effects <= {"read", "write_ephemeral"})
             if step.action == "prepare_window" and not preparation_observation:
                 event["state"] = "unknown"
                 return {"type":"error", "error":"action_unverified", "effect":"unknown",
                         "event_id":event["event_id"], "event_state":"unknown",
                         "detail":"window preparation response has no reobservation contract"}
-            if preparation_observation:
+            if preparation_observation or navigation_observation:
                 event["observation_required"] = True
-            if response.get("unverified") and not preparation_observation:
+            if (response.get("unverified") and not consequential
+                    and not (preparation_observation or navigation_observation)):
                 return {"type": "error", "error": "action_unverified", "effect": "unknown",
                         "event_id": event["event_id"], "event_state": "unknown",
                         "detail": response["unverified"]}

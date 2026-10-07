@@ -35,12 +35,39 @@ class _Recorder:
 def _driver(reply=None):
     from nlc.helper import InheritedHelperDriver
     driver = InheritedHelperDriver.__new__(InheritedHelperDriver)
+    driver.capabilities = {'evidence.document_text.path_selector', 'observe.document_token'}
     recorder = _Recorder(reply)
     driver._send = recorder._send
     return driver, recorder
 
 
 class DocumentTextChannelTests(unittest.TestCase):
+    def test_old_helper_cannot_silently_ignore_scope(self):
+        driver, recorder = _driver()
+        driver.capabilities = set()
+        self.assertEqual(driver.document_text('com.apple.TextEdit', document_path=os.path.realpath('/tmp/owned.rtf'))['effect'], 'not_started')
+        self.assertEqual(driver.observe('com.apple.TextEdit', document_token='abc')['effect'], 'not_started')
+        self.assertEqual(recorder.sent, [])
+    def test_path_selector_is_sent_once_and_invalid_combinations_never_sent(self):
+        path = os.path.realpath('/tmp/nlc-owned.rtf')
+        driver, recorder = _driver()
+        driver.document_text('com.apple.TextEdit', document_path=path)
+        self.assertEqual(recorder.sent[0]['document_path'], path)
+        for kwargs in ({'document_path':'relative'}, {'document_path':path, 'document_token':'abc'}):
+            driver, recorder = _driver()
+            self.assertEqual(driver.document_text('com.apple.TextEdit', **kwargs)['effect'], 'not_started')
+            self.assertEqual(recorder.sent, [])
+
+    def test_scoped_observe_sends_token_and_refuses_foreign_target(self):
+        driver, recorder = _driver({'type':'observation'})
+        driver._last_action_at = 0
+        driver.observe('com.apple.TextEdit', document_token='abc')
+        self.assertEqual(recorder.sent, [{'type':'observe', 'target':'com.apple.TextEdit', 'require_window':True, 'document_token':'abc'}])
+        recorder.sent.clear()
+        for token in ('', 1, 'x'*129):
+            self.assertEqual(driver.observe('com.apple.TextEdit', document_token=token)['effect'], 'not_started')
+        self.assertEqual(driver.observe('foreign', document_token='abc')['effect'], 'not_started')
+        self.assertEqual(recorder.sent, [])
     def test_every_transport_exposes_it(self):
         from nlc.helper import HelperDriver, InheritedHelperDriver
         for cls in (HelperDriver, InheritedHelperDriver):

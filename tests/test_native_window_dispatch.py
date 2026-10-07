@@ -1,16 +1,4 @@
-"""Window preparation asks the window; it does not click its title bar.
-
-What this file used to exercise was a synthetic mouse down/up pair aimed at a
-window's title bar and addressed to the process — a gesture mimed at an app in
-the hope it read it the way a person's click would. Before that it was
-preceded by a synthetic ApplicationActivated event, which made a background app
-believe it was active and left that belief behind when the run ended.
-
-`AXMain` and `AXFocused` are the same request written as a question the window
-can answer, so the intents below are kept and re-pointed at that: nothing is
-sent to a background app, nothing is sent once the observation has moved, and
-an element that says it cannot be pressed is refused rather than clicked at.
-"""
+"""Foreground AX preparation and guarded background dispatch delegation."""
 from contextlib import ExitStack
 import importlib.util
 from types import SimpleNamespace
@@ -47,6 +35,9 @@ class WindowPreparationTests(unittest.TestCase):
                                              return_value=(0, settable)))
             stack.enter_context(patch.object(m, 'AXUIElementSetAttributeValue',
                 side_effect=lambda el, key, value: (wrote.append((key, value)), set_error)[1]))
+            stack.enter_context(patch.object(self.d, '_prepare_background_window',
+                return_value={'input_route':'window_prepare','mechanism':'pid_window_events',
+                              'unverified':'observe_effect','reobserve_required':True}))
             result = self.d.act('o1', 'fixture',
                                 {'name': 'prepare_window', 'element_index': 0})
         return result, wrote
@@ -67,11 +58,11 @@ class WindowPreparationTests(unittest.TestCase):
         self.assertEqual('observe_effect', result['unverified'])
         self.assertIs(True, result['reobserve_required'])
 
-    def test_a_background_app_is_refused_with_nothing_written(self):
+    def test_background_preparation_delegates_without_foreground_ax_writes(self):
         result, wrote = self.prepare(frontmost=False)
-        self.assertEqual('error', result['type'])
-        self.assertEqual('not_started', result['effect'])
-        self.assertIs(True, result.get('needs_foreground'))
+        self.assertEqual('acted', result['type'])
+        self.assertEqual('pid_window_events', result['mechanism'])
+        self.assertIs(True, result['reobserve_required'])
         self.assertEqual([], wrote)
 
     def test_a_minimised_window_and_an_unwritable_one_are_both_refused(self):
@@ -86,10 +77,10 @@ class WindowPreparationTests(unittest.TestCase):
         self.assertEqual('not_started', result['effect'])
         self.assertEqual([], wrote)
 
-    def test_a_write_that_fails_everywhere_is_not_reported_as_prepared(self):
+    def test_failed_ax_write_does_not_certify_no_effect(self):
         result, wrote = self.prepare(set_error=-25200)
-        self.assertEqual('not_started', result['effect'])
-        self.assertEqual(2, len(wrote), 'both attributes are tried before giving up')
+        self.assertEqual('unknown', result['effect'])
+        self.assertEqual(1, len(wrote), 'do not continue after an uncertain write')
 
     def test_only_a_window_can_be_prepared(self):
         with patch.object(self.m, '_attr', return_value='AXButton'):
@@ -101,6 +92,51 @@ class WindowPreparationTests(unittest.TestCase):
         result = self.d.act('o1', 'fixture',
                             {'name': 'prepare_window', 'element_index': 0, 'direction': 'down'})
         self.assertEqual('not_started', result['effect'])
+
+    def test_background_dispatch_effect_and_stop_propagate_through_act(self):
+        from nlc.native_window_dispatch import WindowDispatchFailure
+        for attempted, stopped in ((0,False),(1,False),(1,True)):
+            with self.subTest(attempted=attempted,stopped=stopped), ExitStack() as stack:
+                stack.enter_context(patch.object(self.m,'_attr',return_value='AXWindow'))
+                stack.enter_context(patch.object(self.m,'_aborted_now',return_value=False))
+                stack.enter_context(patch.object(self.d,'_frontmost',return_value=False))
+                stack.enter_context(patch.object(self.d,'_prepare_background_window',
+                    side_effect=WindowDispatchFailure('interrupted',attempted=attempted,stopped=stopped)))
+                result=self.d.act('o1','fixture',{'name':'prepare_window','element_index':0})
+                self.assertEqual(result['effect'],'unknown' if attempted else 'not_started')
+                self.assertEqual(result['error'],'aborted_by_user' if stopped else 'action_failed')
+                self.assertEqual(result['posted_or_attempted_events'],attempted)
+
+    def test_background_context_rejects_observation_process_and_map_drift(self):
+        from nlc.native_window_dispatch import WindowDispatchFailure
+        self.obs.target = 'fixture'
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(self.m,'_aborted_now',return_value=False))
+            resolver = stack.enter_context(patch.object(self.d,'_resolve',return_value=42))
+            start = stack.enter_context(patch('nlc.native_process_identity.process_start_identity',return_value=123.0))
+            binding = SimpleNamespace(_backend=SimpleNamespace(equal=lambda a,b:a is b))
+            stack.enter_context(patch('nlc.native_window_binding.capture_binding',return_value=binding))
+            def dispatched(binding, **kwargs):
+                context = kwargs['context']
+                context()
+                self.d._latest['fixture'] = object()
+                with self.assertRaises(RuntimeError): context()
+                self.d._latest['fixture'] = self.obs
+                resolver.return_value = 99
+                with self.assertRaises(RuntimeError): context()
+                resolver.return_value = 42
+                start.return_value = 124.0
+                with self.assertRaises(RuntimeError): context()
+                start.return_value = 123.0
+                self.obs.elements = [object()]
+                with self.assertRaises(RuntimeError): context()
+                self.obs.elements = [self.el]
+                context()
+                raise WindowDispatchFailure('interrupted after post',attempted=1)
+            stack.enter_context(patch('nlc.native_window_dispatch.dispatch_preparation',side_effect=dispatched))
+            with self.assertRaises(WindowDispatchFailure) as error:
+                self.d._prepare_background_window(self.obs,self.el)
+            self.assertEqual(error.exception.attempted,1)
 
 
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC required')

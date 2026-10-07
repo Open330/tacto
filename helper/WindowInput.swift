@@ -29,7 +29,78 @@ func nativeProcessStartIdentity(_ pid: pid_t) -> Double? {
     return Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000
 }
 
-enum NativeWindowPointKind { case elementCenter, titlebar }
+enum NativeWindowPointKind { case elementCenter, titlebar, windowPoint, windowInput }
+
+struct NativeWindowKeyPair {
+    let down: CGEvent
+    let up: CGEvent
+    let owners: [NSEvent]
+}
+
+func nativeNavigationKey(_ key: String) -> (UInt16, String, String, NSEvent.ModifierFlags)? {
+    switch key {
+    case "Tab": return (48, "\t", "\t", [])
+    case "shift+Tab": return (48, "\u{19}", "\t", .shift)
+    case "Up": return (126, "\u{F700}", "\u{F700}", .function)
+    case "Down": return (125, "\u{F701}", "\u{F701}", .function)
+    case "Left": return (123, "\u{F702}", "\u{F702}", .function)
+    case "Right": return (124, "\u{F703}", "\u{F703}", .function)
+    default: return nil
+    }
+}
+
+func buildNativeWindowKey(_ windowID: CGWindowID, key: String) throws -> NativeWindowKeyPair {
+    guard windowID > 0, let (code, chars, plain, flags) = nativeNavigationKey(key) else {
+        throw NativeWindowInputError.refused("unsupported navigation key or window ID")
+    }
+    var owners: [NSEvent] = [], events: [CGEvent] = []
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    for kind in [NSEvent.EventType.keyDown, .keyUp] {
+        guard let owner = NSEvent.keyEvent(with: kind, location: .zero, modifierFlags: flags,
+            timestamp: timestamp, windowNumber: Int(windowID), context: nil, characters: chars,
+            charactersIgnoringModifiers: plain, isARepeat: false, keyCode: code), let event = owner.cgEvent else {
+            throw NativeWindowInputError.unavailable("key event construction failed")
+        }
+        owners.append(owner); events.append(event)
+    }
+    for (number, event) in events.enumerated() {
+        let kind: NSEvent.EventType = number == 0 ? .keyDown : .keyUp
+        guard event.type == (number == 0 ? .keyDown : .keyUp),
+              let reflected = NSEvent(cgEvent: event), reflected.type == kind,
+              reflected.windowNumber == Int(windowID), reflected.keyCode == code,
+              event.getIntegerValueField(.keyboardEventKeycode) == Int64(code),
+              reflected.characters == chars, reflected.charactersIgnoringModifiers == plain,
+              event.flags.rawValue == UInt64(flags.rawValue), reflected.modifierFlags == flags,
+              !reflected.isARepeat, event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else {
+            throw NativeWindowInputError.unavailable("key event readback mismatch")
+        }
+    }
+    return NativeWindowKeyPair(down: events[0], up: events[1], owners: owners)
+}
+
+func requireNativeWindowTarget(_ binding: NativeWindowBinding, scope: NativeWindowReadScope) throws {
+    try nativeRequireWindowReady(binding.window, binding.pid, scope: scope)
+    let app = AXUIElementCreateApplication(binding.pid)
+    let window = try windowInputElement(windowInputAttribute(app, kAXFocusedWindowAttribute, scope: scope))
+    guard CFEqual(window, binding.window) else {
+        throw NativeWindowInputError.refused("target window is not the app focused window")
+    }
+}
+
+func requireNativeKeyTarget(_ binding: NativeWindowBinding, element: Bool,
+                            scope: NativeWindowReadScope) throws {
+    try nativeRequireWindowReady(binding.window, binding.pid, scope: scope)
+    let app = AXUIElementCreateApplication(binding.pid)
+    let window = try windowInputElement(windowInputAttribute(app, kAXFocusedWindowAttribute, scope: scope))
+    guard CFEqual(window, binding.window) else {
+        throw NativeWindowInputError.refused("target window is not the app focused window")
+    }
+    let focused = try windowInputElement(windowInputAttribute(app, kAXFocusedUIElementAttribute, scope: scope))
+    guard CFEqual(try windowInputAncestor(focused, binding.pid, scope: scope), binding.window),
+          !element || CFEqual(focused, binding.element) else {
+        throw NativeWindowInputError.refused("target input element or window changed")
+    }
+}
 
 struct NativeWindowBinding {
     let element: AXUIElement
@@ -41,14 +112,15 @@ struct NativeWindowBinding {
     let elementBounds: CGRect
     let point: CGPoint
     let pointKind: NativeWindowPointKind
+    let relativePoint: CGPoint?
 
     init(element: AXUIElement, window: AXUIElement, pid: pid_t, processStart: Double,
          windowID: CGWindowID, windowBounds: CGRect, elementBounds: CGRect, point: CGPoint,
-         pointKind: NativeWindowPointKind = .elementCenter) {
+         pointKind: NativeWindowPointKind = .elementCenter, relativePoint: CGPoint? = nil) {
         self.element = element; self.window = window; self.pid = pid
         self.processStart = processStart; self.windowID = windowID
         self.windowBounds = windowBounds; self.elementBounds = elementBounds
-        self.point = point; self.pointKind = pointKind
+        self.point = point; self.pointKind = pointKind; self.relativePoint = relativePoint
     }
 }
 
@@ -78,9 +150,61 @@ private enum WindowInputSPI {
     }
 }
 
-private func windowInputAttribute(_ element: AXUIElement, _ name: String) throws -> CFTypeRef {
+final class NativeWindowReadScope {
+    let deadline: Double
+    let check: () throws -> Void
+    init(deadline: Double, check: @escaping () throws -> Void) { self.deadline = deadline; self.check = check }
+    func ready() throws {
+        try check()
+        guard deadline.isFinite, ProcessInfo.processInfo.systemUptime < deadline else {
+            throw NativeWindowInputError.refused("window observation deadline expired")
+        }
+    }
+    func withTimeout<T>(_ element: AXUIElement, _ operation: () -> T) throws -> T {
+        try ready()
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > 0, AXUIElementSetMessagingTimeout(element, Float(min(0.5, remaining))) == .success else {
+            throw NativeWindowInputError.unavailable("window AX timeout unavailable")
+        }
+        let result = operation()
+        guard AXUIElementSetMessagingTimeout(element, 0) == .success else {
+            throw NativeWindowInputError.unavailable("window AX timeout reset failed")
+        }
+        try ready()
+        return result
+    }
+    func read(_ element: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
+        try withTimeout(element) {
+            var value: CFTypeRef?
+            let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+            return (error, value)
+        }
+    }
+}
+
+private func windowInputHit(_ point: CGPoint, _ pid: pid_t,
+                            scope: NativeWindowReadScope?) throws -> AXUIElement {
+    let app = AXUIElementCreateApplication(pid)
+    var hit: AXUIElement?
+    let error: AXError
+    if let scope {
+        error = try scope.withTimeout(app) {
+            AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &hit)
+        }
+    } else {
+        error = AXUIElementCopyElementAtPosition(app, Float(point.x), Float(point.y), &hit)
+    }
+    guard error == .success, let hit else { throw NativeWindowInputError.refused("application hit-test unavailable") }
+    return hit
+}
+
+private func windowInputAttribute(_ element: AXUIElement, _ name: String,
+                                  scope: NativeWindowReadScope? = nil) throws -> CFTypeRef {
     var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success,
+    let error: AXError
+    if let scope { (error, value) = try scope.read(element, name) }
+    else { error = AXUIElementCopyAttributeValue(element, name as CFString, &value) }
+    guard error == .success,
           let result = value else {
         throw NativeWindowInputError.refused("required AX attribute unavailable: \(name)")
     }
@@ -102,8 +226,8 @@ private func windowInputPID(_ element: AXUIElement) throws -> pid_t {
     return pid
 }
 
-private func windowInputRole(_ element: AXUIElement) throws -> String {
-    guard let role = try windowInputAttribute(element, kAXRoleAttribute) as? String else {
+private func windowInputRole(_ element: AXUIElement, scope: NativeWindowReadScope? = nil) throws -> String {
+    guard let role = try windowInputAttribute(element, kAXRoleAttribute, scope: scope) as? String else {
         throw NativeWindowInputError.refused("invalid AX role")
     }
     return role
@@ -114,9 +238,9 @@ private func windowInputRectIsValid(_ r: CGRect) -> Bool {
         && r.width > 0 && r.height > 0
 }
 
-private func windowInputFrame(_ element: AXUIElement) throws -> CGRect {
-    let position = try windowInputAttribute(element, kAXPositionAttribute)
-    let size = try windowInputAttribute(element, kAXSizeAttribute)
+private func windowInputFrame(_ element: AXUIElement, scope: NativeWindowReadScope? = nil) throws -> CGRect {
+    let position = try windowInputAttribute(element, kAXPositionAttribute, scope: scope)
+    let size = try windowInputAttribute(element, kAXSizeAttribute, scope: scope)
     guard CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else {
         throw NativeWindowInputError.refused("invalid AX geometry types")
     }
@@ -133,17 +257,18 @@ private func windowInputFrame(_ element: AXUIElement) throws -> CGRect {
     return result
 }
 
-private func windowInputAncestor(_ element: AXUIElement, _ pid: pid_t) throws -> AXUIElement {
+private func windowInputAncestor(_ element: AXUIElement, _ pid: pid_t,
+                                 scope: NativeWindowReadScope? = nil) throws -> AXUIElement {
     var current = element
     var seen: [AXUIElement] = []
     for depth in 0...20 {
         guard !seen.contains(where: { CFEqual($0, current) }), try windowInputPID(current) == pid else {
             throw NativeWindowInputError.refused("cyclic or cross-process ancestry")
         }
-        if try windowInputRole(current) == kAXWindowRole { return current }
+        if try windowInputRole(current, scope: scope) == kAXWindowRole { return current }
         guard depth < 20 else { break }
         seen.append(current)
-        current = try windowInputElement(windowInputAttribute(current, kAXParentAttribute))
+        current = try windowInputElement(windowInputAttribute(current, kAXParentAttribute, scope: scope))
     }
     throw NativeWindowInputError.refused("bounded window ancestry unavailable")
 }
@@ -156,12 +281,16 @@ private func windowInputNumber(_ value: Any?) throws -> Double {
     return number.doubleValue
 }
 
-private func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t) throws -> CGRect {
+private func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
+                                scope: NativeWindowReadScope? = nil) throws -> CGRect {
+    try scope?.ready()
     guard let windows = CGWindowListCopyWindowInfo(.optionAll, 0) as? [[String: Any]] else {
         throw NativeWindowInputError.refused("CG window metadata unavailable")
     }
     var matches: [[String: Any]] = []
+    try scope?.ready()
     for entry in windows {
+        try scope?.ready()
         if try windowInputNumber(entry[kCGWindowNumber as String]) == Double(windowID) { matches.append(entry) }
     }
     guard matches.count == 1 else { throw NativeWindowInputError.refused("CG window not unique") }
@@ -181,22 +310,25 @@ private func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t) throws -> 
 
 /// Full exposed-tree modal check; AXSheets unsupported is not an empty list.
 func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
-                              maxNodes: Int = 5000, maxDepth: Int = 64) throws {
+                              maxNodes: Int = 5000, maxDepth: Int = 64,
+                              scope: NativeWindowReadScope? = nil) throws {
     guard maxNodes > 0, maxDepth >= 0 else { throw NativeWindowInputError.refused("invalid readiness budget") }
     func optional(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
         var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(node, name as CFString, &value)
+        let error: AXError
+        if let scope { (error, value) = try scope.read(node, name) }
+        else { error = AXUIElementCopyAttributeValue(node, name as CFString, &value) }
         if error == .success, let value = value { return value }
         if [-25205, -25212].contains(error.rawValue) { return nil }
         throw NativeWindowInputError.refused("window state unavailable: \(name)")
     }
     func explicitlyFalse(_ node: AXUIElement, _ name: String) throws -> Bool {
-        let value = try windowInputAttribute(node, name)
+        let value = try windowInputAttribute(node, name, scope: scope)
         return CFGetTypeID(value) == CFBooleanGetTypeID() && (value as? Bool) == false
     }
     let app = AXUIElementCreateApplication(pid)
     func windows() throws -> [AXUIElement] {
-        guard let result = try windowInputAttribute(app, kAXWindowsAttribute) as? [AXUIElement] else {
+        guard let result = try windowInputAttribute(app, kAXWindowsAttribute, scope: scope) as? [AXUIElement] else {
             throw NativeWindowInputError.refused("application windows malformed")
         }
         return result
@@ -220,7 +352,7 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
             guard remaining >= 0, depth <= maxDepth else {
                 throw NativeWindowInputError.refused("readiness traversal budget exceeded")
             }
-            let role = try windowInputRole(node)
+            let role = try windowInputRole(node, scope: scope)
             guard !role.isEmpty, role != "AXSheet" else { throw NativeWindowInputError.refused("attached sheet or malformed role") }
             if let value = try optional(node, kAXChildrenAttribute) {
                 guard let children = value as? [AXUIElement] else { throw NativeWindowInputError.refused("window children malformed") }
@@ -250,41 +382,74 @@ func nativeTitlebarPoints(_ bounds: CGRect, _ anchor: CGRect) throws -> [CGPoint
 
 func captureNativeWindowBinding(_ element: AXUIElement, _ pid: pid_t,
                                 expectedStart: Double,
-                                pointKind: NativeWindowPointKind = .elementCenter) throws -> NativeWindowBinding {
+                                pointKind: NativeWindowPointKind = .elementCenter,
+                                scope: NativeWindowReadScope? = nil,
+                                relativePoint: CGPoint? = nil) throws -> NativeWindowBinding {
+    try scope?.ready()
     guard pid > 0, expectedStart.isFinite, expectedStart > 0,
           nativeProcessStartIdentity(pid) == expectedStart else {
         throw NativeWindowInputError.refused("process start identity mismatch")
     }
-    let window = try windowInputAncestor(element, pid)
+    let window = try windowInputAncestor(element, pid, scope: scope)
     var windowID: CGWindowID = 0
     let getWindow = try WindowInputSPI.windowFunction()
-    guard getWindow(window, &windowID) == 0, windowID > 0 else {
+    let windowError: Int32
+    if let scope { windowError = try scope.withTimeout(window) { getWindow(window, &windowID) } }
+    else { windowError = getWindow(window, &windowID) }
+    guard windowError == 0, windowID > 0 else {
         throw NativeWindowInputError.refused("AX window ID unavailable")
     }
-    let bounds = try windowInputFrame(window)
-    let rect = try windowInputFrame(element)
-    guard try windowInputCGFrame(windowID, pid) == bounds,
+    let bounds = try windowInputFrame(window, scope: scope)
+    let rect = try windowInputFrame(element, scope: scope)
+    guard try windowInputCGFrame(windowID, pid, scope: scope) == bounds,
           rect.minX >= bounds.minX, rect.minY >= bounds.minY,
           rect.maxX <= bounds.maxX, rect.maxY <= bounds.maxY else {
         throw NativeWindowInputError.refused("window or element geometry mismatch")
     }
-    if pointKind == .titlebar {
-        try nativeRequireWindowReady(window, pid)
+    if pointKind == .windowInput {
+        try nativeRequireWindowReady(window, pid, scope: scope)
+        guard relativePoint == nil, CFEqual(element, window),
+              try windowInputAttribute(window, kAXSubroleAttribute, scope: scope) as? String == "AXStandardWindow",
+              nativeProcessStartIdentity(pid) == expectedStart else {
+            throw NativeWindowInputError.refused("opaque input requires an observed standard window")
+        }
+        return NativeWindowBinding(element: element, window: window, pid: pid, processStart: expectedStart,
+            windowID: windowID, windowBounds: bounds, elementBounds: rect,
+            point: CGPoint(x: bounds.midX, y: bounds.midY), pointKind: .windowInput)
+    }
+    if pointKind == .windowPoint {
+        try nativeRequireWindowReady(window, pid, scope: scope)
         guard CFEqual(element, window),
-              try windowInputAttribute(window, kAXSubroleAttribute) as? String == "AXStandardWindow" else {
+              try windowInputAttribute(window, kAXSubroleAttribute, scope: scope) as? String == "AXStandardWindow",
+              let relativePoint, relativePoint.x.isFinite, relativePoint.y.isFinite,
+              relativePoint.x >= 0, relativePoint.x < bounds.width,
+              relativePoint.y >= 0, relativePoint.y < bounds.height,
+              nativeProcessStartIdentity(pid) == expectedStart else {
+            throw NativeWindowInputError.refused("invalid observed window point")
+        }
+        return NativeWindowBinding(element: element, window: window, pid: pid, processStart: expectedStart,
+            windowID: windowID, windowBounds: bounds, elementBounds: rect,
+            point: CGPoint(x: bounds.minX+relativePoint.x, y: bounds.minY+relativePoint.y),
+            pointKind: .windowPoint, relativePoint: relativePoint)
+    }
+    if relativePoint != nil { throw NativeWindowInputError.refused("point is only valid for a window-point binding") }
+    if pointKind == .titlebar {
+        try nativeRequireWindowReady(window, pid, scope: scope)
+        guard CFEqual(element, window),
+              try windowInputAttribute(window, kAXSubroleAttribute, scope: scope) as? String == "AXStandardWindow" else {
             throw NativeWindowInputError.refused("titlebar requires a standard window")
         }
-        let close = try windowInputElement(windowInputAttribute(window, "AXCloseButton"))
+        let close = try windowInputElement(windowInputAttribute(window, "AXCloseButton", scope: scope))
         guard try windowInputPID(close) == pid,
-              try windowInputAttribute(close, kAXSubroleAttribute) as? String == "AXCloseButton",
-              try CFEqual(windowInputAncestor(close, pid), window) else {
+              try windowInputAttribute(close, kAXSubroleAttribute, scope: scope) as? String == "AXCloseButton",
+              try CFEqual(windowInputAncestor(close, pid, scope: scope), window) else {
             throw NativeWindowInputError.refused("native titlebar anchor unavailable")
         }
-        let anchor = try windowInputFrame(close)
+        let anchor = try windowInputFrame(close, scope: scope)
         for point in try nativeTitlebarPoints(bounds, anchor) {
-            var hit: AXUIElement?
-            guard AXUIElementCopyElementAtPosition(AXUIElementCreateApplication(pid), Float(point.x), Float(point.y), &hit) == .success,
-                  let hit = hit else { throw NativeWindowInputError.refused("application hit-test unavailable") }
+            try scope?.ready()
+            let hit = try windowInputHit(point, pid, scope: scope)
+            try scope?.ready()
             if try windowInputPID(hit) == pid, CFEqual(hit, window) {
                 guard nativeProcessStartIdentity(pid) == expectedStart else {
                     throw NativeWindowInputError.refused("process changed during capture")
@@ -296,9 +461,7 @@ func captureNativeWindowBinding(_ element: AXUIElement, _ pid: pid_t,
         throw NativeWindowInputError.refused("no blank native titlebar point")
     }
     let point = CGPoint(x: rect.midX, y: rect.midY)
-    var hit: AXUIElement?
-    guard AXUIElementCopyElementAtPosition(AXUIElementCreateApplication(pid), Float(point.x), Float(point.y), &hit) == .success,
-          var current = hit else { throw NativeWindowInputError.refused("application hit-test unavailable") }
+    var current = try windowInputHit(point, pid, scope: scope)
     var seen: [AXUIElement] = []
     for depth in 0...20 {
         guard !seen.contains(where: { CFEqual($0, current) }), try windowInputPID(current) == pid else { break }
@@ -309,17 +472,17 @@ func captureNativeWindowBinding(_ element: AXUIElement, _ pid: pid_t,
             return NativeWindowBinding(element: element, window: window, pid: pid, processStart: expectedStart,
                                        windowID: windowID, windowBounds: bounds, elementBounds: rect, point: point)
         }
-        if try windowInputRole(current) == kAXWindowRole { break }
+        if try windowInputRole(current, scope: scope) == kAXWindowRole { break }
         guard depth < 20 else { break }
         seen.append(current)
-        current = try windowInputElement(windowInputAttribute(current, kAXParentAttribute))
+        current = try windowInputElement(windowInputAttribute(current, kAXParentAttribute, scope: scope))
     }
     throw NativeWindowInputError.refused("hit-test does not identify element or descendant")
 }
 
-func validateNativeWindowBinding(_ binding: NativeWindowBinding) throws {
+func validateNativeWindowBinding(_ binding: NativeWindowBinding, scope: NativeWindowReadScope? = nil) throws {
     let fresh = try captureNativeWindowBinding(binding.element, binding.pid, expectedStart: binding.processStart,
-                                               pointKind: binding.pointKind)
+                                               pointKind: binding.pointKind, scope: scope, relativePoint: binding.relativePoint)
     guard CFEqual(fresh.window, binding.window), fresh.windowID == binding.windowID,
           fresh.windowBounds == binding.windowBounds, fresh.elementBounds == binding.elementBounds,
           fresh.point == binding.point else { throw NativeWindowInputError.refused("window binding changed") }
@@ -393,4 +556,68 @@ func buildNativeWindowClick(_ binding: NativeWindowBinding) throws -> NativeWind
         }
     }
     return NativeWindowClick(down: events[0], up: events[1], owners: owners, eventNumber: number)
+}
+
+
+/// These inputs still require explicit host semantics and receiving proof.
+/// Text carries no command modifiers and may not encode navigation characters.
+enum NativeOpaqueWindowInput {
+    case key(String)
+    case text(String)
+    var valid: Bool {
+        switch self {
+        case .key(let key): return nativeNavigationKey(key) != nil
+        case .text(let text): return nativeWindowTextValid(text)
+        }
+    }
+}
+
+func nativeWindowTextValid(_ text: String) -> Bool {
+    !text.isEmpty && text.utf16.count <= 64 && !text.unicodeScalars.contains {
+        CharacterSet.controlCharacters.contains($0) && $0.properties.generalCategory == .control
+            || $0.value == 0x2028 || $0.value == 0x2029
+            || (0xF700...0xF8FF).contains($0.value)
+    }
+}
+
+func buildNativeWindowText(_ windowID: CGWindowID, text: String) throws -> NativeWindowKeyPair {
+    guard windowID > 0, nativeWindowTextValid(text) else {
+        throw NativeWindowInputError.refused("invalid opaque window text or window ID")
+    }
+    var owners: [NSEvent] = [], events: [CGEvent] = []
+    var keyUpChars: String?, keyUpPlain: String?
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    var units = Array(text.utf16)
+    for kind in [NSEvent.EventType.keyDown, .keyUp] {
+        guard let owner = NSEvent.keyEvent(with: kind, location: .zero, modifierFlags: [],
+            timestamp: timestamp, windowNumber: Int(windowID), context: nil, characters: "",
+            charactersIgnoringModifiers: "", isARepeat: false, keyCode: 0), let event = owner.cgEvent else {
+            throw NativeWindowInputError.unavailable("Unicode event construction failed")
+        }
+        if kind == .keyUp {
+            guard let baseline = NSEvent(cgEvent: event) else {
+                throw NativeWindowInputError.unavailable("Unicode key-up baseline unavailable")
+            }
+            keyUpChars = baseline.characters; keyUpPlain = baseline.charactersIgnoringModifiers
+        }
+        event.keyboardSetUnicodeString(stringLength: units.count, unicodeString: &units)
+        owners.append(owner); events.append(event)
+    }
+    for (number, event) in events.enumerated() {
+        let kind: NSEvent.EventType = number == 0 ? .keyDown : .keyUp
+        var readUnits = [UniChar](repeating: 0, count: 64), readLength = 0
+        event.keyboardGetUnicodeString(maxStringLength: 64, actualStringLength: &readLength, unicodeString: &readUnits)
+        guard readLength == units.count, Array(readUnits.prefix(readLength)) == units,
+              event.type == (number == 0 ? .keyDown : .keyUp),
+              let reflected = NSEvent(cgEvent: event), reflected.type == kind,
+              reflected.windowNumber == Int(windowID), reflected.keyCode == 0,
+              event.getIntegerValueField(.keyboardEventKeycode) == 0,
+              reflected.characters == (number == 0 ? text : keyUpChars),
+              reflected.charactersIgnoringModifiers == (number == 0 ? text : keyUpPlain),
+              event.flags.rawValue == 0, reflected.modifierFlags.isEmpty,
+              !reflected.isARepeat, event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else {
+            throw NativeWindowInputError.unavailable("Unicode window event readback mismatch")
+        }
+    }
+    return NativeWindowKeyPair(down: events[0], up: events[1], owners: owners)
 }

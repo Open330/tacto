@@ -1,6 +1,7 @@
 """Backend-independent L2 contract. Importing the core never loads macOS APIs."""
 
 from typing import Callable, Protocol
+import math
 
 PROTOCOL_VERSION = 1
 NAVIGATION_KEYS = frozenset({"Tab", "shift+Tab", "Up", "Down", "Left", "Right", "Escape"})
@@ -17,6 +18,59 @@ ACTION_PARAMS = {
     "secondary_action": frozenset({"action"}),
     "goto": frozenset({"url"}),
 }
+
+
+def window_key_reobservation(action, response, capabilities):
+    """A completed bounded pair needs fresh effect evidence, never a retry."""
+    return ("press_key.element_bound" in capabilities
+            and action.get('name') == 'press_key'
+            and type(action.get('element_index')) is int and action['element_index'] >= 0
+            and type(action.get('key')) is str and action['key'] in NAVIGATION_KEYS - {'Escape'}
+            and response.get('type') == 'acted'
+            and response.get('input_route') == 'window_key'
+            and response.get('unverified') == 'observe_effect'
+            and response.get('reobserve_required') is True
+            and type(response.get('posted_events')) is int and response['posted_events'] == 2)
+
+
+def window_point_reobservation(action, response, capabilities, *, obs_id=None, window_id=None):
+    """Only the expected window's complete authorized pair may be reobserved."""
+    if not isinstance(action, dict) or not isinstance(response, dict):
+        return False
+    point = action.get('point')
+    return (isinstance(capabilities, (set, frozenset, tuple, list))
+            and {'action.click_point', 'click_point.window_bound', 'click_point.host_authorization'} <= set(capabilities)
+            and set(action) == {'name', 'element_index', 'point'}
+            and action.get('name') == 'click_point'
+            and type(action.get('element_index')) is int and action['element_index'] >= 0
+            and isinstance(point, dict) and set(point) == {'x', 'y'}
+            and all(type(value) in (int, float) and math.isfinite(value) and value >= 0 for value in point.values())
+            and response.get('type') == 'acted'
+            and response.get('input_route') == 'window_bound_mouse'
+            and response.get('mechanism') == 'pid_window_events'
+            and response.get('unverified') == 'observe_effect'
+            and response.get('reobserve_required') is True
+            and type(response.get('posted_events')) is int and response['posted_events'] == 2
+            and type(response.get('window_id')) is int and response['window_id'] > 0
+            and (window_id is None or response['window_id'] == window_id)
+            and (obs_id is None or response.get('obs_id') == obs_id))
+
+
+def window_input_reobservation(action, response, capabilities, *, obs_id=None, window_id=None):
+    """A complete opaque pair permits receiving verification, never success."""
+    from .native_window_payload import window_input_problem, WINDOW_INPUT_CAPABILITIES
+    return (window_input_problem(action) is None and isinstance(response, dict)
+            and isinstance(capabilities, (set, frozenset, tuple, list))
+            and WINDOW_INPUT_CAPABILITIES <= set(capabilities)
+            and response.get('type') == 'acted'
+            and response.get('input_route') == 'window_input'
+            and response.get('mechanism') == 'pid_window_events'
+            and response.get('unverified') == 'observe_effect'
+            and response.get('reobserve_required') is True
+            and type(response.get('posted_events')) is int and response['posted_events'] == 2
+            and type(response.get('window_id')) is int and response['window_id'] > 0
+            and (window_id is None or response['window_id'] == window_id)
+            and (obs_id is None or response.get('obs_id') == obs_id))
 
 
 class Driver(Protocol):

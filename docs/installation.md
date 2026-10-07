@@ -86,3 +86,23 @@ NLC_TEST_WHEEL_INSTALL=1 .venv/bin/python -m unittest discover -s tests -p test_
 코어·브라우저 모듈과 help를 확인합니다. Linux 컴퓨터에서 실행한 검증이나
 실제 Chromium·네이티브 UI 검증을 대신하지 않습니다. 빌드 도구가 캐시에
 없으면 최초 wheel 빌드 시 빌드 의존성을 다운로드할 수 있습니다.
+
+## 에이전트 스킬의 native 호출 경로
+
+`skill/install.sh`는 `~/.local/bin/nlc`를 이 checkout의 signed launcher에,
+Claude/Codex의 NLC 스킬을 이 checkout의 `skill/`에 연결합니다.
+`skill/install.sh --check`는 링크만 확인하며 backend 선택을 검증하지 않습니다.
+
+macOS UI 작업은 `nlc apps --helper`, `nlc observe <bundle-id> --helper`,
+`nlc run <flow.json> --helper`, `nlc replay <name> --helper`,
+`nlc do '<task>' --helper`로 signed helper를 선택합니다. 런처를 실행하더라도
+이 명령들에서 flag를 생략하면 Python direct backend를 선택합니다.
+`apps`와 `observe`도 같은 driver factory를 사용하며 signed 연결 실패 시
+Python으로 대체하지 않습니다. Python 직접 경로는 별도의 개발용 선택입니다.
+
+`nlc doctor --check`는 자체적으로 권한 경계를 확인합니다. `nlc eval`은
+시나리오별 backend를 선택하므로 signed 시나리오를 지정하고, `--helper`를
+평가 인자로 추가하지 않습니다. 스킬 예시와 실행 경로가 어긋날 때는 링크,
+backend flag, launcher가 사용하는 `.venv`의 실제 `nlc.cli` import 경로를
+함께 확인해야 합니다. 소스 checkout의 editable 설치라면 Python 변경은
+즉시 반영되며 Swift launcher/helper 변경에는 별도 재빌드가 필요합니다.

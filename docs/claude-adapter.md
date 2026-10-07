@@ -17,8 +17,9 @@ the requested alias. Multiple response models are rejected. A session ID is
 stored as `provider_thread_id`; API request identity remains unknown. Usage
 comes from the successful terminal result, not partial assistant messages.
 Claude's input counter excludes separately reported cached input, so cached
-input can exceed input. Cache creation counts are not currently represented in
-the common envelope. Cost, when present, is the CLI's `total_cost_usd`, with USD
+input can exceed input. Cache creation counts are preserved as
+`cache_creation_input_tokens`; `total_input_tokens` sums ordinary, cached-read
+and cache-creation input when all three are observed. Cost, when present, is the CLI's `total_cost_usd`, with USD
 as its explicit source unit. This is a reported estimate, not a billing receipt,
 and can include auxiliary models that do not produce the answer. When every
 reported model entry explicitly has `costBasis=list`, `cost_basis` is
@@ -26,7 +27,7 @@ reported model entry explicitly has `costBasis=list`, `cost_basis` is
 The top-level usage counters describe the answered turn, while total cost can
 include additional model usage. They must not be combined to derive a token price.
 
-The installed CLI is **Claude Code 2.1.275**. On 2026-09-19 one authorized minimal
+The CLI measured on 2026-09-19 was **Claude Code 2.1.275**. That day's authorized minimal
 text call returned these observed facts:
 
 - Initialization: `tools=[]`; assistant model: `claude-opus-5`.

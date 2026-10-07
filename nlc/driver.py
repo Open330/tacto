@@ -175,6 +175,39 @@ def _line_attr(line: str, key: str):
     return m.group(1).strip() if m else None
 
 
+def _unhide_quietly(pid: int, wait: float = 2.0) -> bool:
+    """Unhide a hidden app without activating it. True if it now has windows.
+
+    `NSRunningApplication.unhide` shows the app's windows again; unlike
+    `activateWithOptions_` it does not make the app frontmost. Checked, not
+    assumed: if the frontmost app changed across the call, that is reported by
+    returning False, and nothing here tries to change it back.
+    """
+    try:
+        from AppKit import NSRunningApplication
+        from .native_frontmost import FrontmostUnavailable, frontmost_pid
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+        if app is None or not app.isHidden():
+            return False
+        try:
+            before = frontmost_pid()
+        except FrontmostUnavailable:
+            return False            # cannot tell whether focus would move: do nothing
+        if not app.unhide():
+            return False
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            if _attr(AXUIElementCreateApplication(pid), "AXWindows"):
+                break
+            time.sleep(0.1)
+        try:
+            return frontmost_pid() == before
+        except FrontmostUnavailable:
+            return False
+    except Exception:
+        return False
+
+
 def _why_no_window(pid: int, lock: dict) -> tuple[str, str]:
     """Which of the reasons an app shows no window this is — one, not a list.
 
@@ -436,10 +469,11 @@ class Driver:
     # behave correctly, and still not appear in what an in-process run was
     # offered (peer finding). Silence is not a capability.
     #
-    # Kept in step with `helperCapabilities` in helper/NLCHelper.swift.
+    # Query each backend independently; helperCapabilities may differ.
     capabilities = frozenset({
         "observe", "act", "probe", "selection",
         "evidence.document_text", "evidence.visual",
+        "evidence.document_text.path_selector", "observe.document_token",
         "expect.role", "expect.label", "expect.attribute", "expect.enabled",
         "expect.no_modal", "expect.selection",
         "effect",
@@ -450,7 +484,7 @@ class Driver:
         # The two-step form, for a caller that does not already know what the
         # popup contains: open it, look at the observation that follows, then
         # choose from THAT. Same words the browser backend uses.
-        "action.open_select", "action.select_custom_option", "action.prepare_window", "menu_state", "menu_items",
+        "action.open_select", "action.select_custom_option", "action.prepare_window", "action.prepare_window.background", "menu_state", "menu_items",
         "custom_select.label_only",
         # Said separately because the browser's `press_key` includes Escape and
         # this one does not.
@@ -464,11 +498,10 @@ class Driver:
         # element under it — which is how a control that draws itself and
         # exposes no AX element of its own becomes reachable.
         "action.click.by_point",
-        # No press_key capability is announced. Keys are not synthesised at
-        # all now, so naming one would be advertising a refusal — and a
-        # caller reading "navigation_only" plans around a Tab that never
-        # arrives. Silence is not a capability, and neither is a promise
-        # kept by an error message.
+        "action.click_point", "click_point.window_bound", "click_point.host_authorization",
+        "action.window_input", "window_input.window_bound", "window_input.host_authorization",
+        "action.press_key", "press_key.navigation_only", "press_key.no_escape",
+        "press_key.element_bound",
     })
 
     def __init__(self):
@@ -589,7 +622,7 @@ class Driver:
 
     # ------------------------------------------------------------ observe
 
-    def _walk_windows(self, obs: "Observation") -> bool:
+    def _walk_windows(self, obs: "Observation", selected_window=None) -> bool:
         """Walk an app's real window content into `obs`. Returns False when the
         app exposes no genuine AXWindow (locked screen echoes back the app
         element, role AXApplication, which would recurse into the whole menu
@@ -602,7 +635,7 @@ class Driver:
         # Identifier: _NS:8` — our own way of saying "NLC is working here"
         # walked into the tree it was working on, and shifted every element
         # index behind it.
-        windows = _real_windows(obs.pid)
+        windows = _real_windows(obs.pid) if selected_window is None else [selected_window]
         for w in windows:
             start = len(obs.lines)
             obs.walk(w)
@@ -698,9 +731,13 @@ class Driver:
         # background TextEdit was measured answering "yes" for six hours
         # (2026-09-20). Two apps reported it at once. The window server owns
         # this fact, so ask the window server.
-        from AppKit import NSWorkspace
-        front = NSWorkspace.sharedWorkspace().frontmostApplication()
-        return front is not None and int(front.processIdentifier()) == pid
+        from .native_frontmost import frontmost_pid, FrontmostUnavailable
+        if type(pid) is not int or pid <= 0:
+            return False
+        try:
+            return frontmost_pid() == pid
+        except FrontmostUnavailable:
+            return False  # Unknown foreground never authorizes a focus write.
 
     @staticmethod
     def _blocking_hint(obs) -> str:
@@ -943,7 +980,8 @@ class Driver:
         """Stable identity namespace for contract bindings: the bundle id."""
         return target
 
-    def document_text(self, target: str, document_token=None, *, max_utf16_units=1000000):
+    def document_text(self, target: str, document_token=None, *, max_utf16_units=1000000,
+                      document_path=None):
         """Read a pinned document's complete text without changing focus.
 
         This is not the save receipt's document_snapshot capability: file
@@ -955,7 +993,8 @@ class Driver:
             self._document_reader = TextEditDocumentReader(AXDocumentAdapter(self._resolve))
         try:
             return self._document_reader.read(target, document_token=document_token,
-                                              max_utf16_units=max_utf16_units)
+                                              max_utf16_units=max_utf16_units,
+                                              document_path=document_path)
         except DocumentSnapshotError as exc:
             return {'type': 'error', 'error': 'document_snapshot_unavailable',
                     'effect': 'not_started', 'detail': str(exc)}
@@ -1096,7 +1135,17 @@ class Driver:
             pass
 
     def observe(self, target: str, mode: str = "tree_diff",
-                require_window: bool = True):
+                require_window: bool = True, *, document_token=None):
+        selected_window = None
+        if document_token is not None:
+            from .native_document import DocumentSnapshotError
+            try:
+                if not hasattr(self, '_document_reader'):
+                    raise DocumentSnapshotError('unknown or expired document token')
+                selected_window = self._document_reader.window_for_token(target, document_token)
+            except DocumentSnapshotError as exc:
+                return {'type':'error','error':'document_snapshot_unavailable',
+                        'effect':'not_started','detail':str(exc)}
         if mode not in ("tree_diff", "tree_full"):
             return {"type": "error", "error": "not_implemented_p0",
                     "detail": f"mode {mode!r} (screenshot lands in P1)"}
@@ -1107,7 +1156,7 @@ class Driver:
             time.sleep(settle)
             waited_ms = int(settle * 1000)
 
-        pid = self._resolve(target)
+        pid = self._resolve(target) if document_token is None else self._resolve(target, launch=False)
         self._showing_control(pid)
         if pid is None:
             # Distinguish "not running" from "this process cannot see the GUI
@@ -1130,7 +1179,32 @@ class Driver:
                                                  for a in gui)[:12])}
 
         obs = Observation(target, pid)
-        has_windows = self._walk_windows(obs)
+        if document_token is not None:
+            try:
+                refreshed = self._document_reader.window_for_token(target, document_token)
+                if not CFEqual(refreshed, selected_window):
+                    raise DocumentSnapshotError('selected document window changed')
+            except DocumentSnapshotError as exc:
+                return {'type':'error','error':'document_snapshot_unavailable',
+                        'effect':'not_started','detail':str(exc)}
+        has_windows = self._walk_windows(obs) if selected_window is None else self._walk_windows(obs, selected_window)
+        if not has_windows and require_window and selected_window is None and _unhide_quietly(pid):
+            # A hidden app shows no windows, so a person asked to "click it in
+            # the Dock" — where Sky simply went on (2026-10-07 comparison).
+            # Unhiding puts its windows back WITHOUT making it frontmost, so
+            # the person keeps the app they are using; then look again.
+            obs = Observation(target, pid)
+            has_windows = self._walk_windows(obs)
+        if document_token is not None:
+            try:
+                refreshed = self._document_reader.window_for_token(target, document_token)
+                if not CFEqual(refreshed, selected_window):
+                    raise DocumentSnapshotError('selected document window changed')
+            except DocumentSnapshotError as exc:
+                return {'type':'error','error':'document_snapshot_unavailable',
+                        'effect':'not_started','detail':str(exc)}
+            obs.document_token = document_token
+            obs.document_window = selected_window
         if not has_windows and require_window:
             # No window content. On a locked screen only the menu bar is
             # reachable, so this is the graceful analog of Codex's
@@ -1174,7 +1248,8 @@ class Driver:
             # the caller has to be able to tell those apart.
             obs.lines.append(TRUNCATION_MARK)
         tree = "\n".join(obs.lines)
-        if mode == "tree_diff" and prev is not None:
+        if (mode == "tree_diff" and prev is not None
+                and getattr(prev, 'document_token', None) == document_token):
             diff = list(difflib.unified_diff(prev.lines, obs.lines,
                                              lineterm="", n=1))
             if not diff:
@@ -1185,6 +1260,8 @@ class Driver:
                   "mode": mode, "tree": tree, "element_count": len(obs.elements),
                   "custom_selects": self._custom_selects(obs),
                   "truncated": obs.truncated, "waited_ms": waited_ms}
+        if document_token is not None:
+            answer['document_token'] = document_token
         if obs.truncated:
             # A tree that stopped early describes less than the window holds,
             # which is the other half of "screenshots are for where the tree
@@ -1214,9 +1291,25 @@ class Driver:
 
     # ------------------------------------------------------------ act
 
+    def _validate_document_observation(self, obs):
+        token = getattr(obs, 'document_token', None)
+        if token is not None:
+            from .native_document import DocumentSnapshotError
+            try:
+                window = self._document_reader.window_for_token(obs.target, token)
+                if not CFEqual(window, obs.document_window):
+                    raise DocumentSnapshotError('selected document window changed')
+            except DocumentSnapshotError as exc:
+                raise NotStarted(str(exc)) from exc
+
     def act(self, obs_id: str, target: str, action: dict, expect: dict | None = None,
             risk_class: str = "none", intent_text: str = "",
             approved: bool = False):
+        if action.get('name') == 'window_input' and (risk_class not in ('preapproved', 'confirm') or approved is not True):
+            return {'type':'error', 'error':'window_input_authorization_required', 'effect':'not_started'}
+        if action.get('name') == 'click_point' and (risk_class not in ('preapproved', 'confirm') or approved is not True):
+            return {'type':'error', 'error':'coordinate_authorization_required', 'effect':'not_started',
+                    'detail':'the host must explicitly authorize the intended coordinate operation'}
         if risk_class not in ("none", "preapproved", "confirm", "handoff"):
             return {"type": "error", "error": "unverifiable_action", "effect": "not_started"}
         # D6 gate. handoff -> user does it. confirm AND preapproved both require
@@ -1247,6 +1340,19 @@ class Driver:
         # reading one element's own attributes costs about one millisecond.
         # Checking here rather than beforehand also closes the gap between the
         # check and the action, which a separate probe would leave open.
+        try:
+            self._validate_document_observation(obs)
+        except NotStarted as exc:
+            return {'type':'error', 'error':'document_snapshot_unavailable',
+                    'effect':'not_started', 'detail':str(exc)}
+        if getattr(obs, 'document_token', None) is not None:
+            index = action.get('element_index')
+            if (type(index) is not int or not 0 <= index < len(obs.elements)
+                    or action.get('name') not in ('read', 'click', 'prepare_window', 'press_key',
+                                                  'set_value', 'type_text', 'secondary_action', 'scroll')
+                    or (expect or {}).get('selection') is not None):
+                return {'type':'error', 'error':'unverifiable_action', 'effect':'not_started',
+                        'detail':'scoped document actions require a mapped element without app-wide selection'}
         if expect:
             why = self._mismatch(obs, action, expect)
             if why:
@@ -1256,6 +1362,7 @@ class Driver:
         name = action.get("name")
         try:
             def before_pointer():
+                self._validate_document_observation(obs)
                 if self._latest.get(target.lower()) is not obs:
                     raise NotStarted("observation changed before window input")
                 if self._resolve(target, launch=False) != obs.pid:
@@ -1276,6 +1383,11 @@ class Driver:
                         # selection never happened (peer review).
                         "reobserve_required": True, "detail": str(e),
                         **e.facts}
+            from .native_window_dispatch import WindowDispatchFailure
+            if isinstance(e, WindowDispatchFailure):
+                return {"type":"error", "error":"aborted_by_user" if e.stopped else "action_failed",
+                        "action":name, "effect":"unknown" if e.attempted else "not_started",
+                        "posted_or_attempted_events":e.attempted, "detail":str(e)}
             if isinstance(e, _NeedsForeground):
                 return {"type": "error", "error": "action_failed", "action": name,
                         "effect": "not_started", "needs_foreground": True,
@@ -1398,6 +1510,7 @@ class Driver:
         if obs is None or obs.obs_id != obs_id:
             return {"type": "error", "error": "stale_observation"}
         try:
+            self._validate_document_observation(obs)
             el = self._element(obs, {"element_index": element_index})
         except Exception as e:
             return {"type": "error", "error": "target_missing", "detail": str(e)}
@@ -1422,7 +1535,23 @@ class Driver:
             if type(idx) is not int or not (0 <= idx < len(obs.elements)):
                 raise NotStarted(f"element_index {idx} out of range "
                                  f"0..{len(obs.elements)-1}")
-            return obs.elements[idx]
+            element = obs.elements[idx]
+            if getattr(obs, 'document_token', None) is not None:
+                self._validate_document_observation(obs)
+                node = element
+                for _ in range(64):
+                    if CFEqual(node, obs.document_window):
+                        return element
+                    window = _attr(node, 'AXWindow')
+                    if window is not None:
+                        if CFEqual(window, obs.document_window):
+                            return element
+                        raise NotStarted('element belongs to a different document window')
+                    node = _attr(node, 'AXParent')
+                    if node is None or CFGetTypeID(node) != AXUIElementGetTypeID():
+                        break
+                raise NotStarted('element document ancestry unavailable')
+            return element
         return self._element_at_point(obs, action)
 
     def _element_at_point(self, obs, action):
@@ -1473,13 +1602,40 @@ class Driver:
 
     def _perform(self, obs, action, *, before_pointer=None):
         name = action["name"]
+        if name == 'window_input':
+            from .native_window_payload import window_input_problem
+            problem = window_input_problem(action)
+            if problem:
+                raise NotStarted(problem)
+            element = self._element(obs, action)
+            if _attr(element, 'AXRole') != 'AXWindow':
+                raise NotStarted('window_input requires an observed AXWindow')
+            from .native_window_dispatch import dispatch_window_input
+            binding, deadline, context = self._window_action_binding(obs, element, 'window_input', before_pointer)
+            payload = {field:action[field] for field in ('key','text') if field in action}
+            return dispatch_window_input(binding, payload, deadline=deadline, stopped=_aborted_now, context=context)
+        if name == 'click_point':
+            if set(action) != {'name', 'element_index', 'point'}:
+                raise NotStarted('click_point requires an observed window index and point only')
+            point = action.get('point')
+            if not isinstance(point, dict) or set(point) != {'x', 'y'}:
+                raise NotStarted('click_point requires x/y window-relative coordinates')
+            from .native_window_binding import _relative_point, NativeWindowBindingError
+            try:
+                relative = _relative_point((point['x'], point['y']))
+            except NativeWindowBindingError as exc:
+                raise NotStarted(str(exc)) from exc
+            element = self._element(obs, action)
+            if _attr(element, 'AXRole') != 'AXWindow':
+                raise NotStarted('click_point requires an observed AXWindow')
+            return self._click_background_point(obs, element, relative, before_pointer)
         if name == "prepare_window":
             if set(action) != {"name", "element_index"}:
                 raise NotStarted("prepare_window requires only an observed window index")
             el = self._element(obs, action)
             if _attr(el, 'AXRole') != 'AXWindow':
                 raise NotStarted("prepare_window requires an AXWindow")
-            return self._prepare_window(obs, el)
+            return self._prepare_window(obs, el, before_pointer=before_pointer)
         if name == "click":
             el = self._element(obs, action)
             # Some custom AX elements accept a no-op AXPress while explicitly
@@ -1548,19 +1704,12 @@ class Driver:
         elif name == "select_custom_option":
             return self._select_custom_option(obs, action)
         elif name == "press_key":
-            # Tab and the arrows exist to walk a keyboard focus toward a
-            # control. Every other action here already NAMES its control, so
-            # walking to it was never the point — it was how you reach a thing
-            # when your only channel is the keyboard. Accessibility is not
-            # that channel: it addresses the element.
-            #
-            # There is no general accessibility translation for "press Tab"
-            # either. It means "whatever this app decides comes next", which
-            # is not a question the API answers. So this is a refusal rather
-            # than a worse imitation of one.
-            raise NotStarted(
-                "이 드라이버는 키를 합성하지 않습니다 — "
-                "요소를 직접 지정하는 click / set_value / type_text 를 쓰십시오")
+            from .native_key_events import NAVIGATION
+            key = action.get("key")
+            if type(key) is not str or key not in NAVIGATION:
+                raise NotStarted("Tab·shift+Tab·방향키만 지원합니다; Escape와 단축키는 제외합니다")
+            return self._press_navigation_key(obs, self._element(obs, action), key,
+                                              before_pointer=before_pointer)
         elif name == "scroll":
             el = self._element(obs, action)
             return self._scroll(el, action.get("direction", "down"),
@@ -1769,39 +1918,100 @@ class Driver:
             node = _attr(node, "AXParent")
         return False
 
-    def _prepare_window(self, obs, element):
-        """Make this window the key one, by asking it rather than clicking it.
+    def _window_action_binding(self, obs, element, kind, before_pointer=None, *, relative_point=None):
+        from .native_window_dispatch import WindowReadScope, WindowDispatchFailure
+        from .native_window_binding import capture_binding
+        from .native_process_identity import process_start_identity
+        from .model_budget import remaining_model_seconds
+        try:
+            deadline = time.monotonic() + remaining_model_seconds(5)
+            elements = tuple(obs.elements)
+            target = obs.target
+            start = obs.process_launch_identity
+            if start is None:
+                raise RuntimeError('window process start identity unavailable')
+            def context():
+                self._validate_document_observation(obs)
+                if _aborted_now():
+                    raise RuntimeError('user stopped input')
+                if (self._latest.get(target.lower()) is not obs
+                        or self._resolve(target, launch=False) != obs.pid
+                        or process_start_identity(obs.pid) != start
+                        or len(obs.elements) != len(elements)
+                        or any(current is not previous for current, previous in zip(obs.elements, elements))):
+                    raise RuntimeError('window observation or process changed')
+                if before_pointer:
+                    before_pointer()
+            scope = WindowReadScope(deadline, context)
+            scope.ready()
+            kwargs = {'point_kind':kind, 'read_scope':scope}
+            if relative_point is not None:
+                kwargs['relative_point'] = relative_point
+            binding = capture_binding(element, obs.pid, start, **kwargs)
+            if sum(bool(binding._backend.equal(node, element)) for node in elements) != 1:
+                raise RuntimeError('window absent or ambiguous in observation map')
+            return binding, deadline, context
+        except WindowDispatchFailure:
+            raise
+        except Exception as exc:
+            raise WindowDispatchFailure(str(exc), stopped=_aborted_now()) from exc
 
-        What stood here posted a synthetic mouse down/up pair at the window's
-        title bar, addressed to the process. That is a gesture mimed at an app
-        in the hope it reads it the way a person's click would — and it needed
-        the app in front first, because an inactive app has no key window to
-        give.
+    def _click_background_point(self, obs, element, relative_point, before_pointer=None):
+        from .native_window_dispatch import dispatch_point
+        binding, deadline, context = self._window_action_binding(obs, element, 'window_point', before_pointer,
+                                                                relative_point=relative_point)
+        return dispatch_point(binding, deadline=deadline, stopped=_aborted_now, context=context)
 
-        `AXMain` and `AXFocused` are the same request written as a question the
-        window can answer. The frontmost requirement stays: this picks which
-        window of an app the person is already in becomes key, and it is not a
-        way to bring an app forward.
-        """
+    def _prepare_background_window(self, obs, element, before_pointer=None):
+        from .native_window_dispatch import dispatch_preparation
+        binding, deadline, context = self._window_action_binding(obs, element, 'titlebar', before_pointer)
+        return dispatch_preparation(binding, deadline=deadline, stopped=_aborted_now, context=context)
+
+    def _press_navigation_key(self, obs, element, key, before_pointer=None):
+        from .native_window_dispatch import dispatch_navigation
+        binding, deadline, context = self._window_action_binding(obs, element, 'element_center')
+        return dispatch_navigation(binding, key, deadline=deadline, stopped=_aborted_now,
+                                   context=context, preflight=before_pointer)
+
+    def _prepare_window(self, obs, element, before_pointer=None):
+        """Foreground AX preparation or guarded PID/window background input."""
         if not self._frontmost(obs.pid):
-            raise _NeedsForeground(
-                "이 동작은 앱이 앞에 있어야 합니다 — 배경 앱에는 보내지 않았습니다")
+            return self._prepare_background_window(obs, element, before_pointer)
         if _attr(element, "AXMinimized") is not False:
             raise NotStarted("최소화된 창은 준비할 수 없습니다")
         wrote = []
+        attempted = False
+        def ready():
+            from .model_budget import remaining_model_seconds
+            reason = None
+            if _aborted_now():
+                reason = '사용자가 중단했습니다'
+            elif not self._frontmost(obs.pid):
+                reason = '창 준비 중 전경 앱이 바뀌었습니다'
+            else:
+                try:
+                    remaining_model_seconds(5)
+                except TimeoutError:
+                    reason = 'input deadline expired'
+            if reason:
+                # Once a write was attempted, an error cannot certify that
+                # nothing happened, even if AX did not report success.
+                raise (RuntimeError(reason) if attempted else NotStarted(reason))
         for name in ("AXMain", "AXFocused"):
             settable = AXUIElementIsAttributeSettable(element, name, None)
             if not (isinstance(settable, tuple) and settable[0] == 0 and settable[1] is True):
                 continue
-            if _aborted_now():
-                raise NotStarted("사용자가 중단했습니다")
-            if AXUIElementSetAttributeValue(element, name, True) == 0:
-                wrote.append(name)
+            ready()
+            attempted = True
+            if AXUIElementSetAttributeValue(element, name, True) != 0:
+                raise RuntimeError('window preparation AX write failed')
+            wrote.append(name)
         if not wrote:
             raise NotStarted(
                 "이 창은 AXMain/AXFocused 를 받지 않습니다 — 준비하지 못했습니다")
         # Ask the window what actually happened rather than assuming the write
         # took: a window can accept the attribute and still not become key.
+        ready()
         became = _attr(element, "AXMain") is True or _attr(element, "AXFocused") is True
         return {"input_route": "window_prepare", "wrote": wrote,
                 "window_reports_key": became,
@@ -2539,10 +2749,13 @@ class Driver:
         if mtype == "list_targets":
             return self.list_targets()
         if mtype == "observe":
-            return self.observe(msg["target"], msg.get("mode", "tree_diff"))
+            return self.observe(msg["target"], msg.get("mode", "tree_diff"),
+                                require_window=msg.get("require_window", True),
+                                document_token=msg.get("document_token"))
         if mtype == "document_text":
             return self.document_text(msg["target"], msg.get("document_token"),
-                                      max_utf16_units=msg.get("max_utf16_units", 1000000))
+                                      max_utf16_units=msg.get("max_utf16_units", 1000000),
+                                      document_path=msg.get("document_path"))
         if mtype == "act":
             # Keywords, not positions: `expect` sits between `action` and
             # `risk_class`, and a positional call would have quietly passed the

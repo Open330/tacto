@@ -127,6 +127,11 @@ class TracingDriver:
     def capabilities(self):
         return getattr(self._inner, "capabilities", ())
 
+    def document_rtf_export(self, target, document_token, *, max_utf16_units=1000000,
+                            timeout_seconds=3):
+        return self._inner.document_rtf_export(target, document_token,
+            max_utf16_units=max_utf16_units, timeout_seconds=timeout_seconds)
+
     @property
     def prepare_commit(self):
         return getattr(self._inner, "prepare_commit", None)
@@ -144,11 +149,14 @@ class TracingDriver:
         # receipt or copied document body in the execution trace.
         return self._inner.document_snapshot(target, document_token=document_token)
 
-    def document_text(self, target, document_token=None, *, max_utf16_units=1000000):
+    def document_text(self, target, document_token=None, *, max_utf16_units=1000000,
+                      document_path=None):
         # A live document identity token is not evidence a recorded trace can
         # replay, and complete bodies should not be copied into trace files.
-        return self._inner.document_text(target, document_token=document_token,
-                                         max_utf16_units=max_utf16_units)
+        kwargs = {'document_token': document_token, 'max_utf16_units': max_utf16_units}
+        if document_path is not None:
+            kwargs['document_path'] = document_path
+        return self._inner.document_text(target, **kwargs)
 
     def __init__(self, inner, trace: Trace | None = None):
         self._inner = inner
@@ -182,7 +190,12 @@ class TracingDriver:
     def list_targets(self):
         return self._record("list_targets", {}, self._inner.list_targets())
 
-    def observe(self, target, mode="tree_full", require_window=True):
+    def observe(self, target, mode="tree_full", require_window=True, *, document_token=None):
+        if document_token is not None:
+            # A live document token and its scoped body cannot be made into
+            # reusable recorded evidence. Never fall back to an app-wide read.
+            return self._inner.observe(target, mode, require_window=require_window,
+                                       document_token=document_token)
         # Preserve compatibility with drivers whose default is implicit.
         result = (self._inner.observe(target, mode) if require_window else
                   self._inner.observe(target, mode, require_window=False))
@@ -190,15 +203,23 @@ class TracingDriver:
                                        "require_window": require_window}, result)
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False):
+            intent_text="", approved=False, *, save_panel_token=None):
         request = dict(obs_id=obs_id, target=target, action=action, expect=expect,
                        risk_class=risk_class, intent_text=intent_text, approved=approved)
+        if save_panel_token is not None:
+            # Connection-owned live evidence is not a replayable action proof.
+            return self._inner.act(**request, save_panel_token=save_panel_token)
         try:
             result = self._inner.act(**request)
         except Exception as exc:
             result = {"type": "error", "error": "driver_exception",
                       "effect": "unknown", "detail": str(exc)}
         return self._record("act", request, result)
+
+    def save_panel(self, obs_id, target, window_element_index, *, panel_token=None,
+                   document_token=None, require_format=False):
+        return self._inner.save_panel(obs_id, target, window_element_index,
+            panel_token=panel_token, document_token=document_token, require_format=require_format)
 
     def probe(self, obs_id, target, element_index):
         request = dict(obs_id=obs_id, target=target, element_index=element_index)
@@ -240,8 +261,15 @@ class TraceDriver:
             raise ValueError("legacy trace lacks request records; record a schema 2 trace")
         self.trace = trace
         self.capabilities = frozenset(trace.capabilities) - {
-            "evidence.document_snapshot", "evidence.document_text"}
+            "evidence.document_snapshot", "evidence.document_text",
+            "evidence.document_text.path_selector", "observe.document_token",
+            "evidence.save_panel", "action.click.save_panel_guard", "evidence.document_rtf_export",
+            "action.window_input", "window_input.window_bound", "window_input.host_authorization"}
         self._i = 0
+
+    def document_rtf_export(self, target, document_token, *, max_utf16_units=1000000,
+                            timeout_seconds=3):
+        return {'type':'error', 'error':'document_rtf_export_unavailable', 'effect':'not_started'}
 
     def _take(self, kind, request):
         if self._i >= len(self.trace.events):
@@ -261,15 +289,25 @@ class TraceDriver:
     def list_targets(self):
         return self._take("list_targets", {})
 
-    def observe(self, target, mode="tree_full", require_window=True):
+    def observe(self, target, mode="tree_full", require_window=True, *, document_token=None):
+        if document_token is not None:
+            return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started'}
         return self._take("observe", {"target": target, "mode": mode,
                                       "require_window": require_window})
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False):
+            intent_text="", approved=False, *, save_panel_token=None):
+        if action.get('name') == 'window_input':
+            return {'type':'error', 'error':'window_input_unavailable', 'effect':'not_started'}
+        if save_panel_token is not None:
+            return {'type':'error', 'error':'save_panel_guard_unavailable', 'effect':'not_started'}
         return self._take("act", dict(obs_id=obs_id, target=target, action=action,
                                      expect=expect, risk_class=risk_class,
                                      intent_text=intent_text, approved=approved))
+
+    def save_panel(self, obs_id, target, window_element_index, *, panel_token=None,
+                   document_token=None, require_format=False):
+        return {'type':'error', 'error':'save_panel_unavailable', 'effect':'not_started'}
 
     def probe(self, obs_id, target, element_index):
         return self._take("probe", dict(obs_id=obs_id, target=target, element_index=element_index))

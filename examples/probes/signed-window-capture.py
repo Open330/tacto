@@ -23,6 +23,23 @@ TARGET = 'ai.callabo.nlc.menu-fixture'
 
 
 def main(driver, output: Path) -> dict:
+    from nlc.input_audit_process import ProcessInputAudit
+
+    audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
+    try:
+        with audit:
+            report = _capture_owned_window(driver, output)
+    except Exception as exc:
+        report = {'passed': False, 'error': type(exc).__name__ + ': ' + str(exc)}
+    report['input_audit'] = audit.report()
+    if report['input_audit']['status'] != 'UNCHANGED_SAMPLED':
+        report['passed'] = False
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str),
+                      encoding='utf-8')
+    return report
+
+
+def _capture_owned_window(driver, output: Path) -> dict:
     from nlc.driver import Driver
 
     root = Path(__file__).resolve().parents[2]
@@ -107,6 +124,7 @@ def main(driver, output: Path) -> dict:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
-        output.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str),
-                          encoding='utf-8')
+                process.wait(timeout=5)
+        elif process is not None:
+            process.wait(timeout=5)
     return report

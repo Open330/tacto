@@ -17,6 +17,26 @@ def answer(**updates):
 
 
 class PlanningBoundaryTests(unittest.TestCase):
+    def test_codex_cli_uses_structured_adapter_and_preserves_usage(self):
+        observed = answer(requested_provider='codex', provider='codex', model=None,
+                          input_tokens=100, output_tokens=10, cached_input_tokens=60,
+                          input_tokens_basis='total', total_input_tokens=100,
+                          cost=None, cost_currency=None, cost_basis=None)
+        with patch('nlc.codex_result.codex_result', return_value=observed) as adapter, \
+             patch('nlc.authoring._try_muxa', return_value=None), \
+             patch('nlc.authoring.shutil.which', return_value='/bin/codex'), \
+             patch('nlc.authoring._run_provider') as old_cli:
+            result = ask_model_result('private prompt', 'codex', expect_json=True)
+        self.assertEqual(result.status, 'ok')
+        self.assertEqual(result.transport, 'cli-json')
+        self.assertEqual((result.input_tokens, result.total_input_tokens, result.cached_input_tokens),
+                         (100, 100, 60))
+        self.assertIsNone(result.model)
+        self.assertIsNone(result.cost)
+        self.assertEqual(result.attempts[-1].input_tokens, 100)
+        adapter.assert_called_once()
+        old_cli.assert_not_called()
+
     def test_claude_only_uses_restricted_adapter_and_propagates_observed_metadata(self):
         with patch('nlc.claude_result.claude_result', return_value=answer()) as adapter, \
              patch('nlc.authoring._try_muxa') as muxa, \
@@ -72,7 +92,7 @@ class PlanningBoundaryTests(unittest.TestCase):
         runner.assert_not_called()
 
     def test_claude_receives_remaining_total_deadline(self):
-        with patch('nlc.authoring.time.monotonic',side_effect=[100,103,103]), \
+        with patch('nlc.authoring.time.monotonic',side_effect=[100,103,103,104,104]), \
              patch('nlc.authoring._try_cli',return_value='{}') as cli:
             self.assertEqual('{}',_ask_model('q','claude',timeout=10))
         cli.assert_called_once_with('claude','q',7)
