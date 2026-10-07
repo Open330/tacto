@@ -149,3 +149,26 @@ class BrowserVisual(unittest.TestCase):
         with patch.object(page, 'screenshot', side_effect=scroll):
             with self.assertRaisesRegex(VisualError, 'page_changed_during_capture'):
                 capture_browser(self.driver, self.obs)
+
+
+class VisualAnswerShapeTests(unittest.TestCase):
+    """An invalid visual answer says how it was invalid — never what it said."""
+    def test_each_malformation_has_its_own_closed_code(self):
+        from nlc.visual import VisualError, _visual_answer
+        cases = {'```json\n{"answer":"x"}\n```': 'markdown_fence', 'not json': 'json_decode',
+                 '[1]': 'root_not_object', '{"action":"stop"}': 'bare_action_object',
+                 '{"answer":"x","why":"y"}': 'unexpected_keys',
+                 '{"answer":{"action":"stop"}}': 'answer_is_object', '{"answer":5}': 'answer_not_string'}
+        for raw, shape in cases.items():
+            with self.assertRaises(VisualError) as caught:
+                _visual_answer(raw)
+            self.assertEqual('invalid_visual_response', str(caught.exception))
+            self.assertEqual(shape, caught.exception.shape, raw)
+            self.assertNotIn('stop', shape)
+
+    def test_the_prompt_shows_the_exact_envelope(self):
+        import inspect
+        from nlc import visual
+        self.assertIn('Do not use Markdown fences', inspect.getsource(visual))
+        envelope = json.dumps({'answer': json.dumps({'action': 'stop'})})
+        self.assertEqual({'action': 'stop'}, json.loads(visual._visual_answer(envelope)))

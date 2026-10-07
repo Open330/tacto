@@ -171,4 +171,6 @@ class NativeVisualSession:
         except Exception as error:
             if not self.stopped():
                 res.why = '시각 실행 실패: ' + type(error).__name__ + ':' + str(error)[:160]
+                if getattr(error, 'shape', None):
+                    res.why += ' (shape=' + error.shape + ')'   # closed code, no model text
             return True
