@@ -3926,7 +3926,10 @@ def _native_document_text_run(fixture_arg):
                     assert (rejected.get('type') == 'error'
                             and rejected.get('error') == 'document_snapshot_unavailable'
                             and rejected.get('detail') == 'unknown or expired document token'), rejected
-                first = driver.document_text('com.apple.TextEdit')
+                # Its own document, by path. Unscoped, "the one document" was
+                # ambiguous whenever anything else was open in TextEdit — and
+                # other runs' documents were (2026-10-07).
+                first = driver.document_text('com.apple.TextEdit', document_path=expected_path)
                 report['first'] = first
                 assert first.get('type') == 'document_text', first
                 assert first.get('text_complete') is True, first

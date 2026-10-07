@@ -93,6 +93,13 @@ def _find_colour(png_path, wanted, tolerance=40):
     stride = Quartz.CGImageGetBytesPerRow(image)
     per_pixel = Quartz.CGImageGetBitsPerPixel(image) // 8
 
+    # Byte order from the image itself. The capture path once produced BGRA
+    # and now produces RGBA (2026-10-07); assuming either read red as blue.
+    little = (Quartz.CGImageGetBitmapInfo(image) & Quartz.kCGBitmapByteOrderMask) \
+        == Quartz.kCGBitmapByteOrder32Little
+    # Which channel DOMINATES, not exact values: colour-space conversion moved
+    # systemGreen (52,199,89) to (101,196,102) in the same capture.
+    channel = max(range(3), key=lambda i: wanted[i])
     xs, ys = [], []
     step = max(1, min(width, height) // 240)
     for y in range(0, height, step):
@@ -101,9 +108,14 @@ def _find_colour(png_path, wanted, tolerance=40):
             offset = row + x * per_pixel
             if offset + 3 > len(pixels):
                 continue
-            b, g, r = pixels[offset], pixels[offset + 1], pixels[offset + 2]
-            if (abs(r - wanted[0]) <= tolerance and abs(g - wanted[1]) <= tolerance
-                    and abs(b - wanted[2]) <= tolerance):
+            if little:
+                b, g, r = pixels[offset], pixels[offset + 1], pixels[offset + 2]
+            else:
+                r, g, b = pixels[offset], pixels[offset + 1], pixels[offset + 2]
+            rgb = (r, g, b)
+            others = [rgb[i] for i in range(3) if i != channel]
+            if (abs(rgb[channel] - wanted[channel]) <= tolerance
+                    and all(rgb[channel] - o >= 60 for o in others)):
                 xs.append(x)
                 ys.append(y)
     if not xs:

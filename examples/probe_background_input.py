@@ -40,8 +40,15 @@ def run_probe(driver, *, transport, require_selection=False):
             raise RuntimeError('fixture_not_running')
         app = AXUIElementCreateApplication(pid)
         def background():
-            if _attr(app, 'AXFrontmost') is not False:
-                raise RuntimeError('target_not_observably_background')
+            # The window server, not the app's own AXFrontmost: a background
+            # Calculator answered AXFrontmost=True with isActive=False
+            # (2026-10-07), as TextEdit once did for six hours.
+            from nlc.native_frontmost import FrontmostUnavailable, frontmost_pid
+            try:
+                if frontmost_pid() == pid:
+                    raise RuntimeError('target_not_observably_background')
+            except FrontmostUnavailable:
+                raise RuntimeError('target_not_observably_background') from None
         def observe():
             background()
             o = driver.observe(TARGET, 'tree_full')
