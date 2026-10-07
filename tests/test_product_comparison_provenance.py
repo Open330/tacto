@@ -163,6 +163,7 @@ class OwnedDocumentTests(unittest.TestCase):
             with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed while open')), \
                  patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
                  patch('ApplicationServices.AXUIElementPerformAction', return_value=press), \
+                 patch.object(self.P, '_observed_windows', return_value=(('pid', 1), [mine])), \
                  patch.object(self.P.time, 'sleep'):
                 out = self.run_env(self.env([mine], paths), self.P.owned_cleanup)
             self.assertEqual(label, out)
@@ -194,3 +195,18 @@ class OwnedDocumentTests(unittest.TestCase):
         self.own(path='/private/tmp/x/NLC 비교 문서.txt')
         nfd = unicodedata.normalize('NFD', str(self.P._owned_path()))
         self.assertEqual(self.P._owned_path(), self.P._nfc(nfd))
+
+    def test_a_restart_or_failed_read_after_close_removes_nothing(self):
+        mine = self.own()
+        paths = {mine: self.P._owned_path()}
+        for seen in (None, (('pid', 2), [])):          # read failed / restarted
+            with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed after unknown close')), \
+                 patch.object(self.P, '_observed_windows', return_value=seen), \
+                 patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
+                 patch('ApplicationServices.AXUIElementPerformAction', return_value=0), \
+                 patch.object(self.P.time, 'sleep'):
+                windows = iter([[mine], [mine]] + [[]] * 40)
+                patches = self.env([mine], paths)
+                patches[1] = patch.object(self.P, '_textedit_windows', side_effect=lambda: next(windows))
+                out = self.run_env(patches, self.P.owned_cleanup)
+            self.assertEqual('not_observable_after_close_left_as_is', out, seen)

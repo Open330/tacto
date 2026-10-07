@@ -106,6 +106,24 @@ def _textedit_process():
     return app, (app.processIdentifier(), str(app.launchDate()))
 
 
+def _observed_windows():
+    """(process identity, windows) from one successful AX read, else None.
+
+    Unlike `_textedit_windows`, an absent process or a failed read is None —
+    never an empty list — so "the document is gone" can only come from a
+    successful look at the same process (Codex review of 35e6d2e).
+    """
+    from ApplicationServices import AXUIElementCopyAttributeValue, AXUIElementCreateApplication
+    app, identity = _textedit_process()
+    if app is None:
+        return None
+    error, windows = AXUIElementCopyAttributeValue(
+        AXUIElementCreateApplication(app.processIdentifier()), "AXWindows", None)
+    if error != 0 or windows is None:
+        return None
+    return identity, list(windows)
+
+
 def _textedit_windows():
     """TextEdit's windows by AX — the windows only, never what they contain."""
     from ApplicationServices import AXUIElementCreateApplication
@@ -240,8 +258,10 @@ def owned_cleanup():
 
     Every press is preceded by proving the window is still the harness's
     (same process, one window on the owned path, the same AX window), and the
-    directory is removed only once that window is verifiably gone and the
-    file is still the inode created at setup. Anything unproven is left as it
+    directory is removed only once the same TextEdit process, read
+    successfully, shows no window on that path, and the directory is still the
+    one created at setup holding only our file. Identity checks are repeated,
+    not atomic with the OS: they narrow the window for a mistake, not close it. Anything unproven is left as it
     is and reported. Returns "closed", or the reason nothing was removed.
     """
     import shutil
@@ -255,6 +275,7 @@ def owned_cleanup():
     close = _attr(window, "AXCloseButton")
     if close is None or owned_window() is None:
         return "not_provable_left_as_is"
+    before = _OWNED.get("process")
     if AXUIElementPerformAction(close, "AXPress") != 0:
         return "close_failed_left_as_is"
     for _ in range(20):
@@ -270,10 +291,15 @@ def owned_cleanup():
         for title in ("Don’t Save", "Don't Save", "Revert Changes", "Delete"):
             hit = _find_button(sheet, title)
             if hit is not None and owned_window() is not None:
-                AXUIElementPerformAction(hit, "AXPress")
+                if AXUIElementPerformAction(hit, "AXPress") != 0:
+                    return "sheet_press_failed_left_as_is"
                 break
-    # Gone means: no window shows that path any more — not merely "unprovable".
-    if any(_window_path(w) == _owned_path() for w in _textedit_windows()):
+    # Gone means: the SAME TextEdit process, read successfully, shows no window
+    # on that path. A quit, a restart, or a failed read proves nothing.
+    seen = _observed_windows()
+    if seen is None or seen[0] != before:
+        return "not_observable_after_close_left_as_is"
+    if any(_window_path(w) == _owned_path() for w in seen[1]):
         return "still_open_left_as_is"
     if not _owned_file_is_ours():
         return "file_changed_left_as_is"
