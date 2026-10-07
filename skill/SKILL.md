@@ -199,9 +199,8 @@ attribute postcondition; `unverified_ok` cannot waive this contract. Tab,
 shift+Tab and arrows are allowed; Escape and shortcuts are not.
 
 **Use `menu` for commands that live in the menu bar** — save, copy, open a
-folder, new window. It takes a title path and **no selector at all**; a real
-model attached one anyway, containing nothing but a role, and the step was
-refused. Write only the selector fields you know, and never a selector that
+folder, new window. It takes a title path and **no selector at all** — a menu
+step that carries one is refused. Write only the selector fields you know, and never a selector that
 carries just a role — "click a Button" is not an instruction. Each level
 may list alternatives, because menu titles are localized *and* state-dependent
 (an unsaved document shows `Save…`, a saved one shows `Save`):
@@ -226,15 +225,14 @@ neither is refused at authoring time rather than quietly waived.
 
 **A postcondition that already held proves nothing.** If the value you assert
 was true before the step ran, the run is recorded as `already_true` — which is
-the sign that the step did not do what you thought. A recipe passed this way
-once by pressing a toolbar checkbox that does not respond at all. When the
-command is a toggle, say so with `skip_if` instead.
+the sign that the step did not do what you thought. When the command is a
+toggle, say so with `skip_if` instead.
 
 **Name the surprises a step expects** with `"on_uncertain"`, when a step can
 meet a screen no recipe can predict — a dialog left open by an earlier run, a
 list whose rows are ambiguous. Given a budget (`nlc do --think`), such a step
 hands the surprise back for one judgment instead of ending the run; without one
-it fails exactly as before. Values: `target_ambiguous`, `target_missing`,
+it fails with that error as usual. Values: `target_ambiguous`, `target_missing`,
 `action_failed`, `postcondition_timeout`. Declare it only where judgment is
 genuinely needed — a recipe that escalates on everything never fails honestly,
 and each step gets one question per surprise, so a wrong answer cannot be
