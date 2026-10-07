@@ -97,14 +97,45 @@ class Provenance(unittest.TestCase):
 
 
 class TextEditScopeTests(unittest.TestCase):
-    """The TextEdit oracle reads and closes only windows created during the run."""
-    def test_windows_open_before_setup_are_never_read(self):
-        P = comparison
-        old, new = object(), object()
-        read = []
-        with patch.object(P, '_textedit_windows', side_effect=[[old], [old, new]]), \
+    """The TextEdit oracle reads and closes only the one window the run created."""
+    P = comparison
+
+    def setUp(self):
+        self.reads, self.closed = [], []
+        self.process = ('pid', 1)
+
+    def run_with(self, before, after, process_after=None, body=None):
+        P = self.P
+        bodies = body or {}
+        windows = iter([before, after, after])
+        with patch.object(P, '_textedit_process',
+                          side_effect=[(object(), self.process)] + [(object(), process_after or self.process)] * 4), \
+             patch.object(P, '_textedit_windows', side_effect=lambda: next(windows)), \
              patch('CoreFoundation.CFEqual', side_effect=lambda a, b: a is b), \
-             patch.object(P, '_text_of', side_effect=lambda w: read.append(w) or P.TEXT):
+             patch.object(P, '_text_of', side_effect=lambda w: self.reads.append(w) or bodies.get(w, P.TEXT)):
             P.textedit_baseline()
-            self.assertEqual([P.TEXT], P.textedit_texts())
-        self.assertEqual([new], read)
+            return P.textedit_texts()
+
+    def test_windows_open_before_setup_are_never_read(self):
+        old, new = object(), object()
+        self.assertEqual([self.P.TEXT], self.run_with([old], [old, new]))
+        self.assertEqual([new], self.reads)
+
+    def test_several_new_windows_are_not_read_at_all(self):
+        old, a, b = object(), object(), object()
+        self.assertEqual([], self.run_with([old], [old, a, b]))
+        self.assertEqual([], self.reads)
+
+    def test_a_restarted_textedit_is_not_read(self):
+        old, new = object(), object()
+        self.assertEqual([], self.run_with([old], [old, new], process_after=('pid', 2)))
+        self.assertEqual([], self.reads)
+
+    def test_cleanup_never_closes_a_window_without_our_text(self):
+        P = self.P
+        other = object()
+        with patch.object(P, '_new_textedit_windows', return_value=[other]), \
+             patch.object(P, '_text_of', return_value='사람이 쓴 글'), \
+             patch('ApplicationServices.AXUIElementPerformAction',
+                   side_effect=lambda *a: self.fail('closed a window that was not ours')):
+            self.assertEqual(1, P.textedit_close(P.TEXT))

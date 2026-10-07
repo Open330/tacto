@@ -98,33 +98,47 @@ def _running(bundle):
 
 
 _TEXTEDIT_BEFORE: list = []     # TextEdit windows that existed when the task was set up
+_TEXTEDIT_PROCESS: list = []    # (pid, launch date) of TextEdit at setup
+
+
+def _textedit_process():
+    from AppKit import NSRunningApplication
+    apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")
+    if len(apps) != 1:
+        return None, None
+    app = apps[0]
+    return app, (app.processIdentifier(), str(app.launchDate()))
 
 
 def _textedit_windows():
     """TextEdit's windows by AX — the windows only, never what they contain."""
-    from AppKit import NSRunningApplication
     from ApplicationServices import AXUIElementCreateApplication
     from nlc.driver import _attr, _unhide_quietly
-    apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")
-    if not apps:
+    app, _identity = _textedit_process()
+    if app is None:
         return []
-    pid = apps[0].processIdentifier()
-    if apps[0].isHidden():
-        _unhide_quietly(pid)
-    return list(_attr(AXUIElementCreateApplication(pid), "AXWindows") or [])
+    if app.isHidden():
+        _unhide_quietly(app.processIdentifier())
+    return list(_attr(AXUIElementCreateApplication(app.processIdentifier()), "AXWindows") or [])
 
 
 def _new_textedit_windows():
-    """Windows that appeared after setup: the only ones this harness may read.
+    """THE window this run created — or nothing, when that is not certain.
 
-    The previous checker read the text of EVERY open TextEdit document and
-    deleted any whose text matched — a person's own documents included
-    (Codex review, 2026-10-07). What existed before the task is now neither
-    read nor touched.
+    The first checker read the text of EVERY open TextEdit document and deleted
+    any whose text matched; the second read every window that appeared during
+    the run. Appearing during the run is not ownership: a person can open a
+    document meanwhile, and a restarted TextEdit can reuse window identities
+    (Codex review, 2026-10-07). So: the same TextEdit process as at setup, and
+    exactly one new window — otherwise nothing is read and nothing is closed.
     """
     from CoreFoundation import CFEqual
-    return [w for w in _textedit_windows()
-            if not any(CFEqual(w, old) for old in _TEXTEDIT_BEFORE)]
+    _app, identity = _textedit_process()
+    if identity is None or not _TEXTEDIT_PROCESS or identity != _TEXTEDIT_PROCESS[0]:
+        return []
+    new = [w for w in _textedit_windows()
+           if not any(CFEqual(w, old) for old in _TEXTEDIT_BEFORE)]
+    return new if len(new) == 1 else []
 
 
 def _text_of(window):
@@ -146,7 +160,23 @@ def _text_of(window):
 
 
 def textedit_baseline():
-    """Remember which windows were already open; read none of them."""
+    """Remember TextEdit's process and its open windows; read none of them.
+
+    If TextEdit is not running the agent will start it — a new process — so
+    the baseline is taken against nothing, and no window can be claimed.
+    """
+    _app, identity = _textedit_process()
+    if identity is None:
+        # Started here, in the background (-g: not made frontmost), so the
+        # process the agent works in is the one the baseline describes.
+        subprocess.run(["open", "-g", "-a", "TextEdit"], capture_output=True, timeout=20)
+        for _ in range(50):
+            _app, identity = _textedit_process()
+            if identity is not None:
+                break
+            time.sleep(0.1)
+        time.sleep(1.0)
+    _TEXTEDIT_PROCESS[:] = [identity] if identity else []
     _TEXTEDIT_BEFORE[:] = _textedit_windows()
 
 
@@ -161,7 +191,7 @@ def textedit_has(text):
 
 
 def textedit_close(text):
-    """Close the windows this run created, if they hold our text or nothing.
+    """Close the window this run created, if it holds our text.
 
     TextEdit autosaves a new document to iCloud Drive at once, so closing asks
     "Do you want to keep this new document?"; Delete is pressed for those. A
@@ -186,7 +216,7 @@ def textedit_close(text):
     left = 0
     for window in _new_textedit_windows():
         body = _text_of(window)
-        if body is None or " ".join(body.split()) not in (want, ""):
+        if body is None or " ".join(body.split()) != want:
             left += 1
             continue
         close = _attr(window, "AXCloseButton")
