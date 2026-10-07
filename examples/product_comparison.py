@@ -235,15 +235,39 @@ def _make_folder():
         (FOLDER / f"item-{i + 1}.txt").write_text(str(i))
 
 
-def source_hash():
-    """What the NLC arm actually ran: package, skill and the signed launcher."""
+def source_manifest():
+    """Explicit source/artifact set, not a dependency-closure claim.
+
+    Both arms record the same NLC state. Missing signed artifacts are recorded,
+    not silently omitted; package/fixture changes and binary rebuilds matter.
+    """
     import hashlib
-    h = hashlib.sha256()
-    files = sorted((ROOT / "nlc").glob("*.py")) + [ROOT / "skill" / "SKILL.md",
-                                                  ROOT / "launcher" / "nlc"]
-    for f in files:
-        h.update(f.name.encode()); h.update(f.read_bytes())
-    return h.hexdigest()[:12]
+    fixed = ["skill/SKILL.md", "launcher/nlc", "launcher/nlc.swift",
+             "helper/nlc-helper", "helper/NLC Helper.app/Contents/MacOS/NLCHelper",
+             "helper/NLC Helper.app/Contents/Info.plist", "signing.sh",
+             "pyproject.toml", "uv.lock"]
+    paths = {ROOT / name for name in fixed}
+    for directory, pattern in (("nlc", "**/*.py"), ("helper", "*.swift"),
+                               ("examples", "*.py"), ("examples/probes", "*.py"),
+                               ("tests/fixtures", "*.swift"), ("flows", "*.json")):
+        paths.update((ROOT / directory).glob(pattern))
+    files = {path.relative_to(ROOT).as_posix():
+             hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+             for path in sorted(paths)}
+    digest = hashlib.sha256(json.dumps(files, sort_keys=True,
+                                      separators=(",", ":")).encode()).hexdigest()
+    return {"version": 2, "sha256": digest, "files": files}
+
+
+def source_hash():
+    """Legacy short identifier; new rows also retain the complete manifest."""
+    return source_manifest()["sha256"][:12]
+
+
+def _source_evidence(before, after):
+    return {"source": before["sha256"][:12], "source_end": after["sha256"][:12],
+            "source_changed": before != after,
+            "source_manifest_before": before, "source_manifest_after": after}
 
 TASKS = [
     Task("calc_mult", "In the macOS Calculator app, compute 12 × 34 and report the result.",
@@ -280,13 +304,15 @@ TASKS = [
 
 def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     from focus_witness import FocusWitness
+    source_before = source_manifest()
     if task.setup:
         try:
             task.setup()
         except Exception as exc:
             return {"task": task.name, "arm": arm, "status": "not_run",
                     "observed": f"setup failed: {type(exc).__name__}", "seconds": 0,
-                    "answer": "", "calls": {}, "usage": None, "activations": []}
+                    "answer": "", "calls": {}, "usage": None, "activations": [],
+                    **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
     prompt = f"{task.ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS}"
@@ -336,24 +362,36 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
             passed, observed = False, f"oracle error: {type(exc).__name__}"
     provider_down = (not answer and re.search(r"usage limit|rate limit|not logged in",
                                               stdout, re.I))
+    process_exit = None if timed_out else proc.returncode
     status = ("not_run" if provider_down else "timeout" if timed_out
               else "invalid" if (layer_violation or shortcut)
+              else "failed" if process_exit != 0
               else "passed" if passed else "failed")
     result = {"task": task.name, "arm": arm, "status": status, "seconds": round(seconds, 1),
               "observed": observed, "answer": answer[-400:], "calls": calls, "usage": usage,
               "activations": witness.summary()["activations"],
               "layer_violation": layer_violation, "shortcut": shortcut,
+              "process_exit": process_exit, "oracle_passed": bool(passed),
               # A lock during the run is the environment, not either arm; such
               # a run is reported, and excluded from the comparison.
-              "locked": [locked_before, _locked()], "source": source_hash(),
+              "locked": [locked_before, _locked()],
               "textedit_hidden_before": hidden_before}
     if any(result["locked"]) and status in ("failed", "timeout"):
         result["status"] = "not_run"
+    result["cleanup_status"] = "not_requested"
     if task.cleanup:
         try:
             task.cleanup()
-        except Exception:
-            pass
+            result["cleanup_status"] = "completed"
+        except Exception as error:
+            result["cleanup_status"] = "failed"
+            result["cleanup_error"] = type(error).__name__[:80]
+    result.update(_source_evidence(source_before, source_manifest()))
+    if result["source_changed"]:
+        # A successful oracle cannot certify a comparison under drifting code.
+        result["observed_status"] = result["status"]
+        result["status"] = "invalid"
+        result["invalid_reason"] = "source_changed"
     return result
 
 

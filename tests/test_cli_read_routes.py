@@ -65,4 +65,14 @@ class CLIReadRouteTests(unittest.TestCase):
         self.assertIn('gui_session_unavailable', output.getvalue())
 
 
+    def test_observe_reports_specific_window_reason(self):
+        driver = self.fake()
+        driver.observe.return_value = {'type':'error','error':'no_window_content',
+                                       'reason':'minimized','detail':'창이 최소화됐습니다'}
+        with patch.object(cli, '_make_driver', return_value=driver), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(cli._dispatch('observe', ['owned.fixture', '--helper']), 1)
+        self.assertIn('reason=minimized', output.getvalue())
+        self.assertNotIn('screen_locked', output.getvalue())
+
+
 if __name__ == '__main__': unittest.main()

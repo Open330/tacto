@@ -236,7 +236,12 @@ def focused_window_view(tree: str) -> str:
             current.append(line)
     if len(blocks) <= 1:
         return tree
-    keep = next((b for b in blocks if "[focused]" in b[0]), blocks[0])
+    focused = [b for b in blocks if "[focused]" in b[0]]
+    # Main and focused windows may both be marked (e.g. a parent and its dialog).
+    # Without a unique focus, hiding every other block conceals valid controls.
+    if len(focused) != 1:
+        return tree
+    keep = focused[0]
     others = [b[0] for b in blocks if b is not keep]
     names = []
     for head in others:
@@ -467,7 +472,9 @@ def _dispatch(cmd, rest):
             return 2
         o = _make_driver(rest).observe(targets[0], "tree_full")
         if o["type"] != "observation":
-            print(f"{o.get('error')}: {o.get('detail','')}")
+            reason = o.get("reason")
+            suffix = f" (reason={reason})" if reason else ""
+            print(f"{o.get('error')}{suffix}: {o.get('detail','')}")
             return 1
         print(o["tree"] if "--all-windows" in rest else focused_window_view(o["tree"]))
         return 0

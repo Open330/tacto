@@ -96,7 +96,7 @@ nlc replay textedit_write_note -p text="회의 준비" --helper --yes
 
 Writing into a document ends `unverified — … 확인 영수증이 없습니다` when the
 document is not saved: the text was sent, and with no file there is nothing to
-read back. That is expected — confirm with `nlc observe <app>` and move on.
+read back. That is expected — confirm with `nlc observe <app> --helper` and move on.
 
 The longer guides live beside this file: `docs/recipes.md` (recipes, decisions,
 branches) and `docs/api.md`.
@@ -128,9 +128,11 @@ Each line is `<indent><index> <Role>  Key: value, Key2: value`:
 Indices are **volatile** — they change on every observation. Never put one in a
 recipe; select by meaning instead.
 
-`nlc observe` prints only the focused window, then one line naming the other
-windows (`… 다른 창 N개: …`). Add `--all-windows` when the element you need is
-in one of those; indices are the same either way.
+`nlc observe` prints the uniquely focused window and summarizes the others.
+If focus is absent or more than one window is marked, it prints all windows.
+When a file chooser, attachment dialog or expected control is missing, first
+read `nlc observe <app> --helper --all-windows`; indices remain unchanged.
+A condensed tree is not proof that another window does not exist.
 
 ## Writing the IR
 
@@ -449,8 +451,36 @@ forbid it), because it recorded labels the way the screen showed them that time.
 | `decision_unavailable` / `decision_invalid` / `decision_failed` | a `decide` step had no model, got an answer outside what it allows, or the call failed |
 | `decision_drives_consent` / `composed_text_aims` | a decided value would reach a consent step with no way to ask, or written text would aim at an element |
 | `branch_unwalked` / `branch_walk_failed` | a branch answer has no steps and no walker, or the walk did not get there |
-| `no_window_content` | the app shows no window; `reason` says why — `screen_locked` (the person must unlock; nothing can be read or done until then — never try to unlock it yourself), `app_hidden`, `minimized`, or `no_visible_window` (none open, or on another desktop). Report it and stop; the person has to act |
+| `no_window_content` | no accessible window was observed; inspect the reported `reason` and follow the window diagnostics below. This alone does not prove screen lock or require a user handoff |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
+
+### When the expected window is missing
+
+Use the installed signed backend consistently. Check `nlc apps --helper` and
+`nlc doctor --check` for connection or permission errors before attributing the
+failure to the target window. Never change permissions automatically.
+
+- If observation succeeded but the expected dialog/control is missing, read
+  `nlc observe <app> --helper --all-windows` once. File choosers can be separate
+  windows; scope selectors to the intended dialog rather than another document.
+- For `no_window_content`, use the reported `reason`. `screen_locked` requires
+  the person to unlock; report it and stop screen actions. Never try to unlock.
+- `app_hidden`: the current backend already attempts one bounded unhide without
+  activating the app. If it still reports hidden, report that recovery failed;
+  do not repeatedly retry, activate the app or restore focus yourself.
+- `minimized` or `no_visible_window`: do not claim the screen is locked.
+  Distinguish an app with no open document from a minimized or other-Space
+  window. A user-requested new/open command can use a recipe starting with a
+  menu (the runtime supports menu-only observations). If the task needs an
+  existing inaccessible window, report the specific blocker to the person.
+- An absent or unknown reason is a diagnostic gap. Report the exact error and
+  permission check result rather than inventing a cause. `--all-windows` expands
+  an existing tree; it cannot bypass missing AX access, screen lock or a Space.
+
+A CAPTCHA, login or explicit user confirmation is a separate handoff. Window
+visibility does not authorize completing these challenges or sending an
+attachment. Preserve the requested attachment identity and destination when
+resuming after the person acts.
 
 `nlc run <flow> --helper --trace run.json` records what was on screen, so a failure can be
 reproduced on another machine with no app and no permissions.

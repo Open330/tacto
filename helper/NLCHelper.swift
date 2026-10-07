@@ -903,14 +903,17 @@ func realWindows(of app: AXUIElement) -> [AXUIElement] {
     // window it works on ambiguous — capture refused, and a point had two
     // windows to be relative to.
     //
-    // The rule is about what the thing IS, not what it is called: something
-    // that sits entirely inside another of this app's windows and offers no
-    // way to close it is an attachment to that window, not a window. A real
-    // dialog that happens to overlap its parent still has a close button, and
-    // a standalone one is contained by nothing.
+    // Geometry alone cannot identify a badge: real file panels can be contained
+    // and have no close button. Exclude only the measured badge signature.
     return byRole.enumerated().filter { index, window in
-        guard attr(window, kAXCloseButtonAttribute as String) == nil,
-              let mine = frames[index] else { return true }
+        guard str(window, kAXSubroleAttribute as String) == "AXDialog",
+              str(window, kAXTitleAttribute as String) == "Window",
+              str(window, kAXIdentifierAttribute as String) == "_NS:8",
+              attr(window, kAXCloseButtonAttribute as String) == nil,
+              (attr(window, kAXMainAttribute as String) as? Bool) != true,
+              (attr(window, kAXFocusedAttribute as String) as? Bool) != true,
+              let mine = frames[index], mine.width > 0, mine.width <= 100,
+              mine.height > 0, mine.height <= 32 else { return true }
         let inside = frames.enumerated().contains { other, rect in
             other != index && rect.map { $0.contains(mine) && $0 != mine } == true
         }

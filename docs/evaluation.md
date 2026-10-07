@@ -137,3 +137,23 @@ receiving counts and content, two confirmed events, an untouched second window
 and sampled input-state preservation. Host preparation selects the receiving
 view first; these are separate from autonomous setup, actual-app/IME or SDK
 parity. Each model case uses the bounded image relay and retains call metadata.
+
+### Product comparison provenance
+
+New `examples/product_comparison.py` results record version-2 manifests before
+setup and after oracle/cleanup. The explicit set includes NLC Python sources,
+helper Swift sources, both signed helper executable paths, launcher source and
+binary, skill, evaluation/probe sources, fixtures, flows and dependency lock.
+Missing fixed artifacts are recorded as null. This set is not a dependency
+closure or a record of the Sky plugin implementation.
+
+`source` is the initial short identifier; `source_end` and the complete manifests
+make changes visible. A changing manifest produces `status="invalid"` and
+`invalid_reason="source_changed"`, preserving the original status separately.
+A nonzero agent process exit cannot pass even if an app oracle sees the desired
+state; `process_exit` and `oracle_passed` retain both observations. Cleanup
+failure is visible in `cleanup_status` and a bounded exception-class code,
+without recording exception text. Provider and
+model refusals, environment failures and skipped runs remain distinct from
+successful tasks. Previous result files are unchanged and their older hashes
+must not be interpreted as version-2 manifests.

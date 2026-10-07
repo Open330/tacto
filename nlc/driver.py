@@ -306,11 +306,9 @@ def _real_windows(pid):
         what puts it there, so saying "NLC is working on this window" was what
         made that window ambiguous.
 
-    The second rule is about what the thing IS, not what it is called: sitting
-    entirely inside another of this app's windows with no way to close it makes
-    it an attachment to that window, not a window. A real dialog that overlaps
-    its parent still has a close button; a standalone one is contained by
-    nothing.
+    Only the measured capture badge is excluded. File panels and modal dialogs
+    often have no close button and fit inside their parent; that geometry alone
+    is not evidence that they are an attachment.
     """
     windows = [w for w in (_attr(AXUIElementCreateApplication(pid), "AXWindows") or [])
                if _attr(w, "AXRole") == "AXWindow"]
@@ -326,7 +324,17 @@ def _real_windows(pid):
 
     keep = []
     for i, window in enumerate(windows):
-        if _attr(window, "AXCloseButton") is None and any(
+        frame = frames[i]
+        is_badge = (
+            _attr(window, "AXSubrole") == "AXDialog"
+            and _attr(window, "AXTitle") == "Window"
+            and _attr(window, "AXIdentifier") == "_NS:8"
+            and _attr(window, "AXCloseButton") is None
+            and _attr(window, "AXMain") is not True
+            and _attr(window, "AXFocused") is not True
+            and frame is not None and 0 < frame[2] <= 100 and 0 < frame[3] <= 32
+        )
+        if is_badge and any(
                 contains(frames[j], frames[i]) for j in range(len(windows)) if j != i):
             continue
         keep.append(window)
