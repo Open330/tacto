@@ -211,6 +211,46 @@ class OwnedDocumentTests(unittest.TestCase):
                 out = self.run_env(patches, self.P.owned_cleanup)
             self.assertEqual('not_observable_after_close_left_as_is', out, seen)
 
+    def closed_then(self, seen, known=lambda w: True):
+        """Run cleanup where the close press works and the window then leaves
+        owned_window(); `seen` is the final same-process read."""
+        mine = self.P._OWNED['window']
+        paths = {mine: self.P._owned_path()}
+        with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed')), \
+             patch.object(self.P, '_observed_windows', return_value=seen), \
+             patch.object(self.P, '_document_known', side_effect=known), \
+             patch.object(self.P, '_owned_file_is_ours', return_value=False), \
+             patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
+             patch('ApplicationServices.AXUIElementPerformAction', return_value=0), \
+             patch.object(self.P.time, 'sleep'):
+            windows = iter([[mine], [mine]] + [[]] * 40)
+            patches = self.env([mine], paths)
+            patches[1] = patch.object(self.P, '_textedit_windows', side_effect=lambda: next(windows))
+            return self.run_env(patches, self.P.owned_cleanup)
+
+    def test_the_same_window_still_listed_is_open_whatever_its_path_reads(self):
+        mine = self.own()
+        # its AXDocument now fails (_window_path -> None), but it is the same window
+        self.assertEqual('still_open_left_as_is', self.closed_then((('pid', 1), [mine])))
+
+    def test_a_window_whose_document_cannot_be_read_blocks_removal(self):
+        self.own(); unknown = object()
+        out = self.closed_then((('pid', 1), [unknown]), known=lambda w: w is not unknown)
+        self.assertEqual('not_observable_after_close_left_as_is', out)
+
+    def test_only_known_other_windows_reach_the_directory_check(self):
+        self.own()
+        # file_changed: every window check passed and the last check was reached
+        self.assertEqual('file_changed_left_as_is', self.closed_then((('pid', 1), [object()])))
+
+    def test_a_process_replaced_during_the_read_is_not_an_observation(self):
+        app = types.SimpleNamespace(processIdentifier=lambda: 1)
+        identities = iter([(app, ('pid', 1)), (app, ('pid', 2))])
+        with patch.object(self.P, '_textedit_process', side_effect=lambda: next(identities)), \
+             patch('ApplicationServices.AXUIElementCreateApplication', return_value='app'), \
+             patch('ApplicationServices.AXUIElementCopyAttributeValue', return_value=(0, [])):
+            self.assertIsNone(self.P._observed_windows())
+
 
 class FinderFolderTaskTests(unittest.TestCase):
     """The folder task is judged by Finder, and starts from a Finder not there."""

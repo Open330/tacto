@@ -121,7 +121,23 @@ def _observed_windows():
         AXUIElementCreateApplication(app.processIdentifier()), "AXWindows", None)
     if error != 0 or windows is None:
         return None
+    # The read is about the process named before it; one that quit or was
+    # replaced during the read answered for someone else (Codex review).
+    if _textedit_process()[1] != identity:
+        return None
     return identity, list(windows)
+
+
+_AX_NO_VALUE = -25212
+
+
+def _document_known(window):
+    """Whether the window's document was read: a path (or no document at
+    all — an untitled window) is known; a failed read is not. A window whose
+    document cannot be read may be the harness's own, so it blocks removal."""
+    from ApplicationServices import AXUIElementCopyAttributeValue
+    error, doc = AXUIElementCopyAttributeValue(window, "AXDocument", None)
+    return (error == 0 and isinstance(doc, str)) or error == _AX_NO_VALUE
 
 
 def _textedit_windows():
@@ -296,11 +312,19 @@ def owned_cleanup():
                 break
     # Gone means: the SAME TextEdit process, read successfully, shows no window
     # on that path. A quit, a restart, or a failed read proves nothing.
+    from CoreFoundation import CFEqual
     seen = _observed_windows()
     if seen is None or seen[0] != before:
         return "not_observable_after_close_left_as_is"
-    if any(_window_path(w) == _owned_path() for w in seen[1]):
+    # Still listed — the same AX window — is open, whatever its path reads as;
+    # and a window whose document cannot be read could be ours (Codex review
+    # of 7bd61f1: a close that "succeeded", then a failed AXDocument read,
+    # reached rmtree).
+    if any(CFEqual(w, _OWNED["window"]) or _window_path(w) == _owned_path()
+           for w in seen[1]):
         return "still_open_left_as_is"
+    if not all(_document_known(w) for w in seen[1]):
+        return "not_observable_after_close_left_as_is"
     if not _owned_file_is_ours():
         return "file_changed_left_as_is"
     shutil.rmtree(_OWNED["directory"])
