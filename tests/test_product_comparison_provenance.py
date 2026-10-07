@@ -210,3 +210,48 @@ class OwnedDocumentTests(unittest.TestCase):
                 patches[1] = patch.object(self.P, '_textedit_windows', side_effect=lambda: next(windows))
                 out = self.run_env(patches, self.P.owned_cleanup)
             self.assertEqual('not_observable_after_close_left_as_is', out, seen)
+
+
+class FinderFolderTaskTests(unittest.TestCase):
+    """The folder task is judged by Finder, and starts from a Finder not there."""
+
+    def state(self, shown=(), sheets=()):
+        return {'shown': list(shown), 'sheets': list(sheets)}
+
+    def test_setup_refuses_a_finder_already_at_the_folder(self):
+        for state in (self.state(shown=['w']), self.state(sheets=['s'])):
+            with self.subTest(state=state), \
+                    patch.object(comparison, '_make_folder'), \
+                    patch.object(comparison, 'finder_state', return_value=state):
+                with self.assertRaisesRegex(RuntimeError, 'finder_not_clean'):
+                    comparison.finder_setup()
+
+    def test_setup_refuses_when_finder_cannot_be_read(self):
+        with patch.object(comparison, '_make_folder'), \
+                patch.object(comparison, 'finder_state', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'finder_unobservable'):
+                comparison.finder_setup()
+
+    def test_answer_alone_does_not_pass(self):
+        with patch.object(comparison, 'finder_state', return_value=self.state()):
+            passed, observed = comparison.finder_oracle('It contains 7 items.')
+        self.assertFalse(passed)
+        self.assertIn('finder_at_folder=no', observed)
+
+    def test_answer_and_finder_showing_the_count_pass(self):
+        with patch.object(comparison, 'finder_state', return_value=self.state(shown=['w'])), \
+                patch.object(comparison, '_find_identified', return_value='bar'), \
+                patch('nlc.driver._attr', return_value='7 items, 286 GB available'):
+            passed, _ = comparison.finder_oracle('7 items')
+        self.assertTrue(passed)
+
+    def test_wrong_count_on_screen_fails(self):
+        with patch.object(comparison, 'finder_state', return_value=self.state(shown=['w'])), \
+                patch.object(comparison, '_find_identified', return_value='bar'), \
+                patch('nlc.driver._attr', return_value='17 items'):
+            passed, _ = comparison.finder_oracle('7 items')
+        self.assertFalse(passed)
+
+    def test_cleanup_reports_what_it_could_not_close(self):
+        with patch.object(comparison, 'finder_state', return_value=None):
+            self.assertEqual(comparison.finder_cleanup(), 'not_observable_left_as_is')

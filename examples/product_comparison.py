@@ -375,6 +375,106 @@ def _make_folder():
         (FOLDER / f"item-{i + 1}.txt").write_text(str(i))
 
 
+def _find_identified(el, identifier, depth=0):
+    from nlc.driver import _attr
+    if el is None or depth > 8:
+        return None
+    if _attr(el, "AXIdentifier") == identifier:
+        return el
+    for child in _attr(el, "AXChildren") or []:
+        hit = _find_identified(child, identifier, depth + 1)
+        if hit is not None:
+            return hit
+    return None
+
+
+def _finder_windows():
+    """Finder's AX windows, or None when Finder or the read is missing."""
+    from AppKit import NSRunningApplication
+    from ApplicationServices import AXUIElementCopyAttributeValue, AXUIElementCreateApplication
+    apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.finder")
+    if len(apps) != 1:
+        return None
+    error, windows = AXUIElementCopyAttributeValue(
+        AXUIElementCreateApplication(apps[0].processIdentifier()), "AXWindows", None)
+    return None if error != 0 or windows is None else list(windows)
+
+
+def finder_state():
+    """What the folder task can leave behind: windows titled with the
+    harness folder's (unique) name, and Go to Folder sheets.
+
+    Finder gives no AXDocument for its windows, so the title is the only name
+    a window has. The name is the harness's own; no user folder is called this.
+    """
+    from nlc.driver import _attr
+    windows = _finder_windows()
+    if windows is None:
+        return None
+    shown = [w for w in windows if _attr(w, "AXTitle") == FOLDER.name]
+    sheets = [s for w in windows for s in (_attr(w, "AXChildren") or [])
+              if _attr(s, "AXIdentifier") == "GoToWindow"]
+    return {"shown": shown, "sheets": sheets}
+
+
+def finder_setup():
+    """A run starts with Finder NOT already at the folder.
+
+    Earlier cohorts did not check: a run that found the folder left open by
+    the previous one could pass by reading it, without navigating (seen
+    2026-10-07, 16:45). Leftovers are refused, not tidied — whose they are
+    is not known here; `finder_cleanup` removes only what a run created.
+    """
+    _make_folder()
+    state = finder_state()
+    if state is None:
+        raise RuntimeError("finder_unobservable")
+    if state["shown"] or state["sheets"]:
+        raise RuntimeError(f"finder_not_clean: {len(state['shown'])} window(s) at the "
+                           f"folder, {len(state['sheets'])} Go to Folder sheet(s)")
+
+
+def finder_oracle(answer):
+    """The answer names the count AND Finder is showing the folder with it."""
+    from nlc.driver import _attr
+    state = finder_state() or {"shown": [], "sheets": []}
+    statuses = [_attr(_find_identified(w, "statusBarText"), "AXValue") or ""
+                for w in state["shown"]]
+    at_folder = any(re.match(rf"{FOLDER_ITEMS} items?\b", s) for s in statuses)
+    said = _number_in(answer, str(FOLDER_ITEMS))
+    return (said and at_folder,
+            f"want {FOLDER_ITEMS}; answer={'yes' if said else 'no'} "
+            f"finder_at_folder={'yes' if at_folder else 'no'}")
+
+
+def finder_cleanup():
+    """Close what the run left: setup proved none existed before it.
+
+    A window the agent navigated INTO the folder may have been a user's
+    window showing elsewhere; closing a Finder browser window loses no data.
+    Presses only — no keys, no activation.
+    """
+    from ApplicationServices import AXUIElementPerformAction
+    from nlc.driver import _attr
+    state = finder_state()
+    if state is None:
+        return "not_observable_left_as_is"
+    for sheet in state["sheets"]:
+        button = _find_identified(sheet, "CloseButton")
+        if button is None or AXUIElementPerformAction(button, "AXPress") != 0:
+            return "sheet_close_failed_left_as_is"
+    time.sleep(0.5)
+    for window in (finder_state() or {"shown": []})["shown"]:
+        button = _attr(window, "AXCloseButton")
+        if button is None or AXUIElementPerformAction(button, "AXPress") != 0:
+            return "window_close_failed_left_as_is"
+    time.sleep(0.5)
+    after = finder_state()
+    if after is None or after["shown"] or after["sheets"]:
+        return "still_open_left_as_is"
+    return "closed"
+
+
 def source_manifest():
     """Explicit source/artifact set, not a dependency-closure claim.
 
@@ -437,8 +537,8 @@ TASKS = [
     # /System/Applications: both arms read Finder's "101 items" correctly and
     # the oracle, counting one folder, said they were wrong.
     Task("finder_count", f"Using Finder, open the folder {FOLDER} and report how many items it contains.",
-         lambda a: (_number_in(a, str(FOLDER_ITEMS)), f"want {FOLDER_ITEMS}"),
-         setup=lambda: _make_folder(), notes="harness-made folder"),
+         finder_oracle, setup=finder_setup, cleanup=finder_cleanup,
+         notes="harness-made folder; Finder must be showing it"),
     Task("macos_version", "Using the System Settings app, find this Mac's macOS version number "
                           "and report it.",
          lambda a: (_macos_version() in a, f"want {_macos_version()}")),
@@ -455,7 +555,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
             task.setup()
         except Exception as exc:
             return {"task": task.name, "arm": arm, "status": "not_run",
-                    "observed": f"setup failed: {type(exc).__name__}", "seconds": 0,
+                    "observed": f"setup failed: {type(exc).__name__}: {str(exc)[:120]}", "seconds": 0,
                     "answer": "", "calls": {}, "usage": None, "activations": [],
                     **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
