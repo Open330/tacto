@@ -2151,9 +2151,11 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     // turns a failed read into [], and a transient AX failure on an app with
     // windows must not skip the stream (Codex review of 2b6b400). And the
     // menu-bar item is the gate here only while the system says it is on
-    // screen — it can sit unseen behind the overflow chevron, and an
-    // indicator nobody can see guarantees nothing. Otherwise: the stream
-    // path, which refuses when it cannot stream.
+    // screen. That does not rule out the overflow chevron (see
+    // controlItemOnScreen) — on this path the promise that acting is visible
+    // is weaker than with a stream, and is limited to menu requests on an app
+    // with no window. Otherwise: the stream path, which refuses when it
+    // cannot stream.
     // `windowless` is said by the caller, and only for what can be done to an
     // app with no window: read its menus, run a menu command. Everything else
     // keeps the stream as its gate even when the app shows no window.
@@ -2178,8 +2180,12 @@ func appSaysItHasNoWindows(_ pid: pid_t) -> Bool {
     return windows.isEmpty
 }
 
-/// The status item's button is in a window the system reports as visible.
-/// Hidden behind the menu-bar overflow, or not yet placed, it is not.
+/// The status item's button is in a window the system reports as visible
+/// and on a screen. A necessary condition, not proof the person can see it:
+/// behind the menu-bar overflow chevron, `isVisible` was measured to stay
+/// true, and whether `occlusionState` drops `.visible` there has not been
+/// measured. It refuses the cases it can see (no window, ordered out,
+/// off-screen); the overflow case is an open gap, not one this closes.
 func controlItemOnScreen() -> Bool {
     guard let window = controlItem?.button?.window else { return false }
     return window.isVisible && window.occlusionState.contains(.visible)
