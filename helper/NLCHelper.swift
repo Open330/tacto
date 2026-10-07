@@ -533,7 +533,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     if abortState.isStopped {
         return ["type": "error", "error": "aborted_by_user"]
     }
-    guard ensureVisibleControl(forPID: p) else {
+    guard ensureVisibleControl(forPID: p, windowless: true) else {
         return ["type": "error", "error": "indicator_unavailable",
                 "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
                           + "조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
@@ -1147,7 +1147,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 "effect": "not_started",
                 "detail": "사용자가 Esc로 중단했습니다"]
     }
-    guard ensureVisibleControl(forPID: p) else {
+    guard ensureVisibleControl(forPID: p, windowless: (action["name"] as? String) == "menu") else {
         return ["type": "error", "error": "indicator_unavailable",
                 "effect": "not_started",
                 "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
@@ -2139,24 +2139,51 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
 /// being driven, which the system indicator cannot do. When it does not, it
 /// hides without telling anyone — so what the refusal hangs on is the stream,
 /// the signal that cannot hide.
-func ensureVisibleControl(forPID pid: pid_t) -> Bool {
+func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     let shown = DispatchQueue.main.sync { showControlIndicator(forPID: pid) }
     // An app with no window of its own (Finder showing only the desktop, an
     // app whose documents are all closed) has nothing to look at, so there is
     // no window to stream and nothing for the recording indicator to report.
     // Refusing here blocked the very menu command that would open a window,
     // and blamed a Screen Recording permission that was granted (2026-10-07).
-    // The menu-bar item still says NLC is acting; the stream starts on the
-    // next call, as soon as a window exists.
-    if realWindows(of: AXUIElementCreateApplication(pid)).isEmpty {
+    //
+    // Only a SUCCESSFUL read that says "no windows" counts: `realWindows`
+    // turns a failed read into [], and a transient AX failure on an app with
+    // windows must not skip the stream (Codex review of 2b6b400). And the
+    // menu-bar item is the gate here only while the system says it is on
+    // screen — it can sit unseen behind the overflow chevron, and an
+    // indicator nobody can see guarantees nothing. Otherwise: the stream
+    // path, which refuses when it cannot stream.
+    // `windowless` is said by the caller, and only for what can be done to an
+    // app with no window: read its menus, run a menu command. Everything else
+    // keeps the stream as its gate even when the app shows no window.
+    if windowless && appSaysItHasNoWindows(pid) {
         if let running = controlStream {
             running.stopCapture { _ in }
             controlStream = nil
             controlStreamWindow = nil
         }
-        return shown
+        return shown && DispatchQueue.main.sync { controlItemOnScreen() }
     }
     return ensureControlStream(forPID: pid)
+}
+
+/// True only when AXWindows was read successfully and is an empty array.
+/// A failed read, a wrong type, or any window at all is not "no windows".
+func appSaysItHasNoWindows(_ pid: pid_t) -> Bool {
+    var value: CFTypeRef?
+    let err = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid),
+                                            kAXWindowsAttribute as CFString, &value)
+    guard err == .success, let windows = value as? [AXUIElement] else { return false }
+    return windows.isEmpty
+}
+
+/// The status item's button is in a window the system reports as visible.
+/// Hidden behind the menu-bar overflow, or not yet placed, it is not.
+func controlItemOnScreen() -> Bool {
+    guard let window = controlItem?.button?.window else { return false }
+    return window.isVisible && window.occlusionState.contains(.visible)
+        && NSScreen.screens.contains { $0.frame.intersects(window.frame) }
 }
 
 func hideControlIndicator() {
@@ -3480,7 +3507,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                                  "selection", "document_text", "save_panel", "document_rtf_export"]
     if let kind, reaching.contains(kind) || kind == "capture",
        let target = msg["target"] as? String, let p = pid(forBundle: target) {
-        guard ensureVisibleControl(forPID: p) else {
+        guard ensureVisibleControl(forPID: p, windowless: kind == "menu_state" || kind == "menu_items") else {
             return ["type": "error", "error": "indicator_unavailable",
                     "effect": "not_started",
                     "detail": "조작 표시를 켤 수 없어 \(kind) 를 중단했습니다 — 시스템 설정 > "

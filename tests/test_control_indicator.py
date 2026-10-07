@@ -212,7 +212,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         # The point of it is that a caller cannot act invisibly. Losing the
         # outline must not lose that.
         text = (ROOT / "helper/NLCHelper.swift").read_text()
-        self.assertGreaterEqual(text.count("ensureVisibleControl(forPID: p)"), 4)
+        self.assertGreaterEqual(text.count("ensureVisibleControl(forPID: p"), 4)
         self.assertIn("indicator_unavailable", text)
 
     def test_what_the_gate_hangs_on_is_the_signal_that_cannot_hide(self):
@@ -230,9 +230,28 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         # nothing being read, and refusing blocked the menu command that would
         # open one (Finder, 2026-10-07) — there, and only there, the item being
         # shown IS the gate, and the stream returns once a window exists.
-        self.assertIn("realWindows(of: AXUIElementCreateApplication(pid)).isEmpty", body)
-        windowless = body[body.index("realWindows(of:"):body.index("return ensureControlStream")]
-        self.assertIn("return shown", windowless)
+        # Narrowed after Codex's review of 2b6b400: the caller must say the
+        # request is one a windowless app can take (menus), "no windows" must
+        # come from a successful read (a failed read is not "none"), and the
+        # item must be reported on screen.
+        self.assertIn("if windowless && appSaysItHasNoWindows(pid)", body)
+        windowless = body[body.index("if windowless &&"):body.index("return ensureControlStream")]
+        self.assertIn("return shown && DispatchQueue.main.sync { controlItemOnScreen() }", windowless)
+        probe = text[text.index("func appSaysItHasNoWindows("):]
+        probe = probe[:probe.index("\n}\n")]
+        self.assertIn("guard err == .success, let windows = value as? [AXUIElement] else { return false }", probe)
+        self.assertNotIn("realWindows", probe)
+
+    def test_only_menu_requests_may_use_the_windowless_gate(self):
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        calls = [line.strip() for line in text.splitlines()
+                 if "ensureVisibleControl(forPID: p" in line]
+        self.assertEqual(sorted(calls), sorted([
+            "guard ensureVisibleControl(forPID: p, windowless: true) else {",
+            'guard ensureVisibleControl(forPID: p, windowless: (action["name"] as? String) == "menu") else {',
+            "guard ensureVisibleControl(forPID: p) else {",
+            'guard ensureVisibleControl(forPID: p, windowless: kind == "menu_state" || kind == "menu_items") else {',
+        ]))
 
     def test_the_held_stream_sees_one_window_not_the_screen(self):
         # `SCContentFilter(display:)` stood here and captured everything, so an
