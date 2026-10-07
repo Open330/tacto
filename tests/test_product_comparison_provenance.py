@@ -94,3 +94,17 @@ class Provenance(unittest.TestCase):
         changed = self.execute(cleanup=lambda: self.write('helper/nlc-helper', 'new-binary'))
         self.assertEqual('completed', changed['cleanup_status'])
         self.assertEqual('invalid', changed['status'])
+
+
+class TextEditScopeTests(unittest.TestCase):
+    """The TextEdit oracle reads and closes only windows created during the run."""
+    def test_windows_open_before_setup_are_never_read(self):
+        P = comparison
+        old, new = object(), object()
+        read = []
+        with patch.object(P, '_textedit_windows', side_effect=[[old], [old, new]]), \
+             patch('CoreFoundation.CFEqual', side_effect=lambda a, b: a is b), \
+             patch.object(P, '_text_of', side_effect=lambda w: read.append(w) or P.TEXT):
+            P.textedit_baseline()
+            self.assertEqual([P.TEXT], P.textedit_texts())
+        self.assertEqual([new], read)

@@ -97,15 +97,11 @@ def _running(bundle):
     return bool(NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle))
 
 
-def _textedit_areas():
-    """(window, text area, value) for every TextEdit document window, by AX.
+_TEXTEDIT_BEFORE: list = []     # TextEdit windows that existed when the task was set up
 
-    No AppleScript: the first version used it, and macOS put an automation
-    consent dialog ("cmux.app wants access to control TextEdit.app") on the
-    person's screen and hung every check behind it (2026-10-07). Reading the
-    accessibility tree needs no new permission and shows nothing. A hidden
-    TextEdit is unhidden without being made frontmost, as NLC itself does.
-    """
+
+def _textedit_windows():
+    """TextEdit's windows by AX — the windows only, never what they contain."""
     from AppKit import NSRunningApplication
     from ApplicationServices import AXUIElementCreateApplication
     from nlc.driver import _attr, _unhide_quietly
@@ -115,7 +111,24 @@ def _textedit_areas():
     pid = apps[0].processIdentifier()
     if apps[0].isHidden():
         _unhide_quietly(pid)
-    out = []
+    return list(_attr(AXUIElementCreateApplication(pid), "AXWindows") or [])
+
+
+def _new_textedit_windows():
+    """Windows that appeared after setup: the only ones this harness may read.
+
+    The previous checker read the text of EVERY open TextEdit document and
+    deleted any whose text matched — a person's own documents included
+    (Codex review, 2026-10-07). What existed before the task is now neither
+    read nor touched.
+    """
+    from CoreFoundation import CFEqual
+    return [w for w in _textedit_windows()
+            if not any(CFEqual(w, old) for old in _TEXTEDIT_BEFORE)]
+
+
+def _text_of(window):
+    from nlc.driver import _attr
 
     def find(el, depth=0):
         if depth > 6:
@@ -128,15 +141,18 @@ def _textedit_areas():
                 return hit
         return None
 
-    for window in _attr(AXUIElementCreateApplication(pid), "AXWindows") or []:
-        area = find(window)
-        if area is not None:
-            out.append((window, area, str(_attr(area, "AXValue") or "")))
-    return out
+    area = find(window)
+    return None if area is None else str(_attr(area, "AXValue") or "")
+
+
+def textedit_baseline():
+    """Remember which windows were already open; read none of them."""
+    _TEXTEDIT_BEFORE[:] = _textedit_windows()
 
 
 def textedit_texts():
-    return [value for _w, _a, value in _textedit_areas()]
+    """The text of the documents this run created — nothing else."""
+    return [t for t in (_text_of(w) for w in _new_textedit_windows()) if t is not None]
 
 
 def textedit_has(text):
@@ -145,12 +161,12 @@ def textedit_has(text):
 
 
 def textedit_close(text):
-    """Close only the documents holding our text, deleting the autosaved copy.
+    """Close the windows this run created, if they hold our text or nothing.
 
-    TextEdit autosaves a new document to iCloud Drive at once ("Untitled 2.rtf"),
-    so closing asks "Do you want to keep this new document?" — and the first
-    cleanup, which emptied the text first, left five such sheets on screen
-    (2026-10-07). Delete is pressed only on a window whose text is exactly ours.
+    TextEdit autosaves a new document to iCloud Drive at once, so closing asks
+    "Do you want to keep this new document?"; Delete is pressed for those. A
+    new window holding anything else — something a person typed during the run
+    — is left open, and counted. Returns how many new windows were left.
     """
     from ApplicationServices import AXUIElementPerformAction
     from nlc.driver import _attr
@@ -167,11 +183,15 @@ def textedit_close(text):
         return None
 
     want = " ".join(text.split())
-    for window, _area, value in _textedit_areas():
-        if " ".join(value.split()) != want:
+    left = 0
+    for window in _new_textedit_windows():
+        body = _text_of(window)
+        if body is None or " ".join(body.split()) not in (want, ""):
+            left += 1
             continue
         close = _attr(window, "AXCloseButton")
         if close is None:
+            left += 1
             continue
         AXUIElementPerformAction(close, "AXPress")
         for _ in range(20):
@@ -184,6 +204,7 @@ def textedit_close(text):
                 break
             time.sleep(0.1)
     time.sleep(0.5)
+    return left
 
 
 def textedit_hidden():
@@ -286,7 +307,7 @@ TASKS = [
     Task("textedit_write", f"Create a new TextEdit document and type exactly this text into it: {TEXT}  "
                            "Leave the document open and do not save it.",
          lambda a: (textedit_has(TEXT), [t[:60] for t in textedit_texts()]),
-         setup=lambda: textedit_close(TEXT), cleanup=lambda: textedit_close(TEXT)),
+         setup=textedit_baseline, cleanup=lambda: textedit_close(TEXT)),
     # A folder the harness makes, so the right count is known. The first
     # version used /Applications, which Finder merges with
     # /System/Applications: both arms read Finder's "101 items" correctly and
