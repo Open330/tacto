@@ -32,6 +32,24 @@ class PostconditionTypeTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
                 Flow.from_json(_flow({key: ["x"]}))
 
+    def test_a_postcondition_or_skip_if_that_is_not_an_object_is_refused(self):
+        for key in ("postcondition", "skip_if"):
+            for value in ("GoToWindow", ["x"], 0, [], "", 7):
+                doc = json.loads(_flow(None))
+                doc["steps"][0][key] = value
+                with self.subTest(key=key, value=value), \
+                        self.assertRaisesRegex(ValueError, rf"{key} must be an object"):
+                    Flow.from_json(json.dumps(doc))
+
+    def test_a_field_that_is_not_an_object_is_refused(self):
+        with self.assertRaisesRegex(ValueError, r"postcondition\.field must be an object"):
+            Flow.from_json(_flow({"field": "statusBarText", "contains": "7"}))
+
+    def test_absent_or_empty_postcondition_is_none(self):
+        for value in (None, {}):
+            flow = Flow.from_json(_flow(value))
+            self.assertIsNone(flow.steps[0].postcondition)
+
     def test_text_values_still_load(self):
         flow = Flow.from_json(_flow({"absent": "GoToWindow"}))
         self.assertEqual(flow.steps[0].postcondition.absent, "GoToWindow")

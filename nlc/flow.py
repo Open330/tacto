@@ -766,15 +766,22 @@ class Flow:
                     raise ValueError(f"{key} must be boolean")
             sel = Selector(**s["selector"]) if s.get("selector") else None
 
-            def _post(pc):
-                if not pc:
+            def _post(pc, where):
+                if pc is None or pc == {}:
                     return None
+                # Any other non-object — a string, a list, 0, [] — is a mistake,
+                # not "no postcondition" (Codex review of 4a79c11).
+                if not isinstance(pc, dict):
+                    raise ValueError(f"{where} must be an object, not {type(pc).__name__}")
+                if pc.get("field") is not None and not isinstance(pc["field"], dict):
+                    raise ValueError(f"{where}.field must be an object, not "
+                                     f"{type(pc['field']).__name__}")
                 # Checked here, not where it is used: an object under `absent`
                 # once reached `in tree` mid-replay and surfaced as a traceback.
                 for key in ("equals", "contains", "absent", "attribute"):
                     if pc.get(key) is not None and not isinstance(pc[key], str):
                         raise ValueError(
-                            f"postcondition.{key} must be text, not "
+                            f"{where}.{key} must be text, not "
                             f"{type(pc[key]).__name__}"
                             + (" — absent is text that must not appear in the "
                                "observed tree, e.g. an identifier like "
@@ -785,8 +792,8 @@ class Flow:
                                      absent=pc.get("absent"),
                                      attribute=pc.get("attribute"))
 
-            post = _post(s.get("postcondition"))
-            skip_if = _post(s.get("skip_if"))
+            post = _post(s.get("postcondition"), "postcondition")
+            skip_if = _post(s.get("skip_if"), "skip_if")
             contract = None
             if s.get("safety"):
                 from .contract import Resource, Destination, Evidence
