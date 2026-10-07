@@ -493,10 +493,19 @@ def finder_setup():
     starting state (open Go to Folder sheets) is recorded, not tidied."""
     _make_folder()
     state = finder_state()
-    if state is None:
-        raise RuntimeError("finder_unobservable")
-    if state["shown"]:
-        raise RuntimeError("finder_not_clean: a window already shows the new folder's name")
+    problem = ("finder_unobservable" if state is None else
+               "finder_not_clean: a window already shows the new folder's name"
+               if state["shown"] else None)
+    if problem:
+        # run_one returns not_run without calling cleanup, and the next
+        # _make_folder forgets this path — so the folder just made is
+        # removed here, by the same proof cleanup uses (Codex follow-up).
+        import shutil
+        if _folder_is_ours():
+            shutil.rmtree(_FOLDER["path"])
+            _FOLDER.clear()
+            raise RuntimeError(f"{problem}; own folder removed")
+        raise RuntimeError(f"{problem}; own folder changed, left at {_FOLDER.get('path')}")
     _FOLDER["sheets_before"] = len(state["sheets"])
 
 

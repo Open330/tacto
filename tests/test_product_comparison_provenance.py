@@ -309,6 +309,18 @@ class FinderFolderTaskTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'finder_not_clean'):
                 self.P.finder_setup()
 
+    def test_a_refused_setup_removes_the_folder_it_just_made(self):
+        import os
+        for state in (None, self.state(shown=['w'])):
+            with self.subTest(state=state), \
+                    patch.object(self.P, 'finder_state', return_value=state):
+                with self.assertRaisesRegex(RuntimeError, 'own folder removed'):
+                    self.P.finder_setup()
+            self.assertEqual({}, self.P._FOLDER)
+        self.assertEqual([], [n for n in os.listdir('/tmp')
+                              if n.startswith(self.P.FOLDER_PREFIX)
+                              and n not in getattr(self, 'before', [])])
+
     def test_setup_records_open_sheets_instead_of_refusing_or_closing(self):
         with patch.object(self.P, 'finder_state', return_value=self.state(sheets=['s'])), \
                 patch.object(self.P, '_make_folder'):
