@@ -97,10 +97,6 @@ def _running(bundle):
     return bool(NSRunningApplication.runningApplicationsWithBundleIdentifier_(bundle))
 
 
-_TEXTEDIT_BEFORE: list = []     # TextEdit windows that existed when the task was set up
-_TEXTEDIT_PROCESS: list = []    # (pid, launch date) of TextEdit at setup
-
-
 def _textedit_process():
     from AppKit import NSRunningApplication
     apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")
@@ -122,25 +118,6 @@ def _textedit_windows():
     return list(_attr(AXUIElementCreateApplication(app.processIdentifier()), "AXWindows") or [])
 
 
-def _new_textedit_windows():
-    """THE window this run created — or nothing, when that is not certain.
-
-    The first checker read the text of EVERY open TextEdit document and deleted
-    any whose text matched; the second read every window that appeared during
-    the run. Appearing during the run is not ownership: a person can open a
-    document meanwhile, and a restarted TextEdit can reuse window identities
-    (Codex review, 2026-10-07). So: the same TextEdit process as at setup, and
-    exactly one new window — otherwise nothing is read and nothing is closed.
-    """
-    from CoreFoundation import CFEqual
-    _app, identity = _textedit_process()
-    if identity is None or not _TEXTEDIT_PROCESS or identity != _TEXTEDIT_PROCESS[0]:
-        return []
-    new = [w for w in _textedit_windows()
-           if not any(CFEqual(w, old) for old in _TEXTEDIT_BEFORE)]
-    return new if len(new) == 1 else []
-
-
 def _text_of(window):
     from nlc.driver import _attr
 
@@ -157,84 +134,6 @@ def _text_of(window):
 
     area = find(window)
     return None if area is None else str(_attr(area, "AXValue") or "")
-
-
-def textedit_baseline():
-    """Remember TextEdit's process and its open windows; read none of them.
-
-    If TextEdit is not running the agent will start it — a new process — so
-    the baseline is taken against nothing, and no window can be claimed.
-    """
-    _app, identity = _textedit_process()
-    if identity is None:
-        # Started here, in the background (-g: not made frontmost), so the
-        # process the agent works in is the one the baseline describes.
-        subprocess.run(["open", "-g", "-a", "TextEdit"], capture_output=True, timeout=20)
-        for _ in range(50):
-            _app, identity = _textedit_process()
-            if identity is not None:
-                break
-            time.sleep(0.1)
-        time.sleep(1.0)
-    _TEXTEDIT_PROCESS[:] = [identity] if identity else []
-    _TEXTEDIT_BEFORE[:] = _textedit_windows()
-
-
-def textedit_texts():
-    """The text of the documents this run created — nothing else."""
-    return [t for t in (_text_of(w) for w in _new_textedit_windows()) if t is not None]
-
-
-def textedit_has(text):
-    want = " ".join(text.split())
-    return any(" ".join(t.split()) == want for t in textedit_texts())
-
-
-def textedit_close(text):
-    """Close the window this run created, if it holds our text.
-
-    TextEdit autosaves a new document to iCloud Drive at once, so closing asks
-    "Do you want to keep this new document?"; Delete is pressed for those. A
-    new window holding anything else — something a person typed during the run
-    — is left open, and counted. Returns how many new windows were left.
-    """
-    from ApplicationServices import AXUIElementPerformAction
-    from nlc.driver import _attr
-
-    def button(el, title, depth=0):
-        if depth > 5 or el is None:
-            return None
-        if _attr(el, "AXRole") == "AXButton" and _attr(el, "AXTitle") == title:
-            return el
-        for child in _attr(el, "AXChildren") or []:
-            hit = button(child, title, depth + 1)
-            if hit is not None:
-                return hit
-        return None
-
-    want = " ".join(text.split())
-    left = 0
-    for window in _new_textedit_windows():
-        body = _text_of(window)
-        if body is None or " ".join(body.split()) != want:
-            left += 1
-            continue
-        close = _attr(window, "AXCloseButton")
-        if close is None:
-            left += 1
-            continue
-        AXUIElementPerformAction(close, "AXPress")
-        for _ in range(20):
-            sheet = next((c for c in _attr(window, "AXChildren") or []
-                          if _attr(c, "AXRole") == "AXSheet"), None)
-            if sheet is not None:
-                delete = button(sheet, "Delete")
-                if delete is not None:
-                    AXUIElementPerformAction(delete, "AXPress")
-                break
-            time.sleep(0.1)
-    time.sleep(0.5)
-    return left
 
 
 def _owned_path():
@@ -311,8 +210,10 @@ def owned_cleanup():
             AXUIElementPerformAction(close, "AXPress")
             time.sleep(0.8)
             # A file-backed document autosaves; if TextEdit still asks, the
-            # question is about the harness's own file, so it is not kept.
-            for child in _attr(window, "AXChildren") or []:
+            # question is about the harness's own file, so it is not kept —
+            # but only if that window is STILL provably the harness's.
+            window = owned_window()
+            for child in (_attr(window, "AXChildren") or []) if window is not None else []:
                 if _attr(child, "AXRole") == "AXSheet":
                     for button in ("Don’t Save", "Don't Save", "Revert Changes", "Delete"):
                         hit = _find_button(child, button)
