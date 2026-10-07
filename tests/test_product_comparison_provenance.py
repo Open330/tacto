@@ -7,6 +7,7 @@ import tempfile
 import types
 import unittest
 from unittest.mock import patch
+from shutil import rmtree as _real_rmtree
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('nlc_product_provenance', ROOT / 'examples/product_comparison.py')
@@ -211,14 +212,14 @@ class OwnedDocumentTests(unittest.TestCase):
                 out = self.run_env(patches, self.P.owned_cleanup)
             self.assertEqual('not_observable_after_close_left_as_is', out, seen)
 
-    def closed_then(self, seen, known=lambda w: True):
+    def closed_then(self, seen, read=lambda w: ('path', None)):
         """Run cleanup where the close press works and the window then leaves
         owned_window(); `seen` is the final same-process read."""
         mine = self.P._OWNED['window']
         paths = {mine: self.P._owned_path()}
         with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed')), \
              patch.object(self.P, '_observed_windows', return_value=seen), \
-             patch.object(self.P, '_document_known', side_effect=known), \
+             patch.object(self.P, '_document_read', side_effect=read), \
              patch.object(self.P, '_owned_file_is_ours', return_value=False), \
              patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
              patch('ApplicationServices.AXUIElementPerformAction', return_value=0), \
@@ -235,13 +236,34 @@ class OwnedDocumentTests(unittest.TestCase):
 
     def test_a_window_whose_document_cannot_be_read_blocks_removal(self):
         self.own(); unknown = object()
-        out = self.closed_then((('pid', 1), [unknown]), known=lambda w: w is not unknown)
+        out = self.closed_then((('pid', 1), [unknown]),
+                               read=lambda w: ('error', None) if w is unknown else ('none', None))
         self.assertEqual('not_observable_after_close_left_as_is', out)
 
     def test_only_known_other_windows_reach_the_directory_check(self):
         self.own()
         # file_changed: every window check passed and the last check was reached
         self.assertEqual('file_changed_left_as_is', self.closed_then((('pid', 1), [object()])))
+
+    def test_a_path_that_recovers_on_the_final_read_is_still_open(self):
+        # Codex review of 6c2c6a9: the wait loop's read failed (None, so the
+        # window left owned_window()), then a separate later read succeeded
+        # with OUR path. The decision must use the read it looks at.
+        self.own(); wrapper = object()
+        out = self.closed_then((('pid', 1), [wrapper]),
+                               read=lambda w: ('path', self.P._owned_path()))
+        self.assertEqual('still_open_left_as_is', out)
+
+    def test_one_read_classifies_a_window(self):
+        P = self.P
+        for result, want in (((-25212, None), ('none', None)),
+                             ((-25205, None), ('error', None)),
+                             ((0, 42), ('error', None)),
+                             ((0, 'https://x/a'), ('path', None)),
+                             ((0, 'file:///tmp/a.txt'), ('path', P._nfc(pathlib.Path('/tmp/a.txt').resolve())))):
+            with patch('ApplicationServices.AXUIElementCopyAttributeValue', return_value=result) as read:
+                self.assertEqual(want, P._document_read(object()), result)
+                self.assertEqual(1, read.call_count)
 
     def test_a_process_replaced_during_the_read_is_not_an_observation(self):
         app = types.SimpleNamespace(processIdentifier=lambda: 1)
@@ -253,45 +275,103 @@ class OwnedDocumentTests(unittest.TestCase):
 
 
 class FinderFolderTaskTests(unittest.TestCase):
-    """The folder task is judged by Finder, and starts from a Finder not there."""
+    """The folder task: a fresh folder per run, judged by Finder, and nothing
+    in Finder is closed by the harness."""
+    P = comparison
+
+    def setUp(self):
+        self.P._FOLDER.clear()
+        self.addCleanup(self.P._FOLDER.clear)
 
     def state(self, shown=(), sheets=()):
         return {'shown': list(shown), 'sheets': list(sheets)}
 
-    def test_setup_refuses_a_finder_already_at_the_folder(self):
-        for state in (self.state(shown=['w']), self.state(sheets=['s'])):
-            with self.subTest(state=state), \
-                    patch.object(comparison, '_make_folder'), \
-                    patch.object(comparison, 'finder_state', return_value=state):
-                with self.assertRaisesRegex(RuntimeError, 'finder_not_clean'):
-                    comparison.finder_setup()
+    def made(self):
+        self.P._make_folder()
+        path = self.P._FOLDER['path']
+        self.addCleanup(_real_rmtree, path, True)
+        return path
+
+    def test_each_run_gets_its_own_folder_and_no_fixed_path_is_removed(self):
+        import os
+        with patch('shutil.rmtree', side_effect=lambda *a, **k: self.fail('setup removed')):
+            first = self.made()
+            second = self.made()
+        self.assertNotEqual(first, second)
+        for path in (first, second):
+            self.assertTrue(os.path.basename(path).startswith(self.P.FOLDER_PREFIX))
+            self.assertEqual(self.P._folder_names(), set(os.listdir(path)))
+        self.assertIn(second, self.P._folder_ask())
+
+    def test_setup_refuses_a_window_already_named_like_the_folder(self):
+        with patch.object(self.P, 'finder_state', return_value=self.state(shown=['w'])), \
+                patch.object(self.P, '_make_folder'):
+            with self.assertRaisesRegex(RuntimeError, 'finder_not_clean'):
+                self.P.finder_setup()
+
+    def test_setup_records_open_sheets_instead_of_refusing_or_closing(self):
+        with patch.object(self.P, 'finder_state', return_value=self.state(sheets=['s'])), \
+                patch.object(self.P, '_make_folder'):
+            self.P.finder_setup()
+        self.assertEqual(1, self.P._FOLDER['sheets_before'])
 
     def test_setup_refuses_when_finder_cannot_be_read(self):
-        with patch.object(comparison, '_make_folder'), \
-                patch.object(comparison, 'finder_state', return_value=None):
+        with patch.object(self.P, '_make_folder'), \
+                patch.object(self.P, 'finder_state', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'finder_unobservable'):
-                comparison.finder_setup()
+                self.P.finder_setup()
+
+    def test_a_failed_read_is_not_an_empty_finder(self):
+        self.P._FOLDER['path'] = '/tmp/nlc-compare-folder-x'
+        for failing in ('AXTitle', 'AXChildren', 'AXIdentifier'):
+            def ax(el, name, failing=failing):
+                if name == failing:
+                    return False, None
+                return True, ({'AXTitle': 'Documents', 'AXChildren': ['sheet'],
+                               'AXIdentifier': 'GoToWindow'}[name])
+            with self.subTest(failing=failing), \
+                    patch.object(self.P, '_finder_windows', return_value=['w']), \
+                    patch.object(self.P, '_ax', side_effect=ax):
+                self.assertIsNone(self.P.finder_state())
 
     def test_answer_alone_does_not_pass(self):
-        with patch.object(comparison, 'finder_state', return_value=self.state()):
-            passed, observed = comparison.finder_oracle('It contains 7 items.')
+        with patch.object(self.P, 'finder_state', return_value=self.state()):
+            passed, observed = self.P.finder_oracle('It contains 7 items.')
         self.assertFalse(passed)
-        self.assertIn('finder_at_folder=no', observed)
+        self.assertIn('finder_window_titled_with_run_folder=no', observed)
 
     def test_answer_and_finder_showing_the_count_pass(self):
-        with patch.object(comparison, 'finder_state', return_value=self.state(shown=['w'])), \
-                patch.object(comparison, '_find_identified', return_value='bar'), \
+        with patch.object(self.P, 'finder_state', return_value=self.state(shown=['w'])), \
+                patch.object(self.P, '_find_identified', return_value='bar'), \
                 patch('nlc.driver._attr', return_value='7 items, 286 GB available'):
-            passed, _ = comparison.finder_oracle('7 items')
+            passed, _ = self.P.finder_oracle('7 items')
         self.assertTrue(passed)
 
     def test_wrong_count_on_screen_fails(self):
-        with patch.object(comparison, 'finder_state', return_value=self.state(shown=['w'])), \
-                patch.object(comparison, '_find_identified', return_value='bar'), \
+        with patch.object(self.P, 'finder_state', return_value=self.state(shown=['w'])), \
+                patch.object(self.P, '_find_identified', return_value='bar'), \
                 patch('nlc.driver._attr', return_value='17 items'):
-            passed, _ = comparison.finder_oracle('7 items')
+            passed, _ = self.P.finder_oracle('7 items')
         self.assertFalse(passed)
 
-    def test_cleanup_reports_what_it_could_not_close(self):
-        with patch.object(comparison, 'finder_state', return_value=None):
-            self.assertEqual(comparison.finder_cleanup(), 'not_observable_left_as_is')
+    def test_cleanup_presses_nothing_and_removes_only_its_own_folder(self):
+        import os
+        path = self.made()
+        with patch('ApplicationServices.AXUIElementPerformAction',
+                   side_effect=lambda *a: self.fail('pressed in Finder')), \
+                patch.object(self.P, 'finder_state',
+                             return_value=self.state(shown=['w'], sheets=['s'])):
+            out = self.P.finder_cleanup()
+        self.assertTrue(out.startswith('folder_removed'), out)
+        self.assertIn('windows=1 sheets=1', out)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_changed_folder_is_left(self):
+        import os
+        path = self.made()
+        pathlib.Path(path, 'someone-else.txt').write_text('x')
+        with patch.object(self.P, 'finder_state', return_value=None):
+            out = self.P.finder_cleanup()
+        self.assertTrue(out.startswith('folder_changed_left_as_is'), out)
+        self.assertIn('finder_unobservable', out)
+        self.assertTrue(os.path.exists(path))

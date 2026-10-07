@@ -131,13 +131,18 @@ def _observed_windows():
 _AX_NO_VALUE = -25212
 
 
-def _document_known(window):
-    """Whether the window's document was read: a path (or no document at
-    all — an untitled window) is known; a failed read is not. A window whose
-    document cannot be read may be the harness's own, so it blocks removal."""
+def _document_read(window):
+    """One AXDocument read of the window: ("path", local path or None for a
+    non-local URL), ("none", None) for a window with no document (untitled),
+    or ("error", None). Every decision about a window uses ONE read: a second,
+    separate read could answer differently (Codex review of 6c2c6a9)."""
     from ApplicationServices import AXUIElementCopyAttributeValue
     error, doc = AXUIElementCopyAttributeValue(window, "AXDocument", None)
-    return (error == 0 and isinstance(doc, str)) or error == _AX_NO_VALUE
+    if error == _AX_NO_VALUE:
+        return "none", None
+    if error != 0 or not isinstance(doc, str):
+        return "error", None
+    return "path", _local_path(doc)
 
 
 def _textedit_windows():
@@ -175,16 +180,16 @@ def _owned_path():
 
 
 def _window_path(window):
-    """The window's document as a local file path, or None.
-
-    Only `file://` URLs with no host (or localhost), no query and no fragment
-    count; anything else is not a local file this harness could own.
-    """
-    from urllib.parse import unquote, urlparse
+    """The window's document as a local file path, or None."""
     from nlc.driver import _attr
     doc = _attr(window, "AXDocument")
-    if not isinstance(doc, str):
-        return None
+    return _local_path(doc) if isinstance(doc, str) else None
+
+
+def _local_path(doc):
+    """Only `file://` URLs with no host (or localhost), no query and no
+    fragment count; anything else is not a local file this harness could own."""
+    from urllib.parse import unquote, urlparse
     url = urlparse(doc)
     if (url.scheme != "file" or url.netloc not in ("", "localhost")
             or url.query or url.fragment or url.params):
@@ -320,10 +325,11 @@ def owned_cleanup():
     # and a window whose document cannot be read could be ours (Codex review
     # of 7bd61f1: a close that "succeeded", then a failed AXDocument read,
     # reached rmtree).
-    if any(CFEqual(w, _OWNED["window"]) or _window_path(w) == _owned_path()
-           for w in seen[1]):
+    reads = [(w, _document_read(w)) for w in seen[1]]
+    if any(CFEqual(w, _OWNED["window"]) or read == ("path", _owned_path())
+           for w, read in reads):
         return "still_open_left_as_is"
-    if not all(_document_known(w) for w in seen[1]):
+    if any(read[0] == "error" for _w, read in reads):
         return "not_observable_after_close_left_as_is"
     if not _owned_file_is_ours():
         return "file_changed_left_as_is"
@@ -361,7 +367,7 @@ def _locked():
 @dataclass
 class Task:
     name: str
-    ask: str
+    ask: object                 # text, or () -> text when it names a per-run path
     oracle: object              # (answer) -> (passed, observed)
     setup: object = None
     cleanup: object = None
@@ -387,16 +393,43 @@ OWNED_NAME = "NLC 비교 문서.txt"
 # file created exclusively, the directory's inode remembered; plus the TextEdit process
 # and AX window that showed it. Nothing is assumed from a fixed path.
 _OWNED: dict = {}
-FOLDER = Path("/tmp/nlc-compare-folder")
 FOLDER_ITEMS = 7
+FOLDER_PREFIX = "nlc-compare-folder-"
+# The folder task's own directory: a fresh mkdtemp per run, so its name (the
+# only thing a Finder window shows) is unique to the run, and no fixed path is
+# ever removed. The first version reused /tmp/nlc-compare-folder and removed it
+# before checking anything (Codex review of 1bf10aa).
+_FOLDER: dict = {}
+
+
+def _folder_names():
+    return {f"item-{i + 1}.txt" for i in range(FOLDER_ITEMS)}
 
 
 def _make_folder():
-    import shutil
-    shutil.rmtree(FOLDER, ignore_errors=True)
-    FOLDER.mkdir()
-    for i in range(FOLDER_ITEMS):
-        (FOLDER / f"item-{i + 1}.txt").write_text(str(i))
+    import os
+    import tempfile
+    _FOLDER.clear()
+    directory = os.path.realpath(tempfile.mkdtemp(prefix=FOLDER_PREFIX, dir="/tmp"))
+    for name in sorted(_folder_names()):
+        fd = os.open(os.path.join(directory, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+    st = os.stat(directory)
+    _FOLDER.update(path=directory, inode=(st.st_dev, st.st_ino))
+
+
+def _folder_ask():
+    return (f"Using Finder, open the folder {_FOLDER.get('path', '(not created)')} "
+            "and report how many items it contains.")
+
+
+def _ax(element, name):
+    """(ok, value): a failed read is not a missing value."""
+    from ApplicationServices import AXUIElementCopyAttributeValue
+    error, value = AXUIElementCopyAttributeValue(element, name, None)
+    if error == _AX_NO_VALUE:
+        return True, None
+    return error == 0, value if error == 0 else None
 
 
 def _find_identified(el, identifier, depth=0):
@@ -415,51 +448,61 @@ def _find_identified(el, identifier, depth=0):
 def _finder_windows():
     """Finder's AX windows, or None when Finder or the read is missing."""
     from AppKit import NSRunningApplication
-    from ApplicationServices import AXUIElementCopyAttributeValue, AXUIElementCreateApplication
+    from ApplicationServices import AXUIElementCreateApplication
     apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.finder")
     if len(apps) != 1:
         return None
-    error, windows = AXUIElementCopyAttributeValue(
-        AXUIElementCreateApplication(apps[0].processIdentifier()), "AXWindows", None)
-    return None if error != 0 or windows is None else list(windows)
+    ok, windows = _ax(AXUIElementCreateApplication(apps[0].processIdentifier()), "AXWindows")
+    if not ok:
+        return None
+    return list(windows or [])
 
 
 def finder_state():
-    """What the folder task can leave behind: windows titled with the
-    harness folder's (unique) name, and Go to Folder sheets.
+    """Windows titled with this run's folder name, and Go to Folder sheets —
+    or None when any title or child list could not be read. A failed read
+    is never folded into "nothing there" (Codex review of 1bf10aa).
 
-    Finder gives no AXDocument for its windows, so the title is the only name
-    a window has. The name is the harness's own; no user folder is called this.
+    Finder gives no AXDocument for its windows, so a title is evidence that a
+    window shows a folder of that NAME, not proof of its path. The name is a
+    fresh mkdtemp one, which is what makes the title worth something.
     """
-    from nlc.driver import _attr
     windows = _finder_windows()
-    if windows is None:
+    if windows is None or not _FOLDER.get("path"):
         return None
-    shown = [w for w in windows if _attr(w, "AXTitle") == FOLDER.name]
-    sheets = [s for w in windows for s in (_attr(w, "AXChildren") or [])
-              if _attr(s, "AXIdentifier") == "GoToWindow"]
+    name = Path(_FOLDER["path"]).name
+    shown, sheets = [], []
+    for window in windows:
+        ok_title, title = _ax(window, "AXTitle")
+        ok_kids, kids = _ax(window, "AXChildren")
+        if not (ok_title and ok_kids):
+            return None
+        if title == name:
+            shown.append(window)
+        for kid in kids or []:
+            ok_id, ident = _ax(kid, "AXIdentifier")
+            if not ok_id:
+                return None
+            if ident == "GoToWindow":
+                sheets.append(kid)
     return {"shown": shown, "sheets": sheets}
 
 
 def finder_setup():
-    """A run starts with Finder NOT already at the folder.
-
-    Earlier cohorts did not check: a run that found the folder left open by
-    the previous one could pass by reading it, without navigating (seen
-    2026-10-07, 16:45). Leftovers are refused, not tidied — whose they are
-    is not known here; `finder_cleanup` removes only what a run created.
-    """
+    """A fresh folder no Finder window can already be showing; the run's
+    starting state (open Go to Folder sheets) is recorded, not tidied."""
     _make_folder()
     state = finder_state()
     if state is None:
         raise RuntimeError("finder_unobservable")
-    if state["shown"] or state["sheets"]:
-        raise RuntimeError(f"finder_not_clean: {len(state['shown'])} window(s) at the "
-                           f"folder, {len(state['sheets'])} Go to Folder sheet(s)")
+    if state["shown"]:
+        raise RuntimeError("finder_not_clean: a window already shows the new folder's name")
+    _FOLDER["sheets_before"] = len(state["sheets"])
 
 
 def finder_oracle(answer):
-    """The answer names the count AND Finder is showing the folder with it."""
+    """The answer names the count AND a Finder window titled with this run's
+    folder name shows that count in its status bar."""
     from nlc.driver import _attr
     state = finder_state() or {"shown": [], "sheets": []}
     statuses = [_attr(_find_identified(w, "statusBarText"), "AXValue") or ""
@@ -468,35 +511,39 @@ def finder_oracle(answer):
     said = _number_in(answer, str(FOLDER_ITEMS))
     return (said and at_folder,
             f"want {FOLDER_ITEMS}; answer={'yes' if said else 'no'} "
-            f"finder_at_folder={'yes' if at_folder else 'no'}")
+            f"finder_window_titled_with_run_folder={'yes' if at_folder else 'no'}")
+
+
+def _folder_is_ours():
+    import os
+    try:
+        st = os.stat(_FOLDER["path"])
+        names = set(os.listdir(_FOLDER["path"]))
+    except (KeyError, OSError):
+        return False
+    return (st.st_dev, st.st_ino) == _FOLDER.get("inode") and names == _folder_names()
 
 
 def finder_cleanup():
-    """Close what the run left: setup proved none existed before it.
-
-    A window the agent navigated INTO the folder may have been a user's
-    window showing elsewhere; closing a Finder browser window loses no data.
-    Presses only — no keys, no activation.
-    """
-    from ApplicationServices import AXUIElementPerformAction
-    from nlc.driver import _attr
+    """Closes nothing in Finder: no window or sheet there is provably the
+    run's — the agent may have navigated a window the person had open, and
+    the person may open a sheet mid-run (Codex review of 1bf10aa). What is
+    left is reported. The run's own directory is removed only while it is
+    still the one mkdtemp made, holding exactly the files put there."""
+    import shutil
+    if not _FOLDER.get("path"):
+        return "nothing_owned"
     state = finder_state()
     if state is None:
-        return "not_observable_left_as_is"
-    for sheet in state["sheets"]:
-        button = _find_identified(sheet, "CloseButton")
-        if button is None or AXUIElementPerformAction(button, "AXPress") != 0:
-            return "sheet_close_failed_left_as_is"
-    time.sleep(0.5)
-    for window in (finder_state() or {"shown": []})["shown"]:
-        button = _attr(window, "AXCloseButton")
-        if button is None or AXUIElementPerformAction(button, "AXPress") != 0:
-            return "window_close_failed_left_as_is"
-    time.sleep(0.5)
-    after = finder_state()
-    if after is None or after["shown"] or after["sheets"]:
-        return "still_open_left_as_is"
-    return "closed"
+        left = "finder_unobservable"
+    else:
+        left = (f"finder_left windows={len(state['shown'])} "
+                f"sheets={len(state['sheets'])} before={_FOLDER.get('sheets_before')}")
+    if not _folder_is_ours():
+        return f"folder_changed_left_as_is; {left}"
+    shutil.rmtree(_FOLDER["path"])
+    _FOLDER.clear()
+    return f"folder_removed; {left}"
 
 
 def source_manifest():
@@ -560,7 +607,7 @@ TASKS = [
     # version used /Applications, which Finder merges with
     # /System/Applications: both arms read Finder's "101 items" correctly and
     # the oracle, counting one folder, said they were wrong.
-    Task("finder_count", f"Using Finder, open the folder {FOLDER} and report how many items it contains.",
+    Task("finder_count", _folder_ask,
          finder_oracle, setup=finder_setup, cleanup=finder_cleanup,
          notes="harness-made folder; Finder must be showing it"),
     Task("macos_version", "Using the System Settings app, find this Mac's macOS version number "
@@ -584,7 +631,8 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                     **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
-    prompt = f"{task.ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS}"
+    ask = task.ask() if callable(task.ask) else task.ask
+    prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS}"
     with tempfile.NamedTemporaryFile("r", suffix=".txt") as last, FocusWitness() as witness:
         started = time.monotonic()
         try:
@@ -654,7 +702,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
             # A cleanup that could not prove what it owned says so instead of
             # "completed" (owned_cleanup returns why it left things as they were).
             result["cleanup_status"] = ("completed" if outcome in (None, "closed")
-                                        else str(outcome)[:60])
+                                        else str(outcome)[:120])
         except Exception as error:
             result["cleanup_status"] = "failed"
             result["cleanup_error"] = type(error).__name__[:80]
@@ -677,7 +725,7 @@ def main() -> int:
     tasks = [t for t in TASKS if not args.only or t.name in args.only]
     if args.list:
         for t in tasks:
-            print(f"{t.name:16} {t.ask}")
+            print(f"{t.name:16} {t.ask() if callable(t.ask) else t.ask}")
         return 0
     import Quartz
     if (Quartz.CGSessionCopyCurrentDictionary() or {}).get("CGSSessionScreenIsLocked"):
