@@ -311,15 +311,23 @@ class FinderFolderTaskTests(unittest.TestCase):
 
     def test_a_refused_setup_removes_the_folder_it_just_made(self):
         import os
+        made, real = [], self.P._make_folder
+
+        def track():
+            real()
+            made.append(self.P._FOLDER['path'])
+            self.addCleanup(_real_rmtree, self.P._FOLDER['path'], True)
         for state in (None, self.state(shown=['w'])):
             with self.subTest(state=state), \
+                    patch.object(self.P, '_make_folder', side_effect=track), \
                     patch.object(self.P, 'finder_state', return_value=state):
                 with self.assertRaisesRegex(RuntimeError, 'own folder removed'):
                     self.P.finder_setup()
             self.assertEqual({}, self.P._FOLDER)
-        self.assertEqual([], [n for n in os.listdir('/tmp')
-                              if n.startswith(self.P.FOLDER_PREFIX)
-                              and n not in getattr(self, 'before', [])])
+        # Only the paths this test made are checked; other folders in /tmp
+        # are none of its business (Codex review of bd5c9e2).
+        self.assertEqual(2, len(made))
+        self.assertEqual([], [p for p in made if os.path.exists(p)])
 
     def test_setup_records_open_sheets_instead_of_refusing_or_closing(self):
         with patch.object(self.P, 'finder_state', return_value=self.state(sheets=['s'])), \
