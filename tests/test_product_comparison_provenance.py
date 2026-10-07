@@ -139,3 +139,46 @@ class TextEditScopeTests(unittest.TestCase):
              patch('ApplicationServices.AXUIElementPerformAction',
                    side_effect=lambda *a: self.fail('closed a window that was not ours')):
             self.assertEqual(1, P.textedit_close(P.TEXT))
+
+
+class OwnedDocumentTests(unittest.TestCase):
+    """textedit_edit_owned reads only the harness's own file, re-proved each time."""
+    P = comparison
+
+    def check(self, *, process=('pid', 1), windows=None, stored=None):
+        P = self.P
+        mine, other = object(), object()
+        windows = windows if windows is not None else [mine, other]
+        path = {mine: P._owned_path(), other: P._nfc(P.Path('/tmp/someone-else.txt'))}
+        P._OWNED.clear()
+        P._OWNED.update(process=('pid', 1), window=stored or mine)
+        read = []
+        with patch.object(P, '_textedit_process', return_value=(object(), process)), \
+             patch.object(P, '_textedit_windows', return_value=windows), \
+             patch.object(P, '_window_path', side_effect=lambda w: path.get(w, P._owned_path())), \
+             patch('CoreFoundation.CFEqual', side_effect=lambda a, b: a is b), \
+             patch.object(P, '_text_of', side_effect=lambda w: read.append(w) or P.TEXT):
+            result = P.owned_oracle(P.TEXT)
+        P._OWNED.clear()
+        return result, read, mine, other
+
+    def test_only_the_owned_window_is_read(self):
+        (ok, _seen), read, mine, other = self.check()
+        self.assertTrue(ok)
+        self.assertEqual([mine], read)
+
+    def test_a_restarted_textedit_reads_nothing(self):
+        (ok, seen), read, *_ = self.check(process=('pid', 2))
+        self.assertEqual((False, []), (ok, read))
+
+    def test_two_windows_on_the_path_or_a_swapped_window_read_nothing(self):
+        twin = object()
+        (ok, _), read, *_ = self.check(windows=[object(), twin])   # both resolve to our path
+        self.assertEqual((False, []), (ok, read))
+        (ok, _), read, *_ = self.check(stored=object())             # not the window we opened
+        self.assertEqual((False, []), (ok, read))
+
+    def test_korean_names_compare_composed(self):
+        import unicodedata
+        nfd = unicodedata.normalize('NFD', str(self.P._owned_path()))
+        self.assertEqual(self.P._owned_path(), self.P._nfc(nfd))

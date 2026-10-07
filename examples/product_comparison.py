@@ -237,6 +237,106 @@ def textedit_close(text):
     return left
 
 
+def _owned_path():
+    return _nfc((OWNED_DIR / OWNED_NAME).resolve())
+
+
+def _window_path(window):
+    from urllib.parse import unquote, urlparse
+    from nlc.driver import _attr
+    doc = _attr(window, "AXDocument")
+    if not isinstance(doc, str) or not doc.startswith("file://"):
+        return None
+    return _nfc(Path(unquote(urlparse(doc).path)).resolve())
+
+
+def _nfc(path):
+    """TextEdit reports a Korean file name decomposed (NFD); compare composed."""
+    import unicodedata
+    return Path(unicodedata.normalize("NFC", str(path)))
+
+
+def owned_window():
+    """The harness's own document window, re-proved on every call, or None.
+
+    Same TextEdit process (pid and launch date) as when it was opened, the
+    same AX window, and that window still shows the harness's file. Nothing
+    else in TextEdit is looked at beyond its document path.
+    """
+    from CoreFoundation import CFEqual
+    _app, identity = _textedit_process()
+    if not _OWNED or identity != _OWNED.get("process"):
+        return None
+    matches = [w for w in _textedit_windows() if _window_path(w) == _owned_path()]
+    if len(matches) != 1 or not CFEqual(matches[0], _OWNED["window"]):
+        return None
+    return matches[0]
+
+
+def owned_setup():
+    import shutil
+    _OWNED.clear()
+    shutil.rmtree(OWNED_DIR, ignore_errors=True)
+    OWNED_DIR.mkdir()
+    _owned_path().write_text("")
+    # -g: opened behind whatever the person is using, not made frontmost.
+    subprocess.run(["open", "-g", "-a", "TextEdit", str(_owned_path())],
+                   capture_output=True, timeout=20)
+    for _ in range(100):
+        _app, identity = _textedit_process()
+        found = [w for w in _textedit_windows() if _window_path(w) == _owned_path()]
+        if identity is not None and len(found) == 1:
+            _OWNED.update(process=identity, window=found[0])
+            return
+        time.sleep(0.1)
+    raise RuntimeError("owned document did not open")
+
+
+def owned_oracle(text):
+    window = owned_window()
+    if window is None:
+        return False, "owned document not provable"
+    body = _text_of(window) or ""
+    return " ".join(body.split()) == " ".join(text.split()), body[:60]
+
+
+def owned_cleanup():
+    """Close the harness's document and remove its file; nothing else."""
+    from ApplicationServices import AXUIElementPerformAction
+    from nlc.driver import _attr
+    window = owned_window()
+    if window is not None:
+        close = _attr(window, "AXCloseButton")
+        if close is not None:
+            AXUIElementPerformAction(close, "AXPress")
+            time.sleep(0.8)
+            # A file-backed document autosaves; if TextEdit still asks, the
+            # question is about the harness's own file, so it is not kept.
+            for child in _attr(window, "AXChildren") or []:
+                if _attr(child, "AXRole") == "AXSheet":
+                    for button in ("Don’t Save", "Don't Save", "Revert Changes", "Delete"):
+                        hit = _find_button(child, button)
+                        if hit is not None:
+                            AXUIElementPerformAction(hit, "AXPress")
+                            break
+    _OWNED.clear()
+    import shutil
+    shutil.rmtree(OWNED_DIR, ignore_errors=True)
+
+
+def _find_button(el, title, depth=0):
+    from nlc.driver import _attr
+    if depth > 5 or el is None:
+        return None
+    if _attr(el, "AXRole") == "AXButton" and _attr(el, "AXTitle") == title:
+        return el
+    for child in _attr(el, "AXChildren") or []:
+        hit = _find_button(child, title, depth + 1)
+        if hit is not None:
+            return hit
+    return None
+
+
 def textedit_hidden():
     from AppKit import NSRunningApplication
     apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_("com.apple.TextEdit")
@@ -274,6 +374,9 @@ def _macos_version():
 
 
 TEXT = "NLC 비교 테스트 7781"
+OWNED_DIR = Path("/tmp/nlc-compare-owned")
+OWNED_NAME = "NLC 비교 문서.txt"
+_OWNED: dict = {}               # pid, launch, window of the harness's own document
 FOLDER = Path("/tmp/nlc-compare-folder")
 FOLDER_ITEMS = 7
 
@@ -334,10 +437,15 @@ TASKS = [
     Task("calc_mode", "Switch the macOS Calculator app to Scientific mode.",
          lambda a: ((_calc_mode() == "scientific"), _calc_mode()),
          setup=calc_reset, cleanup=calc_reset),
-    Task("textedit_write", f"Create a new TextEdit document and type exactly this text into it: {TEXT}  "
-                           "Leave the document open and do not save it.",
-         lambda a: (textedit_has(TEXT), [t[:60] for t in textedit_texts()]),
-         setup=textedit_baseline, cleanup=lambda: textedit_close(TEXT)),
+    # The document is the harness's own file, opened before the agent starts,
+    # and nothing else in TextEdit is read or closed. The earlier task,
+    # "create a new document", could only find its result among windows
+    # nobody had proven were ours (Codex review, 2026-10-07); this is a new
+    # cohort, not a continuation of textedit_write's results.
+    Task("textedit_edit_owned",
+         f"In TextEdit, the document named \"{OWNED_NAME}\" is already open. Type exactly this text "
+         f"into that document: {TEXT}  Do not create a new document, and do not close it.",
+         lambda a: owned_oracle(TEXT), setup=owned_setup, cleanup=owned_cleanup),
     # A folder the harness makes, so the right count is known. The first
     # version used /Applications, which Finder merges with
     # /System/Applications: both arms read Finder's "101 items" correctly and
