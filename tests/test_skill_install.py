@@ -151,7 +151,7 @@ class ScreenRecordingLineTests(unittest.TestCase):
 
     def test_the_helpers_own_answer_is_reported_when_it_does_the_work(self):
         from nlc.onboard import _screen_recording_for
-        c = _screen_recording_for(self.check(), {"trusted": True, "screen_capture": True})
+        c = _screen_recording_for(self.check(), {"built": True, "trusted": True, "screen_capture": True})
         self.assertTrue(c.ok)
         self.assertIn("NLC Helper", c.title)
 
@@ -257,3 +257,28 @@ class AgentFrictionTests(unittest.TestCase):
         skill = ROOT / "skill"
         self.assertIn("nlc list", (skill / "SKILL.md").read_text())
         self.assertTrue((skill / "docs" / "recipes.md").is_file())
+
+
+class DoctorCheckIsReadOnlyTests(unittest.TestCase):
+    """`nlc doctor --check` opened System Settings when the helper was untrusted
+    (Codex finding, 2026-10-07): a check must not change what is on screen."""
+    def run_doctor(self, interactive):
+        from unittest.mock import patch
+        from nlc import onboard
+        opened = []
+        status = {"built": True, "trusted": False, "bundled": True, "path": "x",
+                  "why": "도우미에 접근성 권한이 없습니다"}
+        with patch.object(onboard, "helper_status", return_value=status), \
+             patch.object(onboard, "open_settings", side_effect=opened.append), \
+             patch.object(onboard, "request_accessibility", return_value=False):
+            ok = onboard.run(interactive=interactive, narrate=lambda s: None)
+        return ok, opened
+
+    def test_check_never_opens_settings_and_is_not_ready(self):
+        ok, opened = self.run_doctor(interactive=False)
+        self.assertEqual((False, []), (ok, opened))
+
+    def test_interactive_doctor_may_open_the_pane(self):
+        ok, opened = self.run_doctor(interactive=True)
+        self.assertFalse(ok)
+        self.assertTrue(opened)

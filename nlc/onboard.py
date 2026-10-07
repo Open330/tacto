@@ -58,8 +58,8 @@ def _screen_recording_for(c: "Check", helper: dict) -> "Check":
     for an app called "this app".
     """
     from dataclasses import replace
-    if helper.get("trusted") and isinstance(helper.get("screen_capture"), bool):
-        return replace(c, ok=helper["screen_capture"],
+    if helper.get("built"):
+        return replace(c, ok=helper.get("screen_capture") is True,
                        title="화면 읽기 권한(화면 기록) — 'NLC Helper'",
                        fix_hint="목록에서 'NLC Helper' 를 켜주세요. 창 이미지가 필요한 기능에서만 씁니다.")
     import os, sys
@@ -95,6 +95,10 @@ def run(interactive: bool = True, narrate=print) -> bool:
 
     all_ok = True
     for c in check_all():
+        if c.key == "accessibility" and helper.get("built"):
+            from dataclasses import replace
+            c = replace(c, ok=helper_covers, title="앱 조작 권한 — 'NLC Helper'",
+                        fix_hint="목록에서 'NLC Helper'를 켜주세요. 파이썬에는 권한이 필요 없습니다.")
         if c.key == "screen_recording":
             c = _screen_recording_for(c, helper)
         if c.ok:
@@ -103,7 +107,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         required = c.key == "accessibility" and not helper_covers
         mark = "✕" if required else "○"
         narrate(f"{mark} {c.title} — {c.fix_hint}")
-        if interactive:
+        if interactive and required and not helper.get("built"):
             if c.key == "accessibility":
                 request_accessibility(prompt=True)   # system dialog
             open_settings(c.settings_url)            # jump straight to the pane
@@ -147,8 +151,10 @@ def run(interactive: bool = True, narrate=print) -> bool:
         st = helper_status()
         if st["built"]:
             narrate("— 권한 경계 —")
-            if run_helper_onboarding(narrate) :
+            if run_helper_onboarding(narrate, interactive=interactive):
                 narrate("   실행:  nlc <명령> --helper   (설치 전이면 NLC 폴더에서 ./launcher/nlc)")
+            else:
+                all_ok = False
         else:
             narrate("○ 서명된 도우미를 빌드하면 권한을 파이썬 대신 도우미에만 "
                     "줄 수 있어요 (helper/build.sh && helper/bundle.sh).")
@@ -210,7 +216,7 @@ def helper_status() -> dict:
     return out
 
 
-def run_helper_onboarding(narrate=print) -> bool:
+def run_helper_onboarding(narrate=print, *, interactive=True) -> bool:
     """Walk the user through granting the HELPER, not this interpreter."""
     st = helper_status()
     if not st["built"]:
@@ -226,6 +232,7 @@ def run_helper_onboarding(narrate=print) -> bool:
     narrate("   (macOS 27 에서는 같은 자리가 'Device Control and Data Access' 입니다.)")
     if st.get("why"):
         narrate(f"   ({st['why'].splitlines()[0]})")
-    open_settings("x-apple.systempreferences:com.apple.preference.security"
-                  "?Privacy_Accessibility")
+    if interactive:
+        open_settings("x-apple.systempreferences:com.apple.preference.security"
+                      "?Privacy_Accessibility")
     return False
