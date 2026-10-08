@@ -963,8 +963,7 @@ func elementAtPoint(_ point: CGPoint, pid p: pid_t) -> AXUIElement? {
 func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
-                             windowInput: NativeOpaqueWindowInput? = nil,
-                             finalCheck: ((NativeWindowReadScope) -> String?)? = nil) -> [String: Any] {
+                             windowInput: NativeOpaqueWindowInput? = nil) -> [String: Any] {
     let elements = latestElements
     guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
           elements.filter({ CFEqual($0, element) }).count == 1 else {
@@ -1000,9 +999,6 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                 try scope.ready()
                 if let expectation, let why = mismatch(expectation, element: element, pid: pid) {
                     throw NativeWindowInputError.refused(why)
-                }
-                if let finalCheck, let why = finalCheck(scope) {
-                    throw NativeWindowInputError.refused("Return refused: \(why)")
                 }
                 try scope.ready()
             }, pointClick: point != nil, windowInput: windowInput)
@@ -1092,6 +1088,54 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
         out["reobserve_required"] = true
     }
     return out
+}
+
+/// press_key Return: the Go to Folder sheet path only (submitReturnInSheet).
+/// Same observation-identity checks as prepareBackgroundWindow; one keyDown;
+/// the receipt says so (window_submit_key, posted 1) and that the effect must
+/// be read back — the flow's exact postcondition is the evidence, not this.
+func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIElement,
+                            _ pid: pid_t, deadline: Double) -> [String: Any] {
+    let elements = latestElements
+    guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
+          elements.filter({ CFEqual($0, element) }).count == 1 else {
+        return ["type":"error", "error":"action_failed", "effect":"not_started",
+                "detail":"window observation identity unavailable"]
+    }
+    func context() throws {
+        try validateDocumentObservation(target)
+        guard !abortState.isStopped else { throw NativeWindowInputError.refused("user stopped input") }
+        guard obsID == latestObsID, pid == latestTargetPID,
+              target.lowercased() == latestTargetName.lowercased(),
+              processForWindowTarget(target) == pid, nativeProcessStartIdentity(pid) == start,
+              latestElements.count == elements.count,
+              zip(latestElements, elements).allSatisfy({ CFEqual($0, $1) }) else {
+            throw NativeWindowInputError.refused("window observation or process changed")
+        }
+    }
+    do {
+        let scope = NativeWindowReadScope(deadline: deadline, check: context)
+        let result = try submitReturnInSheet(element, pid, expectedStart: start, scope: scope,
+            deadline: deadline, stopped: { abortState.isStopped }, context: context,
+            refusal: { returnTargetRefusal($0, read: $1) })
+        return ["type":"acted", "action":"press_key", "obs_id":obsID,
+                "input_route":"window_submit_key", "mechanism":"pid_window_events",
+                "posted_events":result.posted, "window_id":result.sheetID,
+                "reobserve_required":true, "unverified":"observe_effect"]
+    } catch let failure as NativeWindowDispatchFailure {
+        return ["type":"error", "error":failure.stopped ? "aborted_by_user" : "action_failed",
+                "effect":failure.attempted == 0 ? "not_started" : "unknown",
+                "posted_or_attempted_events":failure.attempted, "detail":failure.detail]
+    } catch NativeWindowInputError.refused(let detail) {
+        return ["type":"error", "error":"action_failed", "effect":"not_started",
+                "posted_or_attempted_events":0, "detail":detail]
+    } catch NativeWindowInputError.unavailable(let detail) {
+        return ["type":"error", "error":"action_failed", "effect":"not_started",
+                "posted_or_attempted_events":0, "detail":detail]
+    } catch {
+        return ["type":"error", "error":"action_failed", "effect":"not_started",
+                "posted_or_attempted_events":0, "detail":"Return context failed"]
+    }
 }
 
 func act(_ obsID: String, _ target: String, _ action: [String: Any],
@@ -1846,7 +1890,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
               index.doubleValue >= 0, index.doubleValue < Double(elements.count),
               let el = element() else {
             return ["type":"error", "error":"action_failed", "effect":"not_started",
-                    "detail":"press_key requires an observed input element and Tab/shift+Tab/arrows, or Return in a dialog text field"]
+                    "detail":"press_key requires an observed input element and Tab/shift+Tab/arrows, or Return in the Go to Folder path field"]
         }
         // Return commits — it sends a message, submits a form, saves. So it
         // is taken only into the Go to Folder sheet's path field (see
@@ -1857,11 +1901,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type":"error", "error":"action_failed", "effect":"not_started",
                     "detail":"Return refused: \(why)"]
         }
-        // Asked again at the last check before the pair is posted, so a sheet
-        // that closed or changed in between is refused, not typed into.
+        if submit {
+            return submitReturnBackground(obsID, target, el, p, deadline: deadline)
+        }
         return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
-                                       key: key, expectation: expect,
-                                       finalCheck: submit ? { scope in returnTargetRefusal(el, read: scope.read) } : nil)
+                                       key: key, expectation: expect)
     case "scroll":
         // A wheel event has no address: it goes to whatever sits under a
         // pointer position we invented, in a process we named. A scroll bar
@@ -2505,7 +2549,7 @@ func respond(_ obj: [String: Any]) {
 /// deadline. Each read separates success, legitimately absent (noValue / attributeUnsupported — only for subrole and
 /// identifiers, never a role) and failure; a failure refuses (Codex review of
 /// 0eb24cf: an unreadable subrole had counted as "not secure").
-typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
+// AXRead: see WindowInput.swift.
 
 /// A read bounded per call (0.5s) AND by the caller's overall deadline, so
 /// a walk up 32 ancestors cannot add up past the input deadline. A timeout

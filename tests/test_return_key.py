@@ -13,7 +13,7 @@ from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
 from nlc.protocol import RETURN_CAPABILITY, window_key_reobservation
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-GOOD = {'type': 'acted', 'input_route': 'window_key', 'posted_events': 2,
+GOOD = {'type': 'acted', 'input_route': 'window_submit_key', 'posted_events': 1,
         'unverified': 'observe_effect', 'reobserve_required': True}
 
 
@@ -85,7 +85,9 @@ class ReturnReplayTests(unittest.TestCase):
 
     def test_no_receiving_effect_or_partial_pair_never_passes_or_repeats(self):
         for app in (Finder(navigates=False),
-                    Finder(response={**GOOD, 'posted_events': 1}),
+                    Finder(response={**GOOD, 'posted_events': 2}),
+                    Finder(response={**GOOD, 'posted_events': 0}),
+                    Finder(response={**GOOD, 'input_route': 'window_key'}),
                     Finder(response={**GOOD, 'input_route': 'window_prepare'})):
             with self.subTest(response=app.response, navigates=app.navigates):
                 result = replay(app, flow())
@@ -106,6 +108,14 @@ class ReturnProtocolTests(unittest.TestCase):
         self.assertTrue(window_key_reobservation(action, GOOD, Finder.capabilities))
         self.assertFalse(window_key_reobservation(
             action, GOOD, Finder.capabilities - {RETURN_CAPABILITY}))
+
+    def test_routes_do_not_cross(self):
+        nav = {'name': 'press_key', 'key': 'Tab', 'element_index': 2}
+        ret = {'name': 'press_key', 'key': 'Return', 'element_index': 2}
+        pair = {**GOOD, 'input_route': 'window_key', 'posted_events': 2}
+        self.assertTrue(window_key_reobservation(nav, pair, Finder.capabilities))
+        self.assertFalse(window_key_reobservation(nav, GOOD, Finder.capabilities))
+        self.assertFalse(window_key_reobservation(ret, pair, Finder.capabilities))
 
     def test_return_is_not_navigation(self):
         from nlc.protocol import NAVIGATION_KEYS
@@ -128,12 +138,19 @@ class HelperReturnBoundaryTests(unittest.TestCase):
                        '"PathTextField"', '"GoToWindow"', '"AXSheet"'):
             self.assertIn(needed, body)
 
-    def test_checked_before_and_again_at_the_last_moment(self):
+    def test_checked_on_arrival_then_sent_only_by_the_sheet_path(self):
         case = self.swift[self.swift.index('    case "press_key":'):]
         case = case[:case.index('    case "scroll":')]
         self.assertIn('if submit, let why = returnTargetRefusal(el, read: boundedAXRead(until: deadline))', case)
-        self.assertIn('finalCheck: submit ? { scope in returnTargetRefusal(el, read: scope.read) } : nil', case)
-        self.assertIn('if let finalCheck, let why = finalCheck(scope)', self.swift)
+        self.assertIn('return submitReturnBackground(obsID, target, el, p, deadline: deadline)', case)
+        sheet = self.dispatch[self.dispatch.index('func submitReturnInSheet('):]
+        # the last check before the keyDown: readiness, focus, target, geometry
+        for needed in ('nativeSheetSubmitReady(tops: now, sheet: sheet, read: read)',
+                       'CFEqual(focusedWindow, sheet), CFEqual(focused, element)',
+                       'if let why = refusal(element, read)',
+                       'try dispatchSheetReturn(pair.down,'):
+            self.assertIn(needed, sheet)
+        self.assertNotIn('pair.up', sheet)
 
     def test_window_input_and_navigation_never_carry_return(self):
         nav = self.body(self.window_input, 'func nativeNavigationKey(')
@@ -141,7 +158,11 @@ class HelperReturnBoundaryTests(unittest.TestCase):
         self.assertIn('case .key(let key): return nativeNavigationKey(key) != nil', self.window_input)
         self.assertIn('case .key(let value): pair = try buildNativeWindowKey(binding.windowID, key: value)\n',
                       self.dispatch)
+        # Return is built only in the sheet path, never in the shared key path.
         self.assertEqual(1, self.dispatch.count('submit: true'))
+        shared = self.dispatch[self.dispatch.index('func dispatchNativeWindowPreparation('):]
+        shared = shared[:shared.index('\n}\n')]
+        self.assertNotIn('submit: true', shared)
 
 
 class HelperReturnJudgementTests(unittest.TestCase):
@@ -149,7 +170,8 @@ class HelperReturnJudgementTests(unittest.TestCase):
 
     def test_cases(self):
         swift = (ROOT / 'helper/NLCHelper.swift').read_text()
-        code = swift[swift.index('typealias AXRead'):swift.index('// Keys that only move the focus ring.')]
+        code = ('typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)\n'
+                + swift[swift.index('// AXRead: see WindowInput.swift.'):swift.index('// Keys that only move the focus ring.')])
         harness = r'''
 import Foundation
 import ApplicationServices

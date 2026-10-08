@@ -133,7 +133,7 @@ struct NativeWindowBinding {
     }
 }
 
-private enum WindowInputSPI {
+enum WindowInputSPI {
     typealias AXWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> Int32
     typealias SetLocation = @convention(c) (CGEvent, CGPoint) -> Void
     typealias GetLocation = @convention(c) (CGEvent) -> CGPoint
@@ -207,7 +207,7 @@ private func windowInputHit(_ point: CGPoint, _ pid: pid_t,
     return hit
 }
 
-private func windowInputAttribute(_ element: AXUIElement, _ name: String,
+func windowInputAttribute(_ element: AXUIElement, _ name: String,
                                   scope: NativeWindowReadScope? = nil) throws -> CFTypeRef {
     var value: CFTypeRef?
     let error: AXError
@@ -220,14 +220,14 @@ private func windowInputAttribute(_ element: AXUIElement, _ name: String,
     return result
 }
 
-private func windowInputElement(_ value: CFTypeRef) throws -> AXUIElement {
+func windowInputElement(_ value: CFTypeRef) throws -> AXUIElement {
     guard CFGetTypeID(value) == AXUIElementGetTypeID() else {
         throw NativeWindowInputError.refused("invalid AX element type")
     }
     return unsafeBitCast(value, to: AXUIElement.self)
 }
 
-private func windowInputPID(_ element: AXUIElement) throws -> pid_t {
+func windowInputPID(_ element: AXUIElement) throws -> pid_t {
     var pid: pid_t = 0
     guard AXUIElementGetPid(element, &pid) == .success, pid > 0 else {
         throw NativeWindowInputError.refused("AX process unavailable")
@@ -235,7 +235,7 @@ private func windowInputPID(_ element: AXUIElement) throws -> pid_t {
     return pid
 }
 
-private func windowInputRole(_ element: AXUIElement, scope: NativeWindowReadScope? = nil) throws -> String {
+func windowInputRole(_ element: AXUIElement, scope: NativeWindowReadScope? = nil) throws -> String {
     guard let role = try windowInputAttribute(element, kAXRoleAttribute, scope: scope) as? String else {
         throw NativeWindowInputError.refused("invalid AX role")
     }
@@ -247,7 +247,7 @@ private func windowInputRectIsValid(_ r: CGRect) -> Bool {
         && r.width > 0 && r.height > 0
 }
 
-private func windowInputFrame(_ element: AXUIElement, scope: NativeWindowReadScope? = nil) throws -> CGRect {
+func windowInputFrame(_ element: AXUIElement, scope: NativeWindowReadScope? = nil) throws -> CGRect {
     let position = try windowInputAttribute(element, kAXPositionAttribute, scope: scope)
     let size = try windowInputAttribute(element, kAXSizeAttribute, scope: scope)
     guard CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else {
@@ -290,7 +290,7 @@ private func windowInputNumber(_ value: Any?) throws -> Double {
     return number.doubleValue
 }
 
-private func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
+func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
                                 scope: NativeWindowReadScope? = nil) throws -> CGRect {
     try scope?.ready()
     guard let windows = CGWindowListCopyWindowInfo(.optionAll, 0) as? [[String: Any]] else {
@@ -629,4 +629,72 @@ func buildNativeWindowText(_ windowID: CGWindowID, text: String) throws -> Nativ
         }
     }
     return NativeWindowKeyPair(down: events[0], up: events[1], owners: owners)
+}
+
+// MARK: - Return into the Go to Folder sheet (press_key Return only)
+
+/// An AX attribute read: the caller decides how it is bounded.
+typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
+//
+// The one exception to "no sheet anywhere": a keyDown(Return) into the
+// path field of the app's single Go to Folder sheet. Its own readiness and
+// dispatch, so every other input keeps the no-sheet rule. Measured on an
+// owned fixture (reviews/2026-10-08/return-key/sheet-cg-measurement.md): a
+// keyDown alone confirms the field, and AppKit delivers it to the app's key
+// window — the sheet — whatever window number the event names. So what
+// keeps it from landing elsewhere is the check just before posting: the
+// app's focused window IS that sheet and its focused element IS that field.
+// Only the keyDown is sent: a normal Return closes the sheet, and a keyUp
+// would then have no target left to be checked against.
+
+/// The app's whole exposed tree holds exactly one AXSheet, `sheet` (CFEqual),
+/// and nothing is modal. Window tops must say AXModal = false; a top that is
+/// not a window (Finder's desktop AXScrollArea) may lack AXModal but may not
+/// say true. Any unreadable role, children or modal state refuses; so does
+/// another sheet, the same sheet twice, or none.
+func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRead,
+                            maxNodes: Int = 5000, maxDepth: Int = 64) throws {
+    func value(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
+        let (error, result) = try read(node, name)
+        if error == .success, let result { return result }
+        if error == .noValue || error == .attributeUnsupported { return nil }
+        throw NativeWindowInputError.refused("window state unavailable: \(name)")
+    }
+    func role(_ node: AXUIElement) throws -> String {
+        guard let raw = try value(node, kAXRoleAttribute as String), CFGetTypeID(raw) == CFStringGetTypeID(),
+              let text = raw as? String, !text.isEmpty else {
+            throw NativeWindowInputError.refused("role unreadable")
+        }
+        return text
+    }
+    var found = 0, remaining = maxNodes
+    for top in tops {
+        let topRole = try role(top)
+        let modal = try value(top, "AXModal")
+        if let modal {
+            guard CFGetTypeID(modal) == CFBooleanGetTypeID(), (modal as? Bool) == false else {
+                throw NativeWindowInputError.refused("modal or unknown window")
+            }
+        } else if topRole == kAXWindowRole as String {
+            throw NativeWindowInputError.refused("window modal state unavailable")
+        }
+        var stack: [(AXUIElement, Int)] = [(top, 0)]
+        while let (node, depth) = stack.popLast() {
+            remaining -= 1
+            guard remaining >= 0, depth <= maxDepth else {
+                throw NativeWindowInputError.refused("readiness traversal budget exceeded")
+            }
+            if try role(node) == "AXSheet" {
+                guard CFEqual(node, sheet) else { throw NativeWindowInputError.refused("another sheet is open") }
+                found += 1
+            }
+            if let raw = try value(node, kAXChildrenAttribute as String) {
+                guard let children = raw as? [AXUIElement] else {
+                    throw NativeWindowInputError.refused("window children malformed")
+                }
+                stack.append(contentsOf: children.reversed().map { ($0, depth + 1) })
+            }
+        }
+    }
+    guard found == 1 else { throw NativeWindowInputError.refused("the sheet is missing or seen twice") }
 }

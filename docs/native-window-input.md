@@ -116,8 +116,16 @@ private window-location SPI와 AX window-ID ABI가 필요하며 지원되지 않
 `action.press_key`, `press_key.no_escape`,
 `press_key.element_bound`를 제공한다. Tab·shift+Tab·Up·Down·Left·Right만 허용한다.
 signed helper는 추가로 `press_key.return_in_go_to_folder`에서 Return을 "폴더로 이동"
-시트의 경로 필드(`GoToWindow` 안의 `PathTextField`, 보안 필드 아님)에만 보내며,
-이 대상 확인을 첫 이벤트 직전에 다시 한다. window_input 경로는 Return을 받지 않는다.
+시트의 경로 필드(`GoToWindow` 안의 `PathTextField`, 보안 필드 아님)에만 보낸다. 이것은
+위 탐색 키 경로가 아니라 별도 경로(`submitReturnInSheet`)다. 탐색·window_input·point는
+여전히 "어느 창에도 sheet 없음"을 요구하고 Return을 받지 않는다. 이 경로의 준비 조건은
+앱 전체 노출 트리에 sheet가 정확히 하나(그 필드의 조상 sheet, CFEqual)이고 modal이 없으며
+읽기 실패가 없는 것이다. 보내기 직전에 앱의 focused window가 그 sheet, focused element가
+그 필드인지 다시 확인하고 keyDown 하나만 보낸다(소유 fixture 실측: keyDown만으로 확정되고,
+AppKit은 창 번호와 무관하게 키 창인 sheet에 전달한다 — `reviews/2026-10-08/return-key/`).
+정상 Return은 sheet를 닫으므로 keyUp은 보내지 않는다. 영수증은 `input_route:
+window_submit_key`, `posted_events: 1`, `reobserve_required`이며 완료 판정은 재생의 정확한
+`equals` postcondition(예: 이동한 폴더의 창 제목)으로만 한다.
 Escape·문자·단축키는 거절하며 사용자 전경 앱에 이 경로의 키를 보내지 않는다.
 관측의 element_index를 필수로 유지한다. general도 이 capability에서는 후보와
 role/label 기대값을 키 전송 전 검사에 사용한다. 읽기 label 같은 비입력 후보에는

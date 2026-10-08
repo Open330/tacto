@@ -33,6 +33,8 @@ typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 // here by the helper's own scoping, before any dispatch.
 func returnTargetRefusal(_ element: AXUIElement, read: AXRead? = nil) -> String? { "not the Go to Folder path field" }
 func boundedAXRead(until deadline: Double) -> AXRead { { _, _ in (.failure, nil) } }
+func submitReturnBackground(_ obs: String, _ target: String, _ element: AXUIElement,
+    _ pid: pid_t, deadline: Double) -> [String:Any] { preconditionFailure("Return must be refused first here") }
 func checked(_ action:[String:Any]) -> [String:Any] {
     let obsID="owned", target="fixture", p:pid_t=42, deadline=10.0
     let elements=[input]

@@ -26,18 +26,25 @@ ACTION_PARAMS = {
 
 
 def window_key_reobservation(action, response, capabilities):
-    """A completed bounded pair needs fresh effect evidence, never a retry."""
-    return ("press_key.element_bound" in capabilities
+    """A completed bounded send needs fresh effect evidence, never a retry.
+
+    Navigation: the window_key route, a full down/up pair. Return: only the
+    Go to Folder route (window_submit_key) with exactly one keyDown — a
+    normal Return closes the sheet, so no keyUp is sent (see the helper)."""
+    if not ("press_key.element_bound" in capabilities
             and action.get('name') == 'press_key'
             and type(action.get('element_index')) is int and action['element_index'] >= 0
             and type(action.get('key')) is str
-            and (action['key'] in NAVIGATION_KEYS - {'Escape'}
-                 or (action['key'] in SUBMIT_KEYS and RETURN_CAPABILITY in capabilities))
             and response.get('type') == 'acted'
-            and response.get('input_route') == 'window_key'
             and response.get('unverified') == 'observe_effect'
             and response.get('reobserve_required') is True
-            and type(response.get('posted_events')) is int and response['posted_events'] == 2)
+            and type(response.get('posted_events')) is int):
+        return False
+    if action['key'] in NAVIGATION_KEYS - {'Escape'}:
+        return response.get('input_route') == 'window_key' and response['posted_events'] == 2
+    return (action['key'] in SUBMIT_KEYS and RETURN_CAPABILITY in capabilities
+            and response.get('input_route') == 'window_submit_key'
+            and response['posted_events'] == 1)
 
 
 def window_point_reobservation(action, response, capabilities, *, obs_id=None, window_id=None):
