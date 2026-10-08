@@ -730,10 +730,27 @@ class Flow:
             raise ValueError("Flow.steps must be a list")
         if not all(isinstance(d.get(k), str) and d[k] for k in ("name", "target")):
             raise ValueError("Flow requires name and target")
+        for key in ("params", "tables", "derived"):
+            if key in d and not isinstance(d[key], dict):
+                raise ValueError(f"Flow.{key} must be an object")
+        for name, table in d.get("tables", {}).items():
+            if not isinstance(table, dict):
+                raise ValueError(f"Flow.tables.{name} must be an object")
         def parse(s):
             known = {**ACTION_PARAMS, **FLOW_ACTIONS, **HOST_FLOW_ACTIONS}
-            if not isinstance(s, dict) or s.get("action") not in known:
+            if (not isinstance(s, dict) or not isinstance(s.get("action"), str)
+                    or s["action"] not in known):
                 raise ValueError("unknown Flow action")
+            for key in ("selector", "safety", "binding"):
+                if s.get(key) is not None and not isinstance(s[key], dict):
+                    raise ValueError(f"step.{key} must be an object")
+            sf = s.get("safety") or {}
+            for key in ("resource", "destination"):
+                if sf.get(key) is not None and not isinstance(sf[key], dict):
+                    raise ValueError(f"step.safety.{key} must be an object")
+            if "evidence" in sf and (not isinstance(sf["evidence"], list)
+                    or not all(isinstance(e, dict) for e in sf["evidence"])):
+                raise ValueError("step.safety.evidence must be a list of objects")
             payload = s.get("params", {})
             if not isinstance(payload, dict) or set(payload) - known[s["action"]]:
                 raise ValueError("invalid action parameters; names and indices are not parameters")
