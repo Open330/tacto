@@ -106,3 +106,36 @@ Python으로 대체하지 않습니다. Python 직접 경로는 별도의 개발
 backend flag, launcher가 사용하는 `.venv`의 실제 `nlc.cli` import 경로를
 함께 확인해야 합니다. 소스 checkout의 editable 설치라면 Python 변경은
 즉시 반영되며 Swift launcher/helper 변경에는 별도 재빌드가 필요합니다.
+
+### 드래그 방식 시작 앱 미리보기
+
+네이티브 checkout을 빌드한 뒤, 권한 목록에 추가할 도우미를 드래그할 수
+있는 시작 앱을 만들 수 있습니다. 출력 경로는 기존 파일을 덮어쓰지 않습니다.
+
+```sh
+.venv/bin/python setup/build_preview.py --output '/tmp/NLC 시작하기.app'
+```
+
+빌드는 컴파일과 로컬 서명 검증만 수행하며 앱을 실행하거나 권한을 요청하지
+않습니다. 사용자가 앱을 열면 도우미 아이콘, 권한 설정·Finder 열기,
+권한 다시 확인, 명령·스킬 연결 버튼이 표시됩니다. 드래그를 지원하지 않는
+권한 목록에서는 설정의 `+` 버튼으로 같은 도우미를 선택합니다.
+권한은 사용자가 직접 켭니다. 앱을 열기만 해서는 도우미 실행, 설정 열기,
+스킬 설치가 시작되지 않습니다.
+
+현재 helper는 손쉬운 사용과 화면 기록 권한이 모두 있어야 일반 창 조작을
+준비 완료로 표시합니다. 화면 기록은 조작 중임을 알리는 시스템 표시에도
+사용됩니다. 시작 앱은 helper가 발행한 상태를 확인하고, 두 권한이 확인된
+경우에만 명령·스킬 연결 버튼을 활성화합니다.
+
+이 앱은 **checkout에 연결된 개발용 미리보기**입니다. checkout의 절대 경로를
+기억하므로 앱만 다른 컴퓨터로 복사하면 설치되지 않습니다. 독립 런타임 묶음,
+배포 서명·공증, 새 Mac에서의 권한·Gatekeeper 검증과 실제 화면 배치·드래그
+검증은 별도로 필요합니다. macOS와 빌드된 네이티브 checkout이 필요합니다.
+
+GUI를 열지 않고 권한 상태의 오류·준비 완료 조건을 검사할 수 있습니다.
+
+```sh
+swiftc setup/PermissionState.swift setup/state-check.swift -o /tmp/nlc-setup-state-check
+/tmp/nlc-setup-state-check
+```
