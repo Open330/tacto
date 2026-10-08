@@ -1094,9 +1094,6 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
 /// Same observation-identity checks as prepareBackgroundWindow; one keyDown;
 /// the receipt says so (window_submit_key, posted 1) and that the effect must
 /// be read back — the flow's exact postcondition is the evidence, not this.
-/// Completion state for open_folder's LaunchServices callback.
-final class OpenFolderFailure: @unchecked Sendable { var value = false }
-
 func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIElement,
                             _ pid: pid_t, deadline: Double) -> [String: Any] {
     let elements = latestElements
@@ -1506,27 +1503,27 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type": "error", "error": "action_failed", "effect": "not_started",
                     "detail": "Finder 를 찾지 못했습니다"]
         }
-        // Last moment before the open: stopped or out of time means nothing
-        // was asked of LaunchServices (Codex review of ff2f20b).
-        let remainingForOpen = deadline - ProcessInfo.processInfo.systemUptime
-        guard !abortState.isStopped, remainingForOpen > 0 else {
-            return ["type": "error", "error": abortState.isStopped ? "aborted_by_user" : "input_deadline_expired",
-                    "effect": "not_started", "detail": "폴더를 열기 전에 중단되었거나 기한이 지났습니다"]
-        }
         let wasFrontForOpen = isFrontmost(pid: p)
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.addsToRecentItems = false
         configuration.promptsUserIfNeeded = false
-        let finished = DispatchSemaphore(value: 0)
-        let failure = OpenFolderFailure()
-        NSWorkspace.shared.open([folder], withApplicationAt: finderApp, configuration: configuration) { _, error in
-            failure.value = error != nil; finished.signal()
-        }
-        let wait = max(0, deadline - ProcessInfo.processInfo.systemUptime)
-        guard finished.wait(timeout: .now() + wait) == .success, !failure.value else {
+        // The stop/deadline check sits inside openFolderBounded, immediately
+        // before the request; it waits no longer than the deadline, and does
+        // not claim a cancellation it cannot make (Codex review of 74f33e2).
+        switch openFolderBounded(deadline: deadline, stopped: { abortState.isStopped }, request: { done in
+            NSWorkspace.shared.open([folder], withApplicationAt: finderApp, configuration: configuration) { _, error in
+                done(error == nil)
+            }
+        }) {
+        case .notStarted(let why):
+            return ["type": "error", "error": abortState.isStopped ? "aborted_by_user" : "input_deadline_expired",
+                    "effect": "not_started", "detail": "폴더를 열기 전에 멈췄습니다: \(why)"]
+        case .unknown(let why):
             return ["type": "error", "error": "action_failed", "effect": "unknown",
-                    "detail": "Finder 가 폴더를 열었는지 확인하지 못했습니다"]
+                    "detail": "Finder 가 폴더를 열었는지 확인하지 못했습니다: \(why)"]
+        case .opened:
+            break
         }
         var activatedByOpen = false
         if !wasFrontForOpen {

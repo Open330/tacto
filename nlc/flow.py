@@ -1828,12 +1828,18 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                               "expect; add one or set unverified_ok=True explicitly")
             return res
 
+    def seen_in_front():
+        # One latch for every path that could send more: the next step, and
+        # this step's own recovery and retry (Codex review of 74f33e2 — a
+        # postcondition_timeout reached dismiss_dialog after the flag).
+        return any(e.get("activated_target") for e in res.events)
+
     for i, step in enumerate(flow.steps):
         # The target was seen in front after an earlier step: the person's
         # focus may be on it now, so nothing more is sent to it in this run —
         # only reads continue (Codex review of b8a1113). What that step did
         # stays done; this stops what would come next.
-        if any(e.get("activated_target") for e in res.events) and step.action != "read":
+        if seen_in_front() and step.action != "read":
             res.record(status="error", step=i, action=step.action, error="target_seen_in_front",
                        effect="not_started",
                        detail="앞 단계 뒤에 대상 앱이 맨 앞에 있는 것이 관찰되어, 이 단계부터는 보내지 않았습니다")
@@ -2169,7 +2175,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             # second is not. The driver says which, and only the first may be
             # re-run without a witness.
             effect = r.get("effect", "unknown")
-            fix = _escalate(escalate, spend, step, Uncertainty(
+            fix = None if seen_in_front() else _escalate(escalate, spend, step, Uncertainty(
                 kind="action_failed", step=i, intent=step.intent_text,
                 effect=effect,
                 detail=str(r.get("detail") or r.get("error")),
@@ -2220,7 +2226,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 # The action was dispatched and returned without error. The
                 # only thing that failed is SEEING the result, so the effect is
                 # unknown, not absent.
-                fix = _escalate(escalate, spend, step, Uncertainty(
+                fix = None if seen_in_front() else _escalate(escalate, spend, step, Uncertainty(
                     kind="postcondition_timeout", step=i, effect="unknown",
                     intent=step.intent_text,
                     detail=f"기대값 {post.equals or post.contains!r}, "

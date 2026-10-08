@@ -330,3 +330,29 @@ func submitReturnInSheet(_ element: AXUIElement, _ pid: pid_t, expectedStart: Do
     }
     return (posted, sheetID)
 }
+
+// MARK: - open_folder: the LaunchServices request, bounded
+
+enum OpenFolderOutcome: Equatable {
+    case notStarted(String)    // nothing was asked of LaunchServices
+    case opened                // asked, and it said it opened
+    case unknown(String)       // asked; whether the folder is showing is not known
+}
+
+/// Ask once, only if not stopped and still in time at the moment of asking;
+/// then wait for the answer no longer than the deadline. A stop noticed after
+/// asking cannot un-ask, so it is `unknown`, never `notStarted`. Never asks twice.
+func openFolderBounded(deadline: Double, stopped: () -> Bool,
+                       now: () -> Double = { ProcessInfo.processInfo.systemUptime },
+                       request: (@escaping @Sendable (Bool) -> Void) -> Void) -> OpenFolderOutcome {
+    final class Box: @unchecked Sendable { var ok = false }
+    let finished = DispatchSemaphore(value: 0), box = Box()
+    guard !stopped() else { return .notStarted("stopped before opening") }
+    guard deadline.isFinite, now() < deadline else { return .notStarted("deadline passed before opening") }
+    request { ok in box.ok = ok; finished.signal() }
+    let wait = max(0, deadline - now())
+    guard finished.wait(timeout: .now() + wait) == .success else { return .unknown("no answer before the deadline") }
+    guard box.ok else { return .unknown("LaunchServices reported an error") }
+    guard !stopped() else { return .unknown("stopped after opening was asked") }
+    return .opened
+}
