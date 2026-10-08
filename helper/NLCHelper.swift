@@ -2502,24 +2502,41 @@ func respond(_ obj: [String: Any]) {
 /// Not any dialog text field: a save panel's name field, a login sheet, a
 /// find-and-replace field all commit on Return (Codex review criteria).
 func returnTargetRefusal(_ element: AXUIElement) -> String? {
-    guard let role = str(element, kAXRoleAttribute as String) else { return "role unreadable" }
-    guard role == kAXTextFieldRole as String else { return "not a text field (\(role))" }
-    if str(element, kAXSubroleAttribute as String) == kAXSecureTextFieldSubrole as String {
-        return "secure text field"
+    // Every read here distinguishes "the element has no such value" from "the
+    // read failed": an unreadable subrole is not "not secure", and an
+    // unreadable ancestor is not "no sheet" (Codex review of 0eb24cf).
+    func read(_ el: AXUIElement, _ name: String, optional: Bool = false) -> (ok: Bool, value: String?) {
+        var value: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(el, name as CFString, &value)
+        if err == .success { return (true, value as? String) }
+        if optional && (err == .noValue || err == .attributeUnsupported) { return (true, nil) }
+        return (false, nil)
     }
-    guard str(element, kAXIdentifierAttribute as String) == "PathTextField" else {
-        return "not the Go to Folder path field"
-    }
+    let role = read(element, kAXRoleAttribute as String)
+    guard role.ok, let roleValue = role.value else { return "role unreadable" }
+    guard roleValue == kAXTextFieldRole as String else { return "not a text field (\(roleValue))" }
+    let subrole = read(element, kAXSubroleAttribute as String, optional: true)
+    guard subrole.ok else { return "subrole unreadable" }
+    if subrole.value == kAXSecureTextFieldSubrole as String { return "secure text field" }
+    let ident = read(element, kAXIdentifierAttribute as String, optional: true)
+    guard ident.ok else { return "identifier unreadable" }
+    guard ident.value == "PathTextField" else { return "not the Go to Folder path field" }
     var current = element
     for _ in 0..<32 {
-        guard let parent = attr(current, kAXParentAttribute as String) else { return "ancestry unreadable" }
-        let node = parent as! AXUIElement
-        let nodeRole = str(node, kAXRoleAttribute as String)
-        if nodeRole == "AXSheet" {
-            return str(node, kAXIdentifierAttribute as String) == "GoToWindow"
-                ? nil : "not in the Go to Folder sheet"
+        var parentRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
+              let parentValue = parentRef, CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
+            return "ancestry unreadable"
         }
-        if nodeRole == kAXWindowRole as String || nodeRole == kAXApplicationRole as String {
+        let node = parentValue as! AXUIElement
+        let nodeRole = read(node, kAXRoleAttribute as String)
+        guard nodeRole.ok, let nodeRoleValue = nodeRole.value else { return "ancestor role unreadable" }
+        if nodeRoleValue == "AXSheet" {
+            let sheetID = read(node, kAXIdentifierAttribute as String, optional: true)
+            guard sheetID.ok else { return "sheet identifier unreadable" }
+            return sheetID.value == "GoToWindow" ? nil : "not in the Go to Folder sheet"
+        }
+        if nodeRoleValue == kAXWindowRole as String || nodeRoleValue == kAXApplicationRole as String {
             return "not in the Go to Folder sheet"
         }
         current = node

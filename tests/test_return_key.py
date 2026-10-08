@@ -125,6 +125,20 @@ class HelperReturnBoundaryTests(unittest.TestCase):
                        '"PathTextField"', '"GoToWindow"', '"AXSheet"'):
             self.assertIn(needed, body)
 
+    def test_an_unreadable_value_is_never_taken_as_a_safe_one(self):
+        # Codex review of 0eb24cf: a failed subrole read was "not secure".
+        body = self.body(self.swift, 'func returnTargetRefusal(')
+        for reason in ('"role unreadable"', '"subrole unreadable"', '"identifier unreadable"',
+                       '"ancestry unreadable"', '"ancestor role unreadable"',
+                       '"sheet identifier unreadable"'):
+            self.assertIn(reason, body)
+        # Only "no value"/"unsupported" may stand for absent, and only where
+        # absence is legitimate (subrole, identifier) — never for a role.
+        self.assertIn('err == .noValue || err == .attributeUnsupported', body)
+        self.assertIn('read(element, kAXRoleAttribute as String)\n', body)
+        self.assertIn('read(element, kAXSubroleAttribute as String, optional: true)', body)
+        self.assertNotIn('str(', body)
+
     def test_checked_before_and_again_at_the_last_moment(self):
         case = self.swift[self.swift.index('    case "press_key":'):]
         case = case[:case.index('    case "scroll":')]
