@@ -996,6 +996,8 @@ SIGNED_HELPER_ONLY = frozenset({
     # Return to the Go to Folder path field: helper press_key only; Driver's own
     # press_key stays navigation keys.
     "press_key.return_in_go_to_folder",
+    # Finder folder open through LaunchServices without activation.
+    "action.open_folder",
     "evidence.document_rtf_export",
     "evidence.save_panel",
 })

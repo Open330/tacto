@@ -1094,6 +1094,9 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
 /// Same observation-identity checks as prepareBackgroundWindow; one keyDown;
 /// the receipt says so (window_submit_key, posted 1) and that the effect must
 /// be read back — the flow's exact postcondition is the evidence, not this.
+/// Completion state for open_folder's LaunchServices callback.
+final class OpenFolderFailure: @unchecked Sendable { var value = false }
+
 func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIElement,
                             _ pid: pid_t, deadline: Double) -> [String: Any] {
     let elements = latestElements
@@ -1195,7 +1198,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 "effect": "not_started",
                 "detail": "사용자가 Esc로 중단했습니다"]
     }
-    guard ensureVisibleControl(forPID: p, windowless: (action["name"] as? String) == "menu") else {
+    guard ensureVisibleControl(forPID: p, windowless: ["menu", "open_folder"].contains((action["name"] as? String) ?? "")) else {
         return ["type": "error", "error": "indicator_unavailable",
                 "effect": "not_started",
                 "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
@@ -1475,6 +1478,65 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             out["note"] = "not verified — observe again; the app brought itself to the front"
         }
         return out
+    case "open_folder":
+        // Finder's Go to Folder sheet cannot be confirmed from the background,
+        // and Go > Go to Folder… brings Finder forward (measured 2026-10-08).
+        // LaunchServices can show a folder in Finder without activating it
+        // (measured: frontmost unchanged). Only an existing, real folder —
+        // never a package or app, which "opening" would launch.
+        guard Set(action.keys) == Set(["name", "path"]), let raw = action["path"] as? String,
+              raw.hasPrefix("/"), !raw.contains("\u{0}") else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "open_folder 에는 절대 경로 하나가 필요합니다"]
+        }
+        guard target.lowercased() == "com.apple.finder" else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "open_folder 는 Finder 에만 쓸 수 있습니다"]
+        }
+        let folder = URL(fileURLWithPath: raw).standardizedFileURL.resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let kind = try? folder.resourceValues(forKeys: [.isPackageKey, .isApplicationKey]),
+              kind.isPackage == false, kind.isApplication != true else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "존재하는 일반 폴더가 아닙니다 (패키지·앱은 열지 않습니다)"]
+        }
+        guard let finderApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.finder") else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "Finder 를 찾지 못했습니다"]
+        }
+        let wasFrontForOpen = isFrontmost(pid: p)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        configuration.promptsUserIfNeeded = false
+        let finished = DispatchSemaphore(value: 0)
+        let failure = OpenFolderFailure()
+        NSWorkspace.shared.open([folder], withApplicationAt: finderApp, configuration: configuration) { _, error in
+            failure.value = error != nil; finished.signal()
+        }
+        let wait = max(0.1, min(5, deadline - ProcessInfo.processInfo.systemUptime))
+        guard finished.wait(timeout: .now() + wait) == .success, !failure.value else {
+            return ["type": "error", "error": "action_failed", "effect": "unknown",
+                    "detail": "Finder 가 폴더를 열었는지 확인하지 못했습니다"]
+        }
+        var activatedByOpen = false
+        if !wasFrontForOpen {
+            for _ in 0..<5 {
+                Thread.sleep(forTimeInterval: 0.1)
+                if isFrontmost(pid: p) { activatedByOpen = true; break }
+            }
+        }
+        // Like menu: the press is reported and the flow's postcondition (a
+        // fresh observation) decides whether the folder is showing.
+        var opened: [String: Any] = ["type": "acted", "action": name, "obs_id": obsID,
+                                     "folder": folder.path, "note": "not verified — observe again"]
+        if activatedByOpen {
+            opened["activated_target"] = true
+            opened["note"] = "not verified — observe again; Finder came to the front"
+        }
+        return opened
     case "select_option":
         // Open the menu, read it, press the item, and check the control reads
         // back as what was asked for. The same path a person takes, with every
@@ -2656,6 +2718,8 @@ let helperCapabilities: [String] = [
     "effect",                       // errors say whether an effect is possible
     "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
     "action.menu", "action.scroll", "action.secondary_action",
+    // Finder only: show an existing folder without activating Finder.
+    "action.open_folder",
     "action.select_option", "evidence.visual",
     // Native menu items have a title and nothing behind it, so `value` must
     // agree with `option_label` rather than name something else.

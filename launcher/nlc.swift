@@ -108,6 +108,9 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // expensive. The path is what distinguishes File > Save from File > Move to
     // Trash, so it is vetted as strictly as an element index would be.
     "menu":             (["name", "path"], []),
+    // Finder only (the helper checks): an existing folder's absolute path,
+    // opened by LaunchServices without activating Finder — no keys, no sheet.
+    "open_folder":      (["name", "path"], []),
     // Reads the screen and changes nothing, so it carries no target at all.
     // `element_index` is optional here, not forbidden: a read of one named
     // element is how a batch answers with the screen AFTER its earlier
@@ -541,7 +544,13 @@ func vetted(_ msg: [String: Any]) -> String? {
                     return "허용되지 않은 AX action"
                 }
             case "element_index", "pages": if !isInt(v) { return "\(k) 형식 오류" }
-            case "path": if !isMenuPath(v) { return "menu path 형식 오류" }
+            case "path":
+                if name == "open_folder" {
+                    guard let text = v as? String, text.hasPrefix("/"), text.utf8.count <= 1024,
+                          !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
+                        return "open_folder path 형식 오류"
+                    }
+                } else if !isMenuPath(v) { return "menu path 형식 오류" }
             default: return "허용되지 않은 필드: \(k)"
             }
         }

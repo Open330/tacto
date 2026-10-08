@@ -69,8 +69,19 @@ class InputRoutingSourceTests(unittest.TestCase):
                              if not line.lstrip().startswith(('//', '///')))
             for banned in ('CGEventPost(', 'CGWarpMouseCursorPosition(',
                            'CGDisplayMoveCursorToPoint(', '.post(tap:',
-                           'NSWorkspace.shared.open(', 'NSApplication.shared.activate('):
+                           'NSApplication.shared.activate('):
                 self.assertNotIn(banned, code, f'global input/activation in {path.name}')
+            # One LaunchServices open, for open_folder, that may not activate
+            # (2026-10-08): Finder shows the folder, the person keeps focus.
+            opens = code.count('NSWorkspace.shared.open(')
+            if path.name == 'NLCHelper.swift':
+                self.assertEqual(opens, 1, 'only open_folder may open through LaunchServices')
+                case = code[code.index('case "open_folder":'):code.index('case "select_option":')]
+                self.assertIn('NSWorkspace.shared.open(', case)
+                self.assertIn('configuration.activates = false', case)
+                self.assertNotIn('activates = true', code)
+            else:
+                self.assertEqual(opens, 0, f'LaunchServices open in {path.name}')
             if path.name != 'WindowDispatch.swift':
                 self.assertNotIn('.postToPid(', code, f'ungated PID posting in {path.name}')
         dispatch = (ROOT / 'helper/WindowDispatch.swift').read_text()

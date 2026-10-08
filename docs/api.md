@@ -69,7 +69,9 @@ print(concrete.to_json())
 | `Postcondition` | `field, equals, contains, absent, attribute` |
 
 - 화면 동작(`action`): `click, read, set_value, type_text, select_option, open_select,
-  select_custom_option, press_key, menu, scroll, secondary_action, prepare_window, goto`.
+  select_custom_option, press_key, menu, scroll, secondary_action, prepare_window, goto, open_folder`.
+  `open_folder`(signed helper, `action.open_folder`)는 Finder 전용으로 존재하는 일반 폴더의
+  절대 경로를 LaunchServices로 활성화 없이 연다(패키지·앱 거부). 결과는 postcondition으로 확인한다.
 - 엔진 동작: `decide` — 화면에 아무것도 하지 않고 판단만 합니다. 매개변수
   `question, choices, into, extract_from, compose, branches, goal` 의 뜻은 [`recipes.md`](recipes.md#판단-단계-decide)에.
 - `Flow.intents` 는 레시피가 답하는 문장입니다(`"계산기에서 {{n}}의 제곱근 구해줘"`).

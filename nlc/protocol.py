@@ -22,6 +22,8 @@ ACTION_PARAMS = {
     "scroll": frozenset({"direction", "pages"}),
     "secondary_action": frozenset({"action"}),
     "goto": frozenset({"url"}),
+    # Finder, signed helper only: open an existing folder without activating.
+    "open_folder": frozenset({"path"}),
 }
 
 

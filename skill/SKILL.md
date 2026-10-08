@@ -199,6 +199,16 @@ only window/element-bound background `press_key` navigation. Inspect the backend
 capabilities and provide an input selector, ContextBinding and an explicit
 attribute postcondition; `unverified_ok` cannot waive this contract. Tab,
 shift+Tab and arrows are allowed; Escape and shortcuts are not.
+**To show a folder in Finder, use `open_folder`** (with `--helper`):
+`{"action": "open_folder", "params": {"path": "/abs/path"}}` — no selector.
+Finder shows the folder without coming to the front (no keys, no sheet).
+Only an existing plain folder; packages and apps are refused. Verify with a
+postcondition on the window, e.g. `{"field": {"role": "Window", "title":
+"<folder name>"}, "attribute": "Title", "equals": "<folder name>"}`, then
+read `statusBarText` with `"in_focused_window": true` for the item count.
+Prefer this over Go > Go to Folder…: that menu brings Finder to the front
+(NLC reports it as "스스로 앞으로 나왔습니다").
+
 `Return` is allowed in one place only, with `--helper`: the Go to Folder
 sheet's path field (`"identifier": "PathTextField"` inside the `GoToWindow`
 sheet), to confirm a path you put there with `set_value`. The step must say
