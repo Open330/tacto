@@ -220,10 +220,11 @@ func dispatchSheetReturn(_ event: CGEvent, pid: pid_t, deadline: Double,
             throw NativeWindowInputError.refused("user input state changed during input: " + before.differences(after).joined(separator: ","))
         }
         // The sheet and field are expected to be gone now, so they are not
-        // re-checked; the process that received the key still must be the
-        // one that was checked (Codex: post-send checks are narrowed, not dropped).
+        // re-checked; but stop, the whole deadline, the observation context
+        // and the receiving process still are (Codex: post-send checks are
+        // narrowed, not dropped). Any of these failing is attempted 1.
         guard sameProcess() else { throw NativeWindowInputError.refused("process changed after input") }
-        guard !stopped() else { throw NativeWindowInputError.refused("user stopped input") }
+        try ready()
         return attempted
     } catch {
         let detail: String
@@ -271,8 +272,9 @@ func submitReturnInSheet(_ element: AXUIElement, _ pid: pid_t, expectedStart: Do
     }
     let sheetFrame = try windowInputFrame(sheet, scope: scope)
     let fieldFrame = try windowInputFrame(element, scope: scope)
+    let parentFrame = try windowInputFrame(parentWindow, scope: scope)
     guard try windowInputCGFrame(sheetID, pid, scope: scope) == sheetFrame,
-          try windowInputCGFrame(parentID, pid, scope: scope) == windowInputFrame(parentWindow, scope: scope),
+          try windowInputCGFrame(parentID, pid, scope: scope) == parentFrame,
           fieldFrame.minX >= sheetFrame.minX, fieldFrame.minY >= sheetFrame.minY,
           fieldFrame.maxX <= sheetFrame.maxX, fieldFrame.maxY <= sheetFrame.maxY else {
         throw NativeWindowInputError.refused("sheet, window or field geometry mismatch")
@@ -303,8 +305,25 @@ func submitReturnInSheet(_ element: AXUIElement, _ pid: pid_t, expectedStart: Do
                     throw NativeWindowInputError.refused("the sheet's path field is not the app's focus")
                 }
                 if let why = refusal(element, read) { throw NativeWindowInputError.refused("Return refused: \(why)") }
-                guard try windowInputCGFrame(sheetID, pid, scope: scope) == windowInputFrame(sheet, scope: scope) else {
-                    throw NativeWindowInputError.refused("sheet geometry changed")
+                // Against what was fixed at the start, not just current vs
+                // current (Codex review of 479acd0).
+                let sheetNow = try windowInputFrame(sheet, scope: scope)
+                let fieldNow = try windowInputFrame(element, scope: scope)
+                guard sheetNow == sheetFrame, fieldNow == fieldFrame,
+                      try windowInputCGFrame(sheetID, pid, scope: scope) == sheetFrame,
+                      try windowInputFrame(parentWindow, scope: scope) == parentFrame,
+                      try windowInputCGFrame(parentID, pid, scope: scope) == parentFrame else {
+                    throw NativeWindowInputError.refused("sheet, window or field moved")
+                }
+                var up = element, owner: AXUIElement?
+                for _ in 0..<32 {
+                    let next = try windowInputElement(windowInputAttribute(up, kAXParentAttribute, scope: scope))
+                    if try windowInputRole(next, scope: scope) == "AXSheet" { owner = next; break }
+                    up = next
+                }
+                guard let owner, CFEqual(owner, sheet),
+                      CFEqual(try windowInputElement(windowInputAttribute(sheet, kAXParentAttribute, scope: scope)), parentWindow) else {
+                    throw NativeWindowInputError.refused("field or sheet reattached")
                 }
             },
             sameProcess: { nativeProcessStartIdentity(pid) == expectedStart })

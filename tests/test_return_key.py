@@ -168,6 +168,13 @@ class HelperReturnBoundaryTests(unittest.TestCase):
                        'try dispatchSheetReturn(pair.down,'):
             self.assertIn(needed, sheet)
         self.assertNotIn('pair.up', sheet)
+        # Codex review of 479acd0: against the frames fixed at the start, and
+        # the field still under the same sheet under the same parent. Source
+        # check only — this glue reads real AX and is not run by a fake.
+        for needed in ('sheetNow == sheetFrame, fieldNow == fieldFrame',
+                       '== parentFrame', 'CFEqual(owner, sheet)',
+                       'kAXParentAttribute, scope: scope)), parentWindow)'):
+            self.assertIn(needed, sheet)
 
     def test_window_input_and_navigation_never_carry_return(self):
         nav = self.body(self.window_input, 'func nativeNavigationKey(')

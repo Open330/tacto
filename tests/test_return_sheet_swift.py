@@ -59,6 +59,16 @@ out["role unreadable"] = ready([1], with2(base, 3, "AXRole", AXError.cannotCompl
 out["children unreadable"] = ready([1], with2(base, 2, "AXChildren", AXError.cannotComplete))
 out["only a different sheet than the field's"] = ready([1], base, sheet: 8)
 out["sheet missing"] = ready([1], with2(base, 1, "AXChildren", [Int32]()))
+// Codex review of 479acd0: AXSheets, and modal below the top
+out["AXSheets lists only the sheet"] = ready([1], with2(base, 1, "AXSheets", [Int32(2)]))
+t = with2(base, 1, "AXSheets", [Int32(2), Int32(4)]); t[4] = sheet
+out["AXSheets lists another sheet"] = ready([1], t)
+out["AXSheets malformed"] = ready([1], with2(base, 1, "AXSheets", "x"))
+out["AXSheets unreadable"] = ready([1], with2(base, 1, "AXSheets", AXError.cannotComplete))
+out["modal inside the sheet"] = ready([1], with2(base, 3, "AXModal", true))
+out["the sheet itself modal"] = ready([1], with2(base, 2, "AXModal", true))
+out["modal malformed"] = ready([1], with2(base, 3, "AXModal", "yes"))
+out["listed in AXSheets only"] = ready([1], with2(with2(base, 1, "AXChildren", [Int32]()), 1, "AXSheets", [Int32(2)]))
 out["same sheet seen twice"] = ready([1], with2(base, 1, "AXChildren", [Int32(2), Int32(2)]))
 func with2(_ tree: [Int32: Attrs], _ n: Int32, _ k: String, _ v: Any) -> [Int32: Attrs] {
     var t = tree; t[n] = with(t[n]!, k, v); return t
@@ -96,6 +106,7 @@ func send(_ mode: String) -> String {
                     if mode == "post fails" { throw NativeWindowInputError.unavailable("post") }
                     if mode == "process replaced after" { alive = false }
                     if mode == "stopped after" { stop = true }
+                    if mode == "deadline after" { clock = 200 }
                 })
         }
         return "posted=\(n) posts=\(posts)"
@@ -105,7 +116,7 @@ func send(_ mode: String) -> String {
 }
 for mode in ["ok", "check fails", "check fails last", "target in front", "input changed before",
              "stop", "deadline", "post fails", "input changed during",
-             "process replaced after", "stopped after"] {
+             "process replaced after", "stopped after", "deadline after"] {
     out["send: " + mode] = send(mode)
 }
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
@@ -154,6 +165,15 @@ class ReturnSheetSwiftTests(unittest.TestCase):
             'send: input changed during': 'failed attempted=1 posts=1',
             'send: process replaced after': 'failed attempted=1 posts=1',
             'send: stopped after': 'failed attempted=1 posts=1',
+            'send: deadline after': 'failed attempted=1 posts=1',
+            'AXSheets lists only the sheet': 'ok',
+            'AXSheets lists another sheet': 'another sheet is open',
+            'AXSheets malformed': 'sheet list malformed',
+            'AXSheets unreadable': 'window state unavailable: AXSheets',
+            'modal inside the sheet': 'modal or unknown window',
+            'the sheet itself modal': 'ok',
+            'modal malformed': 'modal state malformed',
+            'listed in AXSheets only': 'the sheet is missing or seen twice',
         }, got)
 
 

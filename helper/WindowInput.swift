@@ -647,11 +647,14 @@ typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 // Only the keyDown is sent: a normal Return closes the sheet, and a keyUp
 // would then have no target left to be checked against.
 
-/// The app's whole exposed tree holds exactly one AXSheet, `sheet` (CFEqual),
-/// and nothing is modal. Window tops must say AXModal = false; a top that is
-/// not a window (Finder's desktop AXScrollArea) may lack AXModal but may not
-/// say true. Any unreadable role, children or modal state refuses; so does
-/// another sheet, the same sheet twice, or none.
+/// The app's whole exposed tree holds exactly one sheet, `sheet` (CFEqual),
+/// whether a sheet is exposed as an AXSheet child or in a node's AXSheets
+/// list (Codex review of 479acd0: AXSheets was not read). Nothing but that
+/// sheet may say AXModal = true, on any node, not only at the top; a window
+/// top must say AXModal = false; a non-window top (Finder's desktop
+/// AXScrollArea) may lack it. Any unreadable role, children, sheets or modal
+/// state, or a malformed value, refuses; so does another sheet, the sheet's
+/// child entry seen twice, or none.
 func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRead,
                             maxNodes: Int = 5000, maxDepth: Int = 64) throws {
     func value(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
@@ -667,15 +670,18 @@ func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRea
         }
         return text
     }
-    var found = 0, remaining = maxNodes
+    func modal(_ node: AXUIElement) throws -> Bool? {
+        guard let raw = try value(node, "AXModal") else { return nil }
+        guard CFGetTypeID(raw) == CFBooleanGetTypeID(), let flag = raw as? Bool else {
+            throw NativeWindowInputError.refused("modal state malformed")
+        }
+        return flag
+    }
+    var childEntries = 0, remaining = maxNodes
     for top in tops {
         let topRole = try role(top)
-        let modal = try value(top, "AXModal")
-        if let modal {
-            guard CFGetTypeID(modal) == CFBooleanGetTypeID(), (modal as? Bool) == false else {
-                throw NativeWindowInputError.refused("modal or unknown window")
-            }
-        } else if topRole == kAXWindowRole as String {
+        let topModal = try modal(top)
+        if topRole == kAXWindowRole as String && topModal == nil {
             throw NativeWindowInputError.refused("window modal state unavailable")
         }
         var stack: [(AXUIElement, Int)] = [(top, 0)]
@@ -684,9 +690,21 @@ func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRea
             guard remaining >= 0, depth <= maxDepth else {
                 throw NativeWindowInputError.refused("readiness traversal budget exceeded")
             }
+            let isSheet = CFEqual(node, sheet)
             if try role(node) == "AXSheet" {
-                guard CFEqual(node, sheet) else { throw NativeWindowInputError.refused("another sheet is open") }
-                found += 1
+                guard isSheet else { throw NativeWindowInputError.refused("another sheet is open") }
+                childEntries += 1
+            }
+            if try modal(node) == true && !isSheet {
+                throw NativeWindowInputError.refused("modal or unknown window")
+            }
+            if let raw = try value(node, "AXSheets") {
+                guard let listed = raw as? [AXUIElement] else {
+                    throw NativeWindowInputError.refused("sheet list malformed")
+                }
+                guard listed.allSatisfy({ CFEqual($0, sheet) }) else {
+                    throw NativeWindowInputError.refused("another sheet is open")
+                }
             }
             if let raw = try value(node, kAXChildrenAttribute as String) {
                 guard let children = raw as? [AXUIElement] else {
@@ -696,5 +714,5 @@ func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRea
             }
         }
     }
-    guard found == 1 else { throw NativeWindowInputError.refused("the sheet is missing or seen twice") }
+    guard childEntries == 1 else { throw NativeWindowInputError.refused("the sheet is missing or seen twice") }
 }
