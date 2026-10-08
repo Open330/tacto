@@ -18,14 +18,15 @@ func label(_ o: OpenFolderOutcome) -> String {
     switch o { case .notStarted: return "notStarted"; case .opened: return "opened"; case .unknown: return "unknown" }
 }
 var out: [String: String] = [:]
-func run(_ name: String, stoppedAt: Int = -1, deadline: Double = 100, clock: Double = 1,
-         answer: Bool? = true, stopAfterRequest: Bool = false) {
-    var checks = 0, requests = 0, stop = false
+func run(_ name: String, stoppedAt: Int = -1, deadline: Double = 100, clock start: Double = 1,
+         answer: Bool? = true, stopAfterRequest: Bool = false, lateBy: Double? = nil) {
+    var checks = 0, requests = 0, stop = false, clock = start
     let o = openFolderBounded(deadline: deadline, stopped: {
         checks += 1; if checks == stoppedAt { stop = true }; return stop
     }, now: { clock }, request: { done in
         requests += 1
         if stopAfterRequest { stop = true }
+        if let lateBy { clock = deadline + lateBy }
         if let answer { done(answer) }
     })
     out[name] = "\(label(o)) requests=\(requests)"
@@ -36,6 +37,7 @@ run("deadline passed", deadline: 1, clock: 2)
 run("no answer", deadline: 1.05, clock: 1, answer: nil)
 run("error", answer: false)
 run("stopped after asking", stopAfterRequest: true)
+run("late answer", deadline: 2, clock: 1, lateBy: 1)
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
 '''
 
@@ -60,6 +62,7 @@ class OpenFolderSwiftTests(unittest.TestCase):
             'no answer': 'unknown requests=1',
             'error': 'unknown requests=1',
             'stopped after asking': 'unknown requests=1',
+            'late answer': 'unknown requests=1',
         }, json.loads(result.stdout))
 
 

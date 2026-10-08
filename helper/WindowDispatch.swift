@@ -352,6 +352,9 @@ func openFolderBounded(deadline: Double, stopped: () -> Bool,
     request { ok in box.ok = ok; finished.signal() }
     let wait = max(0, deadline - now())
     guard finished.wait(timeout: .now() + wait) == .success else { return .unknown("no answer before the deadline") }
+    // An answer that came in already signalled still has to be in time:
+    // wait(0) succeeds for it (Codex review of 2f3f79a).
+    guard now() < deadline else { return .unknown("answer arrived after the deadline") }
     guard box.ok else { return .unknown("LaunchServices reported an error") }
     guard !stopped() else { return .unknown("stopped after opening was asked") }
     return .opened
