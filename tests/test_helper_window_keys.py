@@ -22,12 +22,16 @@ let input = AXUIElementCreateApplication(10001)
 var calls = 0
 func prepareBackgroundWindow(_ obs: String, _ target: String, _ element: AXUIElement,
     _ pid: pid_t, deadline: Double, key: String? = nil, expectation: [String:Any]? = nil,
-    finalCheck: (() -> String?)? = nil) -> [String:Any] {
+    finalCheck: ((NativeWindowReadScope) -> String?)? = nil) -> [String:Any] {
     calls += 1; precondition(CFEqual(element,input)); return ["type":"acted","key":key!]
 }
+final class NativeWindowReadScope {
+    func read(_ element: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) { (.failure, nil) }
+}
+typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 // The fixture element is no Go to Folder path field, so Return is refused
 // here by the helper's own scoping, before any dispatch.
-func returnTargetRefusal(_ element: AXUIElement) -> String? { "not the Go to Folder path field" }
+func returnTargetRefusal(_ element: AXUIElement, read: AXRead? = nil) -> String? { "not the Go to Folder path field" }
 func checked(_ action:[String:Any]) -> [String:Any] {
     let obsID="owned", target="fixture", p:pid_t=42, deadline=10.0
     let elements=[input]

@@ -964,7 +964,7 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
                              windowInput: NativeOpaqueWindowInput? = nil,
-                             finalCheck: (() -> String?)? = nil) -> [String: Any] {
+                             finalCheck: ((NativeWindowReadScope) -> String?)? = nil) -> [String: Any] {
     let elements = latestElements
     guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
           elements.filter({ CFEqual($0, element) }).count == 1 else {
@@ -1001,7 +1001,7 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                 if let expectation, let why = mismatch(expectation, element: element, pid: pid) {
                     throw NativeWindowInputError.refused(why)
                 }
-                if let finalCheck, let why = finalCheck() {
+                if let finalCheck, let why = finalCheck(scope) {
                     throw NativeWindowInputError.refused("Return refused: \(why)")
                 }
                 try scope.ready()
@@ -1848,12 +1848,10 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type":"error", "error":"action_failed", "effect":"not_started",
                     "detail":"press_key requires an observed input element and Tab/shift+Tab/arrows, or Return in a dialog text field"]
         }
-        // Return commits — it sends a message, submits a form. So it is taken
-        // only where committing is what a dialog's text field is for (Finder's
-        // Go to Folder, a save name, a find field in a sheet): a plain text
-        // field inside a sheet or dialog, never a secure field, never a
-        // document window's own field. The flow must also declare the step a
-        // submit; see replay's press_key contract.
+        // Return commits — it sends a message, submits a form, saves. So it
+        // is taken only into the Go to Folder sheet's path field (see
+        // returnTargetRefusal), where it navigates. The flow must also declare
+        // the step a submit; see replay's press_key contract.
         let submit = nativeSubmitKey(key) != nil
         if submit, let why = returnTargetRefusal(el) {
             return ["type":"error", "error":"action_failed", "effect":"not_started",
@@ -1863,7 +1861,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // that closed or changed in between is refused, not typed into.
         return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
                                        key: key, expectation: expect,
-                                       finalCheck: submit ? { returnTargetRefusal(el) } : nil)
+                                       finalCheck: submit ? { scope in returnTargetRefusal(el, read: scope.read) } : nil)
     case "scroll":
         // A wheel event has no address: it goes to whatever sits under a
         // pointer position we invented, in a process we named. A scroll bar
@@ -2501,38 +2499,59 @@ func respond(_ obj: [String: Any]) {
 /// open/save panels): there Return navigates, nothing is sent or saved.
 /// Not any dialog text field: a save panel's name field, a login sheet, a
 /// find-and-replace field all commit on Return (Codex review criteria).
-func returnTargetRefusal(_ element: AXUIElement) -> String? {
-    // Every read here distinguishes "the element has no such value" from "the
-    // read failed": an unreadable subrole is not "not secure", and an
-    // unreadable ancestor is not "no sheet" (Codex review of 0eb24cf).
-    func read(_ el: AXUIElement, _ name: String, optional: Bool = false) -> (ok: Bool, value: String?) {
-        var value: CFTypeRef?
-        let err = AXUIElementCopyAttributeValue(el, name as CFString, &value)
-        if err == .success { return (true, value as? String) }
-        if optional && (err == .noValue || err == .attributeUnsupported) { return (true, nil) }
-        return (false, nil)
+///
+/// `read` is the AX read to use: the dispatch's bounded scope at the last
+/// check, a 0.5s-per-call read before it. Each read separates success,
+/// legitimately absent (noValue / attributeUnsupported — only for subrole and
+/// identifiers, never a role) and failure; a failure refuses (Codex review of
+/// 0eb24cf: an unreadable subrole had counted as "not secure").
+typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
+
+func boundedAXRead(_ element: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
+    guard AXUIElementSetMessagingTimeout(element, 0.5) == .success else {
+        throw NativeWindowInputError.unavailable("AX timeout unavailable")
     }
-    let role = read(element, kAXRoleAttribute as String)
+    defer { _ = AXUIElementSetMessagingTimeout(element, 0) }
+    var value: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+    return (error, value)
+}
+
+func returnTargetRefusal(_ element: AXUIElement, read rawRead: AXRead = boundedAXRead) -> String? {
+    enum Got { case value(CFTypeRef), absent, failed }
+    func get(_ el: AXUIElement, _ name: String, optional: Bool = false) -> Got {
+        guard let (err, value) = try? rawRead(el, name) else { return .failed }
+        if err == .success, let value { return .value(value) }
+        if optional && (err == .noValue || err == .attributeUnsupported) { return .absent }
+        return .failed
+    }
+    func text(_ el: AXUIElement, _ name: String, optional: Bool = false) -> (ok: Bool, value: String?) {
+        switch get(el, name, optional: optional) {
+        case .value(let v): return CFGetTypeID(v) == CFStringGetTypeID() ? (true, v as? String) : (false, nil)
+        case .absent: return (true, nil)
+        case .failed: return (false, nil)
+        }
+    }
+    let role = text(element, kAXRoleAttribute as String)
     guard role.ok, let roleValue = role.value else { return "role unreadable" }
     guard roleValue == kAXTextFieldRole as String else { return "not a text field (\(roleValue))" }
-    let subrole = read(element, kAXSubroleAttribute as String, optional: true)
+    let subrole = text(element, kAXSubroleAttribute as String, optional: true)
     guard subrole.ok else { return "subrole unreadable" }
     if subrole.value == kAXSecureTextFieldSubrole as String { return "secure text field" }
-    let ident = read(element, kAXIdentifierAttribute as String, optional: true)
+    let ident = text(element, kAXIdentifierAttribute as String, optional: true)
     guard ident.ok else { return "identifier unreadable" }
     guard ident.value == "PathTextField" else { return "not the Go to Folder path field" }
     var current = element
     for _ in 0..<32 {
-        var parentRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
-              let parentValue = parentRef, CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
+        guard case .value(let parentValue) = get(current, kAXParentAttribute as String),
+              CFGetTypeID(parentValue) == AXUIElementGetTypeID() else {
             return "ancestry unreadable"
         }
         let node = parentValue as! AXUIElement
-        let nodeRole = read(node, kAXRoleAttribute as String)
+        let nodeRole = text(node, kAXRoleAttribute as String)
         guard nodeRole.ok, let nodeRoleValue = nodeRole.value else { return "ancestor role unreadable" }
         if nodeRoleValue == "AXSheet" {
-            let sheetID = read(node, kAXIdentifierAttribute as String, optional: true)
+            let sheetID = text(node, kAXIdentifierAttribute as String, optional: true)
             guard sheetID.ok else { return "sheet identifier unreadable" }
             return sheetID.value == "GoToWindow" ? nil : "not in the Go to Folder sheet"
         }

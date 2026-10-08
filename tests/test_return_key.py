@@ -2,7 +2,10 @@
 declares it submits, an exact postcondition, and never when the outcome was
 already true. Approved by the user 2026-10-08; scope per Codex's criteria."""
 from dataclasses import replace
+import json
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 from nlc.contract import Envelope, ContextBinding
@@ -125,26 +128,12 @@ class HelperReturnBoundaryTests(unittest.TestCase):
                        '"PathTextField"', '"GoToWindow"', '"AXSheet"'):
             self.assertIn(needed, body)
 
-    def test_an_unreadable_value_is_never_taken_as_a_safe_one(self):
-        # Codex review of 0eb24cf: a failed subrole read was "not secure".
-        body = self.body(self.swift, 'func returnTargetRefusal(')
-        for reason in ('"role unreadable"', '"subrole unreadable"', '"identifier unreadable"',
-                       '"ancestry unreadable"', '"ancestor role unreadable"',
-                       '"sheet identifier unreadable"'):
-            self.assertIn(reason, body)
-        # Only "no value"/"unsupported" may stand for absent, and only where
-        # absence is legitimate (subrole, identifier) — never for a role.
-        self.assertIn('err == .noValue || err == .attributeUnsupported', body)
-        self.assertIn('read(element, kAXRoleAttribute as String)\n', body)
-        self.assertIn('read(element, kAXSubroleAttribute as String, optional: true)', body)
-        self.assertNotIn('str(', body)
-
     def test_checked_before_and_again_at_the_last_moment(self):
         case = self.swift[self.swift.index('    case "press_key":'):]
         case = case[:case.index('    case "scroll":')]
         self.assertIn('if submit, let why = returnTargetRefusal(el)', case)
-        self.assertIn('finalCheck: submit ? { returnTargetRefusal(el) } : nil', case)
-        self.assertIn('if let finalCheck, let why = finalCheck()', self.swift)
+        self.assertIn('finalCheck: submit ? { scope in returnTargetRefusal(el, read: scope.read) } : nil', case)
+        self.assertIn('if let finalCheck, let why = finalCheck(scope)', self.swift)
 
     def test_window_input_and_navigation_never_carry_return(self):
         nav = self.body(self.window_input, 'func nativeNavigationKey(')
@@ -153,6 +142,79 @@ class HelperReturnBoundaryTests(unittest.TestCase):
         self.assertIn('case .key(let value): pair = try buildNativeWindowKey(binding.windowID, key: value)\n',
                       self.dispatch)
         self.assertEqual(1, self.dispatch.count('submit: true'))
+
+
+class HelperReturnJudgementTests(unittest.TestCase):
+    """The helper's real returnTargetRefusal, run against a fake AX read."""
+
+    def test_cases(self):
+        swift = (ROOT / 'helper/NLCHelper.swift').read_text()
+        code = swift[swift.index('typealias AXRead'):swift.index('// Keys that only move the focus ring.')]
+        harness = r'''
+import Foundation
+import ApplicationServices
+enum NativeWindowInputError: Error { case unavailable(String) }
+struct Timeout: Error {}
+''' + code + r'''
+// Fake elements: application elements with distinct pids, attributes by pid.
+func el(_ n: Int32) -> AXUIElement { AXUIElementCreateApplication(n) }
+func pidOf(_ e: AXUIElement) -> Int32 { var p: pid_t = 0; AXUIElementGetPid(e, &p); return p }
+typealias Attrs = [String: Any]   // value, or AXError, or "throw"
+func run(_ tree: [Int32: Attrs]) -> String {
+    let read: AXRead = { e, name in
+        guard let attrs = tree[pidOf(e)], let v = attrs[name] else { return (.attributeUnsupported, nil) }
+        if let s = v as? String, s == "throw" { throw Timeout() }
+        if let err = v as? AXError { return (err, nil) }
+        if let n = v as? Int32 { return (.success, el(n)) }
+        return (.success, v as CFTypeRef)
+    }
+    return returnTargetRefusal(el(1), read: read) ?? "ALLOWED"
+}
+let field: Attrs = ["AXRole": "AXTextField", "AXSubrole": AXError.noValue,
+                    "AXIdentifier": "PathTextField", "AXParent": Int32(2)]
+let sheet: Attrs = ["AXRole": "AXSheet", "AXIdentifier": "GoToWindow", "AXParent": Int32(3)]
+let window: Attrs = ["AXRole": "AXWindow", "AXParent": Int32(4)]
+func with(_ a: Attrs, _ k: String, _ v: Any) -> Attrs { var a = a; a[k] = v; return a }
+let cases: [(String, [Int32: Attrs])] = [
+    ("path field", [1: field, 2: sheet, 3: window]),
+    ("secure", [1: with(field, "AXSubrole", "AXSecureTextField"), 2: sheet, 3: window]),
+    ("subrole read fails", [1: with(field, "AXSubrole", AXError.cannotComplete), 2: sheet, 3: window]),
+    ("save name field", [1: with(field, "AXIdentifier", "saveAsNameTextField"), 2: with(sheet, "AXIdentifier", "SavePanel"), 3: window]),
+    ("other sheet", [1: field, 2: with(sheet, "AXIdentifier", "LoginSheet"), 3: window]),
+    ("no sheet", [1: with(field, "AXParent", Int32(3)), 3: window]),
+    ("default button", [1: with(field, "AXRole", "AXButton"), 2: sheet, 3: window]),
+    ("role read fails", [1: with(field, "AXRole", AXError.cannotComplete), 2: sheet, 3: window]),
+    ("role read times out", [1: with(field, "AXRole", "throw"), 2: sheet, 3: window]),
+    ("parent read fails", [1: with(field, "AXParent", AXError.cannotComplete), 2: sheet, 3: window]),
+    ("ancestor role fails", [1: field, 2: with(sheet, "AXRole", AXError.cannotComplete), 3: window]),
+    ("sheet id fails", [1: field, 2: with(sheet, "AXIdentifier", AXError.cannotComplete), 3: window]),
+    ("identifier read fails", [1: with(field, "AXIdentifier", AXError.cannotComplete), 2: sheet, 3: window]),
+]
+var out: [String: String] = [:]
+for (name, tree) in cases { out[name] = run(tree) }
+print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)
+'''
+        with tempfile.TemporaryDirectory(prefix='nlc-return-judge-') as directory:
+            script = pathlib.Path(directory) / 'main.swift'
+            script.write_text(harness)
+            result = subprocess.run(['swift', str(script)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        got = json.loads(result.stdout)
+        self.assertEqual({
+            'path field': 'ALLOWED',
+            'secure': 'secure text field',
+            'subrole read fails': 'subrole unreadable',
+            'save name field': 'not the Go to Folder path field',
+            'other sheet': 'not in the Go to Folder sheet',
+            'no sheet': 'not in the Go to Folder sheet',
+            'default button': 'not a text field (AXButton)',
+            'role read fails': 'role unreadable',
+            'role read times out': 'role unreadable',
+            'parent read fails': 'ancestry unreadable',
+            'ancestor role fails': 'ancestor role unreadable',
+            'sheet id fails': 'sheet identifier unreadable',
+            'identifier read fails': 'identifier unreadable',
+        }, got)
 
 
 if __name__ == '__main__':
