@@ -113,8 +113,11 @@ private window-location SPI와 AX window-ID ABI가 필요하며 지원되지 않
 
 ## 창·입력 요소에 결합한 탐색 키 (`press_key`)
 
-`action.press_key`, `press_key.navigation_only`, `press_key.no_escape`,
+`action.press_key`, `press_key.no_escape`,
 `press_key.element_bound`를 제공한다. Tab·shift+Tab·Up·Down·Left·Right만 허용한다.
+signed helper는 추가로 `press_key.return_in_go_to_folder`에서 Return을 "폴더로 이동"
+시트의 경로 필드(`GoToWindow` 안의 `PathTextField`, 보안 필드 아님)에만 보내며,
+이 대상 확인을 첫 이벤트 직전에 다시 한다. window_input 경로는 Return을 받지 않는다.
 Escape·문자·단축키는 거절하며 사용자 전경 앱에 이 경로의 키를 보내지 않는다.
 관측의 element_index를 필수로 유지한다. general도 이 capability에서는 후보와
 role/label 기대값을 키 전송 전 검사에 사용한다. 읽기 label 같은 비입력 후보에는

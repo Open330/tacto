@@ -120,4 +120,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:cases.map { vetted(
             script.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stderr)
-        self.assertEqual(json.loads(result.stdout),[True]*7+[False]*12)
+        # Return passes the launcher (2026-10-08): it cannot see roles, so the
+        # helper scopes it to the Go to Folder path field. Everything else
+        # here is still refused at the launcher.
+        self.assertEqual(json.loads(result.stdout),[True]*7+[False]*5+[True]+[False]*6)

@@ -49,8 +49,17 @@ func nativeNavigationKey(_ key: String) -> (UInt16, String, String, NSEvent.Modi
     }
 }
 
-func buildNativeWindowKey(_ windowID: CGWindowID, key: String) throws -> NativeWindowKeyPair {
-    guard windowID > 0, let (code, chars, plain, flags) = nativeNavigationKey(key) else {
+/// Return, the one commit key. Kept out of `nativeNavigationKey` so nothing
+/// that accepts "navigation" (window_input, the opaque key path) accepts it;
+/// only `press_key` asks for it, after its own target checks.
+func nativeSubmitKey(_ key: String) -> (UInt16, String, String, NSEvent.ModifierFlags)? {
+    key == "Return" ? (36, "\r", "\r", []) : nil
+}
+
+func buildNativeWindowKey(_ windowID: CGWindowID, key: String,
+                          submit: Bool = false) throws -> NativeWindowKeyPair {
+    guard windowID > 0,
+          let (code, chars, plain, flags) = nativeNavigationKey(key) ?? (submit ? nativeSubmitKey(key) : nil) else {
         throw NativeWindowInputError.refused("unsupported navigation key or window ID")
     }
     var owners: [NSEvent] = [], events: [CGEvent] = []

@@ -508,7 +508,7 @@ class Driver:
         "action.click.by_point",
         "action.click_point", "click_point.window_bound", "click_point.host_authorization",
         "action.window_input", "window_input.window_bound", "window_input.host_authorization",
-        "action.press_key", "press_key.navigation_only", "press_key.no_escape",
+        "action.press_key", "press_key.no_escape",
         "press_key.element_bound",
     })
 

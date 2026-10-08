@@ -963,7 +963,8 @@ func elementAtPoint(_ point: CGPoint, pid p: pid_t) -> AXUIElement? {
 func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
-                             windowInput: NativeOpaqueWindowInput? = nil) -> [String: Any] {
+                             windowInput: NativeOpaqueWindowInput? = nil,
+                             finalCheck: (() -> String?)? = nil) -> [String: Any] {
     let elements = latestElements
     guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
           elements.filter({ CFEqual($0, element) }).count == 1 else {
@@ -999,6 +1000,9 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                 try scope.ready()
                 if let expectation, let why = mismatch(expectation, element: element, pid: pid) {
                     throw NativeWindowInputError.refused(why)
+                }
+                if let finalCheck, let why = finalCheck() {
+                    throw NativeWindowInputError.refused("Return refused: \(why)")
                 }
                 try scope.ready()
             }, pointClick: point != nil, windowInput: windowInput)
@@ -1834,17 +1838,32 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 "note": "'\(want)' 를 눌렀는데 컨트롤이 그렇게 읽히지 않습니다"]
     case "press_key":
         guard Set(action.keys) == Set(["name", "element_index", "key"]),
-              let key = action["key"] as? String, nativeNavigationKey(key) != nil,
+              let key = action["key"] as? String,
+              nativeNavigationKey(key) != nil || nativeSubmitKey(key) != nil,
               let index = action["element_index"] as? NSNumber,
               CFGetTypeID(index) != CFBooleanGetTypeID(), index.doubleValue.isFinite,
               index.doubleValue.rounded(.towardZero) == index.doubleValue,
               index.doubleValue >= 0, index.doubleValue < Double(elements.count),
               let el = element() else {
             return ["type":"error", "error":"action_failed", "effect":"not_started",
-                    "detail":"navigation requires an observed input element and Tab/shift+Tab/arrows"]
+                    "detail":"press_key requires an observed input element and Tab/shift+Tab/arrows, or Return in a dialog text field"]
         }
+        // Return commits — it sends a message, submits a form. So it is taken
+        // only where committing is what a dialog's text field is for (Finder's
+        // Go to Folder, a save name, a find field in a sheet): a plain text
+        // field inside a sheet or dialog, never a secure field, never a
+        // document window's own field. The flow must also declare the step a
+        // submit; see replay's press_key contract.
+        let submit = nativeSubmitKey(key) != nil
+        if submit, let why = returnTargetRefusal(el) {
+            return ["type":"error", "error":"action_failed", "effect":"not_started",
+                    "detail":"Return refused: \(why)"]
+        }
+        // Asked again at the last check before the pair is posted, so a sheet
+        // that closed or changed in between is refused, not typed into.
         return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
-                                       key: key, expectation: expect)
+                                       key: key, expectation: expect,
+                                       finalCheck: submit ? { returnTargetRefusal(el) } : nil)
     case "scroll":
         // A wheel event has no address: it goes to whatever sits under a
         // pointer position we invented, in a process we named. A scroll bar
@@ -2476,6 +2495,38 @@ func respond(_ obj: [String: Any]) {
     fflush(stdout)
 }
 
+/// Why Return may not go to this element, or nil when it may. Allowed only
+/// in the Go to Folder sheet's path field (identifier `PathTextField` under a
+/// sheet with identifier `GoToWindow` — Finder's, and the same sheet in
+/// open/save panels): there Return navigates, nothing is sent or saved.
+/// Not any dialog text field: a save panel's name field, a login sheet, a
+/// find-and-replace field all commit on Return (Codex review criteria).
+func returnTargetRefusal(_ element: AXUIElement) -> String? {
+    guard let role = str(element, kAXRoleAttribute as String) else { return "role unreadable" }
+    guard role == kAXTextFieldRole as String else { return "not a text field (\(role))" }
+    if str(element, kAXSubroleAttribute as String) == kAXSecureTextFieldSubrole as String {
+        return "secure text field"
+    }
+    guard str(element, kAXIdentifierAttribute as String) == "PathTextField" else {
+        return "not the Go to Folder path field"
+    }
+    var current = element
+    for _ in 0..<32 {
+        guard let parent = attr(current, kAXParentAttribute as String) else { return "ancestry unreadable" }
+        let node = parent as! AXUIElement
+        let nodeRole = str(node, kAXRoleAttribute as String)
+        if nodeRole == "AXSheet" {
+            return str(node, kAXIdentifierAttribute as String) == "GoToWindow"
+                ? nil : "not in the Go to Folder sheet"
+        }
+        if nodeRole == kAXWindowRole as String || nodeRole == kAXApplicationRole as String {
+            return "not in the Go to Folder sheet"
+        }
+        current = node
+    }
+    return "ancestry too deep"
+}
+
 // Keys that only move the focus ring. Named one by one rather than derived
 // from a modifier grammar, because a grammar is how `cmd+q` becomes reachable
 // by spelling.
@@ -2523,8 +2574,11 @@ let helperCapabilities: [String] = [
     "action.click.by_point",
     "action.click_point", "click_point.window_bound", "click_point.host_authorization",
     "action.window_input", "window_input.window_bound", "window_input.host_authorization",
-    "action.press_key", "press_key.navigation_only", "press_key.no_escape",
-    "press_key.element_bound", "action.press_key.deadline_uptime",
+    // Not "press_key.navigation_only": this helper also takes Return, narrowly.
+    "action.press_key", "press_key.no_escape",
+    "press_key.element_bound",
+    // Return, only to the Go to Folder sheet's path field.
+    "press_key.return_in_go_to_folder", "action.press_key.deadline_uptime",
     // Reading only, and deliberately NOT document_snapshot: this witnesses what
     // a document contains and where it lives, never its source format or where
     // a save panel would put it.

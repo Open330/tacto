@@ -5,6 +5,11 @@ import math
 
 PROTOCOL_VERSION = 1
 NAVIGATION_KEYS = frozenset({"Tab", "shift+Tab", "Up", "Down", "Left", "Right", "Escape"})
+# Return commits, so it is not navigation and never offered with it. The
+# signed helper takes it only into the Go to Folder sheet's path field, and a
+# flow only in a step declared is_submit (see replay's press_key contract).
+SUBMIT_KEYS = frozenset({"Return"})
+RETURN_CAPABILITY = "press_key.return_in_go_to_folder"
 
 # IR payloads cannot override the action name or smuggle an observation index.
 ACTION_PARAMS = {
@@ -25,7 +30,9 @@ def window_key_reobservation(action, response, capabilities):
     return ("press_key.element_bound" in capabilities
             and action.get('name') == 'press_key'
             and type(action.get('element_index')) is int and action['element_index'] >= 0
-            and type(action.get('key')) is str and action['key'] in NAVIGATION_KEYS - {'Escape'}
+            and type(action.get('key')) is str
+            and (action['key'] in NAVIGATION_KEYS - {'Escape'}
+                 or (action['key'] in SUBMIT_KEYS and RETURN_CAPABILITY in capabilities))
             and response.get('type') == 'acted'
             and response.get('input_route') == 'window_key'
             and response.get('unverified') == 'observe_effect'

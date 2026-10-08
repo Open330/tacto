@@ -199,6 +199,13 @@ only window/element-bound background `press_key` navigation. Inspect the backend
 capabilities and provide an input selector, ContextBinding and an explicit
 attribute postcondition; `unverified_ok` cannot waive this contract. Tab,
 shift+Tab and arrows are allowed; Escape and shortcuts are not.
+`Return` is allowed in one place only, with `--helper`: the Go to Folder
+sheet's path field (`"identifier": "PathTextField"` inside the `GoToWindow`
+sheet), to confirm a path you put there with `set_value`. The step must say
+`"is_submit": true`, carry the same binding, and verify with an exact
+`equals` (e.g. the Finder window's `Title` is the folder's name) — a
+postcondition already true before the press is refused. Return anywhere else
+is refused by the helper.
 
 **Use `menu` for commands that live in the menu bar** — save, copy, open a
 folder, new window. It takes a title path and **no selector at all** — a menu
@@ -439,6 +446,7 @@ forbid it), because it recorded labels the way the screen showed them that time.
 | `unverifiable_action` | the policy blocks this effect outright (not a confirmation) |
 | `precondition_failed` | the target is `[disabled]` |
 | `postcondition_timeout` | reports the value actually read — usually the wrong field or format. The action itself was delivered, so this never means "nothing happened" |
+| `postcondition_already_true` | a `Return` step whose `equals` was already true before the press — nothing was pressed. Return commits, so a result that proves nothing is not taken; check the step's postcondition names what Return should change |
 | `expect_not_met` | the step's `expect` text never appeared |
 | `retry_refused` | after a recovery, the one allowed re-run of an idempotent step was refused |
 | `capture_failed` | a non-optional `capture` found nothing to read |

@@ -199,7 +199,10 @@ result = run(driver, target, goal, ask_here, *, max_screens=8, approve=None, nar
 
 Python native/signed helper `press_key`는 `press_key.element_bound` capability에서 관측한
 `element_index`가 필수다. 앱의 현재 입력 요소와 배경 창을 검증하며 Tab·shift+Tab·
-방향키만 보낸다. 완전한 pair 전송도 `unverified: observe_effect`와
+방향키만 보낸다. 예외로 signed helper는 `press_key.return_in_go_to_folder` capability에서
+`Return`을 "폴더로 이동" 시트(`GoToWindow`)의 경로 필드(`PathTextField`)에만, 보내기 직전에
+다시 확인한 뒤 보낸다. 재생은 그 단계가 `is_submit: true`이고 `equals` postcondition을 가지며
+누르기 전에 그 결과가 참이 아닐 때만 허용한다. 완전한 pair 전송도 `unverified: observe_effect`와
 `reobserve_required: true`를 반환한다. 재생에는 입력 selector/binding과 명시적
 attribute postcondition이 필요하다. signed helper도 같은 binding과 공유 입력 기한을 검증한다. [창 입력 계약](native-window-input.md)을 참고한다.
 

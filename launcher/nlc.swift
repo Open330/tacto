@@ -184,6 +184,8 @@ let expectAttributes: Set<String> = ["Title", "Description", "Value", "Help",
 // modifier grammar: a grammar is how `cmd+q` becomes reachable by spelling.
 let navigationKeys: Set<String> = ["Tab", "shift+Tab", "Up", "Down",
                                    "Left", "Right"]
+// Commit keys, kept apart from navigation (see the note on actionSchema).
+let submitKeys: Set<String> = ["Return"]
 
 // A question is a string and nothing else. No program, no arguments, no
 // environment — the child names none of those, here or anywhere.
@@ -497,7 +499,11 @@ func vetted(_ msg: [String: Any]) -> String? {
         }
         if name == "press_key" {
             guard let key = action["key"] as? String else { return "key 형식 오류" }
-            guard navigationKeys.contains(key) else {
+            // Return is the explicit submit key the note above asked for, split
+            // from navigation: passed on for press_key only (never window_input),
+            // and the helper takes it only into the Go to Folder sheet's path
+            // field — the launcher cannot see roles, so the scoping is there.
+            guard navigationKeys.contains(key) || submitKeys.contains(key) else {
                 return "탐색 키가 아닙니다: \(key)"
             }
         }

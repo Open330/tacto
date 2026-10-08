@@ -114,7 +114,8 @@ func dispatchNativeWindowPreparation(
             owners = pair.owners; events = [pair.down, pair.up]
         } else if let key {
             try routing?(binding, true); try ready()
-            let pair = try buildNativeWindowKey(binding.windowID, key: key)
+            // Return reaches here only through press_key's dialog-text-field check.
+            let pair = try buildNativeWindowKey(binding.windowID, key: key, submit: true)
             owners = pair.owners; events = [pair.down, pair.up]
         } else if pointClick {
             try routing?(binding, false); try ready()

@@ -1757,9 +1757,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                            detail="prepare_window needs capability, window selector and exact observed result")
                 return res
         if step.action == "press_key" and "press_key.element_bound" in getattr(driver, "capabilities", ()):
-            from .protocol import NAVIGATION_KEYS
+            from .protocol import NAVIGATION_KEYS, RETURN_CAPABILITY, SUBMIT_KEYS
+            key = step.params.get('key')
+            # Return commits: only where the backend says it can scope it, in
+            # a step that says it submits, verified by an exact value (never
+            # `contains`, which a sheet that merely closed could satisfy).
+            submit_ok = (type(key) is str and key in SUBMIT_KEYS
+                         and RETURN_CAPABILITY in getattr(driver, "capabilities", ())
+                         and step.is_submit
+                         and step.postcondition is not None
+                         and step.postcondition.equals is not None)
             if ("action.press_key" not in getattr(driver, "capabilities", ())
-                    or type(step.params.get('key')) is not str or step.params['key'] not in NAVIGATION_KEYS - {'Escape'}
+                    or type(key) is not str
+                    or (key not in NAVIGATION_KEYS - {'Escape'} and not submit_ok)
                     or step.binding is None or step.binding.operation != 'press_key'
                     or step.binding.params_digest != pin_params(step.params)
                     or step.selector is None or step.postcondition is None or step.postcondition.field is None
@@ -1882,6 +1892,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         pre_satisfied = bool(step.postcondition is not None
                              and obs.get("tree")
                              and step.postcondition.check(obs["tree"]))
+        # For Return, an outcome already true means the press could prove
+        # nothing and might commit something else — refused before input.
+        if pre_satisfied and step.action == "press_key" and step.params.get("key") == "Return":
+            res.record(status="error", step=i, action=step.action,
+                       error="postcondition_already_true", effect="not_started",
+                       detail="Return 의 결과가 누르기 전부터 참입니다 — 누르지 않았습니다")
+            return res
 
         action = {"name": step.action, **step.params}
         trace = None
