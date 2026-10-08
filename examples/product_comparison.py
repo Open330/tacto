@@ -518,9 +518,13 @@ def finder_oracle(answer):
                 for w in state["shown"]]
     at_folder = any(re.match(rf"{FOLDER_ITEMS} items?\b", s) for s in statuses)
     said = _number_in(answer, str(FOLDER_ITEMS))
+    # The evidence kept with the verdict (Codex review of ff2f20b): how many
+    # windows carry this run's unique folder name, and what each one's status
+    # bar said — a title alone is a NAME, not a path.
     return (said and at_folder,
             f"want {FOLDER_ITEMS}; answer={'yes' if said else 'no'} "
-            f"finder_window_titled_with_run_folder={'yes' if at_folder else 'no'}")
+            f"finder_window_titled_with_run_folder={'yes' if at_folder else 'no'} "
+            f"windows_with_run_name={len(state['shown'])} statuses={statuses}")
 
 
 def _folder_is_ours():

@@ -1829,6 +1829,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             return res
 
     for i, step in enumerate(flow.steps):
+        # The target was seen in front after an earlier step: the person's
+        # focus may be on it now, so nothing more is sent to it in this run —
+        # only reads continue (Codex review of b8a1113). What that step did
+        # stays done; this stops what would come next.
+        if any(e.get("activated_target") for e in res.events) and step.action != "read":
+            res.record(status="error", step=i, action=step.action, error="target_seen_in_front",
+                       effect="not_started",
+                       detail="앞 단계 뒤에 대상 앱이 맨 앞에 있는 것이 관찰되어, 이 단계부터는 보내지 않았습니다")
+            return res
         # Values captured earlier in THIS run are only known now, so a step is
         # rendered against them just before it executes. Flow.bind() resolves
         # parameters ahead of time; this resolves what the screen told us since
@@ -2094,13 +2103,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return response
             event["state"] = ("unknown" if response.get("type") != "acted" or response.get("unverified")
                               else "confirmed" if effects == {"read"} else "dispatched")
-            # The app brought itself to the front in response (Finder does on
-            # Go > Go to Folder…, measured 2026-10-08): the person's focus
-            # moved because of this step, so it is said, not passed over.
+            # The target was observed in front shortly after this step (seen
+            # with Finder's Go > Go to Folder…, 2026-10-08). An observation,
+            # not a proven cause — and its absence proves nothing either.
             if response.get("activated_target") is True:
                 event["activated_target"] = True
                 if narrate:
-                    narrate("⚠ 앱이 이 동작에 반응해 스스로 앞으로 나왔습니다 — 사용자 포커스가 바뀌었습니다")
+                    narrate("⚠ 이 단계 실행 후 대상 앱이 맨 앞에 있는 것이 관찰되었습니다 — 이후 입력은 보내지 않습니다")
             res.events.append(event)
             preparation_observation = (
                 step.action == "prepare_window" and response.get("type") == "acted"

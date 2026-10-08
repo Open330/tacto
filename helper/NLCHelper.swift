@@ -1475,7 +1475,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                                   "menu_path": walked, "note": "not verified — observe again"]
         if activated {
             out["activated_target"] = true
-            out["note"] = "not verified — observe again; the app brought itself to the front"
+            out["note"] = "not verified — observe again; the app was observed in front after the press"
         }
         return out
     case "open_folder":
@@ -1506,6 +1506,13 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type": "error", "error": "action_failed", "effect": "not_started",
                     "detail": "Finder 를 찾지 못했습니다"]
         }
+        // Last moment before the open: stopped or out of time means nothing
+        // was asked of LaunchServices (Codex review of ff2f20b).
+        let remainingForOpen = deadline - ProcessInfo.processInfo.systemUptime
+        guard !abortState.isStopped, remainingForOpen > 0 else {
+            return ["type": "error", "error": abortState.isStopped ? "aborted_by_user" : "input_deadline_expired",
+                    "effect": "not_started", "detail": "폴더를 열기 전에 중단되었거나 기한이 지났습니다"]
+        }
         let wasFrontForOpen = isFrontmost(pid: p)
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
@@ -1516,7 +1523,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         NSWorkspace.shared.open([folder], withApplicationAt: finderApp, configuration: configuration) { _, error in
             failure.value = error != nil; finished.signal()
         }
-        let wait = max(0.1, min(5, deadline - ProcessInfo.processInfo.systemUptime))
+        let wait = max(0, deadline - ProcessInfo.processInfo.systemUptime)
         guard finished.wait(timeout: .now() + wait) == .success, !failure.value else {
             return ["type": "error", "error": "action_failed", "effect": "unknown",
                     "detail": "Finder 가 폴더를 열었는지 확인하지 못했습니다"]
@@ -1524,6 +1531,8 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         var activatedByOpen = false
         if !wasFrontForOpen {
             for _ in 0..<5 {
+                guard !abortState.isStopped,
+                      deadline - ProcessInfo.processInfo.systemUptime > 0.1 else { break }
                 Thread.sleep(forTimeInterval: 0.1)
                 if isFrontmost(pid: p) { activatedByOpen = true; break }
             }
@@ -1534,7 +1543,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                                      "folder": folder.path, "note": "not verified — observe again"]
         if activatedByOpen {
             opened["activated_target"] = true
-            opened["note"] = "not verified — observe again; Finder came to the front"
+            opened["note"] = "not verified — observe again; Finder was observed in front after opening"
         }
         return opened
     case "select_option":

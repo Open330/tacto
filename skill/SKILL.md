@@ -207,7 +207,7 @@ postcondition on the window, e.g. `{"field": {"role": "Window", "title":
 "<folder name>"}, "attribute": "Title", "equals": "<folder name>"}`, then
 read `statusBarText` with `"in_focused_window": true` for the item count.
 Prefer this over Go > Go to Folder…: that menu brings Finder to the front
-(NLC reports it as "스스로 앞으로 나왔습니다").
+(NLC reports the app observed in front and stops sending after that step).
 
 `Return` is allowed in one place only, with `--helper`: the Go to Folder
 sheet's path field (`"identifier": "PathTextField"` inside the `GoToWindow`
@@ -457,6 +457,7 @@ forbid it), because it recorded labels the way the screen showed them that time.
 | `precondition_failed` | the target is `[disabled]` |
 | `postcondition_timeout` | reports the value actually read — usually the wrong field or format. The action itself was delivered, so this never means "nothing happened" |
 | `postcondition_already_true` | a `Return` step whose `equals` was already true before the press — nothing was pressed. Return commits, so a result that proves nothing is not taken; check the step's postcondition names what Return should change |
+| `target_seen_in_front` | an earlier step's app was observed in front afterwards (e.g. Finder after Go > Go to Folder…), so nothing more was sent to it — the person may be using it now. What the earlier step did stays done; use a path that keeps the app behind (for Finder folders, `open_folder`) |
 | `expect_not_met` | the step's `expect` text never appeared |
 | `retry_refused` | after a recovery, the one allowed re-run of an idempotent step was refused |
 | `capture_failed` | a non-optional `capture` found nothing to read |
