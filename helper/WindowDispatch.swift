@@ -188,6 +188,7 @@ func dispatchNativeWindowPreparation(
 func dispatchSheetReturn(_ event: CGEvent, pid: pid_t, deadline: Double,
                          stopped: () -> Bool, context: () throws -> Void,
                          check: () throws -> Void,
+                         sameProcess: () -> Bool = { true },
                          now: () -> Double = { ProcessInfo.processInfo.systemUptime },
                          readInput: (Double) throws -> NativeUserInputState = readNativeUserInputState,
                          post: (CGEvent, pid_t) throws -> Void = nativePIDPost)
@@ -218,6 +219,11 @@ func dispatchSheetReturn(_ event: CGEvent, pid: pid_t, deadline: Double,
         guard before.matches(after) else {
             throw NativeWindowInputError.refused("user input state changed during input: " + before.differences(after).joined(separator: ","))
         }
+        // The sheet and field are expected to be gone now, so they are not
+        // re-checked; the process that received the key still must be the
+        // one that was checked (Codex: post-send checks are narrowed, not dropped).
+        guard sameProcess() else { throw NativeWindowInputError.refused("process changed after input") }
+        guard !stopped() else { throw NativeWindowInputError.refused("user stopped input") }
         return attempted
     } catch {
         let detail: String
@@ -300,7 +306,8 @@ func submitReturnInSheet(_ element: AXUIElement, _ pid: pid_t, expectedStart: Do
                 guard try windowInputCGFrame(sheetID, pid, scope: scope) == windowInputFrame(sheet, scope: scope) else {
                     throw NativeWindowInputError.refused("sheet geometry changed")
                 }
-            })
+            },
+            sameProcess: { nativeProcessStartIdentity(pid) == expectedStart })
     }
     return (posted, sheetID)
 }

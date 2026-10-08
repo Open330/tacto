@@ -68,7 +68,7 @@ func with2(_ tree: [Int32: Attrs], _ n: Int32, _ k: String, _ v: Any) -> [Int32:
 let focusA = el(20), focusB = el(21)
 let pair = try! buildNativeWindowKey(17, key: "Return", submit: true)
 func send(_ mode: String) -> String {
-    var posts = 0, checks = 0, reads = 0, stop = false, clock = 1.0
+    var posts = 0, checks = 0, reads = 0, stop = false, clock = 1.0, alive = true
     do {
         let n = try withExtendedLifetime(pair.owners) {
             try dispatchSheetReturn(pair.down, pid: 42, deadline: 100, stopped: { stop }, context: {},
@@ -78,6 +78,7 @@ func send(_ mode: String) -> String {
                         throw NativeWindowInputError.refused("focus moved")
                     }
                 },
+                sameProcess: { alive },
                 now: { clock },
                 readInput: { _ in
                     reads += 1
@@ -93,6 +94,8 @@ func send(_ mode: String) -> String {
                     posts += 1
                     precondition(pid == 42 && event.type == .keyDown)
                     if mode == "post fails" { throw NativeWindowInputError.unavailable("post") }
+                    if mode == "process replaced after" { alive = false }
+                    if mode == "stopped after" { stop = true }
                 })
         }
         return "posted=\(n) posts=\(posts)"
@@ -101,7 +104,8 @@ func send(_ mode: String) -> String {
     } catch { return "other" }
 }
 for mode in ["ok", "check fails", "check fails last", "target in front", "input changed before",
-             "stop", "deadline", "post fails", "input changed during"] {
+             "stop", "deadline", "post fails", "input changed during",
+             "process replaced after", "stopped after"] {
     out["send: " + mode] = send(mode)
 }
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
@@ -148,6 +152,8 @@ class ReturnSheetSwiftTests(unittest.TestCase):
             'send: deadline': 'failed attempted=0 posts=0',
             'send: post fails': 'failed attempted=1 posts=1',
             'send: input changed during': 'failed attempted=1 posts=1',
+            'send: process replaced after': 'failed attempted=1 posts=1',
+            'send: stopped after': 'failed attempted=1 posts=1',
         }, got)
 
 

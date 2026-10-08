@@ -109,6 +109,23 @@ class ReturnProtocolTests(unittest.TestCase):
         self.assertFalse(window_key_reobservation(
             action, GOOD, Finder.capabilities - {RETURN_CAPABILITY}))
 
+    def test_malformed_submit_receipts_are_not_reobserved(self):
+        ret = {'name': 'press_key', 'key': 'Return', 'element_index': 2}
+        for bad in ({**GOOD, 'posted_events': True}, {**GOOD, 'posted_events': 1.0},
+                    {**GOOD, 'posted_events': '1'}, {**GOOD, 'reobserve_required': 1},
+                    {**GOOD, 'unverified': None}, {**GOOD, 'type': 'error'},
+                    {k: v for k, v in GOOD.items() if k != 'input_route'}):
+            with self.subTest(bad=bad):
+                self.assertFalse(window_key_reobservation(ret, bad, Finder.capabilities))
+        for action in ({'name': 'press_key', 'key': 'Return'},
+                       {'name': 'press_key', 'key': 'Return', 'element_index': True},
+                       {'name': 'press_key', 'key': 'Return', 'element_index': -1},
+                       {'name': 'click', 'key': 'Return', 'element_index': 2},
+                       {'name': 'press_key', 'key': 'Escape', 'element_index': 2},
+                       {'name': 'press_key', 'key': 'cmd+Return', 'element_index': 2}):
+            with self.subTest(action=action):
+                self.assertFalse(window_key_reobservation(action, GOOD, Finder.capabilities))
+
     def test_routes_do_not_cross(self):
         nav = {'name': 'press_key', 'key': 'Tab', 'element_index': 2}
         ret = {'name': 'press_key', 'key': 'Return', 'element_index': 2}
