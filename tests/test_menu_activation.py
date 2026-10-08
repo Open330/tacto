@@ -75,6 +75,12 @@ class MenuActivationTests(unittest.TestCase):
         self.assertEqual(['menu'], app.sent)
         self.assertEqual('target_seen_in_front', result.log[-1].get('error'))
         self.assertEqual('not_started', result.log[-1].get('effect'))
+        # The earlier step's event is kept as it was: not undone, not retried,
+        # and nothing is sent to bring focus back (Codex review of the cohort).
+        self.assertEqual(1, len(result.events))
+        self.assertTrue(result.events[0].get('activated_target'))
+        self.assertEqual('menu', result.log[0].get('action'))
+        self.assertEqual('ok', result.log[0].get('status'))
 
     def test_reads_still_run_after_it(self):
         env = Envelope.minimal()
@@ -98,6 +104,13 @@ class MenuActivationTests(unittest.TestCase):
         self.assertLess(guard, case.index('NSWorkspace.shared.open('))
         self.assertIn('"effect": "not_started", "detail": "폴더를 열기 전에', case)
         self.assertNotIn('max(0.1,', case)
+        # Before the open: not_started. After it, an unconfirmed completion is
+        # "unknown" — the folder may be showing.
+        before, after = case.split('NSWorkspace.shared.open(', 1)
+        self.assertIn('"effect": "not_started"', before)
+        self.assertIn('"effect": "unknown"', after)
+        self.assertNotIn('"effect": "not_started"', after)
+        self.assertNotIn('activate', after.replace('activatedByOpen', '').replace('activated_target', ''))
 
 
 if __name__ == '__main__':
