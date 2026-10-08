@@ -32,6 +32,7 @@ typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 // The fixture element is no Go to Folder path field, so Return is refused
 // here by the helper's own scoping, before any dispatch.
 func returnTargetRefusal(_ element: AXUIElement, read: AXRead? = nil) -> String? { "not the Go to Folder path field" }
+func boundedAXRead(until deadline: Double) -> AXRead { { _, _ in (.failure, nil) } }
 func checked(_ action:[String:Any]) -> [String:Any] {
     let obsID="owned", target="fixture", p:pid_t=42, deadline=10.0
     let elements=[input]

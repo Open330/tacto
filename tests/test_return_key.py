@@ -131,7 +131,7 @@ class HelperReturnBoundaryTests(unittest.TestCase):
     def test_checked_before_and_again_at_the_last_moment(self):
         case = self.swift[self.swift.index('    case "press_key":'):]
         case = case[:case.index('    case "scroll":')]
-        self.assertIn('if submit, let why = returnTargetRefusal(el)', case)
+        self.assertIn('if submit, let why = returnTargetRefusal(el, read: boundedAXRead(until: deadline))', case)
         self.assertIn('finalCheck: submit ? { scope in returnTargetRefusal(el, read: scope.read) } : nil', case)
         self.assertIn('if let finalCheck, let why = finalCheck(scope)', self.swift)
 
@@ -192,6 +192,8 @@ let cases: [(String, [Int32: Attrs])] = [
 ]
 var out: [String: String] = [:]
 for (name, tree) in cases { out[name] = run(tree) }
+// The arrival read with its overall deadline already spent reads nothing.
+out["deadline spent"] = returnTargetRefusal(el(1), read: boundedAXRead(until: 0)) ?? "ALLOWED"
 print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)
 '''
         with tempfile.TemporaryDirectory(prefix='nlc-return-judge-') as directory:
@@ -214,6 +216,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .
             'ancestor role fails': 'ancestor role unreadable',
             'sheet id fails': 'sheet identifier unreadable',
             'identifier read fails': 'identifier unreadable',
+            'deadline spent': 'role unreadable',
         }, got)
 
 

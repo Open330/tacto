@@ -1853,7 +1853,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // returnTargetRefusal), where it navigates. The flow must also declare
         // the step a submit; see replay's press_key contract.
         let submit = nativeSubmitKey(key) != nil
-        if submit, let why = returnTargetRefusal(el) {
+        if submit, let why = returnTargetRefusal(el, read: boundedAXRead(until: deadline)) {
             return ["type":"error", "error":"action_failed", "effect":"not_started",
                     "detail":"Return refused: \(why)"]
         }
@@ -2501,23 +2501,33 @@ func respond(_ obj: [String: Any]) {
 /// find-and-replace field all commit on Return (Codex review criteria).
 ///
 /// `read` is the AX read to use: the dispatch's bounded scope at the last
-/// check, a 0.5s-per-call read before it. Each read separates success,
-/// legitimately absent (noValue / attributeUnsupported — only for subrole and
+/// check, `boundedAXRead(until:)` on arrival — both under the input
+/// deadline. Each read separates success, legitimately absent (noValue / attributeUnsupported — only for subrole and
 /// identifiers, never a role) and failure; a failure refuses (Codex review of
 /// 0eb24cf: an unreadable subrole had counted as "not secure").
 typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 
-func boundedAXRead(_ element: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
-    guard AXUIElementSetMessagingTimeout(element, 0.5) == .success else {
-        throw NativeWindowInputError.unavailable("AX timeout unavailable")
+/// A read bounded per call (0.5s) AND by the caller's overall deadline, so
+/// a walk up 32 ancestors cannot add up past the input deadline. A timeout
+/// that cannot be set or reset refuses (Codex review of 8983943).
+func boundedAXRead(until deadline: Double) -> AXRead {
+    return { element, name in
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard deadline.isFinite, remaining > 0,
+              AXUIElementSetMessagingTimeout(element, Float(min(0.5, remaining))) == .success else {
+            throw NativeWindowInputError.unavailable("AX read deadline")
+        }
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        guard AXUIElementSetMessagingTimeout(element, 0) == .success,
+              ProcessInfo.processInfo.systemUptime < deadline else {
+            throw NativeWindowInputError.unavailable("AX read deadline")
+        }
+        return (error, value)
     }
-    defer { _ = AXUIElementSetMessagingTimeout(element, 0) }
-    var value: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
-    return (error, value)
 }
 
-func returnTargetRefusal(_ element: AXUIElement, read rawRead: AXRead = boundedAXRead) -> String? {
+func returnTargetRefusal(_ element: AXUIElement, read rawRead: AXRead) -> String? {
     enum Got { case value(CFTypeRef), absent, failed }
     func get(_ el: AXUIElement, _ name: String, optional: Bool = false) -> Got {
         guard let (err, value) = try? rawRead(el, name) else { return .failed }
