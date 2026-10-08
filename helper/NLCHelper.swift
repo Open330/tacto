@@ -1457,8 +1457,24 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type": "error", "error": "action_failed",
                     "effect": axActionFailureEffect(menuError), "detail": "메뉴 실행 실패"]
         }
-        return ["type": "acted", "action": name, "obs_id": obsID,
-                "menu_path": walked, "note": "not verified — observe again"]
+        // Some commands make the app bring itself forward (Finder's Go > Go to
+        // Folder…, measured 2026-10-08). Not prevented — the press was the
+        // app's to answer — but watched briefly and said, so a caller knows
+        // the person's focus moved because of this step.
+        var activated = false
+        if !wasFront {
+            for _ in 0..<5 {
+                Thread.sleep(forTimeInterval: 0.1)
+                if isFrontmost(pid: p) { activated = true; break }
+            }
+        }
+        var out: [String: Any] = ["type": "acted", "action": name, "obs_id": obsID,
+                                  "menu_path": walked, "note": "not verified — observe again"]
+        if activated {
+            out["activated_target"] = true
+            out["note"] = "not verified — observe again; the app brought itself to the front"
+        }
+        return out
     case "select_option":
         // Open the menu, read it, press the item, and check the control reads
         // back as what was asked for. The same path a person takes, with every

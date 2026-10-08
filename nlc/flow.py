@@ -2094,6 +2094,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return response
             event["state"] = ("unknown" if response.get("type") != "acted" or response.get("unverified")
                               else "confirmed" if effects == {"read"} else "dispatched")
+            # The app brought itself to the front in response (Finder does on
+            # Go > Go to Folder…, measured 2026-10-08): the person's focus
+            # moved because of this step, so it is said, not passed over.
+            if response.get("activated_target") is True:
+                event["activated_target"] = True
+                if narrate:
+                    narrate("⚠ 앱이 이 동작에 반응해 스스로 앞으로 나왔습니다 — 사용자 포커스가 바뀌었습니다")
             res.events.append(event)
             preparation_observation = (
                 step.action == "prepare_window" and response.get("type") == "acted"
