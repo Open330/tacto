@@ -54,8 +54,16 @@ def document_url_syntax_path(value):
     characters). Shared with the helper's documentURLSyntaxPath so a window
     line shows the same path either way (Codex review of 66433c5).
     """
-    if (not isinstance(value, str) or not value
-            or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in value)
+    # Raw-text policy first, the same on both sides (Codex review of a33bcaa):
+    # the scheme exactly "file://" in lower case (no leading space, no other
+    # case), and the raw authority exactly "" or "localhost" — no escapes in
+    # it, nothing a decoder would turn into localhost.
+    if not isinstance(value, str) or not value.startswith('file://'):
+        return None
+    authority = value[len('file://'):].split('/', 1)[0]
+    if authority not in ('', 'localhost') or '/' not in value[len('file://'):]:
+        return None
+    if (any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in value)
             or re.search(r'%(?![0-9a-fA-F]{2})', value)
             or re.search(r'%(?:2f|5c|00)', value, re.I) or '?' in value or '#' in value):
         return None

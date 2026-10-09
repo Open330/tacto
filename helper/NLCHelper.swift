@@ -3062,7 +3062,14 @@ func documentPath(_ window: AXUIElement) throws -> String? {
 /// reference resolution. Used for a window line's "Document:"; the same rules
 /// as Python's document_url_syntax_path (Codex review of 66433c5).
 func documentURLSyntaxPath(_ text: String) -> String? {
-    if text.isEmpty || text.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) { return nil }
+    // Raw-text policy first, the same as Python's (Codex review of a33bcaa):
+    // "file://" exactly, lower case; the raw authority exactly "" or
+    // "localhost" (Foundation would decode %6cocalhost to localhost).
+    guard text.hasPrefix("file://") else { return nil }
+    let rest = text.dropFirst("file://".count)
+    guard let slash = rest.firstIndex(of: "/"),
+          ["", "localhost"].contains(String(rest[rest.startIndex..<slash])) else { return nil }
+    if text.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) { return nil }
     let lowered = text.lowercased()
     if lowered.contains("%2f") || lowered.contains("%5c") || lowered.contains("%00")
         || text.contains("?") || text.contains("#") { return nil }

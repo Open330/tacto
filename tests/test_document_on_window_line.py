@@ -41,7 +41,11 @@ class SyntaxParityTests(unittest.TestCase):
              "file://user@localhost/a.txt", "file://localhost:80/a.txt", "file:///a%zz.txt",
              "file:///a%.txt", "file:///a%FF.txt", "file://[oops/a.txt", "file:///a%2Fb.txt",
              "file:///a%00.txt", "file:///a%20b.txt", "file:///a.txt?x=1", "file:///a.txt#f",
-             "https://x/a.txt", "file:////net/a.txt", "file:///%EB%85%B8%ED%8A%B8.txt", ""]
+             "https://x/a.txt", "file:////net/a.txt", "file:///%EB%85%B8%ED%8A%B8.txt", "",
+             # Codex review of a33bcaa: case, escaped authority, leading space
+             "FILE:///tmp/a.txt", "File:///tmp/a.txt", "file://%6cocalhost/tmp/a.txt",
+             "file://local%68ost/tmp/a.txt", " file:///tmp/a.txt", "file://localhost",
+             "file://LOCALHOST/tmp/a.txt"]
 
     def test_same_answers(self):
         import json, shutil, subprocess, tempfile
@@ -66,7 +70,7 @@ class SyntaxParityTests(unittest.TestCase):
         self.assertEqual(dict(zip(self.CASES, python)), dict(zip(self.CASES, helper)))
         self.assertEqual("/tmp/a.txt", python[0])
         self.assertEqual("/노트.txt", python[16])
-        for bad in self.CASES[2:11] + self.CASES[12:16] + [""]:
+        for bad in self.CASES[2:11] + self.CASES[12:16] + self.CASES[17:]:
             self.assertEqual("<nil>", dict(zip(self.CASES, python))[bad], bad)
 
 if __name__ == "__main__":
