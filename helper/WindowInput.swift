@@ -320,24 +320,24 @@ func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
 /// Full exposed-tree modal check; AXSheets unsupported is not an empty list.
 ///
 /// Three refinements (2026-10-09, Codex review of req 5c):
-/// - A window top must say AXModal = false; a top that is not a window
-///   (Finder's desktop AXScrollArea, which has no AXModal) may lack it but may
-///   not say true — the same rule as the Return sheet path. Before this, any
-///   Finder window preparation was refused by the desktop entry.
+/// - A window top must say AXModal = false. The one top that may lack it is
+///   Finder's desktop as measured: in Finder, an AXScrollArea whose parent is
+///   the application itself (it has no AXModal; before this every Finder
+///   window preparation was refused by it). Any other top — a dialog, an
+///   unknown role, a scroll area elsewhere — must say AXModal = false.
 /// - Running out of nodes or time while checking is reported as "readiness
 ///   budget exceeded", distinct from a sheet or modal actually found.
-/// - One verified prune, Finder only, never in the target window: below a file
-///   list container (AXOutline / AXTable / AXList / AXBrowser) of ANOTHER
-///   window nothing is visited. Its rows and cells are file entries — a sheet
-///   is a window of its own and is not a row's descendant — and they were
-///   ~19,000 nodes per large folder window, 36–61 s to read (measured). The
-///   container itself is still checked (role, AXModal, AXSheets), every top's
-///   AXModal/AXSheets still is, and the target window is walked in full.
+/// - The whole tree is still walked: a role-only prune of Finder's file lists
+///   was proposed and withdrawn (Codex review of 97398cb — no proof the
+///   container is a file list; it bought nothing either, preparation then
+///   failed for want of a visible titlebar point). Large Finder windows can
+///   therefore exceed the budget; that is reported as such.
 func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
                               maxNodes: Int = 5000, maxDepth: Int = 64,
                               scope: NativeWindowReadScope? = nil,
                               read injected: AXRead? = nil,
                               isFinder knownFinder: Bool? = nil) throws {
+    // (A file-list prune was here briefly; withdrawn — see above.)
     guard maxNodes > 0, maxDepth >= 0 else { throw NativeWindowInputError.refused("invalid readiness budget") }
     func raw(_ node: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
         if let injected { return try injected(node, name) }
@@ -374,15 +374,19 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
         let value = try required(node, name)
         return CFGetTypeID(value) == CFBooleanGetTypeID() && (value as? Bool) == false
     }
-    /// Window tops: AXModal must be false. Other tops: absent or false.
+    let app = AXUIElementCreateApplication(pid)
+    let isFinder = knownFinder ?? (NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder")
+    /// AXModal must be false — except on Finder's measured desktop entry,
+    /// which has none: absent or false there, never true.
     func topNotModal(_ top: AXUIElement, _ topRole: String) throws -> Bool {
-        if topRole == kAXWindowRole as String { return try explicitlyFalse(top, "AXModal") }
+        guard isFinder, topRole == "AXScrollArea",
+              let parent = try optional(top, kAXParentAttribute),
+              CFGetTypeID(parent) == AXUIElementGetTypeID(), CFEqual(parent as! AXUIElement, app) else {
+            return try explicitlyFalse(top, "AXModal")
+        }
         guard let value = try optional(top, "AXModal") else { return true }
         return CFGetTypeID(value) == CFBooleanGetTypeID() && (value as? Bool) == false
     }
-    let app = AXUIElementCreateApplication(pid)
-    let isFinder = knownFinder ?? (NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder")
-    let fileLists: Set<String> = ["AXOutline", "AXTable", "AXList", "AXBrowser"]
     func windows() throws -> [AXUIElement] {
         guard let result = try required(app, kAXWindowsAttribute) as? [AXUIElement] else {
             throw NativeWindowInputError.refused("application windows malformed")
@@ -405,7 +409,6 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
                 throw NativeWindowInputError.refused("sheet or malformed sheet list")
             }
         }
-        let isTarget = CFEqual(top, window)
         var stack: [(AXUIElement, Int)] = [(top, 0)]
         while let (node, depth) = stack.popLast() {
             remaining -= 1
@@ -417,14 +420,6 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
             if depth > 0, let modal = try optional(node, "AXModal"),
                !(CFGetTypeID(modal) == CFBooleanGetTypeID() && (modal as? Bool) == false) {
                 throw NativeWindowInputError.refused("modal or unknown element")
-            }
-            if isFinder && !isTarget && depth > 0 && fileLists.contains(nodeRole) {
-                if let value = try optional(node, "AXSheets") {
-                    guard let sheets = value as? [AXUIElement], sheets.isEmpty else {
-                        throw NativeWindowInputError.refused("sheet or malformed sheet list")
-                    }
-                }
-                continue    // the verified prune: file entries below, not windows
             }
             if let value = try optional(node, kAXChildrenAttribute) {
                 guard let children = value as? [AXUIElement] else { throw NativeWindowInputError.refused("window children malformed") }
@@ -440,6 +435,12 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
     }
     for (top, topRole) in zip(before, roles) {
         guard try topNotModal(top, topRole) else { throw NativeWindowInputError.refused("window became modal during validation") }
+        // A sheet attached after the walk is caught here too (Codex review of 97398cb).
+        if let value = try optional(top, "AXSheets") {
+            guard let sheets = value as? [AXUIElement], sheets.isEmpty else {
+                throw NativeWindowInputError.refused("sheet attached during validation")
+            }
+        }
     }
 }
 

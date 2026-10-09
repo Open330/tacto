@@ -2,8 +2,9 @@
 
 2026-10-09 (Codex review of req 5c): strict full check stays the default;
 budget/deadline is its own reason; non-window tops may lack AXModal; and the
-one verified prune — Finder only, another window's file-list container — is
-pinned case by case, including what it does NOT look at."""
+only Finder's measured desktop may lack AXModal. A role-only file-list
+prune was tried and withdrawn (Codex review of 97398cb): the whole tree is
+walked, and a large window is reported as a budget overrun."""
 from pathlib import Path
 import json
 import shutil
@@ -25,7 +26,7 @@ struct Deadline: Error {}
 // pid 42 is the application; others are nodes.
 func run(_ tree: [Int32: Attrs], target: Int32 = 1, finder: Bool = true, maxNodes: Int = 60,
          windowsAfter: [Int32]? = nil) -> String {
-    var windowReads = 0
+    var windowReads = 0, sheetReads: [Int32: Int] = [:]
     let read: AXRead = { e, name in
         let n = pidOf(e)
         if n == 42 && name == "AXWindows" {
@@ -33,7 +34,12 @@ func run(_ tree: [Int32: Attrs], target: Int32 = 1, finder: Bool = true, maxNode
             let list = (windowReads > 1 ? windowsAfter : nil) ?? (tree[42]!["AXWindows"] as! [Int32])
             return (.success, list.map { el($0) } as CFArray)
         }
+        if name == "AXSheets" { sheetReads[n, default: 0] += 1 }
+        if name == "AXSheets", let late = tree[n]?["lateSheets"] as? [Int32], sheetReads[n]! > 1 {
+            return (.success, late.map { el($0) } as CFArray)
+        }
         guard let attrs = tree[n], let v = attrs[name] else { return (.attributeUnsupported, nil) }
+        if let one = v as? Int32 { return (.success, el(one)) }
         if let err = v as? AXError { return (err, nil) }
         if let s = v as? String, s == "deadline" { throw NativeWindowInputError.refused("window observation deadline expired") }
         if let b = v as? Bool { return (.success, (b ? kCFBooleanTrue : kCFBooleanFalse)!) }
@@ -57,28 +63,30 @@ func bigList(_ base: [Int32: Attrs], container: Int32 = 20) -> [Int32: Attrs] {
     for r in rows { t[r] = node("AXRow", [r + 5000]); t[r + 5000] = node("AXCell") }
     return t
 }
-let desktop: Attrs = ["AXRole": "AXScrollArea", "AXChildren": [Int32]()]
-// target window 1 (small); other window 2 holding a big list 20; desktop 9
-var base: [Int32: Attrs] = [42: ["AXWindows": [Int32(1), Int32(2), Int32(9)]],
-    1: win([3]), 3: node("AXButton"), 2: win([20]), 9: desktop]
-base = bigList(base)
+let desktop: Attrs = ["AXRole": "AXScrollArea", "AXChildren": [Int32](), "AXParent": Int32(42)]
+// target window 1 (small); other window 2 (small); desktop 9
+let base: [Int32: Attrs] = [42: ["AXWindows": [Int32(1), Int32(2), Int32(9)]],
+    1: win([3]), 3: node("AXButton"), 2: win([4]), 4: node("AXGroup"), 9: desktop]
 func with(_ t: [Int32: Attrs], _ n: Int32, _ k: String, _ v: Any) -> [Int32: Attrs] { var t = t; t[n]![k] = v; return t }
 var out: [String: String] = [:]
-out["Finder: another window's big list is pruned"] = run(base)
-out["not Finder: the same list exceeds the budget"] = run(base, finder: false)
-var inTarget = base; inTarget[1] = win([20]); inTarget[2] = win([])
-out["the target window's own list is walked"] = run(inTarget)
-var deepSheet = base; deepSheet[2] = win([20, 30]); deepSheet[30] = node("AXGroup", [31]); deepSheet[31] = node("AXGroup", [32]); deepSheet[32] = node("AXSheet")
-out["a deep sheet outside a list refuses"] = run(deepSheet)
-out["a sheet listed on the list container refuses"] = run(with(base, 20, "AXSheets", [Int32(33)]))
-var underList = base; underList[1000] = node("AXRow", [34]); underList[34] = node("AXSheet")
-out["NOT looked at: a sheet below another window's list (the prune)"] = run(underList)
+out["small windows and the desktop pass"] = run(base)
+var big = bigList(with(base, 2, "AXChildren", [Int32(20)]))
+out["Finder: a big list in another window exceeds the budget"] = run(big)
+out["not Finder: the same"] = run(big, finder: false)
+var underList = big; underList[1000] = node("AXRow", [34]); underList[34] = node("AXSheet")
+out["a sheet below another window's list is reached (no prune)"] = run(underList, maxNodes: 2000)
+var deepSheet = base; deepSheet[4] = node("AXGroup", [30]); deepSheet[30] = node("AXGroup", [31]); deepSheet[31] = node("AXSheet")
+out["a deep sheet refuses"] = run(deepSheet)
 out["a top window that is modal refuses"] = run(with(base, 2, "AXModal", true))
 out["a top window without AXModal refuses"] = run({ var t = base; t[2]!.removeValue(forKey: "AXModal"); return t }())
-out["the desktop without AXModal passes"] = run(base)
 out["the desktop saying modal refuses"] = run(with(base, 9, "AXModal", true))
+out["a dialog top without AXModal refuses"] = run(with(base, 9, "AXRole", "AXDialog"))
+out["an unknown top without AXModal refuses"] = run(with(base, 9, "AXRole", "AXUnknown"))
+out["a scroll area top with another parent refuses"] = run(with(base, 9, "AXParent", Int32(2)))
+out["a scroll area top outside Finder refuses"] = run(base, finder: false)
 out["a modal node deep in a window refuses"] = run(with(base, 3, "AXModal", true))
 out["AXSheets unreadable refuses"] = run(with(base, 2, "AXSheets", AXError.cannotComplete))
+out["a sheet attached after the walk refuses"] = run(with(base, 2, "lateSheets", [Int32(35)]))
 out["children unreadable refuses"] = run(with(base, 1, "AXChildren", AXError.cannotComplete))
 out["deadline while checking is a budget reason"] = run(with(base, 3, "AXRole", "deadline"))
 out["target missing refuses"] = run(base, target: 77)
@@ -103,18 +111,21 @@ class WindowReadySwiftTests(unittest.TestCase):
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual({
-            "Finder: another window's big list is pruned": "ok",
-            "not Finder: the same list exceeds the budget": "readiness budget exceeded: nodes",
-            "the target window's own list is walked": "readiness budget exceeded: nodes",
-            "a deep sheet outside a list refuses": "attached sheet or malformed role",
-            "a sheet listed on the list container refuses": "sheet or malformed sheet list",
-            "NOT looked at: a sheet below another window's list (the prune)": "ok",
+            "small windows and the desktop pass": "ok",
+            "Finder: a big list in another window exceeds the budget": "readiness budget exceeded: nodes",
+            "not Finder: the same": "readiness budget exceeded: nodes",
+            "a sheet below another window's list is reached (no prune)": "attached sheet or malformed role",
+            "a deep sheet refuses": "attached sheet or malformed role",
             "a top window that is modal refuses": "modal or unknown window",
             "a top window without AXModal refuses": "required AX attribute unavailable: AXModal",
-            "the desktop without AXModal passes": "ok",
             "the desktop saying modal refuses": "modal or unknown window",
+            "a dialog top without AXModal refuses": "required AX attribute unavailable: AXModal",
+            "an unknown top without AXModal refuses": "required AX attribute unavailable: AXModal",
+            "a scroll area top with another parent refuses": "required AX attribute unavailable: AXModal",
+            "a scroll area top outside Finder refuses": "required AX attribute unavailable: AXModal",
             "a modal node deep in a window refuses": "modal or unknown element",
             "AXSheets unreadable refuses": "window state unavailable: AXSheets",
+            "a sheet attached after the walk refuses": "sheet attached during validation",
             "children unreadable refuses": "window state unavailable: AXChildren",
             "deadline while checking is a budget reason": "readiness budget exceeded: deadline",
             "target missing refuses": "target window missing, ambiguous or minimized",
