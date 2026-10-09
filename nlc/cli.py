@@ -380,6 +380,8 @@ def _run_flow(flow, argv, walked: bool = False):
             # times looking for what went wrong (2026-10-07).
             print("unverified — 입력은 보냈지만 저장된 파일이 없어 확인 영수증이 없습니다 "
                   "(저장하지 않은 문서라면 정상). 내용은 `nlc observe <앱>` 으로 확인하세요.\n"
+                  "  TextEdit 의 .txt 문서를 저장·확인하려면: nlc replay textedit_save "
+                  "-p document=<절대 경로> -p name=<파일 이름> --helper --yes\n"
                   f"  detail: {last}")
         else:
             print(f"failed: {last}")

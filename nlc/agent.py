@@ -993,6 +993,26 @@ class Agent:
         """
         if self.commit_adapter_factory is not None:
             return self.commit_adapter_factory(self.driver, flow)
+        if flow.name == "textedit_save":
+            # Exactly the shipped recipe: the path is read back from the
+            # consent text, the recipe rebuilt from it, and the whole flow
+            # compared — nothing is inferred from the name alone.
+            import os
+            import re
+            from .library import SAVE_INTENT, textedit_save
+            from .existing_file_receipt import TEXT_CAPABILITY, make_existing_text_receipt
+            if len(flow.steps) != 1 or TEXT_CAPABILITY not in (getattr(self.driver, "capabilities", ()) or ()):
+                return None
+            pattern = re.escape(SAVE_INTENT).replace(re.escape("{{document}}"), "(.+)")
+            m = re.fullmatch(pattern, flow.steps[0].intent_text or "")
+            if m is None:
+                return None
+            document = m.group(1)
+            canonical = textedit_save().bind(document=document, name=os.path.basename(document))
+            if canonical.to_json() != flow.to_json():
+                return None
+            self.narrate(f"저장 결과 확인: {document}")
+            return make_existing_text_receipt(self.driver, document_path=document)
         from .textedit_receipt import SNAPSHOT_CAPABILITY, TARGET, make_textedit_receipt
         if (SNAPSHOT_CAPABILITY not in (getattr(self.driver, "capabilities", ()) or ())
                 or flow.target != TARGET or flow.name != "textedit_save_as"

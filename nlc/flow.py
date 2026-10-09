@@ -1241,7 +1241,11 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
             params_digest=(_payload_digest(_render(st.params, ctx))
                            if binding.params_digest is not None else None),
             resource_identity=_render(binding.resource_identity, ctx),
-            destination_identity=_render(binding.destination_identity, ctx))
+            destination_identity=_render(binding.destination_identity, ctx),
+            # The witness that re-reads an identity may name it too (textedit_save:
+            # the focused window titled {{name}}), so it is rendered as well.
+            resource_identity_from=_render(binding.resource_identity_from, ctx),
+            destination_identity_from=_render(binding.destination_identity_from, ctx))
     return Step(action=st.action, selector=sel, params=_render(st.params, ctx),
                 risk_class=st.risk_class, intent_text=_render(st.intent_text, ctx),
                 expect=_render(st.expect, ctx), postcondition=post,
@@ -2099,9 +2103,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             if consequential and prepare_commit is not None:
                 try:
                     context = prepare_commit(deepcopy(event))
-                except Exception:
+                except Exception as exc:
+                    # Said, not swallowed: "preparation failed" alone could not
+                    # be diagnosed through the signed path (2026-10-09).
                     return {"type": "error", "error": "host_evidence_preparation_failed",
-                            "effect": "not_started"}
+                            "effect": "not_started",
+                            "detail": f"{type(exc).__name__}: {str(exc)[:200]}"}
             from .commit_evidence import save_panel_dispatch_parameters
             try:
                 dispatch_parameters = save_panel_dispatch_parameters(

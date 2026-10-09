@@ -373,6 +373,48 @@ def textedit_new_document() -> Flow:
         ])
 
 
+SAVE_INTENT = "'{{document}}' 문서를 지금 이름 그대로 저장합니다"
+
+
+def textedit_save() -> Flow:
+    """Save one named TextEdit document in place (File > Save), witnessed.
+
+    `document` is the file's canonical absolute path and `name` its file
+    name. The path is in the consent text, so the person approves saving
+    THAT file; the focused window's title must still be `name` right before
+    the press (File > Save saves the focused document); and the host receipt
+    (nlc/existing_file_receipt.py) reads that document by path through the
+    backend before and after, accepting only a .txt file that changed to
+    exactly the document's text. Recognised only in this exact form.
+    """
+    from .existing_file_receipt import SAVE_PATH
+    return Flow(
+        name="textedit_save", target="com.apple.TextEdit",
+        params={"document": "", "name": ""},
+        steps=[
+            Step("menu", params={"path": SAVE_PATH},
+                 intent_text=SAVE_INTENT,
+                 # Nothing on screen changes on a save; the host receipt is
+                 # what verifies it, and a write_persistent step without one
+                 # still ends commit_unverified.
+                 unverified_ok=True,
+                 safety=SafetyContract(
+                     effects=["write_persistent"],
+                     resource=Resource(object_type="문서", object_identity="{{name}}", scope="item"),
+                     reversibility="recoverable"),
+                 binding=ContextBinding(
+                     bundle_id="com.apple.TextEdit", operation="menu",
+                     params_digest=pin_params({"path": SAVE_PATH}),
+                     resource_identity="{{name}}",
+                     # Found only when the FOCUSED window is titled {{name}};
+                     # otherwise nothing re-reads it and replay refuses.
+                     resource_identity_from={"role": "Window", "title": "{{name}}",
+                                             "in_focused_window": True,
+                                             "attribute": "Title"})),
+        ],
+    )
+
+
 def textedit_save_as() -> Flow:
     """Save the open document under a name — the first genuinely consequential
     task in this library, and the one that exercises the consent gate.
@@ -536,4 +578,5 @@ def builders() -> dict:
             "textedit_write_note": textedit_write_note,
             "textedit_emphasize": textedit_emphasize,
             "textedit_new_document": textedit_new_document,
-            "textedit_save_as": textedit_save_as}
+            "textedit_save_as": textedit_save_as,
+            "textedit_save": textedit_save}

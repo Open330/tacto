@@ -204,6 +204,15 @@ only window/element-bound background `press_key` navigation. Inspect the backend
 capabilities and provide an input selector, ContextBinding and an explicit
 attribute postcondition; `unverified_ok` cannot waive this contract. Tab,
 shift+Tab and arrows are allowed; Escape and shortcuts are not.
+**To save a TextEdit document that already has a file, replay the built-in
+`textedit_save`** — `nlc replay textedit_save -p document=/abs/path/name.txt
+-p name=name.txt --helper --yes`. The focused TextEdit window must be that
+document (its title is checked right before the press), and the run ends
+`done` only when the file on disk holds exactly the document's text (plain
+`.txt` only; it certifies the saved state — macOS autosave may have written it
+— not which writer did). A recipe of your own with File > Save ends
+`commit_unverified`: nothing witnessed the file.
+
 **To show a folder in Finder, use `open_folder`** (with `--helper`):
 `{"action": "open_folder", "params": {"path": "/abs/path"}}` — no selector.
 Finder shows the folder without coming to the front (no keys, no sheet).
