@@ -2309,9 +2309,18 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
             controlStreamWindow = nil
         }
         guard shown else { lastIndicatorRefusal = "menu_item_unavailable"; return false }
-        guard DispatchQueue.main.sync(execute: { controlItemOnScreen() }) else {
-            lastIndicatorRefusal = "menu_item_not_on_screen"; return false
+        // The helper starts per command and makes the item just before
+        // asking; the system may not report it on screen until the main loop
+        // has run (june-mba, 2026-10-09: refused right after creation). Asked
+        // again for up to 0.5s, between main-loop turns. An item that stays
+        // off screen (overflow) is still refused.
+        var onScreen = false
+        for attempt in 0..<10 {
+            if attempt > 0 { Thread.sleep(forTimeInterval: 0.05) }
+            onScreen = DispatchQueue.main.sync(execute: { controlItemOnScreen() })
+            if onScreen { break }
         }
+        guard onScreen else { lastIndicatorRefusal = "menu_item_not_on_screen"; return false }
         return true
     }
     guard ensureControlStream(forPID: pid) else { lastIndicatorRefusal = "stream_unavailable"; return false }
