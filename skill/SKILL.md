@@ -192,6 +192,11 @@ when the label and the clickable element differ — a list row identified by its
 inner text — match the label and act on the row with
 `"click_ancestor": ["Row", "Cell"]`.
 
+**Markers on a tree line:** `[disabled]`; `[focused]` (the focused window);
+`[selected]` — the chosen one of a set of buttons or rows (e.g. System
+Settings > Appearance shows `Description: Light, … [selected]`). Read
+"which option is set" from `[selected]`, not from the labels alone.
+
 **Actions:** `click`, `set_value`, `type_text`, `scroll`, `secondary_action`,
 `menu`, `read` (look and change nothing, for a step that only captures). Prefer clicking a named control over typing — a button press is
 verifiable through the control itself. Python and the signed helper support

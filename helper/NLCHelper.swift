@@ -132,7 +132,7 @@ func secondaryActionsOf(_ el: AXUIElement) -> [String] {
 }
 
 /// One line per element, in the exact format the Python `Selector` parses:
-/// `<indent><index> <Role>  Key: value, Key2: value [disabled]`
+/// `<indent><index> <Role>  Key: value, Key2: value [disabled] [selected]`
 func walk(_ el: AXUIElement, depth: Int, out: inout [String],
           elements: inout [AXUIElement], visited: inout Int,
           truncated: inout Bool) {
@@ -145,6 +145,9 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
         let idx = elements.count
         elements.append(el)
         let enabled = (attr(el, kAXEnabledAttribute as String) as? Bool) ?? true
+        // AXSelected is how a chosen button in a set says so (System
+        // Settings' Light / Dark / Auto); shown like [disabled] (2026-10-09).
+        let selected = (attr(el, kAXSelectedAttribute as String) as? Bool) == true
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
         let extra = secondaryActionsOf(el)
         let actions = extra.isEmpty ? ""
@@ -152,7 +155,7 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
                                              .joined(separator: ", ")
         out.append(String(repeating: "  ", count: depth) + "\(idx) \(short)"
                    + (text.isEmpty ? "" : "  \(text)") + (enabled ? "" : " [disabled]")
-                   + actions)
+                   + (selected ? " [selected]" : "") + actions)
     }
     let children = (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
     for child in children.prefix(maxChildrenPerNode) {

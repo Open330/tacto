@@ -301,7 +301,7 @@ class Selector:
         digits in) are stripped so '\\u200e408' compares equal to '408'."""
         others = "|".join(k for k in cls._ATTR_KEYS if k != key)
         m = re.search(rf"{key}:[ \t]*(.*?)"
-                      rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused)\]|$)", line)
+                      rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused|selected)\]|$)", line)
         return _norm(m.group(1).strip()) if m else None
 
     def matches(self, line: str) -> bool:
@@ -1820,10 +1820,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         driver.protect_captures([c for s in flow.steps for c in s.captures if c.sensitive])
     obs = driver.observe(flow.target, "tree_full")
     if obs.get("error") == "no_window_content" and flow.steps \
-            and flow.steps[0].action == "menu":
+            and flow.steps[0].action in ("menu", "open_folder"):
         # "Finder 열어줘" starts from an app with no window at all. Menus are
-        # app-scoped, so such a recipe can legitimately begin here; anything
-        # needing window content still fails honestly on its own step.
+        # app-scoped, and open_folder is what makes the window, so such a
+        # recipe can legitimately begin here (open_folder: seen on june-mba,
+        # 2026-10-09, Finder with no window); anything needing window content
+        # still fails honestly on its own step.
         obs = driver.observe(flow.target, "tree_full", require_window=False)
     if obs["type"] != "observation":
         res.record(status="error", stage="initial_observe", detail=obs)

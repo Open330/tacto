@@ -171,7 +171,7 @@ def _line_attr(line: str, key: str):
     others = "|".join(k for k in ("Title", "Description", "Value", "Help",
                                   "Identifier", "Placeholder") if k != key)
     m = _re.search(rf"{key}:\s*(.+?)"
-                   rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused)\]|$)", line)
+                   rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused|selected)\]|$)", line)
     return m.group(1).strip() if m else None
 
 
@@ -425,11 +425,15 @@ class Observation:
             # Surface enabled state in the tree text so a replay precondition can
             # check it after re-resolving a selector (elements default enabled).
             disabled = "" if _attr(el, "AXEnabled") in (None, True) else " [disabled]"
+            # Which of a set of buttons is chosen (System Settings' Light /
+            # Dark / Auto) is only in AXSelected; without it a read of the
+            # current mode had nothing to read (2026-10-09 comparison).
+            selected = " [selected]" if _attr(el, "AXSelected") is True else ""
             extra = _secondary_actions(el)
             actions = (", Secondary Actions: "
                        + ", ".join(a[2:] for a in extra)) if extra else ""
             self.lines.append(f"{indent}{idx} {role[2:] if role.startswith('AX') else role}"
-                              + (f"  {label}" if label else "") + disabled + actions)
+                              + (f"  {label}" if label else "") + disabled + selected + actions)
         children = _attr(el, "AXChildren") or []
         for child in children[:MAX_CHILDREN_PER_NODE]:
             self.walk(child, depth + 1)
