@@ -250,7 +250,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         if not shutil.which("xcrun"):
             self.skipTest("macOS Swift required")
         text = (ROOT / "helper/NLCHelper.swift").read_text()
-        code = text[text.index("/// True only when AXWindows was read successfully and nothing"):
+        code = text[text.index("/// True only when AXWindows was read successfully and is empty — or, for"):
                     text.index("func appSaysItHasNoWindows(")]
         harness = r'''
 import Foundation
@@ -260,13 +260,17 @@ typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 func el(_ n: Int32) -> AXUIElement { AXUIElementCreateApplication(n) }
 func pidOf(_ e: AXUIElement) -> Int32 { var p: pid_t = 0; AXUIElementGetPid(e, &p); return p }
 struct Timeout: Error {}
-func judge(_ windows: Any?, _ roles: [Int32: Any]) -> Bool {
-    noWindowsAmong(el(1), read: { e, name in
+func judge(_ windows: Any?, _ roles: [Int32: Any], finder: Bool = true, parents: [Int32: Int32] = [:]) -> Bool {
+    noWindowsAmong(el(1), isFinder: finder, read: { e, name in
         let n = pidOf(e)
         if n == 1 {
             if let err = windows as? AXError { return (err, nil) }
             if let list = windows as? [Int32] { return (.success, list.map { el($0) } as CFArray) }
             return (.success, "x" as CFString)
+        }
+        if name == "AXParent" {
+            guard let p = parents[n] ?? (roles[n] != nil ? 1 : nil) else { return (.cannotComplete, nil) }
+            return (.success, el(p))
         }
         guard let r = roles[n] else { return (.noValue, nil) }
         if let err = r as? AXError { return (err, nil) }
@@ -276,7 +280,12 @@ func judge(_ windows: Any?, _ roles: [Int32: Any]) -> Bool {
 }
 let out: [String: Bool] = [
     "empty": judge([Int32](), [:]),
-    "desktop only": judge([Int32(2)], [2: "AXScrollArea"]),
+    "empty, not Finder": judge([Int32](), [:], finder: false),
+    "Finder desktop": judge([Int32(2)], [2: "AXScrollArea"]),
+    "scroll area in another app": judge([Int32(2)], [2: "AXScrollArea"], finder: false),
+    "scroll area with another parent": judge([Int32(2)], [2: "AXScrollArea"], parents: [2: 9]),
+    "a dialog": judge([Int32(2)], [2: "AXDialog"]),
+    "an unknown role": judge([Int32(2)], [2: "AXUnknown"]),
     "a window": judge([Int32(2), Int32(3)], [2: "AXScrollArea", 3: "AXWindow"]),
     "a sheet": judge([Int32(2)], [2: "AXSheet"]),
     "role unreadable": judge([Int32(2)], [2: AXError.cannotComplete]),
@@ -292,7 +301,9 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
             source.write_text(harness)
             result = subprocess.run(["swift", str(source)], capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual({"empty": True, "desktop only": True, "a window": False, "a sheet": False,
+        self.assertEqual({"empty": True, "empty, not Finder": True, "Finder desktop": True,
+                          "scroll area in another app": False, "scroll area with another parent": False,
+                          "a dialog": False, "an unknown role": False, "a window": False, "a sheet": False,
                           "role unreadable": False, "role missing": False, "role read times out": False,
                           "list unreadable": False, "list malformed": False}, json.loads(result.stdout))
 

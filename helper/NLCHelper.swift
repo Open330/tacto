@@ -2351,24 +2351,32 @@ func indicatorRefusal(_ what: String = "") -> [String: Any] {
             "detail": lead + advice + " 조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
 }
 
-/// True only when AXWindows was read successfully and nothing in it is a
-/// window: an empty list, or only non-window entries whose roles were all
-/// read — Finder with no window lists its desktop as one AXScrollArea (seen on
-/// june-mba, 2026-10-09). A failed read, a wrong type, an unreadable role or
-/// any AXWindow is not "no windows" (Codex review of 2b6b400 still holds).
-func noWindowsAmong(_ app: AXUIElement, read: AXRead) -> Bool {
+/// True only when AXWindows was read successfully and is empty — or, for
+/// Finder only, holds nothing but Finder's desktop: an AXScrollArea whose
+/// parent is the application itself (measured on this Mac and june-mba,
+/// 2026-10-09: Finder with no window lists exactly that). Any other entry —
+/// a window, a sheet, a dialog, an unknown role, a scroll area in another
+/// app or with another parent — or any failed read is not "no windows", and
+/// goes to the stream gate (Codex reviews of 2b6b400 and d032cad).
+func noWindowsAmong(_ app: AXUIElement, isFinder: Bool, read: AXRead) -> Bool {
     guard let (error, value) = try? read(app, kAXWindowsAttribute as String),
           error == .success, let windows = value as? [AXUIElement] else { return false }
+    if windows.isEmpty { return true }
+    guard isFinder else { return false }
     for element in windows {
         guard let (roleError, role) = try? read(element, kAXRoleAttribute as String),
-              roleError == .success, let name = role as? String, !name.isEmpty,
-              name != kAXWindowRole as String, name != "AXSheet" else { return false }
+              roleError == .success, (role as? String) == "AXScrollArea",
+              let (parentError, parent) = try? read(element, kAXParentAttribute as String),
+              parentError == .success, let parent,
+              CFGetTypeID(parent) == AXUIElementGetTypeID(),
+              CFEqual(parent as! AXUIElement, app) else { return false }
     }
     return true
 }
 
 func appSaysItHasNoWindows(_ pid: pid_t) -> Bool {
-    noWindowsAmong(AXUIElementCreateApplication(pid), read: { element, name in
+    let isFinder = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder"
+    return noWindowsAmong(AXUIElementCreateApplication(pid), isFinder: isFinder, read: { element, name in
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
         return (error, value)
