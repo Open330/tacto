@@ -442,6 +442,13 @@ class HelperDriver:
                 return {'type':'error', 'error':'window_input_unavailable', 'effect':'not_started', 'detail':problem}
             if risk_class not in ('confirm','preapproved') or approved is not True:
                 return {'type':'error','error':'window_input_authorization_required','effect':'not_started'}
+        if action.get('name') == 'menu' and 'focused_document' in action \
+                and 'action.menu.focused_document' not in getattr(self, 'capabilities', ()):
+            # An older helper ignores the field and presses anyway — Save on
+            # whatever is in front. Refused before anything is sent (Codex
+            # review of 31955f0).
+            return {'type': 'error', 'error': 'focused_document_guard_unavailable',
+                    'effect': 'not_started'}
         if action.get('name') == 'click_point':
             if risk_class not in ('confirm','preapproved') or approved is not True:
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started'}

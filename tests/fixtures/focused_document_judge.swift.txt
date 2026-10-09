@@ -1,0 +1,15 @@
+func judge(_ want: String, focused: String?, main: String?, canon: [String: String] = [:]) -> Bool {
+    focusedDocumentMismatch(want: want, shown: { name in name == "AXFocusedWindow" ? focused : main },
+        canonical: { p in canon[p] ?? p.precomposedStringWithCanonicalMapping }).isEmpty
+}
+let out: [String: Bool] = [
+    "the approved file in both windows": judge("/a/note.txt", focused: "/a/note.txt", main: "/a/note.txt"),
+    "same name, other folder focused": judge("/a/note.txt", focused: "/b/note.txt", main: "/a/note.txt"),
+    "main window shows another file": judge("/a/note.txt", focused: "/a/note.txt", main: "/b/note.txt"),
+    "focused window unreadable": judge("/a/note.txt", focused: nil, main: "/a/note.txt"),
+    "decomposed name reported (TextEdit)": judge("COMPOSED", focused: "DECOMPOSED", main: "DECOMPOSED"),
+    "approved path not canonical": judge("/a/../a/note.txt", focused: "/a/note.txt", main: "/a/note.txt",
+                                          canon: ["/a/../a/note.txt": "/a/note.txt"]),
+    "relative path": judge("note.txt", focused: "note.txt", main: "note.txt"),
+]
+print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)

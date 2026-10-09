@@ -61,24 +61,24 @@ class ExistingFileReceiptTests(unittest.TestCase):
         self.assertIs(type(proof), CommitEvidence)
 
     def test_no_write_no_receipt(self):
-        with self.assertRaisesRegex(ArtifactReceiptError, 'does not hold'):
+        with self.assertRaisesRegex(ArtifactReceiptError, 'file_does_not_hold_text'):
             self.run_save(self.receipt())
 
     def test_different_bytes_no_receipt(self):
-        with self.assertRaisesRegex(ArtifactReceiptError, 'does not hold'):
+        with self.assertRaisesRegex(ArtifactReceiptError, 'file_does_not_hold_text'):
             self.run_save(self.receipt(), lambda: Path(self.path).write_text('new text 4417\n', encoding='utf-8'))
 
     def test_text_or_document_changing_during_the_save_refuses(self):
         r = self.receipt()
         def edit():
             self.doc.text = 'something else'
-        with self.assertRaisesRegex(ArtifactReceiptError, 'changed'):
+        with self.assertRaisesRegex(ArtifactReceiptError, 'changed_during_save'):
             self.run_save(r, edit)
         r2 = ExistingTextFileReceipt(Doc(self.path, 'x'), document_path=self.path,
                                      timeout_seconds=0.2, poll_interval=0.01)
         event = save_event(self.path); ctx = r2.prepare_commit(event)
         r2._driver.token = 'other'
-        with self.assertRaisesRegex(ArtifactReceiptError, 'identity changed'):
+        with self.assertRaisesRegex(ArtifactReceiptError, 'document_identity_changed'):
             r2.after_commit(event, {}, ctx)
 
     def test_only_a_canonical_txt_path_and_only_that_document(self):
@@ -91,7 +91,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
         self.assertEqual(self.path, self.doc.selected)      # selected by path
         other = os.path.join(self.dir, 'other.txt'); Path(other).write_text('o')
         self.doc.path = other
-        with self.assertRaisesRegex(ArtifactReceiptError, 'different document'):
+        with self.assertRaisesRegex(ArtifactReceiptError, 'different_document'):
             self.receipt().prepare_commit(save_event(self.path))
 
     def test_a_symlinked_file_is_refused(self):
@@ -187,8 +187,8 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
         swift = (self.ROOT / 'helper/NLCHelper.swift').read_text()
         body = swift[swift.index('func focusedDocumentMismatch('):]
         body = body[:body.index('\n}\n')]
-        for needed in ('kAXFocusedWindowAttribute, kAXMainWindowAttribute', 'realpath(',
-                       'precomposedStringWithCanonicalMapping', 'documentPath('):
+        for needed in ('kAXFocusedWindowAttribute as String, kAXMainWindowAttribute as String',
+                       'precomposedStringWithCanonicalMapping'):
             self.assertIn(needed, body)
         case = swift[swift.index('    case "menu":'):swift.index('    case "open_folder":')]
         self.assertLess(case.index('focusedDocumentMismatch'), case.index('AXUIElementPerformAction(item'))
@@ -199,25 +199,100 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
         driver = (self.ROOT / 'nlc/driver.py').read_text()
         self.assertIn('elif name == "menu" and "focused_document" in action:', driver)
 
-    def test_preparation_errors_show_only_receipt_messages(self):
-        from nlc.flow import replay, Flow
+    def test_preparation_errors_show_only_closed_codes(self):
+        from nlc.flow import replay
         from nlc.library import textedit_save
+        from nlc.existing_file_receipt import _refuse
         class App:
-            capabilities = set()
+            capabilities = {'action.menu.focused_document'}
             def observe(self, *a, **k):
                 return {'type': 'observation', 'obs_id': 'o',
                         'tree': '0 Window  Title: note.txt [focused]'}
             def act(self, *a, **k): raise AssertionError('acted')
             def wait_until(self, *a, **k): return self.observe()
         def leak(event): raise RuntimeError('SECRET document text')
-        def safe(event): raise ArtifactReceiptError('document has no canonical file path')
+        def leak_receipt(event): raise ArtifactReceiptError('PRIVATE_TEST_TEXT_SENTINEL')
+        def coded(event): raise _refuse('no_canonical_path')
         flow = textedit_save().bind(document='/tmp/a/note.txt', name='note.txt')
-        for prepare, shown in ((leak, 'RuntimeError'),
-                               (safe, 'ArtifactReceiptError: document has no canonical file path')):
+        for prepare, shown in ((leak, "'RuntimeError'"), (leak_receipt, "'ArtifactReceiptError'"),
+                               (coded, 'ArtifactReceiptError: no_canonical_path')):
             result = replay(App(), flow, approvals={0: True}, prepare_commit=prepare)
             detail = str(result.log[-1])
             self.assertIn(shown, detail)
             self.assertNotIn('SECRET', detail)
+            self.assertNotIn('PRIVATE_TEST_TEXT_SENTINEL', detail)
+
+
+class FocusedDocumentCapabilityGateTests(unittest.TestCase):
+    """Without the helper-side check, nothing is sent (Codex review of 31955f0)."""
+
+    def test_helper_driver_sends_nothing_without_the_capability(self):
+        from nlc.helper import HelperDriver
+        driver = HelperDriver.__new__(HelperDriver)
+        driver.capabilities = {'action.menu', 'evidence.document_text'}
+        sent = []
+        driver._send = lambda msg: sent.append(msg) or {'type': 'acted'}
+        result = driver.act('o', 'com.apple.TextEdit',
+                            {'name': 'menu', 'path': SAVE_PATH, 'focused_document': '/tmp/a.txt'},
+                            risk_class='preapproved', approved=True)
+        self.assertEqual([], sent)
+        self.assertEqual(('focused_document_guard_unavailable', 'not_started'),
+                         (result.get('error'), result.get('effect')))
+
+    def test_replay_refuses_before_input_without_the_capability(self):
+        from nlc.flow import replay
+        from nlc.library import textedit_save
+        class Old:
+            capabilities = {'action.menu', 'evidence.document_text'}
+            acted = []
+            def observe(self, *a, **k):
+                return {'type': 'observation', 'obs_id': 'o', 'tree': '0 Window  Title: note.txt [focused]'}
+            def act(self, *a, **k): self.acted.append(a); return {'type': 'acted'}
+            def wait_until(self, *a, **k): return self.observe()
+        app = Old()
+        result = replay(app, textedit_save().bind(document='/tmp/a/note.txt', name='note.txt'),
+                        approvals={0: True})
+        self.assertEqual([], app.acted)
+        self.assertEqual('focused_document_guard_unavailable', result.log[-1].get('error'))
+
+    def test_receipt_needs_the_capability(self):
+        class TextOnly:
+            capabilities = {'evidence.document_text'}
+            def document_text(self, *a, **k): return {}
+        with self.assertRaisesRegex(ExistingFileReceiptUnavailable, 'no_focused_document_guard'):
+            ExistingTextFileReceipt(TextOnly(), document_path=os.path.realpath(tempfile.gettempdir()) + '/x.txt')
+
+
+class FocusedDocumentSwiftTests(unittest.TestCase):
+    """The helper's real focusedDocumentMismatch with fake reads."""
+
+    def test_cases(self):
+        import json, shutil, subprocess, unicodedata
+        if not shutil.which('swift'):
+            self.skipTest('Swift required')
+        root = Path(__file__).resolve().parents[1]
+        swift = (root / 'helper/NLCHelper.swift').read_text()
+        start = swift.index("/// \"\" when the app's focused and main windows both show `want`")
+        code = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String) -> String {')]
+        composed = '/d/' + '노트' + '.txt'
+        decomposed = unicodedata.normalize('NFD', composed)
+        tail = (root / 'tests/fixtures/focused_document_judge.swift.txt').read_text(encoding='utf-8')
+        tail = tail.replace('DECOMPOSED', decomposed).replace('COMPOSED', composed)
+        harness = 'import Foundation\nimport ApplicationServices\n' + code + tail
+        with tempfile.TemporaryDirectory(prefix='nlc-focused-doc-') as d:
+            src = Path(d) / 'main.swift'
+            src.write_text(harness, encoding='utf-8')
+            run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual({
+            "the approved file in both windows": True,
+            "same name, other folder focused": False,
+            "main window shows another file": False,
+            "focused window unreadable": False,
+            "decomposed name reported (TextEdit)": True,
+            "approved path not canonical": False,
+            "relative path": False,
+        }, json.loads(run.stdout))
 
 if __name__ == '__main__':
     unittest.main()

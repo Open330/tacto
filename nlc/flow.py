@@ -1777,6 +1777,14 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 res.record(status="error", step=i, error="window_preparation_contract_required",
                            detail="prepare_window needs capability, window selector and exact observed result")
                 return res
+        if (step.action == "menu" and isinstance(step.params, dict)
+                and "focused_document" in step.params
+                and "action.menu.focused_document" not in getattr(driver, "capabilities", ())):
+            # A backend that does not check the focused file would ignore the
+            # field and press; refused before any input (Codex review of 31955f0).
+            res.record(status="error", step=i, error="focused_document_guard_unavailable",
+                       effect="not_started")
+            return res
         if step.action == "press_key" and "press_key.element_bound" in getattr(driver, "capabilities", ()):
             from .protocol import NAVIGATION_KEYS, RETURN_CAPABILITY, SUBMIT_KEYS
             key = step.params.get('key')
@@ -2108,9 +2116,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     # say: its own error messages are fixed strings; anything
                     # else may carry document text, so only its class is shown
                     # (Codex review of 4d04b80).
-                    from .artifact_receipt import ArtifactReceiptError
-                    shown = (f"{type(exc).__name__}: {str(exc)[:200]}"
-                             if isinstance(exc, ArtifactReceiptError) else type(exc).__name__)
+                    # Only a closed public code is shown; never an exception's
+                    # message (any subclass could carry document text).
+                    from .existing_file_receipt import PUBLIC_CODES
+                    code = getattr(exc, "public_code", None)
+                    shown = (f"{type(exc).__name__}: {code}" if code in PUBLIC_CODES
+                             else type(exc).__name__)
                     return {"type": "error", "error": "host_evidence_preparation_failed",
                             "effect": "not_started", "detail": shown}
             from .commit_evidence import save_panel_dispatch_parameters

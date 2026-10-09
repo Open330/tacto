@@ -1467,6 +1467,12 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 return ["type": "error", "error": "action_failed", "effect": "not_started",
                         "detail": "포커스된 문서가 승인한 파일이 아니어서 누르지 않았습니다 (\(why))"]
             }
+            // The check took time; stop and the deadline are asked again
+            // right before the press (Codex review of 31955f0).
+            guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline else {
+                return ["type": "error", "error": abortState.isStopped ? "aborted_by_user" : "input_deadline_expired",
+                        "effect": "not_started", "detail": "문서 확인 뒤 중단되었거나 기한이 지났습니다"]
+            }
         }
         let menuError = AXUIElementPerformAction(item, kAXPressAction as CFString)
         if menuError != .success {
@@ -2986,29 +2992,39 @@ func documentEnumerate(_ p: pid_t, selectedWindow: AXUIElement? = nil,
 /// local file URL naming a canonical absolute path, because a path that is not
 /// canonical does not identify one file.
 /// "" when the app's focused and main windows both show `want` (canonical,
-/// NFC); otherwise why not. Any failed read is a mismatch.
-func focusedDocumentMismatch(pid: pid_t, want: String) -> String {
-    func canonical(_ path: String) -> String? {
-        guard let real = realpath(path, nil) else { return nil }
-        defer { free(real) }
-        return String(cString: real).precomposedStringWithCanonicalMapping
-    }
-    guard let wanted = canonical(want), wanted == want.precomposedStringWithCanonicalMapping else {
+/// NFC); otherwise why not. Any failed read is a mismatch. `shown` reads one
+/// window attribute's document path (nil: unreadable, none, or not a file);
+/// `canonical` resolves a path (nil: unresolvable). Both are injected so the
+/// real function is tested with fakes.
+func focusedDocumentMismatch(want: String, shown: (String) -> String?,
+                             canonical: (String) -> String?) -> String {
+    guard want.hasPrefix("/"), let wanted = canonical(want),
+          wanted == want.precomposedStringWithCanonicalMapping else {
         return "approved path is not canonical"
     }
-    let app = AXUIElementCreateApplication(pid)
-    for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, name as CFString, &value) == .success,
-              let window = value, CFGetTypeID(window) == AXUIElementGetTypeID() else {
-            return "\(name) unreadable"
-        }
-        guard let path = (try? documentPath(window as! AXUIElement)) ?? nil,
-              let real = canonical(path), real == wanted else {
+    for name in [kAXFocusedWindowAttribute as String, kAXMainWindowAttribute as String] {
+        guard let path = shown(name), let real = canonical(path), real == wanted else {
             return "\(name) shows another or no file"
         }
     }
     return ""
+}
+
+func focusedDocumentMismatch(pid: pid_t, want: String) -> String {
+    let app = AXUIElementCreateApplication(pid)
+    _ = AXUIElementSetMessagingTimeout(app, 0.5)
+    defer { _ = AXUIElementSetMessagingTimeout(app, 0) }
+    return focusedDocumentMismatch(want: want, shown: { name in
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, name as CFString, &value) == .success,
+              let window = value, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        _ = AXUIElementSetMessagingTimeout(window as! AXUIElement, 0.5)
+        return (try? documentPath(window as! AXUIElement)) ?? nil
+    }, canonical: { path in
+        guard let real = realpath(path, nil) else { return nil }
+        defer { free(real) }
+        return String(cString: real).precomposedStringWithCanonicalMapping
+    })
 }
 
 func documentPath(_ window: AXUIElement) throws -> String? {

@@ -50,6 +50,26 @@ class ExistingFileReceiptUnavailable(ArtifactReceiptError):
     """The backend cannot witness this document's file."""
 
 
+# What replay may show about a refusal: these codes and nothing else — never
+# an exception's message, which could quote the document (Codex review of
+# 31955f0).
+PUBLIC_CODES = frozenset({
+    'file_unreadable', 'not_a_regular_owned_file', 'file_over_budget',
+    'path_not_canonical_txt', 'no_text_witness', 'no_focused_document_guard',
+    'text_unavailable', 'document_identity_changed', 'no_canonical_path',
+    'different_document', 'already_prepared', 'not_a_bound_save',
+    'event_malformed', 'already_used', 'commit_mismatch',
+    'changed_during_save', 'file_does_not_hold_text',
+})
+
+
+def _refuse(code, cls=ArtifactReceiptError):
+    assert code in PUBLIC_CODES, code
+    error = cls(code)
+    error.public_code = code
+    return error
+
+
 @dataclass(frozen=True)
 class _Prepared:
     event_id: str
@@ -69,19 +89,19 @@ def _file_state(path):
     try:
         before = os.lstat(path)
     except OSError as exc:
-        raise ArtifactReceiptError(f'document file unreadable: {exc.strerror}') from None
+        raise _refuse('file_unreadable') from None
     if not stat.S_ISREG(before.st_mode):
-        raise ArtifactReceiptError('document file must be an owned regular file with one link')
+        raise _refuse('not_a_regular_owned_file')
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
-        raise ArtifactReceiptError(f'document file unreadable: {exc.strerror}') from None
+        raise _refuse('file_unreadable') from None
     try:
         st = os.fstat(fd)
         if (not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino)
                 or st.st_uid != os.getuid()
                 or st.st_nlink != 1 or st.st_size > MAX_BYTES):
-            raise ArtifactReceiptError('document file must be an owned regular file with one link')
+            raise _refuse('not_a_regular_owned_file')
         chunks, total = [], 0
         while True:
             chunk = os.read(fd, 65536)
@@ -89,7 +109,7 @@ def _file_state(path):
                 break
             total += len(chunk)
             if total > MAX_BYTES:
-                raise ArtifactReceiptError('document file exceeds readback budget')
+                raise _refuse('file_over_budget')
             chunks.append(chunk)
         data = b''.join(chunks)
         return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns,
@@ -108,11 +128,15 @@ class ExistingTextFileReceipt:
         if (not isinstance(document_path, str) or not os.path.isabs(document_path)
                 or '\0' in document_path or os.path.realpath(document_path) != document_path
                 or not document_path.endswith('.txt')):
-            raise ExistingFileReceiptUnavailable('a canonical absolute .txt document path is required')
+            raise _refuse('path_not_canonical_txt', ExistingFileReceiptUnavailable)
         self._path = document_path
-        if (TEXT_CAPABILITY not in (getattr(driver, 'capabilities', ()) or ())
-                or not callable(getattr(driver, 'document_text', None))):
-            raise ExistingFileReceiptUnavailable('driver lacks a document text witness')
+        capabilities = getattr(driver, 'capabilities', ()) or ()
+        if TEXT_CAPABILITY not in capabilities or not callable(getattr(driver, 'document_text', None)):
+            raise _refuse('no_text_witness', ExistingFileReceiptUnavailable)
+        if FOCUSED_DOCUMENT_CAPABILITY not in capabilities:
+            # Without the helper-side file check the press could save another
+            # document; no receipt is offered for that (Codex review of 31955f0).
+            raise _refuse('no_focused_document_guard', ExistingFileReceiptUnavailable)
         for name, number in (('timeout_seconds', timeout_seconds), ('poll_interval', poll_interval)):
             if type(number) not in (int, float) or not math.isfinite(number) or number <= 0:
                 raise ValueError(f'{name} must be finite and positive')
@@ -135,23 +159,20 @@ class ExistingTextFileReceipt:
         if (not isinstance(result, dict) or result.get('type') != 'document_text'
                 or not isinstance(result.get('document_token'), str) or not result['document_token']
                 or not isinstance(result.get('text'), str) or result.get('text_complete') is not True):
-            # The backend's error CODE only: its detail may quote the document.
-            why = (str(result.get('error'))[:60]
-                   if isinstance(result, dict) and result.get('type') == 'error' else 'malformed reply')
-            raise ExistingFileReceiptUnavailable(f'complete document text unavailable ({why})')
+            raise _refuse('text_unavailable', ExistingFileReceiptUnavailable)
         if token is not None and result['document_token'] != token:
-            raise ArtifactReceiptError('document identity changed')
+            raise _refuse('document_identity_changed')
         path = result.get('document_path')
         if (not isinstance(path, str) or not os.path.isabs(path) or '\0' in path
                 or os.path.realpath(path) != path):
-            raise ExistingFileReceiptUnavailable('document has no canonical file path')
+            raise _refuse('no_canonical_path', ExistingFileReceiptUnavailable)
         if path != self._path:
-            raise ArtifactReceiptError('backend read a different document')
+            raise _refuse('different_document')
         return result['document_token'], path, result['text']
 
     def prepare_commit(self, event):
         if self._prepared is not None:
-            raise ArtifactReceiptError('receipt already prepared')
+            raise _refuse('already_prepared')
         action, effects = event.get('action'), set(event.get('effects') or ())
         if (event.get('target') != TARGET or not isinstance(action, dict)
                 or action.get('name') != 'menu'
@@ -161,10 +182,10 @@ class ExistingTextFileReceipt:
                 or action.get('focused_document') != self._path
                 or 'write_persistent' not in effects
                 or effects - {'read', 'write_ephemeral', 'write_persistent'}):
-            raise ArtifactReceiptError('receipt covers only File > Save of a TextEdit document')
+            raise _refuse('not_a_bound_save')
         digest = action_digest(action, event['effects'], TARGET, obs_id=event.get('obs_id'))
         if event.get('action_digest') != digest or not isinstance(event.get('event_id'), str):
-            raise ArtifactReceiptError('commit event malformed')
+            raise _refuse('event_malformed')
         token, path, text = self._read()
         before = _file_state(path)[:5]
         self._prepared = _Prepared(event['event_id'], digest, token, path, text, before)
@@ -172,26 +193,26 @@ class ExistingTextFileReceipt:
 
     def after_commit(self, event, driver_result, context):
         if self._after_used:
-            raise ArtifactReceiptError('receipt already used')
+            raise _refuse('already_used')
         self._after_used = True
         prepared = self._prepared
         if (type(context) is not _Prepared or context is not prepared
                 or event.get('event_id') != prepared.event_id
                 or event.get('action_digest') != prepared.action_digest):
-            raise ArtifactReceiptError('commit does not match the prepared save')
+            raise _refuse('commit_mismatch')
         expected = prepared.text.encode('utf-8')
         deadline = self._clock() + self._timeout
         while True:
             token, path, text = self._read(prepared.token)
             if path != prepared.path or text != prepared.text:
-                raise ArtifactReceiptError('document text or file changed during the save')
+                raise _refuse('changed_during_save')
             state = _file_state(path)
             if state[5] == expected:
                 return CommitEvidence(prepared.event_id, prepared.action_digest,
                                       ArtifactEvidence(uuid.uuid4().hex, path,
                                                        hashlib.sha256(prepared.text.encode()).hexdigest()))
             if self._clock() >= deadline:
-                raise ArtifactReceiptError('file does not hold the document text')
+                raise _refuse('file_does_not_hold_text')
             self._sleep(self._poll)
 
 
