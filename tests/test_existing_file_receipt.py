@@ -226,8 +226,17 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
         def leak_receipt(event): raise ArtifactReceiptError('PRIVATE_TEST_TEXT_SENTINEL')
         def coded(event): raise _refuse('no_canonical_path')
         flow = textedit_save().bind(document='/tmp/a/note.txt', name='note.txt')
-        for prepare, shown in ((leak, "'RuntimeError'"), (leak_receipt, "'ArtifactReceiptError'"),
-                               (coded, 'ArtifactReceiptError: no_canonical_path')):
+        def malformed(value):
+            def raise_it(event):
+                error = ArtifactReceiptError('PRIVATE_TEST_TEXT_SENTINEL')
+                error.public_code = value
+                raise error
+            return raise_it
+        cases = [(leak, "'RuntimeError'"), (leak_receipt, "'ArtifactReceiptError'"),
+                 (coded, 'ArtifactReceiptError: no_canonical_path')]
+        # a malformed public_code (unhashable, wrong type, unknown) shows the class only
+        cases += [(malformed(v), "'ArtifactReceiptError'") for v in ([], {}, None, 3, 'not_a_code')]
+        for prepare, shown in cases:
             result = replay(App(), flow, approvals={0: True}, prepare_commit=prepare)
             detail = str(result.log[-1])
             self.assertIn(shown, detail)

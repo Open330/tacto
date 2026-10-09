@@ -2120,7 +2120,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     # message (any subclass could carry document text).
                     from .existing_file_receipt import PUBLIC_CODES
                     code = getattr(exc, "public_code", None)
-                    shown = (f"{type(exc).__name__}: {code}" if code in PUBLIC_CODES
+                    shown = (f"{type(exc).__name__}: {code}"
+                             if type(code) is str and code in PUBLIC_CODES
                              else type(exc).__name__)
                     return {"type": "error", "error": "host_evidence_preparation_failed",
                             "effect": "not_started", "detail": shown}
