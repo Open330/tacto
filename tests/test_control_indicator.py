@@ -224,7 +224,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         text = (ROOT / "helper/NLCHelper.swift").read_text()
         body = text[text.index("func ensureVisibleControl("):]
         body = body[:body.index("\n}\n")]
-        self.assertIn("return ensureControlStream(forPID: pid)", body)
+        self.assertIn("guard ensureControlStream(forPID: pid) else", body)
         # With a window, the menu-bar item is best effort: the gate is the
         # stream. With NO window of its own there is nothing to stream and
         # nothing being read, and refusing blocked the menu command that would
@@ -235,8 +235,9 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         # come from a successful read (a failed read is not "none"), and the
         # item must be reported on screen.
         self.assertIn("if windowless && appSaysItHasNoWindows(pid)", body)
-        windowless = body[body.index("if windowless &&"):body.index("return ensureControlStream")]
-        self.assertIn("return shown && DispatchQueue.main.sync { controlItemOnScreen() }", windowless)
+        windowless = body[body.index("if windowless &&"):body.index("guard ensureControlStream")]
+        self.assertIn("guard shown else", windowless)
+        self.assertIn("controlItemOnScreen()", windowless)
         probe = text[text.index("func noWindowsAmong("):]
         probe = probe[:probe.index("\n}\n")]
         self.assertIn("error == .success, let windows = value as? [AXUIElement] else { return false }", probe)
@@ -334,8 +335,17 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
     def test_the_refusal_names_the_permission_it_needs(self):
         # "조작 표시를 띄울 수 없습니다" told nobody what to do about it, and the
         # cause is now one specific switch.
+        # Since 2026-10-09 the refusal says WHICH gate refused: the Screen
+        # Recording advice is given only when the stream could not start; a
+        # menu-bar item that is not on screen says that instead (june-mba).
         text = (ROOT / "helper/NLCHelper.swift").read_text()
-        self.assertEqual(text.count("화면 기록 에서 'NLC Helper'"), 4)
+        body = text[text.index("func indicatorRefusal("):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("화면 기록 에서", body)
+        self.assertIn("'NLC Helper' 가 켜져 있는지", body)
+        self.assertIn('case "menu_item_not_on_screen":', body)
+        self.assertIn('"reason": reason', body)
+        self.assertEqual(3, text.count("return indicatorRefusal("))
 
     def test_the_held_stream_keeps_nothing(self):
         # It is lit by really capturing, so it takes the least it can: the

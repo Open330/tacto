@@ -537,9 +537,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         return ["type": "error", "error": "aborted_by_user"]
     }
     guard ensureVisibleControl(forPID: p, windowless: true) else {
-        return ["type": "error", "error": "indicator_unavailable",
-                "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
-                          + "조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
+        return indicatorRefusal()
     }
     var lines: [String] = []
     var elements: [AXUIElement] = []
@@ -1199,10 +1197,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 "detail": "사용자가 Esc로 중단했습니다"]
     }
     guard ensureVisibleControl(forPID: p, windowless: ["menu", "open_folder"].contains((action["name"] as? String) ?? "")) else {
-        return ["type": "error", "error": "indicator_unavailable",
-                "effect": "not_started",
-                "detail": "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요. "
-                          + "조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
+        return indicatorRefusal()
     }
     let name = action["name"] as? String ?? ""
 
@@ -2313,9 +2308,38 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
             controlStream = nil
             controlStreamWindow = nil
         }
-        return shown && DispatchQueue.main.sync { controlItemOnScreen() }
+        guard shown else { lastIndicatorRefusal = "menu_item_unavailable"; return false }
+        guard DispatchQueue.main.sync(execute: { controlItemOnScreen() }) else {
+            lastIndicatorRefusal = "menu_item_not_on_screen"; return false
+        }
+        return true
     }
-    return ensureControlStream(forPID: pid)
+    guard ensureControlStream(forPID: pid) else { lastIndicatorRefusal = "stream_unavailable"; return false }
+    return true
+}
+
+/// Why the last ensureVisibleControl refused. One message told everyone to
+/// grant Screen Recording; on june-mba (granted) the real reason was another
+/// (2026-10-09), so the refusal now says which gate it was.
+var lastIndicatorRefusal = ""
+
+func indicatorRefusal(_ what: String = "") -> [String: Any] {
+    let reason = lastIndicatorRefusal.isEmpty ? "stream_unavailable" : lastIndicatorRefusal
+    let lead = "조작 표시를 켤 수 없어 \(what.isEmpty ? "" : what + " 를 ")중단했습니다 — "
+    let advice: String
+    switch reason {
+    case "menu_item_not_on_screen":
+        advice = "메뉴바의 'NLC' 표시가 화면에 보이지 않습니다(메뉴바가 가득 차 넘침 영역에 들어갔을 수 있습니다). "
+               + "다른 메뉴바 항목을 줄이거나 앱의 창을 하나 연 뒤 다시 시도해 주세요."
+    case "menu_item_unavailable":
+        advice = "메뉴바에 'NLC' 표시를 만들지 못했습니다."
+    default:
+        advice = "화면 기록 표시를 시작하지 못했습니다. 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 "
+               + "'NLC Helper' 가 켜져 있는지 확인해 주세요."
+    }
+    return ["type": "error", "error": "indicator_unavailable", "effect": "not_started",
+            "reason": reason,
+            "detail": lead + advice + " 조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
 }
 
 /// True only when AXWindows was read successfully and nothing in it is a
@@ -3761,10 +3785,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     if let kind, reaching.contains(kind) || kind == "capture",
        let target = msg["target"] as? String, let p = pid(forBundle: target) {
         guard ensureVisibleControl(forPID: p, windowless: kind == "menu_state" || kind == "menu_items") else {
-            return ["type": "error", "error": "indicator_unavailable",
-                    "effect": "not_started",
-                    "detail": "조작 표시를 켤 수 없어 \(kind) 를 중단했습니다 — 시스템 설정 > "
-                              + "개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요"]
+            return indicatorRefusal(kind)
         }
     }
 
