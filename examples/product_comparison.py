@@ -606,13 +606,24 @@ def _newdir_children():
         return None
 
 
+def _real_folder(path):
+    """A directory itself, not a link to one (Codex review of 02aff15:
+    os.path.isdir follows symlinks, so a link to an outside folder passed)."""
+    import os
+    import stat
+    try:
+        return stat.S_ISDIR(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
 def newdir_oracle(answer):
     """Exactly one new entry, a folder, and the answer names it."""
     import os
     children = _newdir_children()
     if children is None:
         return False, "folder unobservable"
-    folders = [c for c in children if os.path.isdir(os.path.join(_NEWDIR["path"], c))]
+    folders = [c for c in children if _real_folder(os.path.join(_NEWDIR["path"], c))]
     ok = len(children) == 1 and len(folders) == 1 and folders[0] in answer
     return ok, f"children={children}"
 
@@ -625,7 +636,7 @@ def newdir_cleanup():
     if children is None:
         return "not_observable_left_as_is"
     base = _NEWDIR["path"]
-    if not all(os.path.isdir(os.path.join(base, c)) and not os.listdir(os.path.join(base, c))
+    if not all(_real_folder(os.path.join(base, c)) and not os.listdir(os.path.join(base, c))
                for c in children):
         return "unexpected_contents_left_as_is"
     shutil.rmtree(base)
@@ -634,17 +645,29 @@ def newdir_cleanup():
 
 
 def _appearance():
-    """Light, Dark or Auto, from the user defaults System Settings writes."""
+    """Light, Dark or Auto, from the user defaults System Settings writes —
+    or None when a read failed. A key that does not exist is a real answer
+    (Light is the default); a failed read is not (Codex review of 02aff15)."""
     def read(key):
         r = subprocess.run(["defaults", "read", "-g", key], capture_output=True, text=True)
-        return r.stdout.strip() if r.returncode == 0 else None
-    if read("AppleInterfaceStyleSwitchesAutomatically") == "1":
-        return "Auto"
-    return "Dark" if read("AppleInterfaceStyle") == "Dark" else "Light"
+        if r.returncode == 0:
+            return r.stdout.strip()
+        # macOS 27: "Could not find key …"; older: "… does not exist".
+        if "Could not find key" in r.stderr or "does not exist" in r.stderr:
+            return ""
+        raise RuntimeError(key)
+    try:
+        if read("AppleInterfaceStyleSwitchesAutomatically") == "1":
+            return "Auto"
+        return "Dark" if read("AppleInterfaceStyle") == "Dark" else "Light"
+    except (RuntimeError, OSError):
+        return None
 
 
 def appearance_oracle(answer):
     want = _appearance()
+    if want is None:
+        return False, "appearance unobservable"
     said = {w for w in ("Light", "Dark", "Auto") if re.search(rf"\b{w}\b", answer, re.I)}
     return said == {want}, f"want {want}; said {sorted(said)}"
 

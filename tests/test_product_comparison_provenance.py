@@ -435,6 +435,33 @@ class NewTaskOracleTests(unittest.TestCase):
         self.assertEqual('folder_removed', self.P.newdir_cleanup())
         self.assertFalse(os.path.exists(base))
 
+    def test_a_link_to_a_folder_is_not_a_new_folder(self):
+        import os, tempfile
+        self.P.newdir_setup()
+        base = self.P._NEWDIR['path']
+        self.addCleanup(lambda: _real_rmtree(base, True))
+        outside = tempfile.mkdtemp(); self.addCleanup(lambda: _real_rmtree(outside, True))
+        os.symlink(outside, os.path.join(base, 'linked'))
+        self.assertFalse(self.P.newdir_oracle('linked')[0])
+        self.assertEqual('unexpected_contents_left_as_is', self.P.newdir_cleanup())
+        self.assertTrue(os.path.isdir(outside))
+
+    def test_a_failed_defaults_read_is_unobservable_not_light(self):
+        def run(argv, **k):
+            return types.SimpleNamespace(returncode=1, stdout='', stderr='permission denied')
+        with patch.object(self.P.subprocess, 'run', side_effect=run):
+            self.assertIsNone(self.P._appearance())
+            self.assertEqual((False, 'appearance unobservable'), self.P.appearance_oracle('Light'))
+        def missing(argv, **k):
+            return types.SimpleNamespace(returncode=1, stdout='', stderr='The domain/default pair does not exist')
+        with patch.object(self.P.subprocess, 'run', side_effect=missing):
+            self.assertEqual('Light', self.P._appearance())
+        def missing27(argv, **k):   # the wording macOS 27 actually prints
+            return types.SimpleNamespace(returncode=1, stdout='',
+                stderr="Error: Could not find key 'AppleInterfaceStyle' in domain 'kCFPreferencesAnyApplication'.")
+        with patch.object(self.P.subprocess, 'run', side_effect=missing27):
+            self.assertEqual('Light', self.P._appearance())
+
     def test_appearance_must_name_only_the_right_mode(self):
         with patch.object(self.P, '_appearance', return_value='Light'):
             self.assertTrue(self.P.appearance_oracle('Appearance is set to Light.')[0])
