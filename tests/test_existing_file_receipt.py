@@ -11,7 +11,7 @@ from nlc.existing_file_receipt import (SAVE_PATH, ExistingFileReceiptUnavailable
 
 
 class Doc:
-    capabilities = {'evidence.document_text'}
+    capabilities = {'evidence.document_text', 'action.menu.focused_document'}
 
     def __init__(self, path, text):
         self.path, self.text, self.token = path, text, 'tok'
@@ -22,9 +22,9 @@ class Doc:
                 'text_complete': True, 'document_path': self.path}
 
 
-def save_event(obs='o'):
-    return make_event({'name': 'menu', 'path': SAVE_PATH}, {'write_persistent'},
-                      'com.apple.TextEdit', obs_id=obs)
+def save_event(path, obs='o'):
+    return make_event({'name': 'menu', 'path': SAVE_PATH, 'focused_document': path},
+                      {'write_persistent'}, 'com.apple.TextEdit', obs_id=obs)
 
 
 class ExistingFileReceiptTests(unittest.TestCase):
@@ -40,7 +40,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
                                        timeout_seconds=0.2, poll_interval=0.01, **k)
 
     def run_save(self, receipt, write=None):
-        event = save_event()
+        event = save_event(self.path)
         context = receipt.prepare_commit(event)
         if write is not None:
             write()
@@ -76,7 +76,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
             self.run_save(r, edit)
         r2 = ExistingTextFileReceipt(Doc(self.path, 'x'), document_path=self.path,
                                      timeout_seconds=0.2, poll_interval=0.01)
-        event = save_event(); ctx = r2.prepare_commit(event)
+        event = save_event(self.path); ctx = r2.prepare_commit(event)
         r2._driver.token = 'other'
         with self.assertRaisesRegex(ArtifactReceiptError, 'identity changed'):
             r2.after_commit(event, {}, ctx)
@@ -87,12 +87,12 @@ class ExistingFileReceiptTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ExistingFileReceiptUnavailable):
                 self.receipt(document_path=path)
         r = self.receipt()
-        r.prepare_commit(save_event())
+        r.prepare_commit(save_event(self.path))
         self.assertEqual(self.path, self.doc.selected)      # selected by path
         other = os.path.join(self.dir, 'other.txt'); Path(other).write_text('o')
         self.doc.path = other
         with self.assertRaisesRegex(ArtifactReceiptError, 'different document'):
-            self.receipt().prepare_commit(save_event())
+            self.receipt().prepare_commit(save_event(self.path))
 
     def test_a_symlinked_file_is_refused(self):
         real = os.path.join(self.dir, 'real.txt'); Path(real).write_text('old')
@@ -103,18 +103,29 @@ class ExistingFileReceiptTests(unittest.TestCase):
 
     def test_only_file_save_menu_and_once(self):
         r = self.receipt()
-        for action in ({'name': 'menu', 'path': ['File', 'Save As…']},
+        for action in ({'name': 'menu', 'path': ['File', 'Save As…'], 'focused_document': self.path},
+                       {'name': 'menu', 'path': SAVE_PATH},                       # unbound press
+                       {'name': 'menu', 'path': SAVE_PATH, 'focused_document': self.path + 'x'},
                        {'name': 'click', 'element_index': 3}):
             event = make_event(action, {'write_persistent'}, 'com.apple.TextEdit', obs_id='o')
             with self.subTest(action=action), self.assertRaises(ArtifactReceiptError):
                 r.prepare_commit(event)
-        event = save_event(); ctx = r.prepare_commit(event)
+        event = save_event(self.path); ctx = r.prepare_commit(event)
         with self.assertRaises(ArtifactReceiptError):
-            r.prepare_commit(save_event())
+            r.prepare_commit(save_event(self.path))
         Path(self.path).write_text('new text 4417', encoding='utf-8')
         r.after_commit(event, {}, ctx)
         with self.assertRaises(ArtifactReceiptError):
             r.after_commit(event, {}, ctx)
+
+    def test_a_fifo_named_txt_is_refused_without_blocking(self):
+        fifo = os.path.join(self.dir, 'pipe.txt'); os.mkfifo(fifo)
+        self.doc.path = fifo
+        import time
+        started = time.monotonic()
+        with self.assertRaises(ArtifactReceiptError):
+            self.receipt(document_path=fifo).prepare_commit(save_event(fifo))
+        self.assertLess(time.monotonic() - started, 1.0)
 
     def test_driver_without_text_witness_is_unavailable(self):
         class Bare: capabilities = set()
@@ -151,8 +162,9 @@ class RecipeWiringTests(unittest.TestCase):
         self.assertIsNone(self.agent.commit_adapter_for(changed))
         reworded = replace(flow, steps=[replace(flow.steps[0], intent_text='다른 설명')])
         self.assertIsNone(self.agent.commit_adapter_for(reworded))
-        self.agent.driver = type('NoText', (), {'capabilities': set()})()
-        self.assertIsNone(self.agent.commit_adapter_for(self.bound(self.doc, 'note.txt')))
+        for caps in (set(), {'evidence.document_text'}):     # no witness / no helper-side file check
+            self.agent.driver = type('Partial', (), {'capabilities': caps})()
+            self.assertIsNone(self.agent.commit_adapter_for(self.bound(self.doc, 'note.txt')))
 
     def test_the_consent_text_names_the_file(self):
         flow = self.bound(self.doc, 'note.txt')
@@ -160,6 +172,52 @@ class RecipeWiringTests(unittest.TestCase):
         self.assertEqual('note.txt', flow.steps[0].binding.resource_identity)
         # the witness is rendered too: the focused window titled note.txt
         self.assertEqual('note.txt', flow.steps[0].binding.resource_identity_from['title'])
+
+
+class FocusedDocumentBoundaryTests(unittest.TestCase):
+    """The press is bound to the file by the helper, not by a title match."""
+    ROOT = Path(__file__).resolve().parents[1]
+
+    def test_recipe_binds_the_press_to_the_file(self):
+        from nlc.library import textedit_save
+        step = textedit_save().bind(document='/tmp/a/note.txt', name='note.txt').steps[0]
+        self.assertEqual('/tmp/a/note.txt', step.params['focused_document'])
+
+    def test_helper_checks_focused_and_main_windows_canonically(self):
+        swift = (self.ROOT / 'helper/NLCHelper.swift').read_text()
+        body = swift[swift.index('func focusedDocumentMismatch('):]
+        body = body[:body.index('\n}\n')]
+        for needed in ('kAXFocusedWindowAttribute, kAXMainWindowAttribute', 'realpath(',
+                       'precomposedStringWithCanonicalMapping', 'documentPath('):
+            self.assertIn(needed, body)
+        case = swift[swift.index('    case "menu":'):swift.index('    case "open_folder":')]
+        self.assertLess(case.index('focusedDocumentMismatch'), case.index('AXUIElementPerformAction(item'))
+
+    def test_launcher_and_driver(self):
+        launcher = (self.ROOT / 'launcher/nlc.swift').read_text()
+        self.assertIn('"menu":             (["name", "path"], ["focused_document"]),', launcher)
+        driver = (self.ROOT / 'nlc/driver.py').read_text()
+        self.assertIn('elif name == "menu" and "focused_document" in action:', driver)
+
+    def test_preparation_errors_show_only_receipt_messages(self):
+        from nlc.flow import replay, Flow
+        from nlc.library import textedit_save
+        class App:
+            capabilities = set()
+            def observe(self, *a, **k):
+                return {'type': 'observation', 'obs_id': 'o',
+                        'tree': '0 Window  Title: note.txt [focused]'}
+            def act(self, *a, **k): raise AssertionError('acted')
+            def wait_until(self, *a, **k): return self.observe()
+        def leak(event): raise RuntimeError('SECRET document text')
+        def safe(event): raise ArtifactReceiptError('document has no canonical file path')
+        flow = textedit_save().bind(document='/tmp/a/note.txt', name='note.txt')
+        for prepare, shown in ((leak, 'RuntimeError'),
+                               (safe, 'ArtifactReceiptError: document has no canonical file path')):
+            result = replay(App(), flow, approvals={0: True}, prepare_commit=prepare)
+            detail = str(result.log[-1])
+            self.assertIn(shown, detail)
+            self.assertNotIn('SECRET', detail)
 
 if __name__ == '__main__':
     unittest.main()

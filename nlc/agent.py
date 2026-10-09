@@ -1000,8 +1000,11 @@ class Agent:
             import os
             import re
             from .library import SAVE_INTENT, textedit_save
-            from .existing_file_receipt import TEXT_CAPABILITY, make_existing_text_receipt
-            if len(flow.steps) != 1 or TEXT_CAPABILITY not in (getattr(self.driver, "capabilities", ()) or ()):
+            from .existing_file_receipt import (FOCUSED_DOCUMENT_CAPABILITY, TEXT_CAPABILITY,
+                                                make_existing_text_receipt)
+            capabilities = getattr(self.driver, "capabilities", ()) or ()
+            if (len(flow.steps) != 1 or TEXT_CAPABILITY not in capabilities
+                    or FOCUSED_DOCUMENT_CAPABILITY not in capabilities):
                 return None
             pattern = re.escape(SAVE_INTENT).replace(re.escape("{{document}}"), "(.+)")
             m = re.fullmatch(pattern, flow.steps[0].intent_text or "")

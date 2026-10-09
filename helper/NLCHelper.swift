@@ -1450,6 +1450,24 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "detail": "메뉴 '\(walked.joined(separator: " > "))' 가 비활성 상태입니다"
                               + (wasFront ? "" : " (이 앱이 앞에 있지 않아 그렇게 보일 수 있습니다)")]
         }
+        // A command that acts on "the document in front" (File > Save) may be
+        // bound to one file: right before the press, the app's focused AND
+        // main windows must show exactly that file — canonical path, Unicode
+        // composed (TextEdit reports names decomposed). A name match was not
+        // enough: two files called note.txt in different folders (Codex review
+        // of 4d04b80). Otherwise nothing is pressed.
+        if let wanted = action["focused_document"] {
+            let why: String
+            if let want = wanted as? String, want.hasPrefix("/") {
+                why = focusedDocumentMismatch(pid: p, want: want)
+            } else {
+                why = "invalid focused_document"
+            }
+            guard why.isEmpty else {
+                return ["type": "error", "error": "action_failed", "effect": "not_started",
+                        "detail": "포커스된 문서가 승인한 파일이 아니어서 누르지 않았습니다 (\(why))"]
+            }
+        }
         let menuError = AXUIElementPerformAction(item, kAXPressAction as CFString)
         if menuError != .success {
             return ["type": "error", "error": "action_failed",
@@ -2784,6 +2802,9 @@ let helperCapabilities: [String] = [
     "action.menu", "action.scroll", "action.secondary_action",
     // Finder only: show an existing folder without activating Finder.
     "action.open_folder",
+    // menu may carry focused_document: pressed only when the focused and
+    // main windows show exactly that file.
+    "action.menu.focused_document",
     "action.select_option", "evidence.visual",
     // Native menu items have a title and nothing behind it, so `value` must
     // agree with `option_label` rather than name something else.
@@ -2964,6 +2985,32 @@ func documentEnumerate(_ p: pid_t, selectedWindow: AXUIElement? = nil,
 /// other failure is a failure and says so. The URL is then held to being a
 /// local file URL naming a canonical absolute path, because a path that is not
 /// canonical does not identify one file.
+/// "" when the app's focused and main windows both show `want` (canonical,
+/// NFC); otherwise why not. Any failed read is a mismatch.
+func focusedDocumentMismatch(pid: pid_t, want: String) -> String {
+    func canonical(_ path: String) -> String? {
+        guard let real = realpath(path, nil) else { return nil }
+        defer { free(real) }
+        return String(cString: real).precomposedStringWithCanonicalMapping
+    }
+    guard let wanted = canonical(want), wanted == want.precomposedStringWithCanonicalMapping else {
+        return "approved path is not canonical"
+    }
+    let app = AXUIElementCreateApplication(pid)
+    for name in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, name as CFString, &value) == .success,
+              let window = value, CFGetTypeID(window) == AXUIElementGetTypeID() else {
+            return "\(name) unreadable"
+        }
+        guard let path = (try? documentPath(window as! AXUIElement)) ?? nil,
+              let real = canonical(path), real == wanted else {
+            return "\(name) shows another or no file"
+        }
+    }
+    return ""
+}
+
 func documentPath(_ window: AXUIElement) throws -> String? {
     try documentCheckAbort()
     var out: AnyObject?

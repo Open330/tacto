@@ -2104,11 +2104,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 try:
                     context = prepare_commit(deepcopy(event))
                 except Exception as exc:
-                    # Said, not swallowed: "preparation failed" alone could not
-                    # be diagnosed through the signed path (2026-10-09).
+                    # Said, not swallowed — but only what a receipt chose to
+                    # say: its own error messages are fixed strings; anything
+                    # else may carry document text, so only its class is shown
+                    # (Codex review of 4d04b80).
+                    from .artifact_receipt import ArtifactReceiptError
+                    shown = (f"{type(exc).__name__}: {str(exc)[:200]}"
+                             if isinstance(exc, ArtifactReceiptError) else type(exc).__name__)
                     return {"type": "error", "error": "host_evidence_preparation_failed",
-                            "effect": "not_started",
-                            "detail": f"{type(exc).__name__}: {str(exc)[:200]}"}
+                            "effect": "not_started", "detail": shown}
             from .commit_evidence import save_panel_dispatch_parameters
             try:
                 dispatch_parameters = save_panel_dispatch_parameters(

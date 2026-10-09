@@ -18,7 +18,7 @@ ACTION_PARAMS = {
     "select_option": frozenset({"value", "option_label"}),
     "open_select": frozenset(),
     "select_custom_option": frozenset({"option_label", "value"}),
-    "press_key": frozenset({"key"}), "menu": frozenset({"path"}),
+    "press_key": frozenset({"key"}), "menu": frozenset({"path", "focused_document"}),
     "scroll": frozenset({"direction", "pages"}),
     "secondary_action": frozenset({"action"}),
     "goto": frozenset({"url"}),

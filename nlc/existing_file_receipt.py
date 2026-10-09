@@ -14,6 +14,9 @@ text (measured 2026-10-09). This adapter witnesses that case, narrowly:
   unchanged, and the file — a regular file owned by this user, one link,
   within a byte budget — holds exactly that text.
 
+`timeout_seconds` bounds the polling between reads; it cannot interrupt a
+single backend call or file read in progress.
+
 What it certifies is the STATE after the Save: the named file holds the
 document's text. It does not certify that this press wrote it. macOS autosaves
 documents that already have a file, so the file usually held the text before
@@ -38,6 +41,7 @@ from .commit_evidence import ArtifactEvidence, CommitEvidence, action_digest
 
 TARGET = 'com.apple.TextEdit'
 TEXT_CAPABILITY = 'evidence.document_text'
+FOCUSED_DOCUMENT_CAPABILITY = 'action.menu.focused_document'
 MAX_BYTES = 4 * 1024 * 1024
 SAVE_PATH = ["File", ["Save", "저장"]]
 
@@ -58,14 +62,24 @@ class _Prepared:
 
 def _file_state(path):
     """(dev, ino, size, mtime_ns, sha256, bytes) of a regular, owned, single-link
-    file within budget — read without following a final symlink."""
+    file within budget — read without following a final symlink, and never
+    opened unless lstat already says it is a regular file: a FIFO named .txt
+    blocked the read (Codex review of 4d04b80). Opened non-blocking and
+    checked again after opening, so a swap in between is refused."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        before = os.lstat(path)
+    except OSError as exc:
+        raise ArtifactReceiptError(f'document file unreadable: {exc.strerror}') from None
+    if not stat.S_ISREG(before.st_mode):
+        raise ArtifactReceiptError('document file must be an owned regular file with one link')
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
         raise ArtifactReceiptError(f'document file unreadable: {exc.strerror}') from None
     try:
         st = os.fstat(fd)
-        if (not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid()
+        if (not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino)
+                or st.st_uid != os.getuid()
                 or st.st_nlink != 1 or st.st_size > MAX_BYTES):
             raise ArtifactReceiptError('document file must be an owned regular file with one link')
         chunks, total = [], 0
@@ -121,7 +135,8 @@ class ExistingTextFileReceipt:
         if (not isinstance(result, dict) or result.get('type') != 'document_text'
                 or not isinstance(result.get('document_token'), str) or not result['document_token']
                 or not isinstance(result.get('text'), str) or result.get('text_complete') is not True):
-            why = (f"{result.get('error')}: {str(result.get('detail'))[:160]}"
+            # The backend's error CODE only: its detail may quote the document.
+            why = (str(result.get('error'))[:60]
                    if isinstance(result, dict) and result.get('type') == 'error' else 'malformed reply')
             raise ExistingFileReceiptUnavailable(f'complete document text unavailable ({why})')
         if token is not None and result['document_token'] != token:
@@ -139,8 +154,11 @@ class ExistingTextFileReceipt:
             raise ArtifactReceiptError('receipt already prepared')
         action, effects = event.get('action'), set(event.get('effects') or ())
         if (event.get('target') != TARGET or not isinstance(action, dict)
-                or action.get('name') != 'menu' or set(action) != {'name', 'path'}
+                or action.get('name') != 'menu'
+                or set(action) != {'name', 'path', 'focused_document'}
                 or action.get('path') != SAVE_PATH
+                # the press must be bound, at the helper, to this very file
+                or action.get('focused_document') != self._path
                 or 'write_persistent' not in effects
                 or effects - {'read', 'write_ephemeral', 'write_persistent'}):
             raise ArtifactReceiptError('receipt covers only File > Save of a TextEdit document')

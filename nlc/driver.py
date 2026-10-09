@@ -1734,6 +1734,11 @@ class Driver:
             # every step had to act, so reading was only ever a side effect of
             # doing something else.
             return None
+        elif name == "menu" and "focused_document" in action:
+            # Only the signed helper can check the focused document right
+            # before the press; going ahead without the check would be
+            # pressing Save on whatever is in front.
+            raise NotStarted("focused_document 확인은 서명된 도우미(--helper)에서만 됩니다")
         elif name == "menu":
             # This used to raise the app first, because an app validates its
             # menus while it is the active one — measured: a background

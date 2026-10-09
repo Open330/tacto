@@ -382,17 +382,20 @@ def textedit_save() -> Flow:
     `document` is the file's canonical absolute path and `name` its file
     name. The path is in the consent text, so the person approves saving
     THAT file; the focused window's title must still be `name` right before
-    the press (File > Save saves the focused document); and the host receipt
-    (nlc/existing_file_receipt.py) reads that document by path through the
-    backend before and after, accepting only a .txt file that changed to
-    exactly the document's text. Recognised only in this exact form.
+    the press, and the signed helper checks right before pressing that the
+    focused and main windows show exactly that file (focused_document — a
+    title alone matched two note.txt in different folders); the host receipt
+    (nlc/existing_file_receipt.py) reads that document by path before and
+    after and accepts only a .txt file that holds exactly the document's
+    text. It certifies that saved state, not which writer wrote it (macOS
+    autosave). Recognised only in this exact form.
     """
     from .existing_file_receipt import SAVE_PATH
     return Flow(
         name="textedit_save", target="com.apple.TextEdit",
         params={"document": "", "name": ""},
         steps=[
-            Step("menu", params={"path": SAVE_PATH},
+            Step("menu", params={"path": SAVE_PATH, "focused_document": "{{document}}"},
                  intent_text=SAVE_INTENT,
                  # Nothing on screen changes on a save; the host receipt is
                  # what verifies it, and a write_persistent step without one
@@ -404,7 +407,8 @@ def textedit_save() -> Flow:
                      reversibility="recoverable"),
                  binding=ContextBinding(
                      bundle_id="com.apple.TextEdit", operation="menu",
-                     params_digest=pin_params({"path": SAVE_PATH}),
+                     params_digest=pin_params({"path": SAVE_PATH,
+                                               "focused_document": "{{document}}"}),
                      resource_identity="{{name}}",
                      # Found only when the FOCUSED window is titled {{name}};
                      # otherwise nothing re-reads it and replay refuses.

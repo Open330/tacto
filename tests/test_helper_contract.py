@@ -998,6 +998,8 @@ SIGNED_HELPER_ONLY = frozenset({
     "press_key.return_in_go_to_folder",
     # Finder folder open through LaunchServices without activation.
     "action.open_folder",
+    # File > Save bound to one file, checked at the press.
+    "action.menu.focused_document",
     "evidence.document_rtf_export",
     "evidence.save_panel",
 })
