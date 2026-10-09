@@ -1,0 +1,17 @@
+func documentPath(_ window: AXUIElement) throws -> String? { nil }
+func run(_ failSet: Bool, _ failReset: Bool) -> String {
+    var calls: [Float] = []
+    let why = focusedDocumentMismatch(pid: 999_999, want: "/a/note.txt", setTimeout: { _, t in
+        calls.append(t)
+        if t > 0 && failSet { return .failure }
+        if t == 0 && failReset { return .failure }
+        return .success
+    })
+    return why + " | resets=\(calls.filter { $0 == 0 }.count)"
+}
+let out: [String: String] = [
+    "set fails": run(true, false),
+    "reset fails": run(false, true),
+    "both fine (no such process: no file shown)": run(false, false),
+]
+print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)

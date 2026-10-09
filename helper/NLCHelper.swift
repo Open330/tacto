@@ -3017,25 +3017,32 @@ func focusedDocumentMismatch(want: String, shown: (String) -> String?,
     return ""
 }
 
-func focusedDocumentMismatch(pid: pid_t, want: String) -> String {
+func focusedDocumentMismatch(pid: pid_t, want: String,
+                             setTimeout: (AXUIElement, Float) -> AXError = { AXUIElementSetMessagingTimeout($0, $1) })
+    -> String {
     let app = AXUIElementCreateApplication(pid)
-    // Bounded reads: a timeout that cannot be set (or reset) is a refusal,
-    // not an unbounded wait (Codex review of b03e5c7).
-    guard AXUIElementSetMessagingTimeout(app, 0.5) == .success else { return "AX timeout unavailable" }
-    defer { _ = AXUIElementSetMessagingTimeout(app, 0) }
-    return focusedDocumentMismatch(want: want, shown: { name in
+    // Bounded reads: a timeout that cannot be set, or reset to 0 afterwards,
+    // is a refusal (Codex review of b031a57: the reset result was ignored).
+    // This bounds each read; it is not an end-to-end time guarantee, and the
+    // reset is to 0 (the system default), not to an earlier custom value.
+    guard setTimeout(app, 0.5) == .success else { return "AX timeout unavailable" }
+    var resetFailed = false
+    let why = focusedDocumentMismatch(want: want, shown: { name in
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, name as CFString, &value) == .success,
               let window = value, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
         let element = window as! AXUIElement
-        guard AXUIElementSetMessagingTimeout(element, 0.5) == .success else { return nil }
-        defer { _ = AXUIElementSetMessagingTimeout(element, 0) }
-        return (try? documentPath(element)) ?? nil
+        guard setTimeout(element, 0.5) == .success else { return nil }
+        let path = (try? documentPath(element)) ?? nil
+        if setTimeout(element, 0) != .success { resetFailed = true; return nil }
+        return path
     }, canonical: { path in
         guard let real = realpath(path, nil) else { return nil }
         defer { free(real) }
         return String(cString: real).precomposedStringWithCanonicalMapping
     })
+    if setTimeout(app, 0) != .success || resetFailed { return "AX timeout reset failed" }
+    return why
 }
 
 func documentPath(_ window: AXUIElement) throws -> String? {

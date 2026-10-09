@@ -294,7 +294,7 @@ class FocusedDocumentSwiftTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         swift = (root / 'helper/NLCHelper.swift').read_text()
         start = swift.index("/// \"\" when the app's focused and main windows both show `want`")
-        code = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String) -> String {')]
+        code = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,')]
         composed = '/d/' + '노트' + '.txt'
         decomposed = unicodedata.normalize('NFD', composed)
         tail = (root / 'tests/fixtures/focused_document_judge.swift.txt').read_text(encoding='utf-8')
@@ -314,6 +314,33 @@ class FocusedDocumentSwiftTests(unittest.TestCase):
             "approved path not canonical": False,
             "relative path": False,
         }, json.loads(run.stdout))
+
+
+class FocusedDocumentTimeoutTests(unittest.TestCase):
+    """The pid-level check refuses when the AX timeout cannot be set or reset."""
+
+    def test_cases(self):
+        import json, shutil, subprocess
+        if not shutil.which('swift'):
+            self.skipTest('Swift required')
+        root = Path(__file__).resolve().parents[1]
+        swift = (root / 'helper/NLCHelper.swift').read_text()
+        start = swift.index("/// \"\" when the app's focused and main windows both show `want`")
+        tail_fn = swift[swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,'):]
+        tail_fn = tail_fn[:tail_fn.index('\n}\n') + 3]
+        pure = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,')]
+        harness = ('import Foundation\nimport ApplicationServices\n' + pure + tail_fn +
+                   (root / 'tests/fixtures/focused_document_timeout.swift.txt').read_text())
+        with tempfile.TemporaryDirectory(prefix='nlc-focused-timeout-') as d:
+            src = Path(d) / 'main.swift'; src.write_text(harness, encoding='utf-8')
+            run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        out = json.loads(run.stdout)
+        self.assertTrue(out['set fails'].startswith('AX timeout unavailable'), out)
+        self.assertTrue(out['reset fails'].startswith('AX timeout reset failed'), out)
+        # timeouts fine: whatever the answer, it is not a timeout refusal, and the app's reset ran
+        self.assertFalse(out['both fine (no such process: no file shown)'].startswith('AX timeout'), out)
+        self.assertTrue(out['both fine (no such process: no file shown)'].endswith('resets=1'), out)
 
 if __name__ == '__main__':
     unittest.main()
