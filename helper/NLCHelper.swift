@@ -140,7 +140,17 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     if visited >= maxTreeNodes { truncated = true; return }
     visited += 1
     let role = str(el, kAXRoleAttribute as String) ?? "?"
-    let text = label(el)
+    var text = label(el)
+    // A window says which file it shows, so an agent can name that file
+    // (textedit_save needs the absolute path; the title is only a name).
+    // file:// only, decoded and composed; anything else is not shown.
+    if role == kAXWindowRole as String, let doc = str(el, "AXDocument"),
+       let url = URL(string: doc), url.isFileURL, url.query == nil, url.fragment == nil {
+        let path = url.path.precomposedStringWithCanonicalMapping
+        if path.hasPrefix("/"), !path.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
+            text += (text.isEmpty ? "" : ", ") + "Document: \(path)"
+        }
+    }
     if interactableRoles.contains(role) || !text.isEmpty {
         let idx = elements.count
         elements.append(el)

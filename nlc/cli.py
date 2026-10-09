@@ -481,6 +481,19 @@ def _dispatch(cmd, rest):
         print(o["tree"] if "--all-windows" in rest else focused_window_view(o["tree"]))
         return 0
 
+    if cmd == "menu-state":
+        # Read-only: is a menu item enabled for this app right now? A
+        # background app often reports items disabled that work in front
+        # (Save, New Folder — 2026-10-09); this makes that visible without
+        # pressing anything.
+        args = [value for value in rest if value != "--helper"]
+        if len(args) < 3 or args[0].startswith("-"):
+            print("usage: menu-state <bundle-id> <Menu> <Item> [<Submenu item> ...] [--helper]")
+            return 2
+        result = _make_driver(rest).menu_state(args[0], args[1:])
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get("type") == "menu_state" else 1
+
     if cmd == "show":
         if not rest:
             print("usage: show <flow-name>")

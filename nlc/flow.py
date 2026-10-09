@@ -269,7 +269,7 @@ class Selector:
     # selector on that element stopped matching the moment the observation
     # started naming actions.
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
-                  "Placeholder", "Secondary Actions")
+                  "Placeholder", "Secondary Actions", "Document")
 
     # Suffixes after ';' that are known to be live state rather than identity.
     # An allowlist, not a general rule: treating everything after a ';' as

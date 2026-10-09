@@ -165,11 +165,25 @@ class NotStarted(RuntimeError):
     """
 
 
+def _document_path(doc: str):
+    """A window's AXDocument as an absolute path, or None (file:// only)."""
+    import unicodedata
+    from urllib.parse import unquote, urlparse
+    url = urlparse(doc)
+    if url.scheme != "file" or url.netloc not in ("", "localhost") or url.query or url.fragment:
+        return None
+    path = unicodedata.normalize("NFC", unquote(url.path))
+    if not path.startswith("/") or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):
+        return None
+    return path
+
+
 def _line_attr(line: str, key: str):
     """One attribute out of a tree line, without importing the flow layer."""
     import re as _re
     others = "|".join(k for k in ("Title", "Description", "Value", "Help",
-                                  "Identifier", "Placeholder") if k != key)
+                                  "Identifier", "Placeholder", "Secondary Actions",
+                                  "Document") if k != key)
     m = _re.search(rf"{key}:\s*(.+?)"
                    rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused|selected)\]|$)", line)
     return m.group(1).strip() if m else None
@@ -418,6 +432,12 @@ class Observation:
         self.visited += 1
         role = _attr(el, "AXRole") or "?"
         label = _elem_label(el)
+        if role == "AXWindow":
+            # Same as the helper: a window names the file it shows.
+            doc = _attr(el, "AXDocument")
+            path = _document_path(doc) if isinstance(doc, str) else None
+            if path:
+                label = (label + ", " if label else "") + f"Document: {path}"
         if role in AX_INTERACTABLE_ROLES or label:
             idx = len(self.elements)
             self.elements.append(el)

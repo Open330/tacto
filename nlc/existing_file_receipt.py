@@ -63,6 +63,11 @@ PUBLIC_CODES = frozenset({
 })
 
 
+def _nfc(path):
+    import unicodedata
+    return unicodedata.normalize('NFC', path)
+
+
 def _refuse(code, cls=ArtifactReceiptError):
     assert code in PUBLIC_CODES, code
     error = cls(code)
@@ -126,7 +131,8 @@ class ExistingTextFileReceipt:
         if target != TARGET:
             raise ValueError('existing-file receipt requires com.apple.TextEdit')
         if (not isinstance(document_path, str) or not os.path.isabs(document_path)
-                or '\0' in document_path or os.path.realpath(document_path) != document_path
+                or '\0' in document_path
+                or _nfc(os.path.realpath(document_path)) != _nfc(document_path)
                 or not document_path.endswith('.txt')):
             raise _refuse('path_not_canonical_txt', ExistingFileReceiptUnavailable)
         self._path = document_path
@@ -164,11 +170,13 @@ class ExistingTextFileReceipt:
             raise _refuse('document_identity_changed')
         path = result.get('document_path')
         if (not isinstance(path, str) or not os.path.isabs(path) or '\0' in path
-                or os.path.realpath(path) != path):
+                or _nfc(os.path.realpath(path)) != _nfc(path)):
             raise _refuse('no_canonical_path', ExistingFileReceiptUnavailable)
-        if path != self._path:
+        # TextEdit reports names decomposed (NFD); the observed / approved path
+        # is composed. Same file, compared composed (2026-10-10, live).
+        if _nfc(path) != _nfc(self._path):
             raise _refuse('different_document')
-        return result['document_token'], path, result['text']
+        return result['document_token'], self._path, result['text']
 
     def prepare_commit(self, event):
         if self._prepared is not None:

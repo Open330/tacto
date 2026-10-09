@@ -94,6 +94,18 @@ class ExistingFileReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactReceiptError, 'different_document'):
             self.receipt().prepare_commit(save_event(self.path))
 
+    def test_a_decomposed_backend_path_is_the_same_document(self):
+        import unicodedata
+        composed = os.path.join(self.dir, '노트.txt')
+        Path(composed).write_text('old', encoding='utf-8')
+        self.doc.path = unicodedata.normalize('NFD', composed)    # how TextEdit reports it
+        r = self.receipt(document_path=composed)
+        event = save_event(composed)
+        context = r.prepare_commit(event)
+        Path(composed).write_text('new text 4417', encoding='utf-8')
+        proof = r.after_commit(event, {'type': 'acted'}, context)
+        self.assertIs(type(proof), CommitEvidence)
+
     def test_a_symlinked_file_is_refused(self):
         real = os.path.join(self.dir, 'real.txt'); Path(real).write_text('old')
         os.unlink(self.path); os.symlink(real, self.path)

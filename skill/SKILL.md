@@ -192,6 +192,11 @@ when the label and the clickable element differ — a list row identified by its
 inner text — match the label and act on the row with
 `"click_ancestor": ["Row", "Cell"]`.
 
+**Is a menu command available right now?** `nlc menu-state <bundle-id> <Menu>
+<Item> --helper` reads it without pressing anything. A background app often
+reports items disabled that work in front (Save, New Folder) — that is the
+app's own state, not something a retry changes.
+
 **Markers on a tree line:** `[disabled]`; `[focused]` (the focused window);
 `[selected]` — the chosen one of a set of buttons or rows (e.g. System
 Settings > Appearance shows `Description: Light, … [selected]`). Read
@@ -206,7 +211,8 @@ attribute postcondition; `unverified_ok` cannot waive this contract. Tab,
 shift+Tab and arrows are allowed; Escape and shortcuts are not.
 **To save a TextEdit document that already has a file, replay the built-in
 `textedit_save`** — `nlc replay textedit_save -p document=/abs/path/name.txt
--p name=name.txt --helper --yes`. The focused TextEdit window must be that
+-p name=name.txt --helper --yes`. The absolute path is on the window's line in
+`nlc observe`: `Window  Title: name.txt, …, Document: /abs/path/name.txt`. The focused TextEdit window must be that
 document (its title is checked right before the press), and the run ends
 `done` only when the file on disk holds exactly the document's text (plain
 `.txt` only; it certifies the saved state — macOS autosave may have written it
