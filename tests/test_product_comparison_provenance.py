@@ -395,3 +395,48 @@ class FinderFolderTaskTests(unittest.TestCase):
         self.assertTrue(out.startswith('folder_changed_left_as_is'), out)
         self.assertIn('finder_unobservable', out)
         self.assertTrue(os.path.exists(path))
+
+
+class NewTaskOracleTests(unittest.TestCase):
+    """2026-10-09 tasks: saved-on-disk, a new folder, appearance."""
+    P = comparison
+
+    def test_saved_means_on_disk_and_shown(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, 'doc.txt')
+            self.P._OWNED.clear(); self.addCleanup(self.P._OWNED.clear)
+            self.P._OWNED['path'] = path
+            for disk, shown, want in (('NLC 저장 확인 4417', True, True),
+                                      ('', True, False),          # typed but not saved
+                                      ('NLC 저장 확인 4417', False, False),
+                                      (None, True, False)):
+                if disk is None:
+                    if os.path.exists(path): os.unlink(path)
+                else:
+                    pathlib.Path(path).write_text(disk, encoding='utf-8')
+                with self.subTest(disk=disk, shown=shown), \
+                        patch.object(self.P, 'owned_oracle', return_value=(shown, 'w')):
+                    self.assertEqual(want, self.P.owned_saved_oracle('NLC 저장 확인 4417')[0])
+
+    def test_new_folder_needs_exactly_one_named_folder(self):
+        import os
+        self.P.newdir_setup()
+        base = self.P._NEWDIR['path']
+        self.addCleanup(lambda: _real_rmtree(base, True))
+        self.assertFalse(self.P.newdir_oracle('untitled folder')[0])
+        os.mkdir(os.path.join(base, 'untitled folder'))
+        self.assertTrue(self.P.newdir_oracle('Created "untitled folder".')[0])
+        self.assertFalse(self.P.newdir_oracle('Created a folder.')[0])
+        pathlib.Path(base, 'stray.txt').write_text('x')
+        self.assertFalse(self.P.newdir_oracle('untitled folder')[0])
+        self.assertEqual('unexpected_contents_left_as_is', self.P.newdir_cleanup())
+        os.unlink(os.path.join(base, 'stray.txt'))
+        self.assertEqual('folder_removed', self.P.newdir_cleanup())
+        self.assertFalse(os.path.exists(base))
+
+    def test_appearance_must_name_only_the_right_mode(self):
+        with patch.object(self.P, '_appearance', return_value='Light'):
+            self.assertTrue(self.P.appearance_oracle('Appearance is set to Light.')[0])
+            self.assertFalse(self.P.appearance_oracle('It is Dark.')[0])
+            self.assertFalse(self.P.appearance_oracle('Light or Dark, not sure')[0])

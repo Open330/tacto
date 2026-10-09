@@ -559,6 +559,96 @@ def finder_cleanup():
     return f"folder_removed; {left}"
 
 
+SAVE_TEXT = "NLC 저장 확인 4417"
+
+
+def owned_saved_oracle(text):
+    """Saved means on disk: the harness's own file holds exactly the text,
+    and the window still shows it (Codex/plan 2026-10-09: 'actual save')."""
+    path = _OWNED.get("path")
+    try:
+        on_disk = Path(path).read_text(encoding="utf-8") if path else None
+    except (OSError, UnicodeDecodeError):
+        on_disk = None
+    norm = lambda v: " ".join((v or "").split())
+    shown_ok, shown = owned_oracle(text)
+    return (on_disk is not None and norm(on_disk) == norm(text) and shown_ok,
+            f"disk={norm(on_disk)[:40]!r} window={shown[:40]!r}")
+
+
+def calc_then_owned_setup():
+    calc_reset()
+    owned_setup()
+
+
+_NEWDIR: dict = {}
+
+
+def newdir_setup():
+    """An empty folder of the harness's own (mkdtemp), its inode remembered."""
+    import os
+    import tempfile
+    _NEWDIR.clear()
+    path = os.path.realpath(tempfile.mkdtemp(prefix="nlc-compare-newdir-", dir="/tmp"))
+    st = os.stat(path)
+    _NEWDIR.update(path=path, inode=(st.st_dev, st.st_ino))
+
+
+def _newdir_children():
+    import os
+    path = _NEWDIR.get("path")
+    try:
+        st = os.stat(path)
+        if (st.st_dev, st.st_ino) != _NEWDIR.get("inode"):
+            return None
+        return sorted(os.listdir(path))
+    except (TypeError, OSError):
+        return None
+
+
+def newdir_oracle(answer):
+    """Exactly one new entry, a folder, and the answer names it."""
+    import os
+    children = _newdir_children()
+    if children is None:
+        return False, "folder unobservable"
+    folders = [c for c in children if os.path.isdir(os.path.join(_NEWDIR["path"], c))]
+    ok = len(children) == 1 and len(folders) == 1 and folders[0] in answer
+    return ok, f"children={children}"
+
+
+def newdir_cleanup():
+    """Remove the harness's folder only if it holds nothing but empty folders."""
+    import os
+    import shutil
+    children = _newdir_children()
+    if children is None:
+        return "not_observable_left_as_is"
+    base = _NEWDIR["path"]
+    if not all(os.path.isdir(os.path.join(base, c)) and not os.listdir(os.path.join(base, c))
+               for c in children):
+        return "unexpected_contents_left_as_is"
+    shutil.rmtree(base)
+    _NEWDIR.clear()
+    return "folder_removed"
+
+
+def _appearance():
+    """Light, Dark or Auto, from the user defaults System Settings writes."""
+    def read(key):
+        r = subprocess.run(["defaults", "read", "-g", key], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else None
+    if read("AppleInterfaceStyleSwitchesAutomatically") == "1":
+        return "Auto"
+    return "Dark" if read("AppleInterfaceStyle") == "Dark" else "Light"
+
+
+def appearance_oracle(answer):
+    want = _appearance()
+    said = {w for w in ("Light", "Dark", "Auto") if re.search(rf"\b{w}\b", answer, re.I)}
+    return said == {want}, f"want {want}; said {sorted(said)}"
+
+
 def source_manifest():
     """Explicit source/artifact set, not a dependency-closure claim.
 
@@ -626,6 +716,26 @@ TASKS = [
     Task("macos_version", "Using the System Settings app, find this Mac's macOS version number "
                           "and report it.",
          lambda a: (_macos_version() in a, f"want {_macos_version()}")),
+    # Added 2026-10-09: an actual save checked on disk, two apps in one task,
+    # a Finder write in the harness's own folder, and a System Settings read.
+    Task("textedit_save_owned",
+         f"In TextEdit, the document named \"{OWNED_NAME}\" is already open. Type exactly this text "
+         f"into that document: {SAVE_TEXT}  Then save the document. Do not create a new document, "
+         "do not rename it, and do not close it.",
+         lambda a: owned_saved_oracle(SAVE_TEXT), setup=owned_setup, cleanup=owned_cleanup),
+    Task("calc_to_textedit",
+         "Compute 23 × 19 in the macOS Calculator app, then type the result (digits only) into the "
+         f"TextEdit document named \"{OWNED_NAME}\", which is already open. Do not create a new "
+         "document, and do not close it.",
+         lambda a: owned_oracle("437"), setup=calc_then_owned_setup, cleanup=owned_cleanup),
+    Task("finder_new_folder",
+         lambda: (f"Using Finder, create one new folder inside the folder {_NEWDIR.get('path', '(not created)')} "
+                  "and report the new folder's name."),
+         newdir_oracle, setup=newdir_setup, cleanup=newdir_cleanup),
+    Task("appearance_mode",
+         "Using the System Settings app, find whether this Mac's appearance is set to Light, Dark "
+         "or Auto, and report which one.",
+         appearance_oracle),
 ]
 
 
