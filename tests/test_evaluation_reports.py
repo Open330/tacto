@@ -67,6 +67,7 @@ class EvaluationReports(unittest.TestCase):
         self.m.SCENARIOS = [("native_coordinate_fixture (owned)", fn)]
         self.m.SCENARIO_REQUIREMENTS = {"native_coordinate_fixture": {"gui", "native"}}
         self.m.ISOLATED = {"native_coordinate_fixture"}
+        (ROOT / "reviews").mkdir(exist_ok=True)   # gitignored; absent in a fresh clone
         with tempfile.TemporaryDirectory(dir=ROOT / "reviews") as control:
             argv = ["native_coordinate_fixture", "--coordinate-control", control,
                     "--prepare-window", "--general-prepare", "--coordinate-model=claude"]
@@ -87,6 +88,7 @@ class EvaluationReports(unittest.TestCase):
         fn = Mock()
         self.m.SCENARIOS = [("native_coordinate_fixture (owned)", fn), ("local", fn)]
         self.m.ISOLATED = {"native_coordinate_fixture"}
+        (ROOT / "reviews").mkdir(exist_ok=True)   # gitignored; absent in a fresh clone
         with tempfile.TemporaryDirectory(dir=ROOT / "reviews") as control:
             prefix = ["native_coordinate_fixture", "--coordinate-control", control]
             bad = [

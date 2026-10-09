@@ -23,7 +23,9 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MANIFEST = ROOT / 'reviews/2026-09-19/benchmark-tasks.json'
+# Tracked with the code: under reviews/ (gitignored) a fresh clone had no
+# manifest and 16 tests failed on june-mba (2026-10-09).
+DEFAULT_MANIFEST = ROOT / 'examples/benchmark-tasks.json'
 STATUSES = {'passed', 'failed', 'timeout', 'unavailable', 'skipped'}
 
 

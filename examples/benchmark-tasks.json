@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "systems": [
+    "nlc",
+    "codex-computer-use"
+  ],
+  "tasks": [
+    {
+      "id": "input-next-read",
+      "goal": "Name 입력칸에 NLC-2026을 입력하고 Next를 누른 다음, 새 화면의 Result 값을 읽어서 알려주세요.",
+      "time_budget_seconds": 180,
+      "initial_conditions": {
+        "environment": "disposable local browser page; no external navigation or accounts",
+        "entrypoint": "known page target; excludes CLI goal/app routing",
+        "fixture": "probe_browser_task.PAGE",
+        "fixture_sha256": "1f4341abc8809e2bc0f747f8a06e060fc0e6ec4e2043b359a3ef89308d381c05",
+        "fresh_browser": true,
+        "external_effects": false
+      },
+      "oracles": [
+        "loop_done",
+        "dom_result",
+        "read_answer"
+      ],
+      "runner": "probe_browser_task",
+      "implemented": true
+    },
+    {
+      "id": "select-read",
+      "goal": "Choose Beta in Choice, then read the Result field aloud.",
+      "time_budget_seconds": 180,
+      "initial_conditions": {
+        "environment": "disposable local browser page; no external navigation or accounts",
+        "entrypoint": "known page target; excludes CLI goal/app routing",
+        "fixture": "benchmark_web_runner.FIXTURES.select-read",
+        "fixture_sha256": "6fd43a6e306f50cf7c42b3b7c7c98ed01c9839c6f96d2d938f64be20b8bde602",
+        "fresh_browser": true,
+        "external_effects": false,
+        "save_witness_mapping": null,
+        "filesystem": "fresh temporary directory with exact filename confined callback"
+      },
+      "oracles": [
+        "loop_done",
+        "selected_value",
+        "read_answer"
+      ],
+      "runner": "benchmark_web_runner",
+      "implemented": true
+    },
+    {
+      "id": "scroll-read",
+      "goal": "Scroll the panel using Scroll anchor to the bottom, then read Marker aloud.",
+      "time_budget_seconds": 180,
+      "initial_conditions": {
+        "environment": "disposable local browser page; no external navigation or accounts",
+        "entrypoint": "known page target; excludes CLI goal/app routing",
+        "fixture": "benchmark_web_runner.FIXTURES.scroll-read",
+        "fixture_sha256": "079005d60b2fbd29b9eb1f9050e2369007d20991de0b35dab5ae7055c301fbf7",
+        "fresh_browser": true,
+        "external_effects": false,
+        "save_witness_mapping": null,
+        "filesystem": "fresh temporary directory with exact filename confined callback"
+      },
+      "oracles": [
+        "loop_done",
+        "scroll_position",
+        "read_answer"
+      ],
+      "runner": "benchmark_web_runner",
+      "implemented": true
+    },
+    {
+      "id": "save-readback",
+      "goal": "Enter NLC-local-benchmark in Content. Save as note.txt in the prefilled location, then read readback aloud.",
+      "time_budget_seconds": 180,
+      "initial_conditions": {
+        "environment": "disposable local browser page; no external navigation or accounts",
+        "entrypoint": "known page target; excludes CLI goal/app routing",
+        "fixture": "benchmark_web_runner.FIXTURES.save-readback",
+        "fixture_sha256": "8a53fb8f5c268f4adb95d9fc93d16b12ffeb90d9feb483b08901c597bfd81acd",
+        "fresh_browser": true,
+        "external_effects": false,
+        "save_witness_mapping": "host supplied; discovery not benchmarked",
+        "filesystem": "fresh temporary directory with exact filename confined callback"
+      },
+      "oracles": [
+        "loop_done",
+        "destination",
+        "file_readback",
+        "read_answer",
+        "receipt"
+      ],
+      "runner": "benchmark_web_runner",
+      "implemented": true
+    },
+    {
+      "id": "combined",
+      "goal": "Enter NLC-local-benchmark in Content, choose Beta in Choice, scroll the panel using Scroll anchor to the bottom, then Save as note.txt in the prefilled location and read readback aloud.",
+      "time_budget_seconds": 180,
+      "initial_conditions": {
+        "environment": "disposable local browser page; no external navigation or accounts",
+        "entrypoint": "known page target; excludes CLI goal/app routing",
+        "fixture": "benchmark_web_runner.FIXTURES.combined",
+        "fixture_sha256": "11e63a77ca071dccf326329b5d0f54a3b0ebf61c4d53213b62daf1369cd0b828",
+        "fresh_browser": true,
+        "external_effects": false,
+        "save_witness_mapping": "host supplied; discovery not benchmarked",
+        "filesystem": "fresh temporary directory with exact filename confined callback"
+      },
+      "oracles": [
+        "loop_done",
+        "form_value",
+        "selected_value",
+        "scroll_position",
+        "destination",
+        "file_readback",
+        "read_answer",
+        "receipt"
+      ],
+      "runner": "benchmark_web_runner",
+      "implemented": true
+    }
+  ]
+}

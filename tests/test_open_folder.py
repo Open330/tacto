@@ -21,6 +21,35 @@ class OpenFolderTests(unittest.TestCase):
         self.assertEqual("open_folder", flow.steps[0].action)
         self.assertEqual(frozenset({"path"}), ACTION_PARAMS["open_folder"])
 
+    def test_a_recipe_may_start_with_open_folder_when_finder_has_no_window(self):
+        class NoWindowFinder:
+            capabilities = {'action.open_folder'}
+            def __init__(self): self.opened = False; self.asked = []
+            def observe(self, target, mode='tree_full', require_window=True, **k):
+                self.asked.append(require_window)
+                if not self.opened and require_window:
+                    return {'type': 'error', 'error': 'no_window_content', 'reason': 'no_visible_window'}
+                tree = '0 Window  Title: x' if self.opened else ''
+                return {'type': 'observation', 'obs_id': 'o', 'tree': tree}
+            def act(self, obs, target, action, **k):
+                self.opened = True
+                return {'type': 'acted', 'action': 'open_folder', 'note': 'not verified — observe again'}
+            def wait_until(self, target, predicate, **k):
+                r = self.observe(target)
+                return r if predicate(r['tree']) else {'type': 'timeout', 'last_obs': r}
+        from nlc.flow import replay
+        flow = Flow.from_json(json.dumps({"schema": 2, "name": "f", "target": "com.apple.finder",
+            "steps": [{"action": "open_folder", "params": {"path": "/tmp/x"},
+                       "postcondition": {"field": {"role": "Window", "title": "x"},
+                                         "attribute": "Title", "equals": "x"},
+                       "safety": {"effects": ["write_ephemeral"],
+                                  "resource": {"object_type": "Finder window", "scope": "item"},
+                                  "reversibility": "reversible"}}]}))
+        app = NoWindowFinder()
+        result = replay(app, flow)
+        self.assertTrue(result.ok, result.log)
+        self.assertEqual([True, False], app.asked[:2])
+
     def test_helper_scope(self):
         swift = (ROOT / 'helper/NLCHelper.swift').read_text()
         case = swift[swift.index('    case "open_folder":'):swift.index('    case "select_option":')]
