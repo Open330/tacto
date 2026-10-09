@@ -166,16 +166,15 @@ class NotStarted(RuntimeError):
 
 
 def _document_path(doc: str):
-    """A window's AXDocument as an absolute path, or None (file:// only)."""
+    """A window's AXDocument as an absolute, composed path, or None — by URL
+    syntax only (shared with the helper; no file access, references not
+    shown)."""
     import unicodedata
-    from urllib.parse import unquote, urlparse
-    url = urlparse(doc)
-    if url.scheme != "file" or url.netloc not in ("", "localhost") or url.query or url.fragment:
+    from .native_document import document_url_syntax_path
+    path = document_url_syntax_path(doc)
+    if path is None or path.startswith('/.file/'):
         return None
-    path = unicodedata.normalize("NFC", unquote(url.path))
-    if not path.startswith("/") or any(ord(c) < 0x20 or ord(c) == 0x7F for c in path):
-        return None
-    return path
+    return unicodedata.normalize("NFC", path)
 
 
 def _line_attr(line: str, key: str):

@@ -44,6 +44,34 @@ class _Document:
     selected_path: str | None = None
 
 
+def document_url_syntax_path(value):
+    """A local file URL's absolute path by syntax alone, or None.
+
+    No file-system access, no reference resolution: the strict checks of
+    `_document_path` up to decoding (an empty or `localhost` authority and
+    nothing else, no query/fragment, no encoded separators/NUL, well-formed
+    escapes decoding as strict UTF-8, an absolute path without control
+    characters). Shared with the helper's documentURLSyntaxPath so a window
+    line shows the same path either way (Codex review of 66433c5).
+    """
+    if (not isinstance(value, str) or not value
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in value)
+            or re.search(r'%(?![0-9a-fA-F]{2})', value)
+            or re.search(r'%(?:2f|5c|00)', value, re.I) or '?' in value or '#' in value):
+        return None
+    try:
+        url = urlsplit(value)
+        if url.scheme != 'file' or url.netloc not in ('', 'localhost') or url.query or url.fragment:
+            return None
+        path = unquote(url.path, encoding='utf-8', errors='strict')
+    except (ValueError, UnicodeError):
+        return None
+    if (not path.startswith('/') or path.startswith('//') or '\\' in path
+            or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in path)):
+        return None
+    return path
+
+
 def _document_path(result):
     if (not isinstance(result, tuple) or len(result) != 2
             or not isinstance(result[0], int) or isinstance(result[0], bool)):

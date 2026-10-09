@@ -145,11 +145,8 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     // (textedit_save needs the absolute path; the title is only a name).
     // file:// only, decoded and composed; anything else is not shown.
     if role == kAXWindowRole as String, let doc = str(el, "AXDocument"),
-       let url = URL(string: doc), url.isFileURL, url.query == nil, url.fragment == nil {
-        let path = url.path.precomposedStringWithCanonicalMapping
-        if path.hasPrefix("/"), !path.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
-            text += (text.isEmpty ? "" : ", ") + "Document: \(path)"
-        }
+       let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/") {
+        text += (text.isEmpty ? "" : ", ") + "Document: \(path.precomposedStringWithCanonicalMapping)"
     }
     if interactableRoles.contains(role) || !text.isEmpty {
         let idx = elements.count
@@ -3053,6 +3050,26 @@ func documentPath(_ window: AXUIElement) throws -> String? {
 }
 
 /// Resolve file references only after strict URL syntax validation.
+/// A local file URL's absolute path by syntax alone, or nil — the checks of
+/// documentURLPath up to decoding, with no file-system access and no
+/// reference resolution. Used for a window line's "Document:"; the same rules
+/// as Python's document_url_syntax_path (Codex review of 66433c5).
+func documentURLSyntaxPath(_ text: String) -> String? {
+    if text.isEmpty || text.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) { return nil }
+    let lowered = text.lowercased()
+    if lowered.contains("%2f") || lowered.contains("%5c") || lowered.contains("%00")
+        || text.contains("?") || text.contains("#") { return nil }
+    guard documentEscapesAreWellFormed(text),
+          let parts = URLComponents(string: text), parts.scheme == "file",
+          parts.query == nil, parts.fragment == nil,
+          parts.user == nil, parts.password == nil, parts.port == nil,
+          (parts.host == nil || parts.host == "" || parts.host == "localhost"),
+          let path = documentDecodePercent(parts.percentEncodedPath),
+          path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\\"),
+          !path.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) else { return nil }
+    return path
+}
+
 func documentURLPath(_ text: String, resolvingReference: Bool = false) throws -> String {
     if text.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
         throw DocumentError.fail("invalid document file URL")

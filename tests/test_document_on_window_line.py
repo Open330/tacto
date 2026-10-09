@@ -23,15 +23,51 @@ class DocumentOnWindowLineTests(unittest.TestCase):
         self.assertEqual("/tmp/노트.txt", _document_path(decomposed))
         self.assertEqual("/tmp/a b.txt", _document_path("file:///tmp/a%20b.txt"))
         for bad in ("https://x/a.txt", "file://host/a.txt", "file:///a.txt?x=1",
-                    "file:///a%0A.txt", "relative.txt"):
+                    "file:///a%0A.txt", "relative.txt", "file://[oops/a.txt", "file:///a%zz.txt",
+                    "file:///a%FF.txt", "file:///.file/id=1"):
             self.assertIsNone(_document_path(bad), bad)
 
     def test_helper_renders_it_for_windows_only(self):
         swift = (ROOT / "helper/NLCHelper.swift").read_text()
         self.assertIn('if role == kAXWindowRole as String, let doc = str(el, "AXDocument")', swift)
-        self.assertIn('url.isFileURL, url.query == nil, url.fragment == nil', swift)
+        self.assertIn('let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/")', swift)
         self.assertIn('precomposedStringWithCanonicalMapping', swift)
 
+
+
+class SyntaxParityTests(unittest.TestCase):
+    """The helper's and Python's syntax-only parsers agree, run for real."""
+    CASES = ["file:///tmp/a.txt", "file://localhost/tmp/a.txt", "file://host/a.txt",
+             "file://user@localhost/a.txt", "file://localhost:80/a.txt", "file:///a%zz.txt",
+             "file:///a%.txt", "file:///a%FF.txt", "file://[oops/a.txt", "file:///a%2Fb.txt",
+             "file:///a%00.txt", "file:///a%20b.txt", "file:///a.txt?x=1", "file:///a.txt#f",
+             "https://x/a.txt", "file:////net/a.txt", "file:///%EB%85%B8%ED%8A%B8.txt", ""]
+
+    def test_same_answers(self):
+        import json, shutil, subprocess, tempfile
+        if not shutil.which("swift"):
+            self.skipTest("Swift required")
+        from nlc.native_document import document_url_syntax_path
+        swift = (ROOT / "helper/NLCHelper.swift").read_text()
+        def fn(name):
+            body = swift[swift.index(f"func {name}("):]
+            return body[:body.index("\n}\n") + 3]
+        code = "\n".join(fn(n) for n in ("documentEscapesAreWellFormed", "documentDecodePercent",
+                                          "documentURLSyntaxPath"))
+        harness = ("import Foundation\n" + code + "\nlet cases = " + json.dumps(self.CASES) +
+                   "\nlet out = cases.map { documentURLSyntaxPath($0) ?? \"<nil>\" }\n"
+                   "print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)\n")
+        with tempfile.TemporaryDirectory(prefix="nlc-url-parity-") as d:
+            src = pathlib.Path(d) / "main.swift"; src.write_text(harness, encoding="utf-8")
+            run = subprocess.run(["swift", str(src)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        helper = json.loads(run.stdout)
+        python = [document_url_syntax_path(c) or "<nil>" for c in self.CASES]
+        self.assertEqual(dict(zip(self.CASES, python)), dict(zip(self.CASES, helper)))
+        self.assertEqual("/tmp/a.txt", python[0])
+        self.assertEqual("/노트.txt", python[16])
+        for bad in self.CASES[2:11] + self.CASES[12:16] + [""]:
+            self.assertEqual("<nil>", dict(zip(self.CASES, python))[bad], bad)
 
 if __name__ == "__main__":
     unittest.main()
