@@ -2318,14 +2318,28 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     return ensureControlStream(forPID: pid)
 }
 
-/// True only when AXWindows was read successfully and is an empty array.
-/// A failed read, a wrong type, or any window at all is not "no windows".
+/// True only when AXWindows was read successfully and nothing in it is a
+/// window: an empty list, or only non-window entries whose roles were all
+/// read — Finder with no window lists its desktop as one AXScrollArea (seen on
+/// june-mba, 2026-10-09). A failed read, a wrong type, an unreadable role or
+/// any AXWindow is not "no windows" (Codex review of 2b6b400 still holds).
+func noWindowsAmong(_ app: AXUIElement, read: AXRead) -> Bool {
+    guard let (error, value) = try? read(app, kAXWindowsAttribute as String),
+          error == .success, let windows = value as? [AXUIElement] else { return false }
+    for element in windows {
+        guard let (roleError, role) = try? read(element, kAXRoleAttribute as String),
+              roleError == .success, let name = role as? String, !name.isEmpty,
+              name != kAXWindowRole as String, name != "AXSheet" else { return false }
+    }
+    return true
+}
+
 func appSaysItHasNoWindows(_ pid: pid_t) -> Bool {
-    var value: CFTypeRef?
-    let err = AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid),
-                                            kAXWindowsAttribute as CFString, &value)
-    guard err == .success, let windows = value as? [AXUIElement] else { return false }
-    return windows.isEmpty
+    noWindowsAmong(AXUIElementCreateApplication(pid), read: { element, name in
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        return (error, value)
+    })
 }
 
 /// The status item's button is in a window the system reports as visible

@@ -237,10 +237,63 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         self.assertIn("if windowless && appSaysItHasNoWindows(pid)", body)
         windowless = body[body.index("if windowless &&"):body.index("return ensureControlStream")]
         self.assertIn("return shown && DispatchQueue.main.sync { controlItemOnScreen() }", windowless)
-        probe = text[text.index("func appSaysItHasNoWindows("):]
+        probe = text[text.index("func noWindowsAmong("):]
         probe = probe[:probe.index("\n}\n")]
-        self.assertIn("guard err == .success, let windows = value as? [AXUIElement] else { return false }", probe)
+        self.assertIn("error == .success, let windows = value as? [AXUIElement] else { return false }", probe)
         self.assertNotIn("realWindows", probe)
+
+    def test_windowless_judgement_runs(self):
+        """The real function against a fake read (june-mba, 2026-10-09: Finder
+        with no window lists only its desktop AXScrollArea)."""
+        import json, shutil, subprocess, tempfile
+        if not shutil.which("xcrun"):
+            self.skipTest("macOS Swift required")
+        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        code = text[text.index("/// True only when AXWindows was read successfully and nothing"):
+                    text.index("func appSaysItHasNoWindows(")]
+        harness = r'''
+import Foundation
+import ApplicationServices
+typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
+''' + code + r'''
+func el(_ n: Int32) -> AXUIElement { AXUIElementCreateApplication(n) }
+func pidOf(_ e: AXUIElement) -> Int32 { var p: pid_t = 0; AXUIElementGetPid(e, &p); return p }
+struct Timeout: Error {}
+func judge(_ windows: Any?, _ roles: [Int32: Any]) -> Bool {
+    noWindowsAmong(el(1), read: { e, name in
+        let n = pidOf(e)
+        if n == 1 {
+            if let err = windows as? AXError { return (err, nil) }
+            if let list = windows as? [Int32] { return (.success, list.map { el($0) } as CFArray) }
+            return (.success, "x" as CFString)
+        }
+        guard let r = roles[n] else { return (.noValue, nil) }
+        if let err = r as? AXError { return (err, nil) }
+        if let s = r as? String, s == "throw" { throw Timeout() }
+        return (.success, r as! String as CFString)
+    })
+}
+let out: [String: Bool] = [
+    "empty": judge([Int32](), [:]),
+    "desktop only": judge([Int32(2)], [2: "AXScrollArea"]),
+    "a window": judge([Int32(2), Int32(3)], [2: "AXScrollArea", 3: "AXWindow"]),
+    "a sheet": judge([Int32(2)], [2: "AXSheet"]),
+    "role unreadable": judge([Int32(2)], [2: AXError.cannotComplete]),
+    "role missing": judge([Int32(2)], [:]),
+    "role read times out": judge([Int32(2)], [2: "throw"]),
+    "list unreadable": judge(AXError.cannotComplete, [:]),
+    "list malformed": judge("x", [:]),
+]
+print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
+'''
+        with tempfile.TemporaryDirectory(prefix="nlc-windowless-") as directory:
+            source = pathlib.Path(directory) / "main.swift"
+            source.write_text(harness)
+            result = subprocess.run(["swift", str(source)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual({"empty": True, "desktop only": True, "a window": False, "a sheet": False,
+                          "role unreadable": False, "role missing": False, "role read times out": False,
+                          "list unreadable": False, "list malformed": False}, json.loads(result.stdout))
 
     def test_only_menu_requests_may_use_the_windowless_gate(self):
         text = (ROOT / "helper/NLCHelper.swift").read_text()
