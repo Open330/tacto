@@ -318,26 +318,73 @@ func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
 }
 
 /// Full exposed-tree modal check; AXSheets unsupported is not an empty list.
+///
+/// Three refinements (2026-10-09, Codex review of req 5c):
+/// - A window top must say AXModal = false; a top that is not a window
+///   (Finder's desktop AXScrollArea, which has no AXModal) may lack it but may
+///   not say true — the same rule as the Return sheet path. Before this, any
+///   Finder window preparation was refused by the desktop entry.
+/// - Running out of nodes or time while checking is reported as "readiness
+///   budget exceeded", distinct from a sheet or modal actually found.
+/// - One verified prune, Finder only, never in the target window: below a file
+///   list container (AXOutline / AXTable / AXList / AXBrowser) of ANOTHER
+///   window nothing is visited. Its rows and cells are file entries — a sheet
+///   is a window of its own and is not a row's descendant — and they were
+///   ~19,000 nodes per large folder window, 36–61 s to read (measured). The
+///   container itself is still checked (role, AXModal, AXSheets), every top's
+///   AXModal/AXSheets still is, and the target window is walked in full.
 func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
                               maxNodes: Int = 5000, maxDepth: Int = 64,
-                              scope: NativeWindowReadScope? = nil) throws {
+                              scope: NativeWindowReadScope? = nil,
+                              read injected: AXRead? = nil,
+                              isFinder knownFinder: Bool? = nil) throws {
     guard maxNodes > 0, maxDepth >= 0 else { throw NativeWindowInputError.refused("invalid readiness budget") }
-    func optional(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
+    func raw(_ node: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
+        if let injected { return try injected(node, name) }
+        if let scope { return try scope.read(node, name) }
         var value: CFTypeRef?
-        let error: AXError
-        if let scope { (error, value) = try scope.read(node, name) }
-        else { error = AXUIElementCopyAttributeValue(node, name as CFString, &value) }
+        let error = AXUIElementCopyAttributeValue(node, name as CFString, &value)
+        return (error, value)
+    }
+    func budgeted<T>(_ body: () throws -> T) throws -> T {
+        do { return try body() }
+        catch NativeWindowInputError.refused(let why) where why == "window observation deadline expired" {
+            throw NativeWindowInputError.refused("readiness budget exceeded: deadline")
+        }
+    }
+    func optional(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
+        let (error, value) = try budgeted { try raw(node, name) }
         if error == .success, let value = value { return value }
         if [-25205, -25212].contains(error.rawValue) { return nil }
         throw NativeWindowInputError.refused("window state unavailable: \(name)")
     }
+    func required(_ node: AXUIElement, _ name: String) throws -> CFTypeRef {
+        guard let value = try optional(node, name) else {
+            throw NativeWindowInputError.refused("required AX attribute unavailable: \(name)")
+        }
+        return value
+    }
+    func role(_ node: AXUIElement) throws -> String {
+        guard let text = try required(node, kAXRoleAttribute) as? String else {
+            throw NativeWindowInputError.refused("invalid AX role")
+        }
+        return text
+    }
     func explicitlyFalse(_ node: AXUIElement, _ name: String) throws -> Bool {
-        let value = try windowInputAttribute(node, name, scope: scope)
+        let value = try required(node, name)
+        return CFGetTypeID(value) == CFBooleanGetTypeID() && (value as? Bool) == false
+    }
+    /// Window tops: AXModal must be false. Other tops: absent or false.
+    func topNotModal(_ top: AXUIElement, _ topRole: String) throws -> Bool {
+        if topRole == kAXWindowRole as String { return try explicitlyFalse(top, "AXModal") }
+        guard let value = try optional(top, "AXModal") else { return true }
         return CFGetTypeID(value) == CFBooleanGetTypeID() && (value as? Bool) == false
     }
     let app = AXUIElementCreateApplication(pid)
+    let isFinder = knownFinder ?? (NSRunningApplication(processIdentifier: pid)?.bundleIdentifier == "com.apple.finder")
+    let fileLists: Set<String> = ["AXOutline", "AXTable", "AXList", "AXBrowser"]
     func windows() throws -> [AXUIElement] {
-        guard let result = try windowInputAttribute(app, kAXWindowsAttribute, scope: scope) as? [AXUIElement] else {
+        guard let result = try required(app, kAXWindowsAttribute) as? [AXUIElement] else {
             throw NativeWindowInputError.refused("application windows malformed")
         }
         return result
@@ -348,24 +395,40 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
         throw NativeWindowInputError.refused("target window missing, ambiguous or minimized")
     }
     var remaining = maxNodes
+    var roles: [String] = []
     for top in before {
-        guard try explicitlyFalse(top, "AXModal") else { throw NativeWindowInputError.refused("modal or unknown window") }
+        let topRole = try role(top)
+        roles.append(topRole)
+        guard try topNotModal(top, topRole) else { throw NativeWindowInputError.refused("modal or unknown window") }
         if let value = try optional(top, "AXSheets") {
             guard let sheets = value as? [AXUIElement], sheets.isEmpty else {
                 throw NativeWindowInputError.refused("sheet or malformed sheet list")
             }
         }
+        let isTarget = CFEqual(top, window)
         var stack: [(AXUIElement, Int)] = [(top, 0)]
         while let (node, depth) = stack.popLast() {
             remaining -= 1
             guard remaining >= 0, depth <= maxDepth else {
-                throw NativeWindowInputError.refused("readiness traversal budget exceeded")
+                throw NativeWindowInputError.refused("readiness budget exceeded: nodes")
             }
-            let role = try windowInputRole(node, scope: scope)
-            guard !role.isEmpty, role != "AXSheet" else { throw NativeWindowInputError.refused("attached sheet or malformed role") }
+            let nodeRole = try role(node)
+            guard !nodeRole.isEmpty, nodeRole != "AXSheet" else { throw NativeWindowInputError.refused("attached sheet or malformed role") }
+            if depth > 0, let modal = try optional(node, "AXModal"),
+               !(CFGetTypeID(modal) == CFBooleanGetTypeID() && (modal as? Bool) == false) {
+                throw NativeWindowInputError.refused("modal or unknown element")
+            }
+            if isFinder && !isTarget && depth > 0 && fileLists.contains(nodeRole) {
+                if let value = try optional(node, "AXSheets") {
+                    guard let sheets = value as? [AXUIElement], sheets.isEmpty else {
+                        throw NativeWindowInputError.refused("sheet or malformed sheet list")
+                    }
+                }
+                continue    // the verified prune: file entries below, not windows
+            }
             if let value = try optional(node, kAXChildrenAttribute) {
                 guard let children = value as? [AXUIElement] else { throw NativeWindowInputError.refused("window children malformed") }
-                guard children.count <= remaining else { throw NativeWindowInputError.refused("readiness traversal budget exceeded") }
+                guard children.count <= remaining else { throw NativeWindowInputError.refused("readiness budget exceeded: nodes") }
                 stack.append(contentsOf: children.reversed().map { ($0, depth + 1) })
             }
         }
@@ -375,8 +438,8 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
           try explicitlyFalse(window, kAXMinimizedAttribute) else {
         throw NativeWindowInputError.refused("window state changed during validation")
     }
-    for top in before {
-        guard try explicitlyFalse(top, "AXModal") else { throw NativeWindowInputError.refused("window became modal during validation") }
+    for (top, topRole) in zip(before, roles) {
+        guard try topNotModal(top, topRole) else { throw NativeWindowInputError.refused("window became modal during validation") }
     }
 }
 
