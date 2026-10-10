@@ -96,6 +96,8 @@ class TranscriptReplayTests(unittest.TestCase):
         chat = Chat(title='Room B'); result = self.run_send(chat, receipt(chat))
         self.assertFalse(result.ok)
         self.assertEqual(chat.calls, [])
+        # Its closed code is shown, not hidden behind the class name.
+        self.assertIn('TranscriptReceiptError: recipient_mismatch', str(result.log))
 
     def test_not_shown_or_different_text_is_unverified_never_resent(self):
         for chat in (Chat(delivers=False), Chat(shows='안녕하세요')):

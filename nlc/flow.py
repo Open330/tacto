@@ -1266,6 +1266,19 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 on_uncertain=list(st.on_uncertain))
 
 
+def _receipt_public_codes() -> frozenset:
+    """Every receipt's closed refusal codes — what replay may show of one."""
+    import importlib
+    codes = set()
+    for module in ("existing_file_receipt", "transcript_receipt", "delivery_receipt"):
+        try:
+            codes |= set(getattr(importlib.import_module(f".{module}", __package__),
+                                 "PUBLIC_CODES", ()))
+        except ImportError:
+            continue
+    return frozenset(codes)
+
+
 def _live_binding(driver, flow, step, action, target_line,
                   tree: str = "") -> ContextBinding:
     """Re-derive, from the live world, the facts the contract was judged on.
@@ -2134,11 +2147,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     # (Codex review of 4d04b80).
                     # Only a closed public code is shown; never an exception's
                     # message (any subclass could carry document text).
-                    from .existing_file_receipt import PUBLIC_CODES
                     code = getattr(exc, "public_code", None)
-                    shown = (f"{type(exc).__name__}: {code}"
-                             if type(code) is str and code in PUBLIC_CODES
-                             else type(exc).__name__)
+                    # A private refusal class shows as its public base.
+                    name = next(c.__name__ for c in type(exc).__mro__
+                                if not c.__name__.startswith("_"))
+                    shown = (f"{name}: {code}"
+                             if type(code) is str and code in _receipt_public_codes()
+                             else name)
                     return {"type": "error", "error": "host_evidence_preparation_failed",
                             "effect": "not_started", "detail": shown}
             from .commit_evidence import save_panel_dispatch_parameters
