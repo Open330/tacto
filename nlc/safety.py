@@ -302,6 +302,17 @@ def effects_of(action: dict, target_line: str = "", *, target: str = "") -> tupl
         return {"write_ephemeral"}, "관측된 창 준비 후 재관찰"
     if name == "press_key" and isinstance(action.get("key"), str) and action["key"] in NAVIGATION_KEYS:
         return {"write_ephemeral"}, "현재 포커스의 탐색 키"
+    if name == "press_key" and action.get("key") == "Return":
+        # Return commits what an input holds: in a chat's message field it
+        # SENDS. Whatever a recipe declares, a text input's Return is treated
+        # as transmit (asked first, needs a receipt). Only Finder's Go to
+        # Folder path field navigates, and a list row's Return opens the row.
+        toks = target_line.strip().split()
+        role = toks[1].rstrip(",").lower().removeprefix("ax") if len(toks) > 1 else ""
+        if role in ("textarea", "textfield", "textbox", "combobox", "searchfield"):
+            if role == "textfield" and "Identifier: PathTextField" in raw:
+                return {"write_ephemeral"}, "폴더 경로로 이동"
+            return {"transmit"}, "입력란의 Return 은 내용을 보냅니다"
     if name in ("scroll", "read"):
         return {"read"}, "화면을 읽습니다"
     if name in ("type_text", "set_value", "select_option", "select_custom_option") and (

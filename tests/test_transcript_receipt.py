@@ -90,6 +90,7 @@ class TranscriptReplayTests(unittest.TestCase):
         proof = next(iter(result.commit_evidence.values()))
         self.assertIsInstance(proof.evidence, TranscriptEvidence)
         self.assertEqual(proof.evidence.recipient, 'Room A')
+        self.assertEqual(result.events[0]['commit_evidence_kind'], 'sender_transcript')
 
     def test_wrong_room_is_refused_before_the_key(self):
         chat = Chat(title='Room B'); result = self.run_send(chat, receipt(chat))

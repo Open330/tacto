@@ -139,7 +139,9 @@ def main(driver, output):
                     assert result.ok, result.log
                     assert report['row_return']['after']['opened'] == 'Room_A', report['row_return']
 
-                    # 5. Return in the message field "sends" what was typed.
+                    # 5. Return in the message field SENDS: declared as a mere
+                    #    UI change it is refused before any key (Codex review
+                    #    of f339633); step 6 sends it as transmit.
                     view = observe()
                     index, _ = Selector(identifier='message-field').resolve(view['tree'])
                     focused = driver.act(view['obs_id'], TARGET, {'name': 'click', 'element_index': index})
@@ -154,10 +156,11 @@ def main(driver, output):
                         Postcondition(field=Selector(identifier='list-state'), attribute='Value',
                                       contains='sent=1 lastSent=hello_there'),
                         {'identifier': 'message-field'})], schema=2))
-                    report['field_return'] = {'focus': focused, 'ok': result.ok, 'log': result.log,
+                    report['field_return_as_ephemeral'] = {'focus': focused, 'ok': result.ok, 'log': result.log,
                                               'events': result.events, 'after': host()}
-                    assert result.ok, result.log
-                    assert report['field_return']['after']['sent'] == '1', report['field_return']
+                    assert not result.ok and result.events == [], result.log
+                    assert 'contract_effect_mismatch' in str(result.log), result.log
+                    assert report['field_return_as_ephemeral']['after']['sent'] == '0', report['field_return_as_ephemeral']
 
                     # 6. A transmit send: asked first, then witnessed in the
                     #    sender's own window by an independent AX reader.
@@ -174,7 +177,7 @@ def main(driver, output):
                         binding=ContextBinding(bundle_id=TARGET, identifier='message-field',
                                                operation='press_key', params_digest=pin_params(params)),
                         postcondition=Postcondition(field=Selector(identifier='list-state'),
-                                                    attribute='Value', contains='sent=2 lastSent=second'))
+                                                    attribute='Value', contains='sent=1 lastSent=second'))
                     def reader(target):
                         seen = local.observe(target, 'tree_full')
                         assert seen.get('type') == 'observation', seen
@@ -188,7 +191,7 @@ def main(driver, output):
                     gated = [e for e in asked.log if e.get('status') == 'gated']
                     assert not asked.ok and gated, asked.log
                     assert '받는 사람: NLC List Fixture · 보낼 문장: second' in gated[0]['detail']['what'], gated
-                    assert host()['sent'] == '1', host()
+                    assert host()['sent'] == '0', host()
                     # One receipt per run: the asking run already used its prepare.
                     receipt = TranscriptReceipt(reader, target=TARGET, recipient='NLC List Fixture',
                         body='second', recipient_field=Selector(role='Window', title='NLC List Fixture'),
@@ -201,7 +204,7 @@ def main(driver, output):
                                           'events': result.events, 'after': host(),
                                           'evidence': repr(proof)}
                     assert result.ok and result.events[0]['state'] == 'confirmed', result.log
-                    assert report['transmit']['after']['sent'] == '2', report['transmit']
+                    assert report['transmit']['after']['sent'] == '1', report['transmit']
 
                     report['final'] = host()
                     # NSApp.isActive of this accessory fixture turns true after

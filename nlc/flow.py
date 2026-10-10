@@ -2238,6 +2238,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             "event_id": event["event_id"], "event_state": event["state"],
                             "detail": event["evidence_error"]}
                 res.commit_evidence[event["event_id"]] = proof
+                # What the proof is OF, kept with the event: a sender's own
+                # window is not the recipient's inbox (Codex review of a2207a2).
+                from .commit_evidence import TranscriptEvidence
+                event["commit_evidence_kind"] = ("sender_transcript"
+                    if type(proof.evidence) is TranscriptEvidence else type(proof.evidence).__name__)
                 event["state"] = "confirmed"
                 if response.get("type") == "error":
                     # The host receipt resolved an uncertain dispatch. Keep

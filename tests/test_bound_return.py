@@ -81,6 +81,24 @@ class BoundReturnReplayTests(unittest.TestCase):
                 self.assertFalse(self.run_step(app, changed).ok)
                 self.assertEqual(app.calls, [])
 
+    def test_text_input_return_cannot_be_declared_ephemeral(self):
+        # A message field's Return sends; declaring it a UI change is refused
+        # before any key (Codex review of f339633).
+        class Field(App):
+            def observe(self, *args, **kwargs):
+                tree = '0 Window  Title: Room A\n  1 TextArea  Value: hi, Identifier: message-field'
+                return {'type': 'observation', 'obs_id': 'obs', 'tree': tree}
+        params = {'key': 'Return'}
+        st = step(selector=Selector(identifier='message-field'),
+                  binding=ContextBinding(bundle_id='fixture', identifier='message-field',
+                                         operation='press_key', params_digest=pin_params(params)),
+                  postcondition=Postcondition(field=Selector(identifier='message-field'),
+                                              attribute='Value', equals=''))
+        app = Field(); result = self.run_step(app, st)
+        self.assertFalse(result.ok, result.log)
+        self.assertEqual(app.calls, [])
+        self.assertIn('contract_effect_mismatch', str(result.log))
+
     def test_without_capability_return_stays_refused(self):
         app = App(); app.capabilities = CAPS - {'press_key.return_bound'}
         self.assertFalse(self.run_step(app, step()).ok)
