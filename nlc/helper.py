@@ -641,6 +641,23 @@ class HelperDriver:
             return {'type':'error', 'error':'document_rtf_export_unavailable', 'effect':'not_started'}
         return response
 
+    def document_window_status(self, target, document_token):
+        """Read a pinned window's lifecycle; errors never mean absence."""
+        unavailable = {'type':'error', 'error':'document_window_status_unavailable', 'effect':'not_started'}
+        if (target != 'com.apple.TextEdit' or not isinstance(document_token, str)
+                or not document_token or len(document_token) > 128
+                or 'evidence.document_window_status' not in getattr(self, 'capabilities', ())):
+            return unavailable
+        result = self._send({'type':'document_window_status', 'target':target,
+                             'document_token':document_token})
+        if (type(result) is not dict or result.get('type') != 'document_window_status'
+                or set(result) != {'type','document_token','state','same_process_verified'}
+                or result['document_token'] != document_token
+                or result['state'] not in ('open','closed')
+                or result['same_process_verified'] is not True):
+            return unavailable
+        return result
+
     def document_text(self, target, document_token=None, *, max_utf16_units=1000000,
                       document_path=None):
         """A pinned document's complete text, read over the signed channel.
@@ -697,7 +714,7 @@ class HelperDriver:
 # `_send`, so the inherited-socket driver borrows the spawn driver's
 # implementations rather than keeping a second copy in step with the first.
 for _name in ("identity", "list_targets", "observe", "act", "probe",
-              "selection", "menu_state", "menu_items", "document_text", "document_rtf_export", "save_panel", "capture",
+              "selection", "menu_state", "menu_items", "document_text", "document_window_status", "document_rtf_export", "save_panel", "capture",
               "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(InheritedHelperDriver, _name, impl)

@@ -127,6 +127,10 @@ class TracingDriver:
     def capabilities(self):
         return getattr(self._inner, "capabilities", ())
 
+    def document_window_status(self, target, document_token):
+        # A past absence observation cannot authorize cleanup of a live file.
+        return self._inner.document_window_status(target, document_token)
+
     def document_rtf_export(self, target, document_token, *, max_utf16_units=1000000,
                             timeout_seconds=3):
         return self._inner.document_rtf_export(target, document_token,
@@ -262,10 +266,13 @@ class TraceDriver:
         self.trace = trace
         self.capabilities = frozenset(trace.capabilities) - {
             "evidence.document_snapshot", "evidence.document_text",
-            "evidence.document_text.path_selector", "observe.document_token",
+            "evidence.document_text.path_selector", "observe.document_token", "evidence.document_window_status",
             "evidence.save_panel", "action.click.save_panel_guard", "evidence.document_rtf_export",
             "action.window_input", "window_input.window_bound", "window_input.host_authorization"}
         self._i = 0
+
+    def document_window_status(self, target, document_token):
+        return {'type':'error', 'error':'document_window_status_unavailable', 'effect':'not_started'}
 
     def document_rtf_export(self, target, document_token, *, max_utf16_units=1000000,
                             timeout_seconds=3):

@@ -62,7 +62,7 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
-                                 "probe", "selection", "ask", "document_text", "document_rtf_export", "save_panel", "menu_state",
+                                 "probe", "selection", "ask", "document_text", "document_window_status", "document_rtf_export", "save_panel", "menu_state",
                                  "menu_items", "capture"]
 // The largest complete document this channel will carry, in UTF-16 units. The
 // same ceiling the helper enforces: a budget is a promise about how much this
@@ -276,7 +276,7 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "invalid save panel dispatch guard"
         }
     }
-    if msg["document_token"] != nil && !["observe", "document_text", "document_rtf_export", "save_panel"].contains(type) {
+    if msg["document_token"] != nil && !["observe", "document_text", "document_window_status", "document_rtf_export", "save_panel"].contains(type) {
         return "document_token 은 observe/document_text/save_panel 에만 허용됩니다"
     }
     if msg["document_path"] != nil && type != "document_text" {
@@ -389,6 +389,13 @@ func vetted(_ msg: [String: Any]) -> String? {
         for key in msg.keys where !["type", "target", "document_token", "document_path",
                                     "max_utf16_units"].contains(key) {
             return "document_text 에 허용되지 않은 필드: \(key)"
+        }
+    }
+    if type == "document_window_status" {
+        guard Set(msg.keys) == Set(["type", "target", "document_token"]),
+              msg["target"] as? String == "com.apple.TextEdit",
+              let token = msg["document_token"] as? String, !token.isEmpty, token.count <= 128 else {
+            return "invalid document window status request"
         }
     }
     if type == "document_rtf_export" {

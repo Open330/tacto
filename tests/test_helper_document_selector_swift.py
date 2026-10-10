@@ -36,6 +36,7 @@ var bodyReads = 0
 var driftDuringText = false
 var bodyWindow = own
 let text = "한😀x"
+func nativeWindowID(_ element: AXUIElement) -> CGWindowID? {10001}
 func documentProcessIdentity(_ target: String) throws -> (pid_t, Double) { (42, stamp) }
 func attr(_ element: AXUIElement, _ name: String) -> AnyObject? {
     var output: AnyObject?

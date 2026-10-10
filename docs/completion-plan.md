@@ -695,3 +695,52 @@ run_not_eligible/runtime_policy_not_recorded를 보존하며 비교율을 계산
 보존 관측, Sky 후손 책임/외부 실행 경계, signed owned TextEdit cleanup 및
 다양한 앱·백본 반복이다. 이 읽기 pair로 select·저장·전송·장기 복구·설치
 완료를 대신하지 않는다.
+
+
+## G7/G8 후속: signed 문서 창의 부재 관측
+
+TextEdit owned cleanup의 direct AXPress와 부재 검증을 signed 경로로 옮기기
+위해 `document_window_status` 읽기 전용 API를 추가했다. 요청은 정확히
+`type`, `target=com.apple.TextEdit`, `document_token`이다. launcher·helper가
+다른 필드/대상·미지/만료 token을 거절하며 Python은 capability 및 응답의
+정확한 field set/token/state/same_process_verified=true를 검증한다.
+응답은 open/closed 또는 닫힌 unavailable 오류이며 경로/본문을 포함하지 않는다.
+
+pin은 PID+launch stamp+CFEqual window+selectedPath와 초기 CGWindowID를
+기록한다. 동일 프로세스의 성공한 AXWindows 열거 두 번과 선택 경로/창 일치를
+검사한다. 경로 변경·중복·재열림·프로세스 재시작·읽기 오류는 closed가 아니다.
+최소화돼 AX에 있는 창은 open이다. AX에서 빠진 창은 optionAll의 CG 목록에서
+같은 PID/ID가 남아 있지 않은지 두 번 확인한다. 다른 Space나 ordered-out
+창이 CG에 남으면 unavailable이다. window ID 없음·CG 목록 읽기 실패/과대/
+malformed·화면 기록 권한 없음도 unavailable이며 권한을 바꾸거나 요청하지 않는다.
+이 구현은 CGPreflightScreenCaptureAccess를 closed의 보수적 전제로 사용하므로
+그 권한이 없는 환경에서는 closed를 제공하지 않는다. 무관한 malformed CG
+항목도 결과를 거절한다. 상태는 관측 시점의 증거이며 이후 변경을 막지 않는다.
+6초 logical deadline/abort를 읽기 사이 확인하고 이전 deadline을 복원한다.
+이미 실행 중인 AX/CG native read를 강제 취소하는 보장은 없다.
+
+닫힘 관측은 token을 유지한다. 다른 호출이 stale로 token을 폐기했으면 미지
+token을 closed로 추론하지 않는다. TracingDriver는 live 결과를 전달하되
+상태/token을 trace에 저장하지 않는다. TraceDriver는 capability를 제거하고
+unavailable을 반환한다. 과거 closed를 현재 파일 정리 권한으로 재생할 수 없다.
+본문·UI 입력·활성화·파일 삭제·저장 receipt를 이 API가 수행하거나 승인하지 않는다.
+
+Muxa read-only 리뷰 req_18dd263a18033720_64의 P1 '다른 Space의 창을 closed로
+오판'을 위 CG pin/전체 Space 확인으로 수정했다. 후속
+req_18dd26516919dad0_65는 P1 해소/P2 없음이었다. 실제 Swift handler 주입
+테스트는 off-Space/권한 없음/CG 실패·malformed/ID 없음과 기존 경로/프로세스/
+읽기·deadline/abort/재열림을 검증한다. 기존 document text/RTF 경로도 유지했다.
+
+전체 build.sh와 launcher/bundle strict 서명 검증은 성공했다. installed signed
+backend는 새 evidence.document_window_status와8개 앱을 보고했고 doctor는
+기존 AX/화면 권한·세션 준비 완료였다. 해당 owner-only report는
+`../reviews/2026-10-10/document-window-status-backend.json`이며 source 전후 일치다.
+이 report는 build/capability 확인이며 실제 문서 open→close나 file cleanup
+실행 결과가 아니다. native 닫힘 실측과 signed owned cleanup 통합이 다음 작업이며
+현재 comparison의 TextEdit 미실행 gate를 해제하지 않았다.
+전체 G0~G10의 대표 앱/백본·인과적 저장/전송·동일 조건 비교/설치 완료 기준은 유지한다.
+
+최종 관련 테스트51개 중50 PASS/선택적 NLC_CONTRACT_LIVE 실기1 SKIP,
+4.969초였다. 문서 변경 뒤 docs6도0.039초에 통과했다. 없는 test_trace 모듈을
+잘못 지정한 첫 검증 명령은 import 오류였고, 실제 test_document_text_trace로
+수정한 위 실행이 최종 결과다. 실기 SKIP을 성공으로 계산하지 않는다.

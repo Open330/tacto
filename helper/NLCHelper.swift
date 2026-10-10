@@ -3077,7 +3077,7 @@ let helperCapabilities: [String] = [
     // Reading only, and deliberately NOT document_snapshot: this witnesses what
     // a document contains and where it lives, never its source format or where
     // a save panel would put it.
-    "evidence.document_text", "evidence.document_text.path_selector", "observe.document_token", "evidence.save_panel",
+    "evidence.document_window_status", "evidence.document_text", "evidence.document_text.path_selector", "observe.document_token", "evidence.save_panel",
     "action.click.save_panel_guard", "evidence.document_rtf_export",
 ]
 
@@ -3107,6 +3107,7 @@ struct PinnedDocument {
     let window: AXUIElement
     let body: AXUIElement
     var selectedPath: String? = nil
+    var lifecycleWindowID: CGWindowID? = nil
 }
 
 /// Tokens are per connection and bounded. A new authenticated connection is a
@@ -3555,7 +3556,8 @@ func documentText(_ target: String, token requested: String?, budget: Int,
             }
             pinned = PinnedDocument(pid: p, stamp: stamp,
                                     window: documents[0].window, body: documents[0].body,
-                                    selectedPath: selectedPath)
+                                    selectedPath: selectedPath,
+                                    lifecycleWindowID: nativeWindowID(documents[0].window))
         } else if pinned!.pid != p || pinned!.stamp != stamp
                     || documentMatches(documents, pinned!) != 1 {
             documentTokens.removeAll { $0.token == requested }
@@ -3602,6 +3604,84 @@ func documentText(_ target: String, token requested: String?, budget: Int,
     } catch {
         return refuse("document observation failed")
     }
+}
+
+/// Read-only window lifecycle, retaining the pin when absence is observable.
+/// A stale token, failed AX read or process restart is never "closed".
+/// Metadata only: no body read, AX action, launch, focus or file deletion.
+func documentWindowStatus(_ msg: [String:Any]) -> [String:Any] {
+    func refuse() -> [String:Any] {
+        ["type":"error", "error":"document_window_status_unavailable", "effect":"not_started"]
+    }
+    guard Set(msg.keys) == Set(["type","target","document_token"]),
+          msg["target"] as? String == "com.apple.TextEdit",
+          let token = msg["document_token"] as? String, !token.isEmpty, token.count <= 128,
+          let pinned = documentTokens.first(where: { $0.token == token })?.document else { return refuse() }
+    let previousDeadline = documentOperationDeadline
+    documentOperationDeadline = min(previousDeadline ?? .infinity,
+                                    ProcessInfo.processInfo.systemUptime + 6)
+    defer { documentOperationDeadline = previousDeadline }
+    do {
+        func read() throws -> (Bool, [AXUIElement]) {
+            let (pid, stamp) = try documentProcessIdentity("com.apple.TextEdit")
+            guard pid == pinned.pid, stamp == pinned.stamp else { throw DocumentError.fail("process changed") }
+            let app = AXUIElementCreateApplication(pid)
+            guard let windows = try documentRequired(app, kAXWindowsAttribute as String) as? [AXUIElement],
+                  windows.count <= 128 else { throw DocumentError.fail("window enumeration unavailable") }
+            var present = false
+            var pathMatches = 0
+            for window in windows {
+                try documentCheckAbort()
+                guard let subrole = try documentRequired(window, kAXSubroleAttribute as String) as? String else {
+                    throw DocumentError.fail("window role unavailable")
+                }
+                if subrole != "AXStandardWindow" {
+                    if CFEqual(window, pinned.window) { throw DocumentError.fail("window changed") }
+                    continue
+                }
+                let path = try documentPath(window)
+                if let selected = pinned.selectedPath, path == selected { pathMatches += 1 }
+                if CFEqual(window, pinned.window) {
+                    if let selected = pinned.selectedPath, path != selected {
+                        throw DocumentError.fail("document path changed")
+                    }
+                    present = true
+                }
+            }
+            if pinned.selectedPath != nil && pathMatches != (present ? 1 : 0) {
+                throw DocumentError.fail("document path is ambiguous or reopened")
+            }
+            try documentCheckAbort()
+            if !present {
+                guard let windowID = pinned.lifecycleWindowID, windowID > 0,
+                      CGPreflightScreenCaptureAccess(),
+                      let allWindows = CGWindowListCopyWindowInfo(.optionAll, 0) as? [[String:Any]],
+                      allWindows.count <= 8192 else { throw DocumentError.fail("global windows unavailable") }
+                for info in allWindows {
+                    try documentCheckAbort()
+                    guard let owner = documentIsWholeNumber(info[kCGWindowOwnerPID as String]),
+                          let number = documentIsWholeNumber(info[kCGWindowNumber as String]),
+                          owner.int64Value > 0, owner.int64Value < Int64(Int32.max),
+                          number.int64Value > 0, number.int64Value <= Int64(UInt32.max) else {
+                        throw DocumentError.fail("global window identity malformed")
+                    }
+                    if owner.int32Value == pinned.pid && number.uint32Value == windowID {
+                        throw DocumentError.fail("window still exists outside AX enumeration")
+                    }
+                }
+            }
+            try documentCheckAbort()
+            let after = try documentProcessIdentity("com.apple.TextEdit")
+            guard after.0 == pinned.pid, after.1 == pinned.stamp else { throw DocumentError.fail("process changed") }
+            return (present, windows)
+        }
+        let first = try read(), second = try read()
+        guard first.0 == second.0, first.1.count == second.1.count,
+              zip(first.1, second.1).allSatisfy({ CFEqual($0.0, $0.1) }) else { return refuse() }
+        try documentCheckAbort()
+        return ["type":"document_window_status", "document_token":token,
+                "state":first.0 ? "open" : "closed", "same_process_verified":true]
+    } catch { return refuse() }
 }
 
 func documentRTFExport(_ msg: [String:Any]) -> [String:Any] {
@@ -4268,6 +4348,8 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         return selectionOf(msg["target"] as? String ?? "")
     case "save_panel":
         return readSavePanel(msg)
+    case "document_window_status":
+        return documentWindowStatus(msg)
     case "document_rtf_export":
         return documentRTFExport(msg)
     case "document_text":
