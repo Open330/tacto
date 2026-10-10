@@ -245,9 +245,24 @@ def _why_no_window(pid: int, lock: dict) -> tuple[str, str]:
     if windows and all(_attr(w, "AXMinimized") is True for w in windows):
         return ("minimized",
                 "앱의 창이 모두 최소화돼 있습니다 — Dock에서 창을 다시 열어 주세요. (minimized)")
+    # A window the window server still holds but does not show: closed to
+    # the background (ordered out) or on another Space — the two cannot be
+    # told apart from here (KakaoTalk after a context menu, 2026-10-10).
+    try:
+        from Quartz import CGWindowListCopyWindowInfo, kCGWindowListOptionAll, kCGNullWindowID
+        hidden = [info for info in (CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID) or [])
+                  if info.get("kCGWindowOwnerPID") == pid and info.get("kCGWindowLayer") == 0
+                  and not info.get("kCGWindowIsOnscreen")
+                  and (info.get("kCGWindowBounds") or {}).get("Height", 0) > 60]
+    except Exception:
+        hidden = []
+    if hidden:
+        return ("window_offscreen",
+                "앱의 창이 화면에 없습니다(닫혀 숨었거나 다른 데스크톱(Space)에 있음) — "
+                "reopen_window 로 앱에 창을 다시 열어 달라고 요청할 수 있습니다. (window offscreen)")
     return ("no_visible_window",
-            "앱에 열린 창이 없거나, 창이 다른 데스크톱(Space)에 있습니다 — 창을 열거나 이 "
-            "데스크톱으로 가져와 주세요. (no visible window)")
+            "앱에 열린 창이 없거나, 창이 다른 데스크톱(Space)에 있습니다 — reopen_window 로 "
+            "창을 다시 열어 달라고 요청하거나, 창을 열어 주세요. (no visible window)")
 
 
 def _attr(el, name):

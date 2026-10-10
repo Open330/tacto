@@ -113,6 +113,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // Finder only (the helper checks): an existing folder's absolute path,
     // opened by LaunchServices without activating Finder — no keys, no sheet.
     "open_folder":      (["name", "path"], []),
+    "reopen_window":    (["name"], []),
+    "close_menu":       (["name"], []),
     // Reads the screen and changes nothing, so it carries no target at all.
     // `element_index` is optional here, not forbidden: a read of one named
     // element is how a batch answers with the screen AFTER its earlier

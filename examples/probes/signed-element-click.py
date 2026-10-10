@@ -206,6 +206,64 @@ def main(driver, output):
                     assert result.ok and result.events[0]['state'] == 'confirmed', result.log
                     assert report['transmit']['after']['sent'] == '1', report['transmit']
 
+                    # 7. A context menu left open is closed with AXCancel, not
+                    #    Escape, and nothing in it is chosen.
+                    assert 'action.close_menu' in driver.capabilities
+                    view = observe()
+                    index, _ = Selector(role='Group', desc='Profile').resolve(view['tree'])
+                    shown = driver.act(view['obs_id'], TARGET,
+                                       {'name': 'secondary_action', 'element_index': index, 'action': 'AXShowMenu'})
+                    time.sleep(.5)
+                    opened_menu = host()
+
+                    def ax_shape():
+                        # Where the open menu sits in AX (roles only, no text).
+                        app_el = AXUIElementCreateApplication(process.pid)
+                        def roles(node, depth):
+                            kids = (_attr(node, 'AXChildren') or [])[:30] if depth else []
+                            return [_attr(node, 'AXRole'), [roles(k, depth - 1) for k in kids]]
+                        chain, node = [], _attr(app_el, 'AXFocusedUIElement')
+                        for _ in range(10):
+                            if node is None: break
+                            chain.append(_attr(node, 'AXRole')); node = _attr(node, 'AXParent')
+                        return {'app': roles(app_el, 3), 'focused_chain': chain}
+                    report['menu_ax_shape'] = ax_shape()
+                    view = driver.observe(TARGET, 'tree_full')
+                    closed = driver.act(view['obs_id'], TARGET, {'name': 'close_menu'})
+                    time.sleep(.3)
+                    report['close_menu'] = {'show': shown, 'while_open': opened_menu,
+                                            'response': closed, 'after': host()}
+                    assert opened_menu['menuOpen'] == 'true', report['close_menu']
+                    assert closed.get('type') == 'acted' and closed.get('menus_open') == 0, closed
+                    assert report['close_menu']['after']['menuOpen'] == 'false', report['close_menu']
+                    assert report['close_menu']['after']['menuPicks'] == '0', report['close_menu']
+                    view = driver.observe(TARGET, 'tree_full')
+                    again = driver.act(view['obs_id'], TARGET, {'name': 'close_menu'})
+                    assert again.get('effect') == 'not_started', again
+
+                    # 8. The window is closed (setup, by the harness through
+                    #    AX); reopen_window brings it back without activation.
+                    assert 'action.reopen_window' in driver.capabilities
+                    from ApplicationServices import AXUIElementPerformAction
+                    app_element = AXUIElementCreateApplication(process.pid)
+                    main = [w for w in (_attr(app_element, 'AXWindows') or [])
+                            if _attr(w, 'AXTitle') == 'NLC List Fixture']
+                    assert len(main) == 1, 'main window absent'
+                    assert AXUIElementPerformAction(_attr(main[0], 'AXCloseButton'), 'AXPress') == 0
+                    time.sleep(.4)
+                    view = driver.observe(TARGET, 'tree_full', require_window=False)
+                    assert view.get('type') == 'observation', view
+                    assert 'Title: NLC List Fixture' not in view['tree'], view['tree']
+                    reopened = driver.act(view['obs_id'], TARGET, {'name': 'reopen_window'})
+                    time.sleep(.4)
+                    after_reopen = observe()
+                    report['reopen'] = {'response': reopened, 'tree_has_window':
+                                        'Title: NLC List Fixture' in after_reopen['tree'], 'after': host()}
+                    assert reopened.get('type') == 'acted', reopened
+                    assert reopened.get('activated_target') is not True, reopened
+                    assert report['reopen']['tree_has_window'], report['reopen']
+                    assert report['reopen']['after']['reopens'] == '1', report['reopen']
+
                     report['final'] = host()
                     # NSApp.isActive of this accessory fixture turns true after
                     # prepare_window (measured 2026-10-10) while the frontmost

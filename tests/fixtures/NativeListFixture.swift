@@ -6,6 +6,16 @@ import AppKit
 
 @MainActor final class ProfileView: NSView {
     var downs = 0, errors = 0
+    var contextMenu: NSMenu?
+    // AXShowMenu, as a messenger's list items offer it.
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard let contextMenu else { return false }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            contextMenu.popUp(positioning: nil, at: NSPoint(x: 10, y: 10), in: self)
+        }
+        return true
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
@@ -37,11 +47,12 @@ import AppKit
     }
 }
 
-@MainActor final class ListDelegate: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate {
+@MainActor final class ListDelegate: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     let rooms = ["Room A", "Room B", "Room C"]
     var window: NSWindow!, table: RoomTable!, profile: ProfileView!, label: NSTextField!
     var message: MessageField!, transcript: NSStackView!
     var opens = 0, opened = "none", singleClicks = 0, sent = 0, lastSent = "none"
+    var menuOpen = false, menuPicks = 0, reopens = 0
     var roomWindows: [NSWindow] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -63,6 +74,11 @@ import AppKit
         table.setAccessibilityIdentifier("room-list")
         scroll.documentView = table
         profile = ProfileView(frame: NSRect(x: 320, y: 290, width: 80, height: 60))
+        let menu = NSMenu(title: "Profile")
+        let pick = NSMenuItem(title: "Open Chat", action: #selector(picked), keyEquivalent: "")
+        pick.target = self
+        menu.addItem(pick); menu.delegate = self
+        profile.contextMenu = menu
         let messageScroll = NSScrollView(frame: NSRect(x: 10, y: 105, width: 400, height: 55))
         message = MessageField(frame: messageScroll.bounds)
         message.setAccessibilityIdentifier("message-field")
@@ -90,9 +106,11 @@ import AppKit
         window.contentView?.addSubview(label)
         window.orderBack(nil)
         refresh()
-        Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+        // .common: the label keeps updating while a menu is tracking.
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+        RunLoop.main.add(timer, forMode: .common)
     }
     func numberOfRows(in tableView: NSTableView) -> Int { rooms.count }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -103,6 +121,16 @@ import AppKit
         return cell
     }
     @objc func clicked() { singleClicks += 1 }
+    @objc func picked() { menuPicks += 1 }
+    func menuWillOpen(_ menu: NSMenu) { menuOpen = true }
+    func menuDidClose(_ menu: NSMenu) { menuOpen = false }
+    // The Dock's "reopen": show the main window again if it was closed, without
+    // activating (the request is the host's; this fixture just honours it).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        reopens += 1
+        if !window.isVisible { window.orderFront(nil) }
+        return false
+    }
     @objc func open() { openRow(table.clickedRow) }
     func openRow(_ row: Int) {
         guard row >= 0, row < rooms.count else { return }
@@ -118,6 +146,7 @@ import AppKit
         label.stringValue = "profileDowns=\(profile.downs) routeErrors=\(profile.errors) "
             + "singleClicks=\(singleClicks) opens=\(opens) opened=\(opened.replacingOccurrences(of: " ", with: "_")) "
             + "selected=\(table.selectedRow) key=\(window.isKeyWindow) "
+            + "menuOpen=\(menuOpen) menuPicks=\(menuPicks) reopens=\(reopens) visible=\(window.isVisible) "
             + "sent=\(sent) lastSent=\(lastSent.isEmpty ? "empty" : lastSent.replacingOccurrences(of: " ", with: "_")) "
             + "active=\(NSApplication.shared.isActive)"
     }

@@ -313,7 +313,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
                  if "ensureVisibleControl(forPID: p" in line]
         self.assertEqual(sorted(calls), sorted([
             "guard ensureVisibleControl(forPID: p, windowless: true) else {",
-            'guard ensureVisibleControl(forPID: p, windowless: ["menu", "open_folder"].contains((action["name"] as? String) ?? "")) else {',
+            'guard ensureVisibleControl(forPID: p, windowless: ["menu", "open_folder", "reopen_window", "close_menu"].contains((action["name"] as? String) ?? "")) else {',
             "guard ensureVisibleControl(forPID: p) else {",
             'guard ensureVisibleControl(forPID: p, windowless: kind == "menu_state" || kind == "menu_items") else {',
         ]))

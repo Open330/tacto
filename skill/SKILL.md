@@ -508,6 +508,16 @@ failure to the target window. Never change permissions automatically.
 - `app_hidden`: the current backend already attempts one bounded unhide without
   activating the app. If it still reports hidden, report that recovery failed;
   do not repeatedly retry, activate the app or restore focus yourself.
+- `window_offscreen` or `no_visible_window` (a messenger whose window was closed,
+  or went to another Space after a context menu): with `--helper`, a recipe may
+  start with `{"action": "reopen_window"}` (no selector, no params). It asks the
+  running app to reopen its window through LaunchServices without activating
+  it, like a Dock click minus the activation. The reply says whether the app
+  was observed in front (`activated_target`); verify the window with a
+  postcondition. If the app does not reopen a window, report that.
+- A context menu left open (after `secondary_action` AXShowMenu): close it with
+  `{"action": "close_menu"}` (with `--helper`), which sends AXCancel to the
+  app's open menus. Escape is not available and is not a substitute.
 - `minimized` or `no_visible_window`: do not claim the screen is locked.
   Distinguish an app with no open document from a minimized or other-Space
   window. A user-requested new/open command can use a recipe starting with a

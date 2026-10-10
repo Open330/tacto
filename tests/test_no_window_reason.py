@@ -30,6 +30,21 @@ class NoWindowReasonTests(unittest.TestCase):
         self.assertEqual("minimized", self.why({"locked": False}, windows=[True, True])[0])
         self.assertEqual("no_visible_window", self.why({"locked": False})[0])
 
+    def test_a_window_the_server_holds_offscreen_is_named(self):
+        import Quartz
+        offscreen = [{"kCGWindowOwnerPID": 1, "kCGWindowLayer": 0, "kCGWindowIsOnscreen": False,
+                      "kCGWindowBounds": {"Height": 400}}]
+        with patch.object(Quartz, "CGWindowListCopyWindowInfo", return_value=offscreen):
+            reason, detail = self.why({"locked": False})
+        self.assertEqual("window_offscreen", reason)
+        self.assertIn("reopen_window", detail)
+        # A menu-bar-height strip or another layer is not a window someone lost.
+        for info in ({"kCGWindowOwnerPID": 1, "kCGWindowLayer": 0, "kCGWindowBounds": {"Height": 24}},
+                     {"kCGWindowOwnerPID": 1, "kCGWindowLayer": 25, "kCGWindowBounds": {"Height": 400}},
+                     {"kCGWindowOwnerPID": 2, "kCGWindowLayer": 0, "kCGWindowBounds": {"Height": 400}}):
+            with patch.object(Quartz, "CGWindowListCopyWindowInfo", return_value=[info]):
+                self.assertEqual("no_visible_window", self.why({"locked": False})[0])
+
     def test_a_bare_helper_reply_is_explained_the_same_way(self):
         from nlc import helper
         d = object.__new__(helper.HelperDriver)
@@ -44,7 +59,8 @@ class NoWindowReasonTests(unittest.TestCase):
     def test_the_skill_says_what_each_reason_asks_for(self):
         from pathlib import Path
         skill = (Path(__file__).resolve().parents[1] / "skill" / "SKILL.md").read_text()
-        for reason in ("screen_locked", "app_hidden", "minimized", "no_visible_window"):
+        for reason in ("screen_locked", "app_hidden", "minimized", "no_visible_window",
+                       "window_offscreen"):
             self.assertIn(reason, skill)
 
 

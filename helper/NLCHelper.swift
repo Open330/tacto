@@ -1245,7 +1245,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                 "effect": "not_started",
                 "detail": "사용자가 Esc로 중단했습니다"]
     }
-    guard ensureVisibleControl(forPID: p, windowless: ["menu", "open_folder"].contains((action["name"] as? String) ?? "")) else {
+    guard ensureVisibleControl(forPID: p, windowless: ["menu", "open_folder", "reopen_window", "close_menu"].contains((action["name"] as? String) ?? "")) else {
         return indicatorRefusal()
     }
     let name = action["name"] as? String ?? ""
@@ -1577,6 +1577,91 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             out["note"] = "not verified — observe again; the app was observed in front after the press"
         }
         return out
+    case "reopen_window":
+        // An app whose window was closed, or went to another Space after a
+        // context menu (KakaoTalk, 2026-10-10), shows nothing to act in. What
+        // the Dock does — ask the running app to reopen — goes through
+        // LaunchServices with activates=false. That flag is a request, not a
+        // guarantee: whether the app came forward is observed and reported,
+        // and whether a window appeared is for a fresh observation to show.
+        guard Set(action.keys) == Set(["name"]) else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "reopen_window 은 인자를 받지 않습니다"]
+        }
+        guard let running = NSRunningApplication(processIdentifier: p), let appURL = running.bundleURL,
+              running.bundleIdentifier?.lowercased() == target.lowercased() else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "실행 중인 앱의 번들을 찾지 못했습니다"]
+        }
+        let appElement = AXUIElementCreateApplication(p)
+        let windowsBefore = realWindows(of: appElement).count
+        let wasFront = isFrontmost(pid: p)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        configuration.promptsUserIfNeeded = false
+        configuration.createsNewApplicationInstance = false
+        switch openFolderBounded(deadline: deadline, stopped: { abortState.isStopped }, request: { done in
+            NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { opened, error in
+                done(error == nil && opened?.processIdentifier == p)
+            }
+        }) {
+        case .notStarted(let why):
+            return ["type": "error", "error": abortState.isStopped ? "aborted_by_user" : "input_deadline_expired",
+                    "effect": "not_started", "detail": "다시 열기 전에 멈췄습니다: \(why)"]
+        case .unknown(let why):
+            return ["type": "error", "error": "action_failed", "effect": "unknown",
+                    "detail": "앱이 다시 열기 요청을 받았는지 확인하지 못했습니다: \(why)"]
+        case .opened:
+            break
+        }
+        var windowsAfter = windowsBefore, activated = false
+        for _ in 0..<10 {
+            guard !abortState.isStopped, deadline - ProcessInfo.processInfo.systemUptime > 0.1 else { break }
+            Thread.sleep(forTimeInterval: 0.1)
+            if !wasFront && isFrontmost(pid: p) { activated = true }
+            windowsAfter = realWindows(of: appElement).count
+            if windowsAfter > windowsBefore { break }
+        }
+        var reopened: [String: Any] = ["type": "acted", "action": name, "obs_id": obsID,
+            "windows_before": windowsBefore, "windows_after": windowsAfter,
+            "note": "not verified — observe again"]
+        if activated {
+            reopened["activated_target"] = true
+            reopened["note"] = "not verified — observe again; the app was observed in front after reopening"
+        }
+        return reopened
+    case "close_menu":
+        // An open context or pop-up menu, closed the way AX offers (AXCancel
+        // on the menu), not with Escape: Escape goes to whatever has the key
+        // focus, which is not necessarily the menu (2026-10-10, a KakaoTalk
+        // context menu left open after AXShowMenu). Only menus of this app
+        // that are not part of its menu bar.
+        guard Set(action.keys) == Set(["name"]) else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "close_menu 는 인자를 받지 않습니다"]
+        }
+        let openMenus = openContextMenus(pid: p)
+        guard !openMenus.isEmpty else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "열린 메뉴가 없습니다"]
+        }
+        guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline else {
+            return ["type": "error", "error": "input_cancelled_or_expired", "effect": "not_started"]
+        }
+        var failures = 0
+        for menu in openMenus where AXUIElementPerformAction(menu, "AXCancel" as CFString) != .success {
+            failures += 1
+        }
+        Thread.sleep(forTimeInterval: 0.15)
+        let remaining = openContextMenus(pid: p).count
+        if failures == openMenus.count {
+            return ["type": "error", "error": "action_failed", "effect": "unknown",
+                    "detail": "메뉴가 AXCancel 을 받지 않았습니다", "menus_open": remaining]
+        }
+        return ["type": "acted", "action": name, "obs_id": obsID, "menus_closed": openMenus.count - remaining,
+                "menus_open": remaining,
+                "note": remaining == 0 ? "menus closed" : "not verified — a menu is still open"]
     case "open_folder":
         // Finder's Go to Folder sheet cannot be confirmed from the background,
         // and Go > Go to Folder… brings Finder forward (measured 2026-10-08).
@@ -2499,6 +2584,30 @@ func appSaysItHasNoWindows(_ pid: pid_t) -> Bool {
     })
 }
 
+/// Open menus of an app that are not its menu bar's. A context menu shows up
+/// as an AXMenu child of the element it was opened on (measured 2026-10-10:
+/// window > group > menu), sometimes of the application itself. A bounded
+/// breadth-first walk that never enters the menu bar.
+func openContextMenus(pid: pid_t, nodeBudget: Int = 4000, depthLimit: Int = 14) -> [AXUIElement] {
+    let app = AXUIElementCreateApplication(pid)
+    var found: [AXUIElement] = []
+    var queue: [(AXUIElement, Int)] = [(app, 0)], head = 0, visited = 0
+    while head < queue.count, visited < nodeBudget {
+        let (node, depth) = queue[head]; head += 1; visited += 1
+        let role = str(node, kAXRoleAttribute as String)
+        if role == kAXMenuBarRole as String { continue }
+        if role == kAXMenuRole as String {
+            found.append(node)
+            continue   // its items and submenus close with it
+        }
+        guard depth < depthLimit else { continue }
+        for child in (attr(node, kAXChildrenAttribute as String) as? [AXUIElement]) ?? [] {
+            queue.append((child, depth + 1))
+        }
+    }
+    return found
+}
+
 /// The status item's button is in a window the system reports as visible
 /// and on a screen. A necessary condition, not proof the person can see it:
 /// behind the menu-bar overflow chevron, `isVisible` was measured to stay
@@ -2955,6 +3064,10 @@ let helperCapabilities: [String] = [
     // Return into a bound text input or selected row, when the host vouches
     // for the step (submit_authorized); one keyDown, reobserve.
     "press_key.return_bound",
+    // Ask a running app to reopen its window (LaunchServices, activates=false;
+    // whether it came forward is observed) and close an open context menu
+    // with AXCancel instead of Escape.
+    "action.reopen_window", "action.close_menu",
     "action.window_input", "window_input.window_bound", "window_input.host_authorization",
     // Not "press_key.navigation_only": this helper also takes Return, narrowly.
     "action.press_key", "press_key.no_escape",

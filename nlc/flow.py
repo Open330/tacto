@@ -1848,7 +1848,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         driver.protect_captures([c for s in flow.steps for c in s.captures if c.sensitive])
     obs = driver.observe(flow.target, "tree_full")
     if obs.get("error") == "no_window_content" and flow.steps \
-            and flow.steps[0].action in ("menu", "open_folder"):
+            and flow.steps[0].action in ("menu", "open_folder", "reopen_window", "close_menu"):
         # "Finder 열어줘" starts from an app with no window at all. Menus are
         # app-scoped, and open_folder is what makes the window, so such a
         # recipe can legitimately begin here (open_folder: seen on june-mba,
