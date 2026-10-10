@@ -1,7 +1,8 @@
 """Same agent, same task, two computer-use layers: NLC versus OpenAI's Sky.
 
-The agent is Codex in both arms, so the model, its reasoning and its account
-are held fixed; only the layer it drives the Mac through differs:
+Both arms invoke the same local Codex CLI route. This does not verify identical
+serving models, reasoning, account state, or initial app state; those require
+separate recorded evidence. The requested computer-use layers are:
 
   sky  — Codex's own Computer Use plugin (@oai/sky through node_repl `js`)
   nlc  — the NLC skill and the `nlc` command
@@ -361,9 +362,13 @@ def textedit_hidden():
 
 
 def _locked():
-    import Quartz
-    state = Quartz.CGSessionCopyCurrentDictionary()
-    return None if state is None else bool(state.get("CGSSessionScreenIsLocked", False))
+    from nlc.session import lock_state
+    state = lock_state()
+    if state['locked'] is True:
+        return True
+    # Key absence is interpreted only with logged-in console indicators. An
+    # off-console or incomplete login cannot support this interactive comparison.
+    return state['locked'] if state['on_console'] is True and state['login_done'] is True else None
 
 
 # ---------------------------------------------------------------- tasks

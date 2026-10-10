@@ -16,6 +16,68 @@ sys.modules[spec.name] = comparison
 spec.loader.exec_module(comparison)
 
 
+class SessionAvailabilityTests(unittest.TestCase):
+    def test_missing_lock_key_is_unknown_even_on_console(self):
+        with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
+                'kCGSSessionOnConsoleKey': True}):
+            self.assertIsNone(comparison._locked())
+
+    def test_only_an_explicit_unlocked_console_session_is_available(self):
+        for locked in (True, False):
+            with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
+                    'CGSSessionScreenIsLocked': locked, 'kCGSSessionOnConsoleKey': True,
+                    'kCGSessionLoginDoneKey': True}):
+                self.assertIs(locked, comparison._locked())
+        for state in (None, {}, {'CGSSessionScreenIsLocked': False},
+                      {'CGSSessionScreenIsLocked': False, 'kCGSSessionOnConsoleKey': False}):
+            with self.subTest(state=state), \
+                 patch('Quartz.CGSessionCopyCurrentDictionary', return_value=state):
+                self.assertIsNone(comparison._locked())
+
+    def test_missing_lock_key_with_logged_in_console_is_not_a_false_block(self):
+        from nlc.session import lock_state
+        with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
+                'kCGSSessionOnConsoleKey': True, 'kCGSessionLoginDoneKey': True}):
+            self.assertIs(False, comparison._locked())
+            self.assertEqual({'locked':False, 'on_console':True, 'login_done':True,
+                             'source':'CGSessionCopyCurrentDictionary'}, lock_state())
+
+    def test_malformed_flags_are_unknown_and_reader_details_are_not_exposed(self):
+        from nlc.session import lock_state
+        for value in (None, 0, 'false', [], {}):
+            with self.subTest(value=value), \
+                 patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
+                    'CGSSessionScreenIsLocked': value, 'kCGSSessionOnConsoleKey': True,
+                    'kCGSessionLoginDoneKey': True}):
+                self.assertIsNone(comparison._locked())
+        with patch('Quartz.CGSessionCopyCurrentDictionary', side_effect=RuntimeError('PRIVATE')):
+            self.assertNotIn('PRIVATE', str(lock_state()))
+
+    def test_session_reader_error_cannot_allow_comparison(self):
+        with patch('Quartz.CGSessionCopyCurrentDictionary', side_effect=RuntimeError('PRIVATE')):
+            self.assertIsNone(comparison._locked())
+
+    def test_unknown_session_does_not_start_fixture_agent_or_cleanup(self):
+        from unittest.mock import Mock
+        setup, cleanup, oracle = Mock(), Mock(), Mock()
+        task = comparison.Task('owned-test', 'owned goal', oracle, setup=setup, cleanup=cleanup)
+        manifest = {'version':2, 'sha256':'a'*64, 'files':{}}
+        with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
+                'kCGSSessionOnConsoleKey': True}), \
+             patch.object(comparison, 'source_manifest', return_value=manifest), \
+             patch.object(comparison.subprocess, 'run') as run:
+            result = comparison.run_one(task, 'nlc')
+        self.assertEqual('not_run', result['status'])
+        self.assertEqual('session_unobservable', result['observed'])
+        self.assertFalse(result['comparison_eligible'])
+        self.assertIsNone(result['oracle_passed'])
+        self.assertIsNone(result['process_exit'])
+        setup.assert_not_called()
+        cleanup.assert_not_called()
+        oracle.assert_not_called()
+        run.assert_not_called()
+
+
 class Provenance(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()

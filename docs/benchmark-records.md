@@ -81,6 +81,44 @@ setup·모델·cleanup을 실행하지 않는다. setup 뒤 환경이 달라져�
 이미 시도한 작업의 `failed`/`timeout`/`passed` 상태는 유지한다. 환경의 전후
 관측은 실패 원인이나 실행 중 잠금이 없었다는 증거가 아니다.
 
+현재 비교 실행기는 `nlc.session.lock_state`의 잠금·on-console·login-done
+지표를 사용한다. 이 플랫폼에서는 로그인한 콘솔의 잠금 key가 생략될 수 있어,
+key 부재에 console=true와 login_done=true가 함께 있을 때만 unlocked로
+해석한다. 이 해석은 best-effort platform inference이며 앱별 입력 승인이나
+원자적 잠금 확인이 아니다. 실제 key가 malformed이거나 세션/지표가 없고,
+off-console·로그인 미완료인 경우는 GUI 준비·모델·cleanup 전에 중단한다.
+명시적으로 잠긴 경우도 중단한다. Apple의
+[console-user 상태 구현](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IOService.cpp)의
+positive console/login 지표와 private lock 비교, 현재 플랫폼의 읽기 전용
+CGSession/IOConsole 지표 및 peer의 자체 signed fixture 실측을 참고했다.
+동일한 Codex CLI를 호출했다는 사실만으로 실제 serving model·reasoning·
+계정 상태·앱 초기 상태가 같다고 주장하지 않는다.
+
+### 기존 기록의 비교 전제 감사
+
+`examples/audit_product_pairs.py`는 GUI나 모델 호출 없이 기존 JSONL을 읽는다.
+task/rep마다 각 arm이 정확히 한 번 있어야 하며, 잠금 관측·안정된 source
+manifest의 실제 digest·oracle·layer 준수·초기 전경을 확인한다. 성공·실패
+과제 결과는 그대로 보존하고, 중복 중 성공 행만 골라 짝짓지 않는다.
+
+`recorded_prerequisites_match`는 기록된 전제 부분집합의 일치만 뜻한다.
+이 감사는 독립적인 초기 task state와 실제 serving model/configuration을
+추가로 요구하며 `same_conditions_verified=false`를 유지한다. 성공률이나
+성능 비교 수치를 계산하지 않고 입력 원본과 SHA256을 새0600 보고서에 기록한다.
+기존 JSONL에는 새 필드를 소급 추가하지 않는다.
+
+```sh
+PYTHONPATH=. .venv/bin/python examples/audit_product_pairs.py \
+  reviews/2026-10-10/product-comparison-20261010-160542.jsonl \
+  --output /tmp/nlc-pair-audit.json
+```
+
+2026-10-10의 네 cohort를 감사한 결과는
+`reviews/2026-10-10/product-pair-prerequisites-audit.json`에 있다.
+appearance/save cohort는 초기 전경이 행에 없었고, Finder 두-arm cohort는
+초기 전경이 달랐으며, Finder 후속은 NLC 한쪽만 실행했다. 원래 task oracle
+결과는 보존하지만 이들 기록만으로 동일 조건 비교가 증명됐다고 선언하지 않는다.
+
 알 수 없는 과제·빈 `--only`·0 이하 reps는 실행 전에 오류다. 새 report는
 0600으로 배타적으로 생성한다. CLI는 모든 결과가 eligible PASS이면0,
 FAIL/TIMEOUT/INVALID가 있으면1, 그 밖의 미실행·비교 제외가 있으면2로 끝난다.

@@ -477,3 +477,43 @@ private exception 클래스명만 보여 주는 문제는 별도 replay 소유 �
 peer가 다루며, delivery 모듈에는 닫힌 PUBLIC_CODES와 내부 code 검증을
 제공한다. 현재 범위의 완료·오류 수용 조건은 변경하지 않는다.
 추가 typed commit/replay/observation-binding/transcript 회귀21개도 통과했다.
+
+## G0/G9 후속: 세션 지표 결합과 기존 비교 전제 감사
+
+초기 WIP에서는 CGSession lock key 부재를 항상 unknown으로 막았고,
+Finder 두-arm CLI가 setup/모델 없이 exit2를 반환했다. 그 실행 기록
+`../reviews/2026-10-10/comparison-session-unobservable.json`은 보존하지만,
+이를 현재 환경이 접근 불가라는 근거로 쓰지 않는다. Muxa 리뷰는 정상 로그인한
+콘솔에서도 그 private key가 생략되는 플랫폼 동작 때문에 거짓 차단이라고
+지적했다. root는 공식 Apple XNU의 console/login positive 지표와 lock 비교,
+현재 CGSession·IOConsole의 boolean 지표를 읽기 전용으로 확인해 교정했다.
+
+최종 lock_state는 key가 생략됐을 때 console=true+login_done=true가 함께
+있으면 unlocked로 해석한다. malformed lock flag, 없는 세션·지표는unknown이다.
+비교 실행기는 off-console·로그인 미완료·unknown과 명시적인 잠금을 차단한다.
+이는 best-effort platform inference이며 atomic 입력 승인이나 사용자 입력
+보존의 증거가 아니다. peer의 잠긴 때 raw dictionary 원본은 없다는 한계도
+유지하며 원래 평가의 task별 guard는 계속 필요하다.
+
+실제 installed signed launcher의 doctor --check는 exit0으로 손쉬운 사용·
+화면 기록 권한과 보이는 앱8개를 보고했다. 권한 요청·설정 열기·비교 task 실행은
+없었다. 현재 readiness는 잠금 key 부재만으로 차단할 상태가 아니다.
+확인 결과는 `../reviews/2026-10-10/comparison-session-calibrated.json`에 별도 보존한다.
+
+새 audit_product_pairs는 기존 JSONL의 task/rep를 정확한 arm 한 쌍으로
+그룹화하고, 중복·누락·초기 전경·oracle·layer 준수·source manifest checksum 및
+전후 안정성·잠금 관측을 검사한다. task outcomes를 보존하고 입력을 수정하지
+않는다. 기록된 부분 전제가 같아도 전체 초기 task 상태나 실제 serving
+model/configuration은 증명하지 못하므로 same_conditions_verified=false를
+유지하고 비교 성공률·성능 수치를 계산하지 않는다.
+
+실제 기존 네 cohort를 감사해 appearance/save의 초기 전경 누락, Finder의
+초기 전경 차이, NLC-only 후속을 확인했다. 결과와 각 입력 SHA256은
+`../reviews/2026-10-10/product-pair-prerequisites-audit.json`에 보존한다.
+새 pair 감사7개와 비교 provenance/소유 oracle/세션 검사를 합친 초기47개는
+0.236초에 통과했다. 교정한 로그인·malformed 지표와 기존 eval 환경 검사를
+포함한 후속70개는0.428초에 통과했다. 비교 harness의 setup/oracle은 기존
+Python Driver 경로도 사용하므로 signed helper 실행 경계로 맞추는 다음 작업이
+필요하다. 새로운 native task 실행과 완전한 동일 조건/backbone/초기상태
+cohort 구축은 여전히 남아 있다. 리뷰는 req_18dd2386b10fe078_4b 및
+req_18dd239ebba8bc40_4c다.

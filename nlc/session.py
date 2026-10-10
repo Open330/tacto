@@ -40,20 +40,32 @@ CAPABILITIES = {
 
 
 def lock_state() -> dict:
-    """Best-effort screen-lock read. `locked` may be None when undeterminable —
-    absence of the key is not a guaranteed 'unlocked' (codex's caveat)."""
+    """Best-effort current-session state, not an atomic input authorization.
+
+    This platform can omit the lock key in a logged-in console session. Interpret
+    absence as unlocked only with both console and login-complete indicators.
+    Missing session/indicators and malformed flags remain unknown. The lock key
+    is private; app visibility and input guards still need their own checks.
+    """
     try:
         d = Quartz.CGSessionCopyCurrentDictionary()
         if d is None:
-            return {"locked": None, "on_console": None, "source": "no_session_dict"}
-        locked = d.get("CGSSessionScreenIsLocked")
+            return {"locked": None, "on_console": None, "login_done": None,
+                    "source": "no_session_dict"}
+        def flag(value):
+            return value if type(value) is bool else None
+        console = flag(d.get("kCGSSessionOnConsoleKey", d.get("OnConsole")))
+        login = flag(d.get("kCGSessionLoginDoneKey"))
+        locked = flag(d.get("CGSSessionScreenIsLocked"))
+        if 'CGSSessionScreenIsLocked' not in d and console is True and login is True:
+            locked = False
         return {
-            "locked": bool(locked) if locked is not None else None,
-            "on_console": bool(d.get("kCGSSessionOnConsoleKey", d.get("OnConsole"))),
+            "locked": locked, "on_console": console, "login_done": login,
             "source": "CGSessionCopyCurrentDictionary",
         }
     except Exception as e:
-        return {"locked": None, "on_console": None, "source": f"error:{e}"}
+        return {"locked": None, "on_console": None, "login_done": None,
+                "source": f"error:{type(e).__name__}"}
 
 
 @dataclass
