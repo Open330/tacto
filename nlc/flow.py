@@ -193,7 +193,11 @@ def _same_role(token: str, want: str) -> bool:
     no meaning, so it should not be the reason a selector matches nothing —
     which is exactly how one escalation's answer was thrown away.
     """
-    a, b = token.lower(), want.lower()
+    # A line whose element has no label but has secondary actions reads
+    # "12 Cell, Secondary Actions: ShowMenu" — the role token is "Cell,". It
+    # matched nothing, so click_ancestor ["Cell"] failed on a KakaoTalk chat
+    # list (2026-10-10). The comma is separator, not role.
+    a, b = token.rstrip(",").lower(), want.rstrip(",").lower()
     return a.removeprefix("ax") == b.removeprefix("ax")
 
 
@@ -1089,7 +1093,7 @@ def _where(lines: list[str], i: int) -> str:
             continue
         indent = pind
         toks = prev.strip().split()
-        role = toks[1] if len(toks) >= 2 else ""
+        role = toks[1].rstrip(",") if len(toks) >= 2 else ""
         name = (Selector._attr(prev, "Identifier")
                 or Selector._attr(prev, "Title")
                 or Selector._attr(prev, "Description") or "")

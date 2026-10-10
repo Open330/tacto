@@ -105,7 +105,7 @@ def candidates(tree: str, *, capabilities=()) -> list[dict]:
             continue
         from .ask import NAVIGATION_KEYS
         keys = NAVIGATION_KEYS - ({"Escape"} if "press_key.no_escape" in capabilities else set())
-        bucket.append({"element_index": int(toks[0]), "role": toks[1],
+        bucket.append({"element_index": int(toks[0]), "role": toks[1].rstrip(","),
                        "navigation_keys": sorted(keys),
                        "label": show[1][:80], "match": ident[1],
                        "attr": ident[0], "container": container,
@@ -139,7 +139,7 @@ def _place(lines: list[str], i: int) -> tuple[str, str]:
             continue
         indent = pind
         toks = prev.strip().split()
-        role = toks[1] if len(toks) >= 2 else ""
+        role = toks[1].rstrip(",") if len(toks) >= 2 else ""
         got = _pick(prev, ("Identifier", "Title", "Description"))
         name = got[1] if got else ""
         if _same_role(role, "Window") and not window:
@@ -165,7 +165,7 @@ def blocking_sheet(tree: str) -> str:
     """
     for line in tree.splitlines():
         toks = line.strip().split()
-        if len(toks) >= 2 and (_same_role(toks[1], "Sheet") or toks[1].lower() in ("dialog", "alertdialog")):
+        if len(toks) >= 2 and (_same_role(toks[1], "Sheet") or toks[1].rstrip(",").lower() in ("dialog", "alertdialog")):
             got = _pick(line, ("Title", "Description", "Identifier"))
             return got[1] if got else "(이름 없는 대화상자)"
     return ""
@@ -323,7 +323,7 @@ def _named_elements(tree: str) -> dict:
         name = _pick(line, ("Title", "Description"))
         if name is None:
             continue
-        key = (toks[1], name[0], name[1])
+        key = (toks[1].rstrip(","), name[0], name[1])
         # A name that repeats cannot be found again by that name.
         seen[key] = None if key in seen else line
     return {k: v for k, v in seen.items() if v is not None}

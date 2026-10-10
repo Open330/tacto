@@ -449,8 +449,10 @@ class Observation:
             # current mode had nothing to read (2026-10-09 comparison).
             selected = " [selected]" if _attr(el, "AXSelected") is True else ""
             extra = _secondary_actions(el)
-            actions = (", Secondary Actions: "
-                       + ", ".join(a[2:] for a in extra)) if extra else ""
+            # No comma right after the role when nothing precedes it
+            # ("Cell," matched nothing — 2026-10-10).
+            actions = (("  " if not (label or disabled or selected) else ", ")
+                       + "Secondary Actions: " + ", ".join(a[2:] for a in extra)) if extra else ""
             self.lines.append(f"{indent}{idx} {role[2:] if role.startswith('AX') else role}"
                               + (f"  {label}" if label else "") + disabled + selected + actions)
         children = _attr(el, "AXChildren") or []
