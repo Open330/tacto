@@ -191,3 +191,29 @@ source_changed=false, comparison_eligible=true, 전후 lock=false다.
 NLC 원시 input603060/cache555776/output2139, Sky input205396/cache186624/
 output668이다. 반복 준비에 든 실제 요청량을 보존하며 비용으로 환산하지 않는다.
 이번 실패를 이전 저장/외형 읽기 성공으로 덮어쓰지 않는다.
+
+### signed 비교 host와 모델 프로세스의 경계
+
+새 native 비교 host는 `nlc eval --product-comparison`으로 signed launcher 아래
+실행한다. `_driver`는 inherited helper만 사용하며 Python Driver로 대체하지
+않는다. `--check-backend`는 helper의 앱 metadata와 capability만 읽고, task
+setup·모델·입력을 실행하지 않는다. `--list`는 경로와 무관하게 목록만 표시한다.
+
+```sh
+nlc eval --product-comparison --check-backend
+nlc eval --product-comparison --list
+```
+
+Calculator setup의 menu/clear가 error·unknown·미지원이면 후속 입력이나 모델을
+진행하지 않는다. 아직 직접 AXPress를 사용하는 owned TextEdit cleanup 과제는
+signed window/document binding을 구현할 때까지 setup 전에 not_run으로 남긴다.
+사용자 문서나 출처가 불명인 창을 닫는 대체 경로를 쓰지 않는다.
+
+모델 자식에서는 NLC_HELPER_FD·NLC_LAUNCHER·NLC_HELPER_TOKEN을 제거한다.
+이 환경 정리가 macOS TCC responsible identity를 분리하는 것은 아니다.
+현재 signed host에서 spawn된 Codex/Sky의 responsible process는 관측하지
+않았으므로 결과의 `agent_responsible_process_observed`는 null이다. task
+oracle 결과는 보존하지만 `comparison_eligible=false`와
+`agent_responsibility_not_isolated_or_observed`로 제품 비교에서 제외한다.
+외부 agent controller 또는 실제 책임 신원 관측과 동일 조건 감사를 구현해야
+새 native 제품 비교를 증명할 수 있다. 예전 launcher 밖 cohort와 섞지 않는다.

@@ -444,7 +444,11 @@ def _dispatch(cmd, rest):
         # see the signed launcher in their ancestry.
         import runpy, os as _os
         root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-        evaluator = _os.path.join(root, "examples", "eval.py")
+        product = '--product-comparison' in rest
+        if rest.count('--product-comparison') > 1:
+            print('--product-comparison may be supplied only once')
+            return 2
+        evaluator = _os.path.join(root, "examples", "product_comparison.py" if product else "eval.py")
         if not _os.path.isfile(evaluator):
             print("평가 fixture는 wheel에 포함되지 않습니다. 소스 checkout에서 "
                   "examples/eval.py를 실행하세요.")
@@ -452,7 +456,7 @@ def _dispatch(cmd, rest):
         # runpy keeps OUR argv, and the suite reads it to narrow the run — so
         # hand it the arguments meant for it, not the ones meant for us.
         argv = sys.argv
-        sys.argv = ["eval.py", *rest]
+        sys.argv = [_os.path.basename(evaluator), *([r for r in rest if r != '--product-comparison'] if product else rest)]
         try:
             runpy.run_path(evaluator, run_name="__main__")
         finally:

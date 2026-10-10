@@ -65,6 +65,7 @@ class SessionAvailabilityTests(unittest.TestCase):
         with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
                 'kCGSSessionOnConsoleKey': True}), \
              patch.object(comparison, 'source_manifest', return_value=manifest), \
+             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison.subprocess, 'run') as run:
             result = comparison.run_one(task, 'nlc')
         self.assertEqual('not_run', result['status'])
@@ -123,6 +124,7 @@ class Provenance(unittest.TestCase):
         task = comparison.Task('owned-test', 'owned goal', lambda answer: (True, 'oracle satisfied'), setup=setup, cleanup=cleanup)
         with patch.dict(sys.modules, {'focus_witness': types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', return_value=False), \
+             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison.subprocess, 'run', side_effect=fake_run):
             return comparison.run_one(task, 'nlc')
 

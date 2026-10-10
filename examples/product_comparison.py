@@ -54,8 +54,18 @@ ARM_CLAUSE = {
 # ---------------------------------------------------------------- app state
 
 def _driver():
-    from nlc.driver import Driver
-    return Driver()
+    from nlc.helper import InheritedHelperDriver
+    if not InheritedHelperDriver.available():
+        raise RuntimeError('comparison_requires_signed_launcher')
+    return InheritedHelperDriver()
+
+
+def _agent_env():
+    from nlc.authoring import _provider_env
+    env = _provider_env()
+    for key in ('NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+        env.pop(key, None)
+    return env
 
 
 def _tree(target):
@@ -80,7 +90,9 @@ def calc_reset(mode="basic"):
     d = _driver()
     o = d.observe(CALC, "tree_full", require_window=False)
     title = {"basic": ["Basic", "기본"], "scientific": ["Scientific", "공학용"]}[mode]
-    d.act(o["obs_id"], CALC, {"name": "menu", "path": ["View", title]})
+    response = d.act(o["obs_id"], CALC, {"name": "menu", "path": ["View", title]})
+    if not isinstance(response, dict) or response.get('type') != 'acted':
+        raise RuntimeError('comparison_setup_menu_unverified')
     time.sleep(0.5)
     for _ in range(3):
         o = d.observe(CALC, "tree_full", require_window=False)
@@ -89,7 +101,9 @@ def calc_reset(mode="basic"):
                             ancestor="CalculatorKeypadView").resolve(o["tree"])
         except LookupError:
             break
-        d.act(o["obs_id"], CALC, {"name": "click", "element_index": i})
+        response = d.act(o["obs_id"], CALC, {"name": "click", "element_index": i})
+        if not isinstance(response, dict) or response.get('type') != 'acted':
+            raise RuntimeError('comparison_setup_clear_unverified')
         time.sleep(0.2)
 
 
@@ -816,6 +830,19 @@ TASKS = [
 def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     from focus_witness import FocusWitness
     source_before = source_manifest()
+    from nlc.helper import InheritedHelperDriver
+    signed_channel_available = InheritedHelperDriver.available()
+    if not signed_channel_available or task.cleanup is owned_cleanup:
+        # Legacy owned TextEdit cleanup still sends direct AXPress. Do not create
+        # that fixture until its close/document binding has a signed equivalent.
+        reason = ('comparison_requires_signed_launcher' if not signed_channel_available
+                  else 'owned_cleanup_requires_signed_window_binding')
+        return {"task":task.name, "arm":arm, "status":"not_run", "seconds":0,
+                "oracle_contract":task.oracle_contract, "oracle_passed":None,
+                "observed":reason, "answer":"", "calls":{}, "usage":None,
+                "activations":[], "process_exit":None, "comparison_eligible":False,
+                "cleanup_status":"not_requested",
+                **_source_evidence(source_before, source_manifest())}
     initial_lock = _locked()
     if initial_lock is not False:
         # Do not create fixtures or issue setup actions in an inaccessible GUI.
@@ -854,6 +881,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 ["codex", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access",
                  "-C", "/tmp", "--json", "-o", last.name, prompt],
                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
+                env=_agent_env(),
                 cwd="/tmp")
             stdout, timed_out = proc.stdout, False
         except subprocess.TimeoutExpired as exc:
@@ -942,6 +970,14 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         result["status"] = "invalid"
         result["invalid_reason"] = "source_changed"
         result["comparison_eligible"] = False
+    # Environment variables are not a TCC responsibility boundary. A Codex
+    # spawned by this signed controller may inherit its responsible identity.
+    # Keep task outcomes, but exclude them from product parity until an external
+    # agent boundary or independently observed responsibility is implemented.
+    result['agent_spawn_parent_boundary'] = 'signed_nlc_controller'
+    result['agent_responsible_process_observed'] = None
+    result['comparison_eligible'] = False
+    result['comparison_exclusion_reason'] = 'agent_responsibility_not_isolated_or_observed'
     return result
 
 
@@ -951,6 +987,8 @@ def main() -> int:
     ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--check-backend", action="store_true",
+                    help="read signed helper metadata only; no setup, model or task input")
     args = ap.parse_args()
     if args.reps <= 0:
         ap.error("--reps must be positive")
@@ -963,6 +1001,23 @@ def main() -> int:
     if args.list:
         for t in tasks:
             print(f"{t.name:16} {t.ask() if callable(t.ask) else t.ask}")
+        return 0
+    from nlc.helper import InheritedHelperDriver
+    if not InheritedHelperDriver.available():
+        print('Use the signed launcher: nlc eval --product-comparison [options]')
+        return 2
+    if args.check_backend:
+        try:
+            driver = _driver()
+            result = driver.list_targets()
+        except Exception:
+            print('signed_comparison_backend_unavailable')
+            return 2
+        if result.get('type') == 'error' or not isinstance(result.get('apps'), list):
+            print('signed_comparison_backend_unavailable')
+            return 2
+        print(json.dumps({'backend':'signed_helper', 'target_count':len(result['apps']),
+                          'capabilities':sorted(driver.capabilities)}))
         return 0
     locked = _locked()
     if locked is not False:

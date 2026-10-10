@@ -517,3 +517,32 @@ Python Driver 경로도 사용하므로 signed helper 실행 경계로 맞추는
 필요하다. 새로운 native task 실행과 완전한 동일 조건/backbone/초기상태
 cohort 구축은 여전히 남아 있다. 리뷰는 req_18dd2386b10fe078_4b 및
 req_18dd239ebba8bc40_4c다.
+
+## G9 후속: signed 비교 host 진입과 책임 신원 제약
+
+comparison의 `_driver`를 InheritedHelperDriver로 바꾸고 signed launcher의
+`nlc eval --product-comparison` runpy 진입을 추가했다. helper 채널이 없으면
+setup 전에 not_run이며 Python direct fallback이 없다. backend 확인은 앱
+metadata/capability만 읽는다. 실제 installed signed command는 exit0으로
+대상8개와 observe/act/background prepare/document text 등 capability를
+보고했다. 기록은 `../reviews/2026-10-10/signed-comparison-backend.json`이며
+source hash는 smoke 뒤 followup 진단 변경 후의 것이라고 구분했다.
+이 확인은 task input·모델·사용자 앱 정리·권한 변경을 수행하지 않았다.
+
+Calculator menu/clear 준비가 거부되거나 불확실하면 준비를 중단하고 후속
+입력을 반복하지 않는다. 직접 AXPress cleanup이 남은 owned TextEdit 과제는
+signed window binding을 구현할 때까지 fixture 생성 전 미실행이다.
+
+Muxa read-only 리뷰(req_18dd2431bbd4bbe0_51)의 P1을 반영했다. 공통
+_provider_env는 NLC helper 채널을 제거하지 않으므로 비교 전용 _agent_env에서
+FD/launcher/token 표지를 명시적으로 제거한다. 부모 환경은 바꾸지 않는다.
+환경 제거만으로 TCC responsible identity가 분리되지는 않으며, signed host가
+spawn한 model/Sky의 실제 책임 신원은 미관측이다. 현재 경로의 task outcome은
+보존하되 모든 실행을 제품 비교에서는 제외한다. 외부 agent controller와
+signed host를 분리하거나 실제 responsible identity를 관측·감사하는 다음
+구현이 필요하다. 이 제한을 동일 조건 비교 완료로 승격하지 않는다.
+
+product flag는 argv 위치와 무관하게 선택하고 중복은 실행 전에 거부한다.
+backend/provenance/CLI/install 후속66개는65 PASS/선택적 wheel 설치1 SKIP,
+0.477초였다. 환경과 API 연결 검증이며 실제 새 native 과제 성공률은 없다.
+전체 G0~G10과 대표 앱/백본/동일 초기 상태·모델 증거 완료 기준을 유지한다.
