@@ -22,7 +22,8 @@ import subprocess
 import time
 import uuid
 
-from .provider_result import ProviderAttempt, ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable
+from .provider_result import (ProviderAttempt, ProviderError, ProviderResult, ProviderUnavailable,
+                              UNAVAILABLE_REASONS, classify_unavailable)
 from .provider_observation import collecting_provider_calls, record_provider_result
 from .model_budget import remaining_model_seconds
 
@@ -366,7 +367,7 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                         raise TimeoutError("provider deadline exceeded")
                     if observed.status != "ok" or not observed.text:
                         code = getattr(observed.error, "code", None)
-                        if code in ("not_logged_in", "usage_limit"):
+                        if code in UNAVAILABLE_REASONS:
                             raise ProviderUnavailable(code)
                         failure = RuntimeError("structured provider failed")
                         # The code is ours — an exception class name or a
@@ -450,7 +451,14 @@ def _model_result(prompt: str, provider: str, timeout: int,
         # route, and a reason code or exception class — so it can travel with
         # the error without carrying anything a provider printed.
         attempts = str(exc).split("시도: ", 1)[1] if "시도: " in str(exc) else ""
-        error = ProviderError(type(exc).__name__,
+        failed_attempts = metadata.get('attempts') or ()
+        last_code = failed_attempts[-1].error_code if failed_attempts else None
+        # Only our closed unavailable reasons become the logical error code.
+        # Unknown exception/provider strings and prior failures do not replace
+        # a timeout or a later route's different failure.
+        error_code = (last_code if status == 'error' and last_code in UNAVAILABLE_REASONS
+                      else type(exc).__name__)
+        error = ProviderError(error_code,
                               "Model request exceeded its deadline" if status == "timeout"
                               else "Model request failed" + (f" — {attempts}" if attempts else ""))
     except BaseException as exc:

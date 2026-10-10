@@ -41,6 +41,7 @@ def provider_failure_reason(records):
         'ClaudeProtocolError_model_fallback': '요청한 모델의 응답을 검증하지 못하여 작업을 중단했습니다',
         'usage_limit': '모델 사용량 한도에 도달하여 작업을 중단했습니다',
         'not_logged_in': '모델 로그인이 필요하여 작업을 중단했습니다',
+        'organization_access_disabled': '조직에서 Claude Code 구독 사용을 제한하여 작업을 중단했습니다',
     }
     if not records or not isinstance(records[-1], dict) or records[-1].get('status') != 'error':
         return None

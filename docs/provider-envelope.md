@@ -79,3 +79,19 @@ provider 오류 본문을 사용자 메시지에 복사하거나 앞선 실패�
 파일에 기록한다. 원시 응답/이미지/프롬프트/답변은 저장하지 않는다. 최대4 requests,
 총120초 budget과 기존 CLI process-group cleanup을 사용하며 기존 결과 파일은
 덮어쓰지 않는다. 성공은 실제 앱 입력이나 사용자 타이핑 보존의 증거가 아니다.
+
+### 조직의 Claude Code 구독 경로 제한
+
+CLI2.1.296에서 순수 JSON 요청도 조직의 Claude Code 구독 사용 제한으로
+실패하는 실제 환경을 확인했다. 단일 same-session/tool-free init→합성
+assistant API error→is_error=true result의 완전한3개 이벤트와 일치하는
+명시적 오류 문구가 있을 때만 `organization_access_disabled`로 분류한다.
+성공 답변에서 정책을 설명하는 경우, 다른 세션·불완전/도구 포함 응답·
+다른 API 오류에는 이 코드를 부여하지 않는다. strict 성공 parser는 그대로다.
+
+공통 envelope는 마지막 시도의 알려진 unavailable reason을 primary error
+code에도 보존한다. 앞선 접근 제한으로 나중 route의 다른 실패나 timeout을
+덮지 않는다. 실패 본문을 사용자 문구에 복사하지 않고 닫힌 설명만 제공한다.
+그 실패의 text/model/usage/cost는 검증된 모델 턴으로 반환하지 않는다.
+사용량 미관측은0이 아니다. API key/profile·조직 설정·모델 routing을 변경하지
+않으며, 현재 Claude 구독 경로의 실제 백본/UI 평가는 접근 제약으로 미실행이다.

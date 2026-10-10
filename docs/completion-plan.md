@@ -300,3 +300,21 @@ nonzero error로 실패하고 usage는 미관측이다. 각 시행1회·서로 �
 envelope와 source checkpoint는 `provider-framing-codex.json`,
 `provider-framing-claude.json`에0600으로 보존했다. Claude 실패 원인과
 closed provider reason 분류는 추가 진단 중이다.
+
+### G4 실제 조직 접근 제약과 오류 분류
+
+Claude CLI2.1.296의 실패는 옵션 호환·quota·모델 refusal이 아닌 조직의
+Claude Code 구독 사용 제한이라는 명시적 API 오류였다. 초기 일반nonzero
+실패 기록을 보존하고, 완전한 isolated failed stream만
+organization_access_disabled로 분류하도록 보강했다. 성공 parser는 완화하지
+않고 본문·모델·usage·cost를 검증된 성공 값으로 승격하지 않는다. 설정이나
+인증 경로를 바꾸지 않았다. 실제 common 호출에서도 새 닫힌 attempt code와
+사용자 설명이 반환됐고 usage는null이었다(1.797초). 원시 envelope는
+`provider-organization-access-classified.json`에0600으로 보존했다.
+
+조직 제한을 설명하는 정상 답변, 도구 포함/불완전/다른 세션/다른 API 실패,
+잘못된 JSON/예산, fallback 뒤 다른 실패와 timeout 및 primary error code의
+일관성을 검증했다. 관련 provider/CLI/envelope 검사66개가6.384초에 통과했다.
+이것은 Claude 모델의 실제 UI 작업 성공이나 비용0을 증명하지 않는다.
+현재 Claude 구독 경로의 대표 실제 백본 평가는 접근 제약으로 남아 있으며
+Codex 등 독립적으로 사용할 수 있는 경로의 작업은 계속한다.

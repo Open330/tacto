@@ -169,6 +169,9 @@ class ProviderUnavailable(RuntimeError):
         self.reason = reason
 
 
+UNAVAILABLE_REASONS = frozenset({'not_logged_in', 'usage_limit', 'organization_access_disabled'})
+
+
 _UNAVAILABLE = (
     ("not_logged_in", ("please run /login", "not logged in")),
     ("usage_limit", ("usage limit", "rate limit", "quota")),

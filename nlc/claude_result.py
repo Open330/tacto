@@ -145,6 +145,50 @@ def _observed_refusal_no_fallback(stdout, session_id):
         return False
 
 
+def _observed_organization_access_disabled(stdout, session_id):
+    """Classify a failed isolated API stream; never accept its text or usage.
+
+    CLI 2.1.296 can emit a synthetic assistant API error and a success-subtype
+    result with is_error=True when organization subscription access is off.
+    A model discussing that restriction is not itself an access denial.
+    """
+    try:
+        if not isinstance(stdout, str) or len(stdout.encode('utf8')) > 8 * 1024 * 1024:
+            return False
+        events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+        if (len(events) != 3
+                or any(type(e) is not dict or e.get('session_id') != session_id for e in events)
+                or events[0].get('type') != 'system' or events[0].get('subtype') != 'init'
+                or events[0].get('tools') != [] or events[0].get('mcp_servers') != []
+                or sum(e.get('type') == 'system' and e.get('subtype') == 'init' for e in events) != 1
+                or sum(e.get('type') == 'result' for e in events) != 1):
+            return False
+        terminal = events[-1]
+        if (terminal.get('type') != 'result' or terminal.get('is_error') is not True
+                or terminal.get('subtype') not in ('success', 'error_during_execution')
+                or type(terminal.get('num_turns')) is not int or terminal['num_turns'] != 1):
+            return False
+        assistants = [e for e in events if e.get('type') == 'assistant']
+        if len(assistants) != 1:
+            return False
+        assistant = assistants[0]
+        message = assistant.get('message')
+        if (assistant.get('is_api_error_message') is not True
+                or assistant.get('parent_tool_use_id') is not None or type(message) is not dict
+                or message.get('role') != 'assistant'):
+            return False
+        blocks = message.get('content')
+        if (type(blocks) is not list or len(blocks) != 1 or type(blocks[0]) is not dict
+                or blocks[0].get('type') != 'text' or type(blocks[0].get('text')) is not str):
+            return False
+        text = blocks[0]['text']
+        return (text.startswith('Your organization has disabled Claude subscription access for Claude Code')
+                and terminal.get('result') == text
+                and all(e.get('type') in ('system', 'assistant', 'result') for e in events))
+    except (ValueError, TypeError, RecursionError):
+        return False
+
+
 def parse_claude_events(stdout: str, session_id: str) -> dict:
     """Require one tool-free fresh session and an unambiguous complete answer."""
     initialized = False
@@ -375,6 +419,8 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
                     raise ClaudeProtocolError('CLI exited unsuccessfully')
                 fields = parse_claude_events(stdout, session_id)
             except ClaudeProtocolError as exc:
+                if _observed_organization_access_disabled(stdout, session_id):
+                    raise ProviderUnavailable('organization_access_disabled') from None
                 reason = classify_unavailable(stdout, stderr)
                 if reason:
                     raise ProviderUnavailable(reason) from None
@@ -389,7 +435,8 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
         status = 'timeout' if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else 'error'
         reason = getattr(exc, 'reason', None)
         error = (ProviderError(reason, {'not_logged_in': 'Claude CLI is not logged in — run `claude /login`',
-                                        'usage_limit': 'Claude usage limit reached'}[reason])
+                                        'usage_limit': 'Claude usage limit reached',
+                                        'organization_access_disabled': 'Organization has disabled Claude Code subscription access'}[reason])
                  if reason else
                  ProviderError(getattr(exc, 'code', type(exc).__name__), 'Claude request exceeded deadline' if status == 'timeout'
                                else 'Claude CLI request or structured response failed'
