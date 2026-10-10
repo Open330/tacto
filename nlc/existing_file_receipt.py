@@ -15,7 +15,15 @@ text (measured 2026-10-09). This adapter witnesses that case, narrowly:
   within a byte budget — holds exactly that text.
 
 `timeout_seconds` bounds the polling between reads; it cannot interrupt a
-single backend call or file read in progress.
+single backend call or file read in progress. Matching bytes returned after
+the deadline are refused: this is a receipt-acceptance deadline, consistent
+with FreshFileReceipt, not just a deadline for starting another poll. It does
+not imply that the Save failed. Hosts with slow AX/large documents must choose
+a suitable timeout; this adapter never silently extends that contract.
+After Save, a temporary rename gap or unstable read
+may be observed again within that budget. Each poll rechecks the same document
+token and exact text. This never repeats the Save; initial preparation still
+requires a stable file before any input is authorized.
 
 What it certifies is the STATE after the Save: the named file holds the
 document's text. It does not certify that this press wrote it. macOS autosaves
@@ -29,6 +37,7 @@ writer with the same OS identity can race it. One prepare, one after-commit.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import hashlib
 import math
 import os
@@ -61,7 +70,19 @@ PUBLIC_CODES = frozenset({
     'event_malformed', 'already_used', 'commit_mismatch',
     'changed_during_save', 'file_does_not_hold_text',
     'file_changed_during_read',
+    'file_readback_deadline',
 })
+
+
+class _TransientFileRead(ArtifactReceiptError):
+    """A fresh read may observe safe-save completion; never retry the Save."""
+
+
+def _unreadable(error):
+    # Only disappearance can be a rename/swap gap. Permission failures and
+    # other I/O errors must not be converted into retryable observations.
+    return _refuse('file_unreadable',
+                   _TransientFileRead if error.errno == errno.ENOENT else ArtifactReceiptError)
 
 
 def _nfc(path):
@@ -96,19 +117,21 @@ def _file_state(path):
     try:
         before = os.lstat(path)
     except OSError as exc:
-        raise _refuse('file_unreadable') from None
+        raise _unreadable(exc) from None
     if not stat.S_ISREG(before.st_mode):
         raise _refuse('not_a_regular_owned_file')
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError as exc:
-        raise _refuse('file_unreadable') from None
+        raise _unreadable(exc) from None
     try:
         st = os.fstat(fd)
-        if (not stat.S_ISREG(st.st_mode) or (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino)
+        if (not stat.S_ISREG(st.st_mode)
                 or st.st_uid != os.getuid()
                 or st.st_nlink != 1 or st.st_size > MAX_BYTES):
             raise _refuse('not_a_regular_owned_file')
+        if (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino):
+            raise _refuse('file_changed_during_read', _TransientFileRead)
         chunks, total = [], 0
         while True:
             chunk = os.read(fd, 65536)
@@ -131,11 +154,11 @@ def _file_state(path):
         if (snapshot(before) != snapshot(st) or snapshot(st) != snapshot(after)
                 or snapshot(after) != snapshot(named) or len(data) != after.st_size
                 or _nfc(os.path.realpath(path)) != _nfc(path)):
-            raise _refuse('file_changed_during_read')
+            raise _refuse('file_changed_during_read', _TransientFileRead)
         return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns,
                 hashlib.sha256(data).hexdigest(), data)
-    except OSError:
-        raise _refuse('file_unreadable') from None
+    except OSError as exc:
+        raise _unreadable(exc) from None
     finally:
         os.close(fd)
 
@@ -231,14 +254,22 @@ class ExistingTextFileReceipt:
             token, path, text = self._read(prepared.token)
             if path != prepared.path or text != prepared.text:
                 raise _refuse('changed_during_save')
-            state = _file_state(path)
-            if state[5] == expected:
-                return CommitEvidence(prepared.event_id, prepared.action_digest,
-                                      ArtifactEvidence(uuid.uuid4().hex, path,
-                                                       hashlib.sha256(prepared.text.encode()).hexdigest()))
-            if self._clock() >= deadline:
-                raise _refuse('file_does_not_hold_text')
-            self._sleep(self._poll)
+            last_code = 'file_does_not_hold_text'
+            try:
+                state = _file_state(path)
+            except _TransientFileRead as exc:
+                last_code = exc.public_code
+            else:
+                if state[5] == expected:
+                    if self._clock() >= deadline:
+                        raise _refuse('file_readback_deadline')
+                    return CommitEvidence(prepared.event_id, prepared.action_digest,
+                                          ArtifactEvidence(uuid.uuid4().hex, path,
+                                                           hashlib.sha256(prepared.text.encode()).hexdigest()))
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                raise _refuse(last_code)
+            self._sleep(min(self._poll, remaining))
 
 
 def make_existing_text_receipt(driver, **kwargs):

@@ -226,3 +226,77 @@ Python 분기도 포함됐다. 분기 안의 중복 `AXUIElementPerformAction` i
 `reviews/2026-10-10/isolated-integration-*`에0600으로 보존했다.
 후속 peer 변경이나 통합 helper 빌드는 별도 검증이 필요하다.
 실앱 receiving, Finder 노드 예산 해결, 전체 목표 완료의 증거는 아니다.
+
+### G7 리뷰 반영: safe-save 교체 중 읽기 재관측
+
+Muxa read-only 리뷰에서 정상 safe-save의 rename/swap 도중 읽기 실패가
+즉시 종결되는 liveness 문제를 확인했다. after_commit은 실제 ENOENT 또는
+metadata/inode 변경을 내부 typed transient로 분리해 마감까지 파일만 다시
+관측한다. public error 문자열만으로 재시도를 허용하지 않는다. 매번 동일
+문서 token·경로·정확한 본문을 재검증한다. 초기 prepare는 안정된 파일을
+요구하며 재관측하지 않는다. Save 입력은 반복하지 않고 after_commit은
+여전히 한 번만 호출할 수 있다.
+
+권한·EIO·nonregular·다중 hardlink와 문서 변경은 즉시 거부한다. 계속
+교체되거나 이름이 사라지면 마감에 마지막 closed code로 거부한다. 정상
+파일의 exact bytes도 마감 후 반환되면 file_readback_deadline으로 거부한다.
+OS/AX 호출 강제 취소, writer attribution 또는 autosave와 명시 Save의 인과
+구분을 구현했다고 주장하지 않는다.
+
+새15개 검사는 실제 임시 파일의 EOF 교체·open 직전 교체·이름 공백·
+반복 교체·다른 내용·문서 변경·권한/EIO·FIFO·hardlink·마감 초과를 다룬다.
+최초12개를 수정 전 cfa9aa2에 실행하면 failure5/error4, 수정 후 최종15개와
+기존 receipt/replay/evidence 검사를 합친93개는2.130초에 통과했다.
+이는 실제 TextEdit UI safe-save나 전송 수신 증거의 검증은 아니다.
+
+후속 Muxa 리뷰는 P1 없음·범위 적합으로 판단했다. 늦은 exact read 거부는
+FreshFileReceipt와 같은 receipt 수용 마감 계약으로 유지한다. 이는 Save
+실패나 파일 불일치를 뜻하지 않으며 OS/AX 호출을 취소하는 것도 아니다.
+큰 문서/느린 backend는 호스트가 timeout을 늘려야 하고, 자동으로 수용
+기간을 늘리지 않는다. 첫 poll이 느리면 정상 저장 상태도 마감으로 거부될
+수 있다는 liveness 제약을 API docstring에 명시했다.
+
+### G7 새 요청과 독립 수신함의 전송 증거
+
+`DeliveredMessageReceipt`는 호스트의 실제 control/payload 관측으로 결합된
+request_id와 authoritative 수신함의 새 message_id·account·recipient·정확한
+본문 digest를 대조한다. 기존 수신 record, queued/accepted, 모델 JSON,
+송신 Sent 표시는 완료 증거가 아니다. prepare/after 각각 한 번만 허용하고
+수신함 조회만 반복한다. 이 API는 native 메신저의 자동 bridge가 아니며
+서비스 request binding·인증된 수신 조회·독점 요청 identity가 전제다.
+첨부·동일 UID의 다른 writer·서비스별 atomic precondition은 아직 별도 과제다.
+[서비스 계약과 실기 범위](delivery-evidence.md)에 상세 조건을 기록했다.
+
+실제 headless Chromium의 NLC click→owned loopback HTTP POST→인증된
+독립 HTTP inbox read를 검증했다. 서비스는 수신 본문을 보관하고 조회 시
+그 본문을 hash한다. 정확한 새 수신, no-op Sent, 수신 본문 손상, 응답 유실,
+기존 요청 재사용 거부, 승인 거절, 실제 form 수신인 변경, dispatch 전 거절의
+8개 통합 케이스다. 실제 외부 사람이나 native GUI에 메시지를 보내지 않았다.
+
+응답 유실 케이스에서 기존 replay는 host receipt로 event를 confirmed한 뒤에도
+원래 driver error를 반환해 실패했다. receipt가 검증된 consequential unknown
+응답만 원래 transport uncertainty를 event에 남기고 진행하도록 수정했다.
+이 hunk는 peer 통합 커밋 ce4074a에 포함됐다. 영수증이 없거나 not_started면
+완료로 바꾸지 않으며 재전송하지 않는다. 후속 UI postcondition은 별도다.
+
+새 adapter unit14 + receiving integration8 + 기존 저장/receipt/replay/evidence
+검사를 합친115개가13.096초에 통과했다. 초기 approval fixture 오류4건과
+그 수정 후 발견한 실제 response-loss 오류1건의 로그도 보존한다. 전체
+실제 native 전송·첨부·다양한 백본·NLC/Sky 동일 조건 비교는 아직 남아 있다.
+
+고정된 exact ce4074a archive + root receipt8개 overlay의 전체 검사는
+1301 tests/skipped2/230.193초, 문서 링크 검사1건만 실패했다. 새 문서의
+README 링크를 추가하고 관련 문서 검사6개를0.025초에 통과했다. 원시 실패
+및 manifest는 `reviews/2026-10-10/receipt-stable-full-*`, 수정 검사 로그는
+`receipt-docs-recheck.log`에 보존했다. 이 결과는 후속 f339633의 bound Return과
+진행 중인 TranscriptEvidence를 검증하지 않는다. 앞선 일부 WIP가 섞인
+사본의1301개 검사/실패3개도 `receipt-partial-wip-*`에 별도로 보존했다.
+
+G4 실제 framing 교정은 Codex CLI0.161.0 direct adapter에서 JSON oracle
+PASS(5.337초,input16149/cache12160/output9)를 확인했다. 실제 serving model과
+달러 비용은 미관측이다. Claude CLI2.1.296 common/tools-disabled route는
+nonzero error로 실패하고 usage는 미관측이다. 각 시행1회·서로 다른 route의
+순수 산술 요청으로, UI 성공률/동일 조건 비교/비용 우위가 아니다. 원시
+envelope와 source checkpoint는 `provider-framing-codex.json`,
+`provider-framing-claude.json`에0600으로 보존했다. Claude 실패 원인과
+closed provider reason 분류는 추가 진단 중이다.

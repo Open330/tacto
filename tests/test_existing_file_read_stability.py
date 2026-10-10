@@ -95,7 +95,8 @@ class ReadbackStabilityTests(unittest.TestCase):
                 return {'type': 'document_text', 'document_token': 'held',
                         'text_complete': True, 'text': 'expected', 'document_path': path}
 
-        receipt = ExistingTextFileReceipt(Document(), document_path=path)
+        receipt = ExistingTextFileReceipt(Document(), document_path=path,
+                                          timeout_seconds=.02, poll_interval=.005)
         event = make_event({'name': 'menu', 'path': SAVE_PATH, 'focused_document': path},
                            {'write_persistent'}, 'com.apple.TextEdit', obs_id='owned')
         context = receipt.prepare_commit(event)
@@ -107,7 +108,7 @@ class ReadbackStabilityTests(unittest.TestCase):
 
         with self.at_eof(replace), self.assertRaises(ArtifactReceiptError) as failure:
             receipt.after_commit(event, {'type': 'acted'}, context)
-        self.assertEqual('file_changed_during_read', failure.exception.public_code)
+        self.assertEqual('file_does_not_hold_text', failure.exception.public_code)
         with self.assertRaises(ArtifactReceiptError) as second:
             receipt.after_commit(event, {'type': 'acted'}, context)
         self.assertEqual('already_used', second.exception.public_code)

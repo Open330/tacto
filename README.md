@@ -463,6 +463,7 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
 - [`docs/completion-plan.md`](docs/completion-plan.md) — 전체 목표의 완료 기준·남은 작업·비교 증거와 우선순위
 - [`docs/input-observation.md`](docs/input-observation.md) — 포커스·캐럿 표본 관측과 검증 한계
 - [`docs/artifact-receipts.md`](docs/artifact-receipts.md) — 실제 새 파일 readback을 통한 완료 증거
+- [`docs/delivery-evidence.md`](docs/delivery-evidence.md) — 새 요청과 독립 수신함을 연결하는 호스트 전송 증거
 - [`docs/recipes.md`](docs/recipes.md) — 실행 기록에서 레시피로, 판단 단계, 분기가 자라는 방식
 - [`docs/api.md`](docs/api.md) — Python API: `replay`·`Agent`·승격·판단 콜백
 - [`skill/SKILL.md`](skill/SKILL.md) — 에이전트가 레시피를 직접 쓰기 위한 스킬 (IR·판단 단계·오류표)
