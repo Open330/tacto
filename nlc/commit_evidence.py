@@ -155,6 +155,10 @@ def evidence_error(event, expected=None):
         body = expected.get('보낸 내용')
         if body is not None and (not isinstance(body, str) or hashlib.sha256(body.encode()).hexdigest() != detail.body_sha256):
             return 'delivery_content_mismatch'
+        if '보낸 내용 sha256' in expected:
+            expected_hash = expected['보낸 내용 sha256']
+            if not _digest(expected_hash) or expected_hash != detail.body_sha256:
+                return 'delivery_content_mismatch'
     elif type(detail) is TranscriptEvidence:
         if ('transmit' not in effects or
                 effects - {'transmit', 'read', 'write_ephemeral'}):

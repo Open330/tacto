@@ -67,6 +67,13 @@ def _identity(value):
     return type(value) is str and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', value) is not None
 
 
+def _message_identity(value):
+    # Opaque service identifiers are not URLs or executable syntax. Preserve
+    # punctuation/Unicode rather than rewriting real receiving identities.
+    return (type(value) is str and 0 < len(value) <= 1024
+            and value.strip() == value and value.isprintable())
+
+
 class DeliveredMessageReceipt:
     """Witness delivery of one explicitly bound, previously undelivered request.
 
@@ -104,7 +111,8 @@ class DeliveredMessageReceipt:
 
     @property
     def commit_expected(self):
-        return {'받는 사람': self._recipient, '보내는 계정': self._account}
+        return {'받는 사람': self._recipient, '보내는 계정': self._account,
+                '보낸 내용 sha256': self._hash}
 
     def _digest(self, event):
         try:
@@ -143,7 +151,7 @@ class DeliveredMessageReceipt:
                            (result.request_id, result.account, result.recipient,
                             result.body_sha256, result.state))
                 or result.request_id != request_id
-                or not _identity(result.message_id) or result.state != 'delivered'
+                or not _message_identity(result.message_id) or result.state != 'delivered'
                 or result.account != self._account or result.recipient != self._recipient
                 or result.body_sha256 != self._hash):
             raise _refuse('inbox_receipt_mismatch')

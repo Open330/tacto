@@ -140,6 +140,7 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         binding = ContextBinding(role='button', title='Send', operation='click')
         flow = Flow('owned_inbox_send', 'page', [Step('click', Selector(role='button', title='Send'),
                                                    safety=safety, binding=binding)])
+        self.last_receipt, self.last_flow = receipt, flow
         # Only the test's own loopback service, accounts and message are in
         # this authorization scope; the adapter itself never approves.
         approvals = {0:issue_approval(binding, safety)} if approve else {}
@@ -208,6 +209,27 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(0, self.posts)
         self.assertEqual({}, self.messages)
+
+    def test_gated_execution_needs_fresh_adapter_before_approved_new_request(self):
+        gated = self.run_delivery(approve=False)
+        self.assertFalse(gated.ok)
+        self.assertEqual(0, self.posts)
+        receipt, flow = self.last_receipt, self.last_flow
+        step = flow.steps[0]
+        reused = replay(self.driver, flow, approvals={0:issue_approval(step.binding, step.safety)},
+                        prepare_commit=receipt.prepare_commit, after_commit=receipt.after_commit,
+                        commit_expected=receipt.commit_expected)
+        self.assertFalse(reused.ok)
+        self.assertEqual('host_evidence_preparation_failed', reused.log[-1]['detail']['error'])
+        self.assertEqual(0, self.posts)
+        original_request = self.request_id
+        self.request_id = secrets.token_hex(16)
+        self.driver.goto(self.origin + '/')
+        approved = self.run_delivery(approve=True)
+        self.assertTrue(approved.ok, approved.log)
+        self.assertEqual(1, self.posts)
+        self.assertNotIn(original_request, self.messages)
+        self.assertEqual(self.text, self.messages[self.request_id]['body'])
 
     def test_changed_recipient_in_actual_form_is_refused_before_dispatch(self):
         self.driver._page.eval_on_selector('#recipient', "el=>el.value='other-recipient'")

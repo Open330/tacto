@@ -49,6 +49,44 @@ class DeliveryReceiptTests(unittest.TestCase):
         self.assertIsNone(evidence_error({**self.event, 'commit_evidence':proof},
                                         {**self.receipt.commit_expected, '보낸 내용':'안녕\n'}))
 
+    def test_common_verifier_independently_checks_host_body_digest(self):
+        context = self.receipt.prepare_commit(self.event)
+        self.observed = self.delivered
+        proof = self.receipt.after_commit(self.event, {}, context)
+        expected = self.receipt.commit_expected
+        self.assertEqual(self.digest, expected['보낸 내용 sha256'])
+        damaged = replace(proof, evidence=replace(proof.evidence, body_sha256='0'*64))
+        self.assertEqual('delivery_content_mismatch', evidence_error(
+            {**self.event, 'commit_evidence':damaged}, expected))
+        self.assertIsNone(evidence_error({**self.event, 'commit_evidence':proof}, expected))
+
+    def test_bad_or_conflicting_host_digest_never_passes_common_verifier(self):
+        context = self.receipt.prepare_commit(self.event)
+        self.observed = self.delivered
+        proof = self.receipt.after_commit(self.event, {}, context)
+        for value in (None, True, [], '0'*64, 'bad', self.digest.upper()):
+            with self.subTest(value=value):
+                self.assertEqual('delivery_content_mismatch', evidence_error(
+                    {**self.event, 'commit_evidence':proof}, {'보낸 내용 sha256':value}))
+        self.assertEqual('delivery_content_mismatch', evidence_error(
+            {**self.event, 'commit_evidence':proof},
+            {'보낸 내용 sha256':self.digest, '보낸 내용':'different'}))
+
+    def test_service_message_identity_preserves_punctuation_and_unicode(self):
+        for identity in ('message:123', 'message.123', '<message@service>', '사서함/메시지-123'):
+            self.observed = None
+            receipt = self.new_receipt();context = receipt.prepare_commit(self.event)
+            self.observed = replace(self.delivered, message_id=identity)
+            self.assertEqual(identity, receipt.after_commit(self.event, {}, context).evidence.receipt_id)
+
+    def test_control_characters_whitespace_and_overlong_message_id_are_refused(self):
+        for identity in (' message', 'message ', 'message\nother', 'message\x00other', 'x'*1025):
+            self.observed = None
+            receipt = self.new_receipt();context = receipt.prepare_commit(self.event)
+            self.observed = replace(self.delivered, message_id=identity)
+            with self.assertRaisesRegex(DeliveryReceiptError, 'inbox_receipt_mismatch'):
+                receipt.after_commit(self.event, {}, context)
+
     def test_old_record_cannot_be_reused_as_a_new_send(self):
         self.observed = self.delivered
         with self.assertRaisesRegex(DeliveryReceiptError, 'delivery_already_present'):

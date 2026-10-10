@@ -61,3 +61,21 @@ click→loopback HTTP POST→별도 인증 HTTP 수신함 조회를 실행한다
 승인 거절, 실제 form의 수신인 변경 및 dispatch 전 거절을 포함한다.
 이 결과는 실제 원격 서비스·native 메신저·첨부·다양한 백본 또는 NLC/Sky
 동일 조건 비교의 완료 증거가 아니다. 그 실기와 서비스별 bridge는 남아 있다.
+
+## 리뷰 후 강화한 본문·실행 수명 계약
+
+`commit_expected`는 계정·받는 사람에 더해 `보낸 내용 sha256`을 반환한다.
+공통 `evidence_error`도 그 호스트 기대 digest와 DeliveryEvidence를 독립적으로
+비교한다. digest 형식 불량·다른 본문·원문/해시 기대값 충돌은 거부한다.
+기대 본문 원문을 이 필드 때문에 trace에 추가하지 않는다.
+
+replay는 prepare를 confirm gate 전에 호출할 수 있다. 승인되지 않은 실행도
+그 adapter의 준비 시도를 소모한다. 실행마다 새 adapter를 만들며, 승인 후
+새 요청을 실행할 때는 서비스의 새 request identity와 실제 control을 다시
+결합한다. 이전 adapter/context/영수증을 재사용하지 않는다. 실제 HTTP fixture의
+gated→adapter 재사용 거부→새 request/새 adapter 승인 실행을 검증한다.
+
+request_id는 URL-safe ASCII `[A-Za-z0-9_-]`1~128자다. message_id는1~1024자의
+printable opaque 문자열로 colon·dot·@·Unicode를 그대로 보존한다. 앞뒤 공백·
+control 문자와 초과 길이는 거부한다. message_id를 URL·경로·명령으로 실행하거나
+자동으로 정규화하지 않는다. 실제 서비스의 요청 ID 규약은 host bridge가 맞춰야 한다.

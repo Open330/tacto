@@ -318,3 +318,14 @@ organization_access_disabled로 분류하도록 보강했다. 성공 parser는 �
 이것은 Claude 모델의 실제 UI 작업 성공이나 비용0을 증명하지 않는다.
 현재 Claude 구독 경로의 대표 실제 백본 평가는 접근 제약으로 남아 있으며
 Codex 등 독립적으로 사용할 수 있는 경로의 작업은 계속한다.
+
+### G7 수신 영수증 후속 리뷰 반영
+
+Muxa 리뷰의 P1 없음·계약 적합 판단을 확인했다. 호스트의 기대 body digest를
+commit_expected에 내보내고 공통 DeliveryEvidence matcher가 독립 대조하도록
+보강했다. 승인 대기 실행에서도 prepare가 소모되는 수명을 문서화하고,
+실제 gated→동일 adapter 재사용 거부→새 request/adapter 승인 실행을 추가했다.
+message_id의 colon/dot/@/Unicode는 보존하고 control·공백·초과 길이는 거부한다.
+해당 변경을 포함한 delivery/replay/typed evidence/transcript 검사54개는
+12.267초에 통과했다. 송신 transcript와 수신함 증거의 품질 구분은 유지하며
+실제 native bridge·첨부·독점 요청 조건이 없는 서비스에는 성공을 주장하지 않는다.
