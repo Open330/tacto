@@ -650,3 +650,48 @@ drift/cleanup/provenance 및 provider/documentation 회귀를 포함한다.
 소유 프로세스의 진단이 기록된 뒤 OSError가 발생하면 not_run 대신
 agent_transport_failed/failed로 남긴다. transport 실패를 미실행으로 바꾸거나
 앱 oracle로 성공 판정하지 않는다.
+
+
+## G8/G9 실제 외관 모드 읽기 pair와 정책 구분
+
+2026-10-10 signed doctor는 AX/화면 권한과8개 앱을 확인했다. Calculator는
+미실행이었으며 System Settings 창은 관측됐다. 기존 installed signed launcher,
+명시적인 Codex 실행 경로, 두 arm 공통120초 timeout으로 appearance_mode를
+실행했다. 원시 owner-only 기록은
+`../reviews/2026-10-10/product-comparison-20261010-195603.jsonl`이다.
+두 arm 모두 독립 defaults 기반 oracle의 Light와 일치하고 process exit0,
+source manifest 전후·두 arm 사이 일치, activations[]였다. NLC46.3초,
+Sky40.8초다. CLI telemetry 입력/캐시/출력은 NLC214245/194048/611,
+Sky159423/150016/620이다. 실제 serving model/비용은 관측하지 않았다.
+`calls`는 인식한 tool item event 수이며 고유 invocation 수가 아니다.
+NLC shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
+
+두 arm의 소유 Codex 주 프로세스는64회 observed/self-responsible였으며
+observer stopped/error 없음이다. sample_limit_reached=true라 전체 실행
+시간 관측은 아니다. Sky 도구 실행 event가 있어도 @oai/sky 후손 책임이나
+TCC 판정이 아니다. 첫 foreground는 모두 System Settings였으므로 이 과제를
+배경 앱 성공으로 계산하지 않는다. activation0은 pointer/typing 보존을
+증명하지 않으며 전체 초기 panel·serving model 동일성은 미검증이다.
+전체 command exit2는 oracle 실패가 아니라 비교 제외를 유지한 결과다.
+
+공통 prompt에 활성화·권한/설정/사용자 문서 변경 금지, target-only 읽기,
+foreground/pointer/typing 보존과 불가능하면 중단을 명시했다. prompt는
+강제 경계나 실제 준수 증거가 아니다. target-only와 pointer/typing 준수를
+현재 계측으로 주장하지 않는다. Sky의 과제 의미도 제약이 추가됐으므로
+이전 자유 활성화 cohort와 같은 정책으로 묶지 않는다.
+
+Muxa read-only 리뷰 req_18dd25dd65817ed8_60의 P2 두 건을 반영했다.
+NLC 전용 signed --helper 안내를 NLC ARM_CLAUSE로 옮겨 공통 제약은 계층
+중립으로 유지하고 새 runtime_policy=background-v2를 추가했다. auditor는
+policy version·제약 원문·positive integer timeout의 기록과 두 arm 일치를
+확인한다. 동일 버전의 다른 문구나 같은 문구의 다른 timeout도 제외한다.
+기존 원시 결과에 새 버전을 소급하지 않는다. 신규 감사
+`../reviews/2026-10-10/appearance-pair-prerequisites-audit.json`은
+run_not_eligible/runtime_policy_not_recorded를 보존하며 비교율을 계산하지
+않는다. 실기 source는 후속 정책/auditor 수정 이전 cohort다.
+관련 회귀81개가1.017초에 통과했고 추가 실제 model 요청은 없었다.
+
+전체 G0~G10 완료 기준은 유지한다. 다음 실제 검증은 초기 상태와 입력
+보존 관측, Sky 후손 책임/외부 실행 경계, signed owned TextEdit cleanup 및
+다양한 앱·백본 반복이다. 이 읽기 pair로 select·저장·전송·장기 복구·설치
+완료를 대신하지 않는다.

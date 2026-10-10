@@ -45,12 +45,24 @@ CALC = "com.apple.calculator"
 NO_SHORTCUTS = ("Do not use a command-line calculator, Python, AppleScript/osascript, "
                 "`open`, or any other automation than the one named; work through the app.")
 
+RUNTIME_POLICY = "background-v2"
+
+BACKGROUND_CONSTRAINT = (
+    "Keep the user's foreground app, pointer, and typing unchanged. "
+    "Do not activate, raise, switch Spaces, minimize, or restore any app/window. "
+    "Do not change permissions, system settings, or user documents. "
+    "You may navigate the target app in the background using the named layer. "
+    "If that cannot be done, stop and report the limitation. "
+    "Inspect only the target app; do not read other apps or personal documents. "
+)
+
 ARM_CLAUSE = {
     "sky": ("Use the Computer Use plugin: the `js` tool of the node_repl MCP server with "
             "the @oai/sky interface (search your deferred tools for it if it is not listed). "
             "Do not use the `nlc` command."),
     "nlc": ("Use the nlc skill and the `nlc` command to drive the app. "
-            "Do not use the Computer Use plugin or node_repl."),
+            "Do not use the Computer Use plugin or node_repl. "
+            "Use the installed signed nlc (typically ~/.local/bin/nlc) with --helper for GUI operations."),
 }
 
 
@@ -960,7 +972,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 **_source_evidence(source_before, source_manifest())}
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
     ask = task.ask() if callable(task.ask) else task.ask
-    prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS}"
+    prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS} {BACKGROUND_CONSTRAINT}"
     with tempfile.NamedTemporaryFile("r", suffix=".txt") as last, FocusWitness() as witness:
         started = time.monotonic()
         process_diagnostics = []
@@ -1028,6 +1040,8 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     focus = witness.summary()
     result = {"task": task.name, "arm": arm, "status": status, "seconds": round(seconds, 1),
               "oracle_contract": task.oracle_contract, "agent_launch_error":launch_error,
+              "timeout_seconds":timeout, "runtime_policy":RUNTIME_POLICY,
+              "background_constraint":BACKGROUND_CONSTRAINT,
               "reported_preparation_diagnostics": preparation_diagnostics,
               "observed": observed, "answer": answer[-400:], "calls": calls, "usage": usage,
               "activations": focus["activations"],
@@ -1082,6 +1096,8 @@ def main() -> int:
     global _AGENT_EXECUTABLE, _AGENT_REQUESTED_EXECUTABLE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--agent-executable', help='host-selected absolute Codex CLI path; does not change PATH')
+    ap.add_argument('--timeout', type=int, default=600,
+                    help='per-arm model timeout in seconds (same for both arms)')
     ap.add_argument("--reps", type=int, default=1)
     ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
     ap.add_argument("--only", nargs="*")
@@ -1104,6 +1120,8 @@ def main() -> int:
     else:
         _AGENT_REQUESTED_EXECUTABLE = 'codex'
         _AGENT_EXECUTABLE = 'codex'
+    if args.timeout <= 0:
+        ap.error('--timeout must be positive')
     if args.reps <= 0:
         ap.error("--reps must be positive")
     if args.only == []:
@@ -1168,7 +1186,7 @@ def main() -> int:
             # state the other left behind.
             arms = args.arms if (rep + TASKS.index(task)) % 2 == 0 else list(reversed(args.arms))
             for arm in arms:
-                r = run_one(task, arm)
+                r = run_one(task, arm, timeout=args.timeout)
                 results.append(r)
                 r["rep"] = rep
                 with out.open("a") as f:

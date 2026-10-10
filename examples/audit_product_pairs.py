@@ -69,12 +69,22 @@ def audit(rows):
                 issues.add('initial_frontmost_not_recorded')
             if not isinstance(row.get('oracle_contract'), str) or not row['oracle_contract']:
                 issues.add('oracle_contract_not_recorded')
+            if not isinstance(row.get('runtime_policy'), str) or not row['runtime_policy']:
+                issues.add('runtime_policy_not_recorded')
+            constraint = row.get('background_constraint')
+            if not isinstance(constraint, str) or not 0 < len(constraint) <= 4096:
+                issues.add('runtime_constraint_not_recorded')
+            if type(row.get('timeout_seconds')) is not int or row['timeout_seconds'] <= 0:
+                issues.add('timeout_not_recorded')
         if len(nlcs) == len(skies) == 1:
             nlc, sky = nlcs[0], skies[0]
             for key, reason in (
                     ('initial_frontmost_bundle', 'initial_frontmost_differs'),
                     ('oracle_contract', 'oracle_contract_differs'),
-                    ('source_manifest_before', 'source_cohort_differs')):
+                    ('source_manifest_before', 'source_cohort_differs'),
+                    ('runtime_policy', 'runtime_policy_differs'),
+                    ('background_constraint', 'runtime_constraint_differs'),
+                    ('timeout_seconds', 'timeout_differs')):
                 if nlc.get(key) != sky.get(key):
                     issues.add(reason)
         pairs.append({'task': task, 'rep': rep, 'row_indices': [i for i, r in group],

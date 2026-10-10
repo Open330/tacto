@@ -22,7 +22,9 @@ class PairAuditTests(unittest.TestCase):
                 'comparison_eligible':True, 'locked':[False, False],
                 'source_changed':False, 'source_manifest_before':manifest,
                 'source_manifest_after':deepcopy(manifest),
-                'initial_frontmost_bundle':'owned.sentinel', 'oracle_contract':'exact-v2'}
+                'initial_frontmost_bundle':'owned.sentinel', 'oracle_contract':'exact-v2',
+                'runtime_policy':'background-v2','background_constraint':'owned constraint',
+                'timeout_seconds':120}
         self.rows = [dict(deepcopy(base), arm=arm) for arm in ('nlc', 'sky')]
 
     def pair(self):
@@ -52,11 +54,25 @@ class PairAuditTests(unittest.TestCase):
 
     def test_missing_fields_are_not_inferred_from_status(self):
         for key in ('locked', 'comparison_eligible', 'source_changed',
-                    'source_manifest_before', 'initial_frontmost_bundle', 'oracle_contract'):
+                    'source_manifest_before', 'initial_frontmost_bundle', 'oracle_contract',
+                    'runtime_policy','background_constraint','timeout_seconds'):
             rows = deepcopy(self.rows)
             rows[0].pop(key)
             with self.subTest(key=key):
                 self.assertFalse(module.audit(rows)['pairs'][0]['recorded_prerequisites_match'])
+
+    def test_policy_and_timeout_mismatch_cannot_be_paired(self):
+        for key, value, code in (('runtime_policy','other-v1','runtime_policy_differs'),
+                                 ('background_constraint','altered constraint','runtime_constraint_differs'),
+                                 ('timeout_seconds',60,'timeout_differs')):
+            rows=deepcopy(self.rows)
+            rows[1][key]=value
+            result=module.audit(rows)['pairs'][0]
+            self.assertIn(code,result['issues'])
+            self.assertFalse(result['recorded_prerequisites_match'])
+        for value in (True,0,-1,None,'120'):
+            rows=deepcopy(self.rows);rows[0]['timeout_seconds']=value
+            self.assertIn('timeout_not_recorded',module.audit(rows)['pairs'][0]['issues'])
 
     def test_duplicates_cannot_be_cherry_picked_and_unpaired_arm_is_reported(self):
         self.rows.append(deepcopy(self.rows[0]))
