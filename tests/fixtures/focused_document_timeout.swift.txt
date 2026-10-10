@@ -1,17 +1,30 @@
 func documentPath(_ window: AXUIElement) throws -> String? { nil }
-func run(_ failSet: Bool, _ failReset: Bool) -> String {
-    var calls: [Float] = []
-    let why = focusedDocumentMismatch(pid: 999_999, want: "/a/note.txt", setTimeout: { _, t in
-        calls.append(t)
-        if t > 0 && failSet { return .failure }
-        if t == 0 && failReset { return .failure }
+// A fake app (pid 4242) whose focused and main window is pid 4343's element.
+let appElement = AXUIElementCreateApplication(4242)
+let windowElement = AXUIElementCreateApplication(4343)
+func pidOf(_ e: AXUIElement) -> Int32 { var p: pid_t = 0; AXUIElementGetPid(e, &p); return p }
+// realpath, not resolvingSymlinksInPath (which drops /private from /private/var).
+let raw = FileManager.default.temporaryDirectory.path + "/nlc-focused-doc-fixture-\(getpid()).txt"
+FileManager.default.createFile(atPath: raw, contents: Data())
+let file: String = { let r = realpath(raw, nil)!; defer { free(r) }; return String(cString: r) }()
+func run(_ failSetOn: Int32?, _ failResetOn: Int32?) -> String {
+    var resets: [Int32] = []
+    let why = focusedDocumentMismatch(pid: 4242, want: file, setTimeout: { e, t in
+        let n = pidOf(e)
+        if t > 0 && failSetOn == n { return .failure }
+        if t == 0 { resets.append(n); if failResetOn == n { return .failure } }
         return .success
-    })
-    return why + " | resets=\(calls.filter { $0 == 0 }.count)"
+    }, copy: { e, name in
+        (.success, windowElement as CFTypeRef)
+    }, windowPath: { _ in file })
+    return (why.isEmpty ? "accepted" : why) + " | resets=\(resets.sorted())"
 }
 let out: [String: String] = [
-    "set fails": run(true, false),
-    "reset fails": run(false, true),
-    "both fine (no such process: no file shown)": run(false, false),
+    "all fine": run(nil, nil),
+    "app set fails": run(4242, nil),
+    "window set fails": run(4343, nil),
+    "app reset fails": run(nil, 4242),
+    "window reset fails": run(nil, 4343),
 ]
+try? FileManager.default.removeItem(atPath: file)
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)

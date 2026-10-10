@@ -336,11 +336,14 @@ class FocusedDocumentTimeoutTests(unittest.TestCase):
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)
         out = json.loads(run.stdout)
-        self.assertTrue(out['set fails'].startswith('AX timeout unavailable'), out)
-        self.assertTrue(out['reset fails'].startswith('AX timeout reset failed'), out)
-        # timeouts fine: whatever the answer, it is not a timeout refusal, and the app's reset ran
-        self.assertFalse(out['both fine (no such process: no file shown)'].startswith('AX timeout'), out)
-        self.assertTrue(out['both fine (no such process: no file shown)'].endswith('resets=1'), out)
+        # Fake app and window (Codex review of 0d86230: the window branch must run too).
+        self.assertEqual({
+            "all fine": "accepted | resets=[4242, 4343, 4343]",
+            "app set fails": "AX timeout unavailable | resets=[]",
+            "window set fails": "AXFocusedWindow shows another or no file | resets=[4242]",
+            "app reset fails": "AX timeout reset failed | resets=[4242, 4343, 4343]",
+            "window reset fails": "AX timeout reset failed | resets=[4242, 4343]",
+        }, out)
 
 if __name__ == '__main__':
     unittest.main()

@@ -3018,7 +3018,13 @@ func focusedDocumentMismatch(want: String, shown: (String) -> String?,
 }
 
 func focusedDocumentMismatch(pid: pid_t, want: String,
-                             setTimeout: (AXUIElement, Float) -> AXError = { AXUIElementSetMessagingTimeout($0, $1) })
+                             setTimeout: (AXUIElement, Float) -> AXError = { AXUIElementSetMessagingTimeout($0, $1) },
+                             copy: (AXUIElement, String) -> (AXError, CFTypeRef?) = { element, name in
+                                 var value: CFTypeRef?
+                                 let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+                                 return (error, value)
+                             },
+                             windowPath: (AXUIElement) -> String? = { (try? documentPath($0)) ?? nil })
     -> String {
     let app = AXUIElementCreateApplication(pid)
     // Bounded reads: a timeout that cannot be set, or reset to 0 afterwards,
@@ -3028,12 +3034,12 @@ func focusedDocumentMismatch(pid: pid_t, want: String,
     guard setTimeout(app, 0.5) == .success else { return "AX timeout unavailable" }
     var resetFailed = false
     let why = focusedDocumentMismatch(want: want, shown: { name in
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, name as CFString, &value) == .success,
-              let window = value, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        let (error, value) = copy(app, name)
+        guard error == .success, let window = value,
+              CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
         let element = window as! AXUIElement
         guard setTimeout(element, 0.5) == .success else { return nil }
-        let path = (try? documentPath(element)) ?? nil
+        let path = windowPath(element)
         if setTimeout(element, 0) != .success { resetFailed = true; return nil }
         return path
     }, canonical: { path in
