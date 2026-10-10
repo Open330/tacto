@@ -182,11 +182,18 @@ class HelperReturnBoundaryTests(unittest.TestCase):
         self.assertIn('case .key(let key): return nativeNavigationKey(key) != nil', self.window_input)
         self.assertIn('case .key(let value): pair = try buildNativeWindowKey(binding.windowID, key: value)\n',
                       self.dispatch)
-        # Return is built only in the sheet path, never in the shared key path.
-        self.assertEqual(1, self.dispatch.count('submit: true'))
+        # Return is built in the sheet path, and in the shared path only in
+        # the bound-submit branch (host-vouched, keyDown only) — never in the
+        # navigation or window_input branches.
+        self.assertEqual(2, self.dispatch.count('submit: true'))
         shared = self.dispatch[self.dispatch.index('func dispatchNativeWindowPreparation('):]
         shared = shared[:shared.index('\n}\n')]
-        self.assertNotIn('submit: true', shared)
+        self.assertEqual(1, shared.count('submit: true'))
+        branch = shared[shared.index('} else if let key, submitKey {'):]
+        branch = branch[:branch.index('} else if let key {')]
+        self.assertIn('submit: true', branch)
+        self.assertIn('events = [pair.down]\n', branch)
+        self.assertIn('guard key == "Return"', shared)
 
 
 class HelperReturnJudgementTests(unittest.TestCase):

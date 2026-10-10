@@ -111,6 +111,35 @@ func requireNativeKeyTarget(_ binding: NativeWindowBinding, element: Bool,
     }
 }
 
+/// Where a bound Return may land: the app's focused window is the bound one,
+/// and the keyboard focus is the bound input itself — or, for a list row, the
+/// row is selected and the focus is the table or outline that holds it (a
+/// row is never the focused element itself; its list is).
+func requireNativeSubmitTarget(_ binding: NativeWindowBinding, scope: NativeWindowReadScope) throws {
+    try nativeRequireWindowReady(binding.window, binding.pid, scope: scope)
+    let app = AXUIElementCreateApplication(binding.pid)
+    let window = try windowInputElement(windowInputAttribute(app, kAXFocusedWindowAttribute, scope: scope))
+    guard CFEqual(window, binding.window) else {
+        throw NativeWindowInputError.refused("target window is not the app focused window")
+    }
+    let focused = try windowInputElement(windowInputAttribute(app, kAXFocusedUIElementAttribute, scope: scope))
+    guard CFEqual(try windowInputAncestor(focused, binding.pid, scope: scope), binding.window) else {
+        throw NativeWindowInputError.refused("focus is outside the bound window")
+    }
+    if CFEqual(focused, binding.element) { return }
+    guard try windowInputRole(binding.element, scope: scope) == kAXRowRole as String,
+          try windowInputAttribute(binding.element, kAXSelectedAttribute, scope: scope) as? Bool == true,
+          ["AXTable", "AXOutline"].contains(try windowInputRole(focused, scope: scope)) else {
+        throw NativeWindowInputError.refused("the bound input is not the keyboard focus")
+    }
+    var node = binding.element
+    for _ in 0..<8 {
+        node = try windowInputElement(windowInputAttribute(node, kAXParentAttribute, scope: scope))
+        if CFEqual(node, focused) { return }
+    }
+    throw NativeWindowInputError.refused("the selected row is not in the focused list")
+}
+
 struct NativeWindowBinding {
     let element: AXUIElement
     let window: AXUIElement

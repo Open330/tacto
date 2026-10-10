@@ -19,19 +19,39 @@ import AppKit
     }
 }
 
+// Return on a selected row opens it; Return in the message field "sends"
+// what is typed there into the fixture's own transcript.
+@MainActor final class RoomTable: NSTableView {
+    var onReturn: (() -> Void)?
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 { onReturn?() } else { super.keyDown(with: event) }
+    }
+}
+
+@MainActor final class MessageField: NSTextView {
+    var onSend: ((String) -> Void)?
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 {
+            let text = string; string = ""; onSend?(text)
+        } else { super.keyDown(with: event) }
+    }
+}
+
 @MainActor final class ListDelegate: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate {
     let rooms = ["Room A", "Room B", "Room C"]
-    var window: NSWindow!, table: NSTableView!, profile: ProfileView!, label: NSTextField!
-    var opens = 0, opened = "none", singleClicks = 0
+    var window: NSWindow!, table: RoomTable!, profile: ProfileView!, label: NSTextField!
+    var message: MessageField!
+    var opens = 0, opened = "none", singleClicks = 0, sent = 0, lastSent = "none"
     var roomWindows: [NSWindow] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        window = NSWindow(contentRect: NSRect(x: 220, y: 220, width: 420, height: 300),
+        window = NSWindow(contentRect: NSRect(x: 220, y: 220, width: 420, height: 360),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "NLC List Fixture"
         window.isReleasedWhenClosed = false
-        let scroll = NSScrollView(frame: NSRect(x: 10, y: 110, width: 300, height: 180))
-        table = NSTableView(frame: scroll.bounds)
+        let scroll = NSScrollView(frame: NSRect(x: 10, y: 170, width: 300, height: 180))
+        table = RoomTable(frame: scroll.bounds)
+        table.onReturn = { [weak self] in self?.openRow(self?.table.selectedRow ?? -1) }
         let column = NSTableColumn(identifier: .init("name"))
         column.width = 280
         table.addTableColumn(column)
@@ -42,7 +62,13 @@ import AppKit
         table.doubleAction = #selector(open)
         table.setAccessibilityIdentifier("room-list")
         scroll.documentView = table
-        profile = ProfileView(frame: NSRect(x: 320, y: 230, width: 80, height: 60))
+        profile = ProfileView(frame: NSRect(x: 320, y: 290, width: 80, height: 60))
+        let messageScroll = NSScrollView(frame: NSRect(x: 10, y: 105, width: 400, height: 55))
+        message = MessageField(frame: messageScroll.bounds)
+        message.setAccessibilityIdentifier("message-field")
+        message.onSend = { [weak self] text in self?.sent += 1; self?.lastSent = text }
+        messageScroll.documentView = message
+        window.contentView?.addSubview(messageScroll)
         label = NSTextField(labelWithString: "starting")
         label.setAccessibilityIdentifier("list-state")
         label.frame = NSRect(x: 10, y: 10, width: 400, height: 90)
@@ -65,8 +91,8 @@ import AppKit
         return cell
     }
     @objc func clicked() { singleClicks += 1 }
-    @objc func open() {
-        let row = table.clickedRow
+    @objc func open() { openRow(table.clickedRow) }
+    func openRow(_ row: Int) {
         guard row >= 0, row < rooms.count else { return }
         opens += 1; opened = rooms[row]
         let room = NSWindow(contentRect: NSRect(x: 680, y: 220 + roomWindows.count * 40, width: 260, height: 120),
@@ -80,6 +106,7 @@ import AppKit
         label.stringValue = "profileDowns=\(profile.downs) routeErrors=\(profile.errors) "
             + "singleClicks=\(singleClicks) opens=\(opens) opened=\(opened.replacingOccurrences(of: " ", with: "_")) "
             + "selected=\(table.selectedRow) key=\(window.isKeyWindow) "
+            + "sent=\(sent) lastSent=\(lastSent.isEmpty ? "empty" : lastSent.replacingOccurrences(of: " ", with: "_")) "
             + "active=\(NSApplication.shared.isActive)"
     }
 }

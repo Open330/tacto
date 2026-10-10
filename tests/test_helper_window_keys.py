@@ -22,9 +22,14 @@ let input = AXUIElementCreateApplication(10001)
 var calls = 0
 func prepareBackgroundWindow(_ obs: String, _ target: String, _ element: AXUIElement,
     _ pid: pid_t, deadline: Double, key: String? = nil, expectation: [String:Any]? = nil,
-    finalCheck: ((NativeWindowReadScope) -> String?)? = nil) -> [String:Any] {
-    calls += 1; precondition(CFEqual(element,input)); return ["type":"acted","key":key!]
+    finalCheck: ((NativeWindowReadScope) -> String?)? = nil, submitKey: Bool = false) -> [String:Any] {
+    calls += 1; precondition(CFEqual(element,input)); precondition(submitKey == (key == "Return"))
+    return ["type":"acted","key":key!]
 }
+// Host-vouched Return (submit_authorized) and the bound target check.
+var submitAuthorized = false
+var boundRefusal: String? = nil
+func boundReturnTargetRefusal(_ element: AXUIElement, read: AXRead) -> String? { boundRefusal }
 final class NativeWindowReadScope {
     func read(_ element: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) { (.failure, nil) }
 }
@@ -65,8 +70,19 @@ for action:[String:Any] in [
     ["name":"press_key","element_index":0,"key":"cmd+q"],
     ["name":"press_key","element_index":0,"key":"Tab","text":"extra"]
 ] { requests.append(action) }
-let responses=requests.map { checked($0) }
+var responses=requests.map { checked($0) }
 precondition(calls==6)
+// Authorized but the bound target refuses: still nothing sent.
+submitAuthorized=true; boundRefusal="secure text field"
+let refused=checked(["name":"press_key","element_index":0,"key":"Return"])
+precondition(refused["effect"] as? String == "not_started" && calls==6)
+// Authorized and a plain input: delegated as a bound submit.
+boundRefusal=nil
+precondition(checked(["name":"press_key","element_index":0,"key":"Return"])["key"] as? String == "Return")
+precondition(calls==7)
+// Authorization never widens navigation to other keys.
+precondition(checked(["name":"press_key","element_index":0,"key":"Escape"])["effect"] as? String == "not_started")
+precondition(calls==7)
 print(String(data:try! JSONSerialization.data(withJSONObject:responses),encoding:.utf8)!)
 '''
         with tempfile.TemporaryDirectory(prefix='nlc-helper-key-shape-') as directory:

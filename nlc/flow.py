@@ -1791,7 +1791,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                        effect="not_started")
             return res
         if step.action == "press_key" and "press_key.element_bound" in getattr(driver, "capabilities", ()):
-            from .protocol import NAVIGATION_KEYS, RETURN_CAPABILITY, SUBMIT_KEYS
+            from .protocol import NAVIGATION_KEYS, RETURN_BOUND_CAPABILITY, RETURN_CAPABILITY, SUBMIT_KEYS
             key = step.params.get('key')
             # Return commits: only where the backend says it can scope it, in
             # a step that says it submits, verified by an exact value (never
@@ -1801,16 +1801,27 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                          and step.is_submit
                          and step.postcondition is not None
                          and step.postcondition.equals is not None)
+            # The general form (2026-10-10: open a chat from its row, send the
+            # message in its field): a declared submit, bound, with a field
+            # postcondition that must NOT hold before the key (checked at
+            # dispatch). What it commits is the step's declared effect; a
+            # consequential one goes through approval and its receipt.
+            bound_submit = (type(key) is str and key in SUBMIT_KEYS
+                            and RETURN_BOUND_CAPABILITY in getattr(driver, "capabilities", ())
+                            and step.is_submit and step.safety is not None
+                            and "credential" not in step.safety.effects)
+            effects_ok = step.safety is not None and (
+                set(step.safety.effects) == {"write_ephemeral"}
+                or (bound_submit and not submit_ok))
             if ("action.press_key" not in getattr(driver, "capabilities", ())
                     or type(key) is not str
-                    or (key not in NAVIGATION_KEYS - {'Escape'} and not submit_ok)
+                    or (key not in NAVIGATION_KEYS - {'Escape'} and not (submit_ok or bound_submit))
                     or step.binding is None or step.binding.operation != 'press_key'
                     or step.binding.params_digest != pin_params(step.params)
                     or step.selector is None or step.postcondition is None or step.postcondition.field is None
                     or step.postcondition.attribute is None
                     or (step.postcondition.equals is None and step.postcondition.contains is None)
-                    or step.unverified_ok or step.safety is None
-                    or set(step.safety.effects) != {"write_ephemeral"}):
+                    or step.unverified_ok or not effects_ok):
                 res.record(status="error", step=i, error="navigation_contract_required",
                            detail="window navigation needs an input selector and explicit observed result")
                 return res
@@ -2131,15 +2142,28 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     return {"type": "error", "error": "host_evidence_preparation_failed",
                             "effect": "not_started", "detail": shown}
             from .commit_evidence import save_panel_dispatch_parameters
+            from .protocol import RETURN_BOUND_CAPABILITY, SUBMIT_KEYS
+            caps_now = getattr(driver, 'capabilities', ())
+            # The helper still takes the Go to Folder path first when it applies.
+            bound_return = (payload.get("name") == "press_key" and payload.get("key") in SUBMIT_KEYS
+                            and step.is_submit and RETURN_BOUND_CAPABILITY in caps_now)
+            if bound_return and (step.postcondition is None or step.postcondition.check(current["tree"])):
+                # Already true before the key: nothing could show the key did it.
+                return {"type": "error", "error": "postcondition_already_true",
+                        "effect": "not_started"}
             try:
                 dispatch_parameters = save_panel_dispatch_parameters(
-                    event, context, getattr(driver, 'capabilities', ()))
+                    event, context, caps_now)
                 # Validate the attachment before consuming a one-shot approval.
                 # Reuse the decision; authorizes/spend must run only once.
                 dispatch_approved = _approved(approvals, i, step, payload)
                 if dispatch_parameters and (risk not in ('confirm', 'preapproved')
                         or dispatch_approved is not True):
                     raise ValueError('save-panel dispatch requires explicit approval')
+                if bound_return:
+                    # Not an approval: the host checked the submit contract.
+                    # A consequential submit is still gated by `risk` below.
+                    dispatch_parameters = {**dispatch_parameters, "submit_authorized": True}
             except Exception:
                 return {"type":"error", "error":"host_evidence_preparation_failed", "effect":"not_started"}
             try:

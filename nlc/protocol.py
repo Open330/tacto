@@ -10,6 +10,9 @@ NAVIGATION_KEYS = frozenset({"Tab", "shift+Tab", "Up", "Down", "Left", "Right", 
 # flow only in a step declared is_submit (see replay's press_key contract).
 SUBMIT_KEYS = frozenset({"Return"})
 RETURN_CAPABILITY = "press_key.return_in_go_to_folder"
+# Return into a bound text input or selected list row, for a step the host
+# vouched for: declared submit, bound, with a postcondition not yet true.
+RETURN_BOUND_CAPABILITY = "press_key.return_bound"
 
 # IR payloads cannot override the action name or smuggle an observation index.
 ACTION_PARAMS = {
@@ -44,9 +47,11 @@ def window_key_reobservation(action, response, capabilities):
         return False
     if action['key'] in NAVIGATION_KEYS - {'Escape'}:
         return response.get('input_route') == 'window_key' and response['posted_events'] == 2
-    return (action['key'] in SUBMIT_KEYS and RETURN_CAPABILITY in capabilities
-            and response.get('input_route') == 'window_submit_key'
-            and response['posted_events'] == 1)
+    return (action['key'] in SUBMIT_KEYS and response['posted_events'] == 1
+            and ((RETURN_CAPABILITY in capabilities
+                  and response.get('input_route') == 'window_submit_key')
+                 or (RETURN_BOUND_CAPABILITY in capabilities
+                     and response.get('input_route') == 'window_bound_submit_key')))
 
 
 def double_click_reobservation(action, response, capabilities):

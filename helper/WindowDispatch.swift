@@ -71,7 +71,8 @@ func dispatchNativeWindowPreparation(
     post: (CGEvent, pid_t) throws -> Void = nativePIDPost,
     key: String? = nil, routing: ((NativeWindowBinding, Bool) throws -> Void)? = nil,
     preflight: (() throws -> Void)? = nil, pointClick: Bool = false,
-    windowInput: NativeOpaqueWindowInput? = nil, elementClicks: Int = 0
+    windowInput: NativeOpaqueWindowInput? = nil, elementClicks: Int = 0,
+    submitKey: Bool = false
 ) throws -> NativeWindowPreparation {
     var attempted = 0
     func ready() throws {
@@ -95,6 +96,11 @@ func dispatchNativeWindowPreparation(
         if key != nil {
             guard binding.pointKind == .elementCenter, !CFEqual(binding.element, binding.window), routing != nil else {
                 throw NativeWindowInputError.refused("navigation requires a bound input and routing check")
+            }
+        }
+        if submitKey {
+            guard key == "Return", windowInput == nil, !pointClick, elementClicks == 0 else {
+                throw NativeWindowInputError.refused("a bound submit is Return to one bound input")
             }
         }
         if pointClick {
@@ -126,9 +132,17 @@ func dispatchNativeWindowPreparation(
             case .text(let value): pair = try buildNativeWindowText(binding.windowID, text: value)
             }
             owners = pair.owners; events = [pair.down, pair.up]
+        } else if let key, submitKey {
+            try routing?(binding, true); try ready()
+            // Return to a bound input the host vouched for (declared submit,
+            // binding, a postcondition not yet true). One keyDown, like the
+            // Go to Folder path: the commit happens on it, and what it opens
+            // or sends may take the focus before a keyUp could be checked.
+            let pair = try buildNativeWindowKey(binding.windowID, key: key, submit: true)
+            owners = pair.owners; events = [pair.down]
         } else if let key {
             try routing?(binding, true); try ready()
-            // Navigation keys only. Return has its own path (submitReturnInSheet).
+            // Navigation keys only. Return has its own paths (submitReturnInSheet, submitKey).
             let pair = try buildNativeWindowKey(binding.windowID, key: key)
             owners = pair.owners; events = [pair.down, pair.up]
         } else if elementClicks != 0 {
@@ -176,6 +190,10 @@ func dispatchNativeWindowPreparation(
                 guard before.matches(after) else {
                     throw NativeWindowInputError.refused("user input state changed during input: " + before.differences(after).joined(separator: ","))
                 }
+                // A committed submit is expected to change the window, its
+                // focus or the element itself; there is nothing left to post,
+                // so it is not re-validated as if it should not have.
+                if submitKey { continue }
                 try validate(binding); try ready()
                 try routing?(binding, false); try ready()
                 let confirmed = try readInput(deadline)

@@ -422,7 +422,7 @@ class HelperDriver:
         return out
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False, *, save_panel_token=None):
+            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
         if save_panel_token is not None:
             if (not isinstance(save_panel_token, str) or not save_panel_token
                     or len(save_panel_token) > 128
@@ -449,6 +449,13 @@ class HelperDriver:
             # review of 31955f0).
             return {'type': 'error', 'error': 'focused_document_guard_unavailable',
                     'effect': 'not_started'}
+        if submit_authorized is not False:
+            # Only replay sets this, after checking the step's submit contract.
+            if (submit_authorized is not True or action.get('name') != 'press_key'
+                    or action.get('key') != 'Return'
+                    or 'press_key.return_bound' not in getattr(self, 'capabilities', ())):
+                return {'type': 'error', 'error': 'submit_authorization_invalid',
+                        'effect': 'not_started'}
         if action.get('name') == 'click_point':
             if risk_class not in ('confirm','preapproved') or approved is not True:
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started'}
@@ -479,6 +486,8 @@ class HelperDriver:
             msg['coordinate_authorized'] = True
         if action.get('name') == 'window_input':
             msg['window_input_authorized'] = True
+        if submit_authorized is True:
+            msg['submit_authorized'] = True
         if action.get("name") in ("click", "click_point", "prepare_window", "press_key", "window_input"):
             from .model_budget import remaining_model_seconds
             # Capture before computing remaining time; never extend the budget

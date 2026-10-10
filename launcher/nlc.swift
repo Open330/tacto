@@ -167,7 +167,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", "coordinate_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
+let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
                                  "require_window", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
                                  "document_token", "document_path", "max_utf16_units", "timeout_seconds",
@@ -252,6 +252,14 @@ func vetted(_ msg: [String: Any]) -> String? {
               let value = msg["coordinate_authorized"] as? NSNumber,
               CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
             return "coordinate authorization required"
+        }
+    }
+    if msg["submit_authorized"] != nil {
+        guard type == "act", let action = msg["action"] as? [String:Any],
+              action["name"] as? String == "press_key", action["key"] as? String == "Return",
+              let value = msg["submit_authorized"] as? NSNumber,
+              CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
+            return "submit authorization is only for press_key Return"
         }
     }
     if type != "save_panel" && ["window_element_index", "panel_token", "require_format"].contains(where: { msg[$0] != nil }) {

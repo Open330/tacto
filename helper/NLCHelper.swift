@@ -974,7 +974,7 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
                              windowInput: NativeOpaqueWindowInput? = nil,
-                             elementClicks: Int = 0) -> [String: Any] {
+                             elementClicks: Int = 0, submitKey: Bool = false) -> [String: Any] {
     let diagnosticStart = ProcessInfo.processInfo.systemUptime
     var phase = "identity"
     var readScope: NativeWindowReadScope?
@@ -1027,6 +1027,7 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
             scope: scope, relativePoint: point)
         let routing: ((NativeWindowBinding, Bool) throws -> Void)?
         if windowInput != nil || point != nil || elementClicks != 0 { routing = { binding, _ in try requireNativeWindowTarget(binding, scope: scope) } }
+        else if submitKey { routing = { binding, _ in try requireNativeSubmitTarget(binding, scope: scope) } }
         else if key != nil { routing = { try requireNativeKeyTarget($0, element: $1, scope: scope) } }
         else { routing = nil }
         phase = "dispatch"
@@ -1040,9 +1041,9 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                     throw NativeWindowInputError.refused(why)
                 }
                 try scope.ready()
-            }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks)
+            }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks, submitKey: submitKey)
         return diagnosed(["type":"acted", "action":elementClicks == 2 ? "double_click" : elementClicks == 1 ? "click" : windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
-                "input_route":elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
+                "input_route":submitKey ? "window_bound_submit_key" : elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
                 "posted_events":result.posted, "window_id":result.windowID,
                 "reobserve_required":true, "unverified":"observe_effect"])
     } catch let failure as NativeWindowDispatchFailure {
@@ -1188,7 +1189,8 @@ func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIEl
 
 func act(_ obsID: String, _ target: String, _ action: [String: Any],
          expect: [String: Any]? = nil, clickDeadline: Double? = nil, coordinateAuthorized: Bool = false,
-         savePanelToken: String? = nil, windowInputAuthorized: Bool = false) -> [String: Any] {
+         savePanelToken: String? = nil, windowInputAuthorized: Bool = false,
+         submitAuthorized: Bool = false) -> [String: Any] {
     if let token = savePanelToken {
         guard !token.isEmpty, token.count <= 128, Set(action.keys) == Set(["name", "element_index"]),
               action["name"] as? String == "click",
@@ -2082,8 +2084,20 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // the step a submit; see replay's press_key contract.
         let submit = nativeSubmitKey(key) != nil
         if submit, let why = returnTargetRefusal(el, read: boundedAXRead(until: deadline)) {
-            return ["type":"error", "error":"action_failed", "effect":"not_started",
-                    "detail":"Return refused: \(why)"]
+            // Elsewhere only when the host vouched for the step — declared a
+            // submit, bound, with a postcondition that did not yet hold — and
+            // only into a plain text input or a selected list row (a chat's
+            // message field, a room list; 2026-10-10).
+            guard submitAuthorized else {
+                return ["type":"error", "error":"action_failed", "effect":"not_started",
+                        "detail":"Return refused: \(why)"]
+            }
+            if let refusal = boundReturnTargetRefusal(el, read: boundedAXRead(until: deadline)) {
+                return ["type":"error", "error":"action_failed", "effect":"not_started",
+                        "detail":"Return refused: \(refusal)"]
+            }
+            return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
+                                           key: key, expectation: expect, submitKey: true)
         }
         if submit {
             return submitReturnBackground(obsID, target, el, p, deadline: deadline)
@@ -2815,6 +2829,26 @@ func boundedAXRead(until deadline: Double) -> AXRead {
     }
 }
 
+/// The bound Return's targets: a text area, a text field that is not secure,
+/// or a list row. Anything unreadable refuses.
+func boundReturnTargetRefusal(_ element: AXUIElement, read: AXRead) -> String? {
+    func string(_ name: String, optional: Bool) -> (ok: Bool, value: String?) {
+        guard let (err, value) = try? read(element, name) else { return (false, nil) }
+        if err == .success, let value, CFGetTypeID(value) == CFStringGetTypeID() { return (true, value as? String) }
+        if optional && (err == .noValue || err == .attributeUnsupported) { return (true, nil) }
+        return (false, nil)
+    }
+    let role = string(kAXRoleAttribute as String, optional: false)
+    guard role.ok, let value = role.value else { return "role unreadable" }
+    guard [kAXTextAreaRole as String, kAXTextFieldRole as String, kAXRowRole as String].contains(value) else {
+        return "not a text input or list row (\(value))"
+    }
+    let subrole = string(kAXSubroleAttribute as String, optional: true)
+    guard subrole.ok else { return "subrole unreadable" }
+    if subrole.value == kAXSecureTextFieldSubrole as String { return "secure text field" }
+    return nil
+}
+
 func returnTargetRefusal(_ element: AXUIElement, read rawRead: AXRead) -> String? {
     enum Got { case value(CFTypeRef), absent, failed }
     func get(_ el: AXUIElement, _ name: String, optional: Bool = false) -> Got {
@@ -2918,6 +2952,9 @@ let helperCapabilities: [String] = [
     // click on an element with no AXPress: one window-bound click at its
     // hit-tested centre, instead of a refusal.
     "click.window_bound_element",
+    // Return into a bound text input or selected row, when the host vouches
+    // for the step (submit_authorized); one keyDown, reobserve.
+    "press_key.return_bound",
     "action.window_input", "window_input.window_bound", "window_input.host_authorization",
     // Not "press_key.navigation_only": this helper also takes Return, narrowly.
     "action.press_key", "press_key.no_escape",
@@ -4078,6 +4115,16 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
             }
             windowInputAuthorized = true
         }
+        let returnKey = (msg["action"] as? [String:Any]).map {
+            $0["name"] as? String == "press_key" && $0["key"] as? String == "Return" } ?? false
+        var submitAuthorized = false
+        if msg["submit_authorized"] != nil {
+            guard returnKey, let value = msg["submit_authorized"] as? NSNumber,
+                  CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
+                return ["type":"error", "error":"submit_authorization_invalid", "effect":"not_started"]
+            }
+            submitAuthorized = true
+        }
         let coordinate = (msg["action"] as? [String:Any])?["name"] as? String == "click_point"
         var coordinateAuthorized = false
         if coordinate || msg["coordinate_authorized"] != nil {
@@ -4099,7 +4146,8 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         return act(msg["obs_id"] as? String ?? "", msg["target"] as? String ?? "",
                    msg["action"] as? [String: Any] ?? [:],
                    expect: msg["expect"] as? [String: Any], clickDeadline: clickDeadline,
-                   coordinateAuthorized: coordinateAuthorized, savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized)
+                   coordinateAuthorized: coordinateAuthorized, savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized,
+                   submitAuthorized: submitAuthorized)
     case "probe":
         return probe(msg["obs_id"] as? String ?? "", msg["target"] as? String ?? "",
                      msg["element_index"] as? Int ?? -1)

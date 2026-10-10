@@ -113,6 +113,52 @@ def main(driver, output):
                                         'after': host()}
                     assert result.ok, result.log
                     assert report['replay']['after']['opens'] == '2', report['replay']
+                    # 4. Return on a selected row opens it (bound submit).
+                    assert 'press_key.return_bound' in driver.capabilities
+                    view = observe()
+                    index, _ = Selector(value='Room A', click_ancestor=['Row']).resolve(view['tree'])
+                    selected = driver.act(view['obs_id'], TARGET, {'name': 'click', 'element_index': index})
+                    time.sleep(.3)
+                    assert selected.get('input_route') == 'window_bound_element_click', selected
+                    assert host()['selected'] == '0', host()
+
+                    def submit(selector, postcondition, binding_field):
+                        params = {'key': 'Return'}
+                        return Step('press_key', selector, params=params, is_submit=True,
+                            safety=env.contract_for({'write_ephemeral'}, 'submit'),
+                            binding=ContextBinding(bundle_id=TARGET, operation='press_key',
+                                                   params_digest=pin_params(params), **binding_field),
+                            postcondition=postcondition)
+                    result = replay(driver, Flow('open_by_return', TARGET, [submit(
+                        Selector(value='Room A', click_ancestor=['Row']),
+                        Postcondition(field=Selector(role='Window', title='Room A'),
+                                      attribute='Title', equals='Room A'),
+                        {'value': 'Room A'})], schema=2))
+                    report['row_return'] = {'ok': result.ok, 'log': result.log, 'events': result.events,
+                                            'after': host()}
+                    assert result.ok, result.log
+                    assert report['row_return']['after']['opened'] == 'Room_A', report['row_return']
+
+                    # 5. Return in the message field "sends" what was typed.
+                    view = observe()
+                    index, _ = Selector(identifier='message-field').resolve(view['tree'])
+                    focused = driver.act(view['obs_id'], TARGET, {'name': 'click', 'element_index': index})
+                    time.sleep(.3)
+                    view = observe()
+                    index, _ = Selector(identifier='message-field').resolve(view['tree'])
+                    typed = driver.act(view['obs_id'], TARGET,
+                                       {'name': 'set_value', 'element_index': index, 'value': 'hello there'})
+                    assert typed.get('type') == 'acted', typed
+                    result = replay(driver, Flow('send_by_return', TARGET, [submit(
+                        Selector(identifier='message-field'),
+                        Postcondition(field=Selector(identifier='list-state'), attribute='Value',
+                                      contains='sent=1 lastSent=hello_there'),
+                        {'identifier': 'message-field'})], schema=2))
+                    report['field_return'] = {'focus': focused, 'ok': result.ok, 'log': result.log,
+                                              'events': result.events, 'after': host()}
+                    assert result.ok, result.log
+                    assert report['field_return']['after']['sent'] == '1', report['field_return']
+
                     report['final'] = host()
                     # NSApp.isActive of this accessory fixture turns true after
                     # prepare_window (measured 2026-10-10) while the frontmost

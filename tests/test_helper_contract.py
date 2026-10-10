@@ -1007,6 +1007,8 @@ SIGNED_HELPER_ONLY = frozenset({
     "action.double_click",
     # click falls back to one window-bound click when there is no AXPress.
     "click.window_bound_element",
+    # Return into a bound text input or selected row (host-vouched submit).
+    "press_key.return_bound",
 })
 
 

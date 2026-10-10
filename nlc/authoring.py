@@ -97,8 +97,15 @@ whatever window the user switches to. For backends advertising
 Left, or Right, with a specific observed input selector and params {"key":"Right"}.
 Require action.press_key capability, a binding for that input, write_ephemeral
 effects, and a postcondition naming a field, attribute, and equals or contains.
-The posted pair requires a fresh observed result before the next step. Escape,
-Return, and arbitrary shortcuts are unavailable on these native backends.
+The posted pair requires a fresh observed result before the next step. Escape
+and arbitrary shortcuts are unavailable on these native backends.
+Return commits, so it is narrower still. With press_key.return_bound it may go
+to ONE text area / non-secure text field (send the message typed there) or ONE
+selected list row (open it): params {"key":"Return"}, "is_submit": true, a
+binding, and a postcondition (field, attribute, equals or contains) that is NOT
+already true before the key \u2014 replay refuses to press when it is. Its
+safety effects are what it commits: write_ephemeral to open a room, transmit to
+send a message (which asks the person first).
 
 `read` performs nothing; use it for a step that only captures.
 
