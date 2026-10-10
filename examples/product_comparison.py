@@ -68,6 +68,41 @@ def _agent_env():
     return env
 
 
+def _responsibility_probe():
+    """Observe this controller and one owned, idle non-model child."""
+    import os
+    from nlc.process_responsibility import observe_responsibility
+    parent = observe_responsibility(os.getpid())
+    cleanup_status = 'completed'
+    # The child waits for one stdin byte. No GUI, network, model or file writes.
+    with subprocess.Popen([sys.executable, '-c', 'import sys;sys.stdin.buffer.read(1)'],
+                          stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, env=_agent_env(), close_fds=True,
+                          start_new_session=True) as child:
+        try:
+            if child.poll() is not None:
+                raise RuntimeError('owned_probe_child_exited')
+            observed = observe_responsibility(child.pid)
+            if child.poll() is not None:
+                observed = {'pid':child.pid, 'status':'unavailable',
+                            'error_code':'owned_child_exited_during_read'}
+        finally:
+            try:
+                child.communicate(input=b'x', timeout=3)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+                cleanup_status = 'owned_child_cleanup_timeout'
+            except BaseException:
+                child.kill()
+                child.wait()
+                raise
+    return {'controller':parent, 'owned_idle_python_child':observed,
+            'model_or_sky_process_observed':False, 'comparison_eligible':False,
+            'tcc_permission_verified':False, 'child_started_in_new_session':True,
+            'cleanup_status':cleanup_status}
+
+
 def _tree(target):
     o = _driver().observe(target, "tree_full", require_window=False)
     return o.get("tree", "") if o.get("type") == "observation" else ""
@@ -987,8 +1022,11 @@ def main() -> int:
     ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
-    ap.add_argument("--check-backend", action="store_true",
+    checks = ap.add_mutually_exclusive_group()
+    checks.add_argument("--check-backend", action="store_true",
                     help="read signed helper metadata only; no setup, model or task input")
+    checks.add_argument('--check-responsibility', action='store_true',
+                        help='read controller/owned idle child process responsibility; no model or GUI')
     args = ap.parse_args()
     if args.reps <= 0:
         ap.error("--reps must be positive")
@@ -1006,6 +1044,15 @@ def main() -> int:
     if not InheritedHelperDriver.available():
         print('Use the signed launcher: nlc eval --product-comparison [options]')
         return 2
+    if args.check_responsibility:
+        try:
+            result = _responsibility_probe()
+        except Exception:
+            print('responsibility_probe_unavailable')
+            return 2
+        print(json.dumps(result))
+        return 0 if result['cleanup_status'] == 'completed' and all(result[k]['status'] == 'observed' for k in (
+            'controller', 'owned_idle_python_child')) else 2
     if args.check_backend:
         try:
             driver = _driver()

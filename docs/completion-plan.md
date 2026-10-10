@@ -546,3 +546,37 @@ product flag는 argv 위치와 무관하게 선택하고 중복은 실행 전에
 backend/provenance/CLI/install 후속66개는65 PASS/선택적 wheel 설치1 SKIP,
 0.477초였다. 환경과 API 연결 검증이며 실제 새 native 과제 성공률은 없다.
 전체 G0~G10과 대표 앱/백본/동일 초기 상태·모델 증거 완료 기준을 유지한다.
+
+## G9 후속: 관리자 권한 없는 책임 PID 진단
+
+launchctl procinfo는 현재 환경에서 root가 필요해 거부됐다. 승격하거나
+권한을 변경하지 않았다. 실제 libSystem responsibility SPI가 존재하고
+현재 process PID를 조회할 수 있음을 읽기 전용으로 확인해 진단 모듈을
+추가했다. libproc 경로와 책임 PID를 두 번 읽고 변화·API 없음·읽기 실패는
+unavailable/null이다. 기본 Python 코어에 GUI 의존성을 추가하지 않으며
+비Darwin에서는 native library를 로드하지 않는다.
+
+`nlc eval --product-comparison --check-responsibility`는 signed controller와
+그 controller가 만든 idle Python 자식을 관측했다. 실행 exit0, controller
+88162와 child88173은 각각 자기 PID를 책임 PID로 반환했고 경로는 동일한
+Python 실행 파일이었다. 자식은 stdin byte로 종료하고 wait로 회수했다.
+예외/3초 timeout에는 그 소유 자식만 종료·회수한다. 모델·Sky·native task
+입력·권한 변경은 없었다. 실제 기록과 primary ABI source hash는
+`../reviews/2026-10-10/signed-controller-responsibility-probe.json`에 보존했다.
+source hash는 live probe 뒤 확인한 것으로 구분했다.
+
+반복 경로 일치는 code identity, PID 재사용, descendants 책임 또는 실제
+TCC permission 판정을 증명하지 않는다. 실제 Codex/Sky 책임 관측 및 외부
+agent↔signed host 분리도 구현하지 않았으므로 기존 비교 제외 조건은 유지한다.
+이 진단과 backend/provenance58개가0.334초에 통과했다. 전체 목표와 실제
+대표 앱·백본·같은 초기 상태 비교 완료 기준은 계속 유지한다.
+
+Muxa read-only 리뷰(req_18dd24b163cf97f0_55)는 P1 없음으로 판단했다.
+앞선 'model이 NLC launcher 책임 신원을 상속한다' 설명은 가설이었고,
+현재 owned Python probe는 self-responsible 관측이므로 그 가설의 직접 증거가
+아니라고 정정한다. 그렇다고 실제 Codex/Sky가 Python 귀속이라고 추론하지도
+않는다. 아직 그 프로세스를 관측하지 않았다.
+cleanup timeout은 소유 자식을 kill/wait한 뒤 닫힌 status와 exit2로 반환하고,
+일반 probe 실패의 예외 본문은 출력하지 않는다. caller interrupt는 소유 자식
+정리 후 재발생시킨다. start_new_session=True도 결과에 기록하며 이를 TCC
+분리로 주장하지 않는다. 추가 회귀 후60개가0.345초에 통과했다.

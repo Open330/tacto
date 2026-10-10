@@ -217,3 +217,32 @@ oracle 결과는 보존하지만 `comparison_eligible=false`와
 `agent_responsibility_not_isolated_or_observed`로 제품 비교에서 제외한다.
 외부 agent controller 또는 실제 책임 신원 관측과 동일 조건 감사를 구현해야
 새 native 제품 비교를 증명할 수 있다. 예전 launcher 밖 cohort와 섞지 않는다.
+
+### 책임 프로세스의 읽기 전용 관측
+
+`nlc.process_responsibility.observe_responsibility(pid)`는 현재 플랫폼의 private
+libSystem responsibility SPI와 libproc의 실행 경로를 두 번 읽는다. PID·경로가
+달라지거나 API/경로가 없으면 닫힌 unavailable/null 결과를 반환한다.
+PPID를 대신 쓰거나 관리자 권한을 요청하지 않으며 argv·환경·문서 내용은
+읽지 않는다. ABI는 Chromium의
+[macOS process 구현](https://github.com/chromium/chromium/blob/main/base/process/process_info_mac.mm)의
+pid_t 반환/인자를 참고했다. private API이므로 플랫폼에 따라 제공되지 않을 수 있다.
+
+```sh
+nlc eval --product-comparison --check-responsibility
+```
+
+이 명령은 controller와 자체 대기 중인 Python 자식 하나만 관측하고 자식을
+종료·회수한다. GUI·모델·원격 요청은 없다. 실제 signed 경로의 두 프로세스는
+각각 self-responsible PID와 Python 실행 경로를 반환했다. 기록은
+`reviews/2026-10-10/signed-controller-responsibility-probe.json`에 있다.
+이는 실제 Codex/Sky의 책임 그래프나 TCC 서비스의 권한 결정이 아니며
+comparison_eligible=false를 유지한다. 프로세스 경로의 반복 일치로 실행 중
+코드 신원·PID 재사용·후손 책임·동일 모델을 증명하지 않는다.
+
+이 Python probe를 근거로 '실제 model이 NLC launcher 책임을 상속한다'거나
+'실제 model이 Python 귀속이다'라고 단정하지 않는다. 이전 launcher 상속
+설명은 가능한 혼입에 대한 가설이었으며 실제 model/Sky 관측은 아직 없다.
+probe의 start_new_session=True는 소유 자식의 세션/프로세스 그룹 설정으로
+기록하며 TCC 책임 분리로 해석하지 않는다. 자식 정리 timeout은 kill/wait 후
+owned_child_cleanup_timeout과 exit2이며 일반 실패의 예외 본문은 숨긴다.

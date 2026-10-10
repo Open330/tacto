@@ -3,6 +3,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 import os
+import subprocess
 import sys
 import unittest
 from unittest.mock import Mock, patch
@@ -137,6 +138,29 @@ class ComparisonBackendTests(unittest.TestCase):
              self.assertRaisesRegex(RuntimeError, '^comparison_setup_clear_unverified$'):
             comparison.calc_reset()
         self.assertEqual(2, stub.act.call_count)
+
+    def test_responsibility_probe_cleanup_timeout_is_closed_and_child_reaped(self):
+        child = Mock(pid=42)
+        child.poll.return_value = None
+        child.communicate.side_effect = subprocess.TimeoutExpired('owned', 3)
+        process = Mock()
+        process.__enter__ = Mock(return_value=child)
+        process.__exit__ = Mock(return_value=False)
+        with patch.object(comparison.subprocess, 'Popen', return_value=process), \
+             patch('nlc.process_responsibility.observe_responsibility', return_value={'status':'observed'}):
+            result = comparison._responsibility_probe()
+        self.assertEqual('owned_child_cleanup_timeout', result['cleanup_status'])
+        self.assertTrue(result['child_started_in_new_session'])
+        self.assertFalse(result['comparison_eligible'])
+        child.kill.assert_called_once(); child.wait.assert_called_once()
+
+    def test_responsibility_probe_setup_failure_does_not_expose_exception(self):
+        with patch.object(sys, 'argv', ['comparison', '--check-responsibility']), \
+             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
+             patch.object(comparison, '_responsibility_probe', side_effect=RuntimeError('PRIVATE')), \
+             redirect_stdout(StringIO()) as out:
+            self.assertEqual(2, comparison.main())
+        self.assertEqual('responsibility_probe_unavailable', out.getvalue().strip())
 
 
 if __name__ == '__main__':
