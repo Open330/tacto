@@ -84,9 +84,9 @@ let maxChildrenPerNode = 60
 let truncationMark = "… (트리가 커서 여기서 잘렸습니다 — 더 좁은 창/앱을 대상으로 하세요)"
 
 let labelAttrs = ["AXTitle", "AXDescription", "AXValue", "AXHelp",
-                  "AXIdentifier", "AXPlaceholderValue"]
+                  "AXIdentifier", "AXPlaceholderValue", "AXSubrole"]
 let labelNames = ["Title", "Description", "Value", "Help",
-                  "Identifier", "Placeholder"]
+                  "Identifier", "Placeholder", "Subrole"]
 
 /// The element's label attributes in ONE round trip. Some apps compute these
 /// lazily per element — a Mail row costs 20ms read one at a time and 3ms read
@@ -98,6 +98,7 @@ let labelNames = ["Title", "Description", "Value", "Help",
         el, labelAttrs as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
         == .success, let values = raw as? [Any], values.count == labelAttrs.count {
         for (i, v) in values.enumerated() {
+            if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
             // An attribute the element lacks comes back as an AXValue holding
             // an error, not as nil, so only real strings and numbers count.
             if let s = v as? String, !s.isEmpty { parts.append("\(labelNames[i]): \(s)") }
@@ -108,6 +109,7 @@ let labelNames = ["Title", "Description", "Value", "Help",
         return parts.joined(separator: ", ")
     }
     for (i, key) in labelAttrs.enumerated() {
+        if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
         if let v = str(el, key) { parts.append("\(labelNames[i]): \(v)") }
     }
     return parts.joined(separator: ", ")
@@ -750,7 +752,8 @@ func mismatch(_ expect: [String: Any], element: AXUIElement?, pid p: pid_t) -> S
                         "Value": kAXValueAttribute as String,
                         "Help": kAXHelpAttribute as String,
                         "Identifier": "AXIdentifier",
-                        "Placeholder": kAXPlaceholderValueAttribute as String]
+                        "Placeholder": kAXPlaceholderValueAttribute as String,
+                        "Subrole": kAXSubroleAttribute as String]
         let names = (expect["attribute"] as? String).map { [$0] }
             ?? ["Title", "Description", "Value", "Help", "Identifier", "Placeholder"]
         var anyPresent = false
@@ -3022,7 +3025,7 @@ let navigationKeys: [String: (CGKeyCode, CGEventFlags)] = [
 // stops. A caller compares it against what it needs before sending anything.
 let helperCapabilities: [String] = [
     "observe", "act", "probe", "selection", "menu_state", "menu_items",
-    "expect.role", "expect.label", "expect.attribute", "expect.enabled",
+    "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "observe.subrole", "expect.enabled",
     "expect.no_modal", "expect.selection",
     "effect",                       // errors say whether an effect is possible
     "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",

@@ -181,7 +181,7 @@ def _line_attr(line: str, key: str):
     """One attribute out of a tree line, without importing the flow layer."""
     import re as _re
     others = "|".join(k for k in ("Title", "Description", "Value", "Help",
-                                  "Identifier", "Placeholder", "Secondary Actions",
+                                  "Identifier", "Placeholder", "Subrole", "Secondary Actions",
                                   "Document") if k != key)
     m = _re.search(rf"{key}:\s*(.+?)"
                    rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused|selected)\]|$)", line)
@@ -271,7 +271,7 @@ def _attr(el, name):
 
 
 _LABEL_ATTRS = ("AXTitle", "AXDescription", "AXValue", "AXHelp",
-                "AXIdentifier", "AXPlaceholderValue")
+                "AXIdentifier", "AXPlaceholderValue", "AXSubrole")
 
 
 def _elem_label(el):
@@ -298,6 +298,8 @@ def _elem_label(el):
     if values is None:                     # older bindings: one call each
         values = [_attr(el, name) for name in _LABEL_ATTRS]
     for name, v in zip(_LABEL_ATTRS, values):
+        if name == 'AXSubrole' and (parts or _attr(el, 'AXRole') != 'AXButton'):
+            continue
         if not isinstance(v, (str, int, float)) or (v == "" and name != "AXValue"):
             continue
         if isinstance(v, str):
@@ -522,7 +524,7 @@ class Driver:
         "observe", "act", "probe", "selection",
         "evidence.document_text", "evidence.visual",
         "evidence.document_text.path_selector", "observe.document_token",
-        "expect.role", "expect.label", "expect.attribute", "expect.enabled",
+        "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "observe.subrole", "expect.enabled",
         "expect.no_modal", "expect.selection",
         "effect",
         "action.click", "action.set_value", "action.type_text", "action.read",
@@ -1533,6 +1535,12 @@ class Driver:
                 role = role[2:]
             if role != want_role:
                 return f"대상이 달라졌습니다 (기대 {want_role}, 지금 {role or '?'})"
+        if expect.get('attribute') == 'Subrole' and isinstance(expect.get('label'), str):
+            # Dispatch checks the actual attribute even when the renderer keeps
+            # an existing named element's label unchanged for compatibility.
+            from .flow import _norm
+            got = _attr(el, 'AXSubrole')
+            return '' if isinstance(got,str) and _norm(got) == _norm(expect['label']) else '대상의 하위 역할이 달라졌습니다'
         seen = _elem_label(el)
         if seen is None:
             return "대상이 화면에서 사라졌습니다"

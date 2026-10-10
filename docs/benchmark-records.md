@@ -399,3 +399,73 @@ backend는 새 evidence.document_window_status와8개 앱을 보고했고 doctor
 실행 결과가 아니다. native 닫힘 실측과 signed owned cleanup 통합이 다음 작업이며
 현재 comparison의 TextEdit 미실행 gate를 해제하지 않았다.
 전체 G0~G10의 대표 앱/백본·인과적 저장/전송·동일 조건 비교/설치 완료 기준은 유지한다.
+
+
+## G3/G6/G7/G8 후속: signed owned TextEdit 편집과 닫기 실측
+
+`examples/probes/signed_owned_textedit.py`는 private0700 새 디렉터리·exclusive
+파일을 만드는 평가 fixture다. `open -g`는 fixture bootstrap에만 사용하고
+pin·전체 본문 readback·scoped observe·close는 inherited signed helper를 사용한다.
+필요 capability가 없으면 파일 생성 전 거절한다. 성공한 pin은 빈 본문·완전
+읽기·선택 경로와 연결한다. helper의 NFD 한글 경로는 NFC로 비교하고 두 경로의
+실제 regular-file inode 일치도 확인한다. 이름 비교만으로 소속을 추정하지 않는다.
+
+첫 pin 실패 뒤 현재 소유 문서를 조회해 빈 본문/NFD 경로를 확인했다.
+`owned-document-initial-pin-failure.json`의 cause_verified는 이 문자열 비교
+결함의 확인 범위다. 첫 reply stream 전체를 기록하지 않았으므로 모든 초기
+실패 원인을 그 결함 하나로 확정하지 않는다. 보강 범위는
+`owned-edit-file-state-and-diagnostic-scope.json`에도 명시했다. 해당 소유
+디렉터리의 dev/ino를 host가 명시해 같은 문서를 다시 pin했고 새 파일을 만들지 않았다.
+그 다음 닫기 control의 Description이 없어 close_control_unavailable로 중단한
+원시 `signed-owned-document-lifecycle.json`도 그대로 보존했다. 두 실패에서
+닫기 입력은 없었다.
+
+이름 없는 AXButton에 Subrole을 표시하고 `expect.attribute=Subrole`로 실제
+AXSubrole을 클릭 직전에 확인한다. 관측 및 expectation capability를 추가했다.
+기존 label이 있는 요소·창·필드의 렌더링은 유지하며 parser의 attribute 경계에
+Subrole을 포함했다. Python driver도 renderer와 독립적으로 AXSubrole을 읽는다.
+Muxa 리뷰 req_18dd273aaa2acea0_68의 렌더링 범위·direct 검증 P2를 반영했고
+후속 req_18dd27662a8b82f8_69는 P1/P2 없음이었다. 두 transport의 label 처리,
+changed/missing/disabled/nil close-control 거절을 회귀로 검증했다.
+
+`nlc eval --product-comparison --check-owned-document-lifecycle` 실기는
+소유 빈 문서 open/완전한 empty text→window-bound close→같은 process의 AX/CG
+closed 관측→artifact 제거에 성공했다. 기록은
+`../reviews/2026-10-10/signed-owned-document-lifecycle-closed.json`이다.
+이 probe의 FocusWitness는 setup부터 cleanup까지 포함했고 초기 전경 System
+Settings/activations[]/source 전후 일치였다. 이 source는 이후 renderer 호환성,
+평가 통합 및 read-only retry 후속 이전이다. 과거 보고서를 새 코드 실측으로
+바꾸지 않는다. 모델 요청은0이다. pointer/typing 보존은 관측하지 않았다.
+
+`textedit_edit_owned`만 signed setup/readback/cleanup으로 연결했다. ask는
+fixture의 정확한 경로를 사용하며 offline --list는 준비 없이 preview를 출력한다.
+잘못된 scope/token/truncated/중복 control/unknown effect는 동작 또는 삭제를
+진행하지 않는다. close 요청을 반복하지 않으며 post-close의 일시적 unknown은
+최대3초 logical poll 동안 읽기만 재검증한다. helper native read 하나가 deadline을
+넘길 수 있다. dirty dialog나 deadline까지 미확정 상태는 남겨둔다.
+파일 정리는 원래 directory fd에 unlink를 고정하고 UID/mode/dev/ino·단일
+regular-file/nlink·예상 entry를 검사하며 recursive delete를 사용하지 않는다.
+최종 rmdir 신원 확인은 같은 사용자의 rename과 atomic하지 않다. 소유 artifact
+변경/미확정은 보존하며 실패한 fixture를 다음 setup으로 덮어쓰지 않는다.
+
+실제 NLC model arm은66.1초에 본문 oracle PASS/exit0/source stable였다.
+원시는 `../reviews/2026-10-10/product-comparison-20261010-202730.jsonl`이며
+initial-empty=true, agent 실행 중 activation0, top CLI 입력306674/캐시267648/
+출력1350 tokens다. 이 usage는 nested provider 전체 비용이 아니다.
+닫기 요청 후 상태 미확정으로 cleanup=document_status_unavailable_left_as_is,
+closed=false/artifact_removed=false를 보존했다. pointer/typing·setup/cleanup
+활성화는 그 모델 witness의 관측 범위가 아니다. state oracle 및 tool-event
+검사는 actual input producer/layer attestation이 아니며 comparison 제외는 유지한다.
+
+후속 안정된 disk readback에서25 bytes가 정확한 기대 UTF-8과 일치했다.
+`owned-edit-file-state-and-diagnostic-scope.json`은 parent identity와 안정된
+읽기를 확인한다. 이는 app autosave 또는 close와 구분된 explicit Save 인과
+증거가 아니다. UI oracle의 원시 관측은60자 미만의 전체 본문이고 기대 문자열과
+정확히 일치했다. 향후 oracle은 whitespace 정규화를 제거한
+signed-owned-document-exact-text-v2로 변경했다. 원시 model 실행은 앞선 v1이며
+v2의 새 실기라고 소급하지 않는다.
+
+Save/연쇄 TextEdit 과제의 legacy cleanup gate는 유지한다. 실제 편집 뒤
+cleanup 미확정의 원인과 개선한 readonly poll 실측, causal Save receipt 연결,
+다른 앱·backbone 반복/동일 초기 상태·serving model·Sky 후손/입력 보존/설치 등
+전체 G0~G10 완료 기준은 계속 남는다. 관련120개 테스트가5.556초에 통과했다.

@@ -132,6 +132,78 @@ def _live_agent_probe():
             'comparison_eligible':False, **_source_evidence(before, source_manifest())}
 
 
+_SIGNED_OWNED = {}
+
+
+def signed_owned_setup():
+    from signed_owned_textedit import SignedOwnedTextEdit
+    if _SIGNED_OWNED:
+        raise RuntimeError('previous_owned_fixture_not_cleaned')
+    fixture = SignedOwnedTextEdit(_driver(), OWNED_NAME)
+    _SIGNED_OWNED['fixture'] = fixture  # Keep a failed setup's artifact reachable.
+    fixture.setup()
+
+
+def signed_owned_oracle(text):
+    fixture = _SIGNED_OWNED.get('fixture')
+    body = fixture.read() if fixture is not None else None
+    if body is None:
+        return False, 'owned_document_text_unobservable'
+    return body == text, body[:60]
+
+
+def signed_owned_cleanup():
+    fixture = _SIGNED_OWNED.get('fixture')
+    if fixture is None:
+        return 'nothing_owned'
+    status = fixture.cleanup()
+    if status == 'closed':
+        _SIGNED_OWNED.clear()
+    return status
+
+
+def signed_fixture_evidence(fixture=None):
+    fixture = fixture or _SIGNED_OWNED.get('fixture')
+    if fixture is None:
+        return None
+    return {'path':str(fixture.path) if fixture.path is not None else None,
+            'directory_identity':fixture.directory_identity,
+            'initial_empty_text_verified':fixture.token is not None,
+            'close_requested':fixture.close_requested,
+            'closed_observed':fixture.closed_observed,
+            'artifact_removed':fixture.directory is not None and not fixture.directory.exists()}
+
+
+def signed_owned_edit_ask():
+    fixture = _SIGNED_OWNED.get('fixture')
+    if fixture is None or fixture.path is None:
+        raise RuntimeError('owned_fixture_not_prepared')
+    return (f'In TextEdit, the document at the exact owned path {fixture.path} is already open. '
+            f'Type exactly this text into only that document: {TEXT}. '
+            'Do not create, rename or close any document.')
+
+
+def _owned_lifecycle_probe(resume_directory=None, resume_identity=None):
+    from focus_witness import FocusWitness
+    from signed_owned_textedit import SignedOwnedTextEdit
+    fixture = SignedOwnedTextEdit(_driver(), OWNED_NAME)
+    before = source_manifest()
+    with FocusWitness() as witness:
+        if resume_directory is None:
+            fixture.setup()
+        else:
+            fixture.resume(resume_directory, resume_identity)
+        opened = fixture.status()
+        empty = fixture.read() == ''
+        cleanup = fixture.cleanup()
+    return {'scope':'signed_owned_empty_textedit_window_lifecycle',
+            'opened_state':opened, 'initial_empty_text_verified':empty,
+            'cleanup_status':cleanup, 'closed_observed':fixture.closed_observed,
+            'artifact_removed':not fixture.directory.exists(),
+            'focus':witness.summary(), 'model_requests':0,
+            'comparison_eligible':False, **_source_evidence(before, source_manifest())}
+
+
 def _responsibility_probe():
     """Observe this controller and one owned, idle non-model child."""
     import os
@@ -495,6 +567,7 @@ class Task:
     cleanup: object = None
     notes: str = ""
     oracle_contract: str = "legacy-ui-state-v1"
+    preview: str | None = None
 
 
 def _number_in(answer, want):
@@ -886,10 +959,10 @@ TASKS = [
     # "create a new document", could only find its result among windows
     # nobody had proven were ours (Codex review, 2026-10-07); this is a new
     # cohort, not a continuation of textedit_write's results.
-    Task("textedit_edit_owned",
-         f"In TextEdit, the document named \"{OWNED_NAME}\" is already open. Type exactly this text "
-         f"into that document: {TEXT}  Do not create a new document, and do not close it.",
-         lambda a: owned_oracle(TEXT), setup=owned_setup, cleanup=owned_cleanup),
+    Task("textedit_edit_owned", signed_owned_edit_ask,
+         lambda a: signed_owned_oracle(TEXT), setup=signed_owned_setup, cleanup=signed_owned_cleanup,
+         oracle_contract="signed-owned-document-exact-text-v2",
+         preview="Edit only the evaluator-created TextEdit document; its exact path is assigned during setup."),
     # A folder the harness makes, so the right count is known. The first
     # version used /Applications, which Finder merges with
     # /System/Applications: both arms read Finder's "101 items" correctly and
@@ -959,6 +1032,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
             return {"task": task.name, "arm": arm, "status": "not_run",
                     "oracle_contract": task.oracle_contract,
                     "observed": f"setup failed: {type(exc).__name__}: {str(exc)[:120]}", "seconds": 0,
+                    "owned_fixture_evidence":signed_fixture_evidence() if task.setup is signed_owned_setup else None,
                     "answer": "", "calls": {}, "usage": None, "activations": [],
                     **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
@@ -970,6 +1044,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 "locked": [initial_lock, locked_before], "process_exit": None,
                 "comparison_eligible": False, "cleanup_status": "environment_unavailable_left_as_is",
                 **_source_evidence(source_before, source_manifest())}
+    report_fixture = _SIGNED_OWNED.get('fixture') if task.setup is signed_owned_setup else None
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
     ask = task.ask() if callable(task.ask) else task.ask
     prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS} {BACKGROUND_CONSTRAINT}"
@@ -1046,6 +1121,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
               "observed": observed, "answer": answer[-400:], "calls": calls, "usage": usage,
               "activations": focus["activations"],
               "initial_frontmost_bundle": focus.get("initial"),
+              "focus_observation_scope":"agent_execution_only_excludes_setup_cleanup",
               "layer_violation": layer_violation, "shortcut": shortcut,
               "process_exit": process_exit, "oracle_passed": bool(passed),
               "locked": [locked_before, _locked()],
@@ -1069,6 +1145,8 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         except Exception as error:
             result["cleanup_status"] = "failed"
             result["cleanup_error"] = type(error).__name__[:80]
+    if report_fixture is not None:
+        result['owned_fixture_evidence'] = signed_fixture_evidence(report_fixture)
     result.update(_source_evidence(source_before, source_manifest()))
     if result["source_changed"]:
         # A successful oracle cannot certify a comparison under drifting code.
@@ -1109,6 +1187,11 @@ def main() -> int:
                         help='read controller/owned idle child process responsibility; no model or GUI')
     checks.add_argument('--check-agent-responsibility', action='store_true',
                         help='spend model tokens on a tool-free arithmetic probe; no native task')
+    checks.add_argument('--check-owned-document-lifecycle', action='store_true',
+                        help='create/open/close only an owned empty TextEdit fixture; no model')
+    ap.add_argument('--resume-owned-fixture-directory', help='trusted host path of a prior owned fixture; lifecycle probe only')
+    ap.add_argument('--resume-owned-fixture-identity', help='trusted host recorded dev:ino of that prior fixture')
+    ap.add_argument('--diagnose-owned-document-pin', help='read only the explicitly host-selected owned fixture path; no input')
     args = ap.parse_args()
     if args.agent_executable is not None:
         import os
@@ -1120,6 +1203,16 @@ def main() -> int:
     else:
         _AGENT_REQUESTED_EXECUTABLE = 'codex'
         _AGENT_EXECUTABLE = 'codex'
+    resume_identity = None
+    if args.resume_owned_fixture_directory is not None or args.resume_owned_fixture_identity is not None:
+        if not args.check_owned_document_lifecycle or not args.resume_owned_fixture_directory or not args.resume_owned_fixture_identity:
+            ap.error('resume requires the lifecycle probe, owned directory and its identity')
+        try:
+            resume_identity = tuple(int(v) for v in args.resume_owned_fixture_identity.split(':'))
+            if len(resume_identity) != 2 or any(v < 0 for v in resume_identity):
+                raise ValueError
+        except ValueError:
+            ap.error('resume identity must be dev:ino')
     if args.timeout <= 0:
         ap.error('--timeout must be positive')
     if args.reps <= 0:
@@ -1132,12 +1225,32 @@ def main() -> int:
     tasks = [t for t in TASKS if not args.only or t.name in args.only]
     if args.list:
         for t in tasks:
-            print(f"{t.name:16} {t.ask() if callable(t.ask) else t.ask}")
+            print(f"{t.name:16} {t.preview if t.preview is not None else (t.ask() if callable(t.ask) else t.ask)}")
         return 0
     from nlc.helper import InheritedHelperDriver
     if not InheritedHelperDriver.available():
         print('Use the signed launcher: nlc eval --product-comparison [options]')
         return 2
+    if args.diagnose_owned_document_pin:
+        reply = _driver().document_text('com.apple.TextEdit', document_path=args.diagnose_owned_document_pin)
+        # Diagnostics for an explicitly selected fixture; never another body.
+        print(json.dumps({k:reply.get(k) for k in ('type','error','detail','document_path','text_complete')}, ensure_ascii=False))
+        if reply.get('type') == 'document_text':
+            print(json.dumps({'text_length':len(reply['text']), 'empty':reply['text']==''}))
+            observation = _driver().observe('com.apple.TextEdit', document_token=reply['document_token'])
+            print(json.dumps({'type':observation.get('type'), 'buttons':[line for line in observation.get('tree','').splitlines() if re.match(r'^\s*\d+ Button(?:\s|$)',line)]}))
+        return 0 if reply.get('type') == 'document_text' else 2
+    if args.check_owned_document_lifecycle:
+        if _locked() is not False:
+            print('owned_document_lifecycle_environment_unavailable')
+            return 2
+        try:
+            result = _owned_lifecycle_probe(args.resume_owned_fixture_directory, resume_identity)
+        except Exception as error:
+            print('owned_document_lifecycle_unavailable:' + type(error).__name__)
+            return 2
+        print(json.dumps(result))
+        return 0 if result['opened_state'] == 'open' and result['initial_empty_text_verified'] and result['cleanup_status'] == 'closed' and result['artifact_removed'] and not result['source_changed'] else 2
     if args.check_agent_responsibility:
         try:
             result = _live_agent_probe()
