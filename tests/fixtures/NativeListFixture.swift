@@ -40,7 +40,7 @@ import AppKit
 @MainActor final class ListDelegate: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate {
     let rooms = ["Room A", "Room B", "Room C"]
     var window: NSWindow!, table: RoomTable!, profile: ProfileView!, label: NSTextField!
-    var message: MessageField!
+    var message: MessageField!, transcript: NSStackView!
     var opens = 0, opened = "none", singleClicks = 0, sent = 0, lastSent = "none"
     var roomWindows: [NSWindow] = []
 
@@ -66,9 +66,21 @@ import AppKit
         let messageScroll = NSScrollView(frame: NSRect(x: 10, y: 105, width: 400, height: 55))
         message = MessageField(frame: messageScroll.bounds)
         message.setAccessibilityIdentifier("message-field")
-        message.onSend = { [weak self] text in self?.sent += 1; self?.lastSent = text }
+        message.onSend = { [weak self] text in
+            guard let self else { return }
+            self.sent += 1; self.lastSent = text
+            // The conversation as the sender sees it: one label per message.
+            let bubble = NSTextField(labelWithString: text)
+            self.transcript.addArrangedSubview(bubble)
+        }
         messageScroll.documentView = message
         window.contentView?.addSubview(messageScroll)
+        transcript = NSStackView(frame: NSRect(x: 320, y: 170, width: 90, height: 110))
+        transcript.orientation = .vertical
+        transcript.setAccessibilityElement(true)
+        transcript.setAccessibilityRole(.group)
+        transcript.setAccessibilityIdentifier("transcript")
+        window.contentView?.addSubview(transcript)
         label = NSTextField(labelWithString: "starting")
         label.setAccessibilityIdentifier("list-state")
         label.frame = NSRect(x: 10, y: 10, width: 400, height: 90)

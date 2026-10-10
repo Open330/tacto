@@ -159,6 +159,50 @@ def main(driver, output):
                     assert result.ok, result.log
                     assert report['field_return']['after']['sent'] == '1', report['field_return']
 
+                    # 6. A transmit send: asked first, then witnessed in the
+                    #    sender's own window by an independent AX reader.
+                    from nlc.contract import issue_approval
+                    from nlc.transcript_receipt import TranscriptReceipt
+                    view = observe()
+                    index, _ = Selector(identifier='message-field').resolve(view['tree'])
+                    typed = driver.act(view['obs_id'], TARGET,
+                                       {'name': 'set_value', 'element_index': index, 'value': 'second'})
+                    assert typed.get('type') == 'acted', typed
+                    params = {'key': 'Return'}
+                    send = Step('press_key', Selector(identifier='message-field'), params=params,
+                        is_submit=True, safety=env.contract_for({'transmit'}, 'message'),
+                        binding=ContextBinding(bundle_id=TARGET, identifier='message-field',
+                                               operation='press_key', params_digest=pin_params(params)),
+                        postcondition=Postcondition(field=Selector(identifier='list-state'),
+                                                    attribute='Value', contains='sent=2 lastSent=second'))
+                    def reader(target):
+                        seen = local.observe(target, 'tree_full')
+                        assert seen.get('type') == 'observation', seen
+                        return seen['tree']
+                    receipt = TranscriptReceipt(reader, target=TARGET, recipient='NLC List Fixture',
+                        body='second', recipient_field=Selector(role='Window', title='NLC List Fixture'),
+                        messages=Selector(role='StaticText', ancestor='transcript'), timeout_seconds=3)
+                    flow = Flow('send_message', TARGET, [send], schema=2)
+                    asked = replay(driver, flow, prepare_commit=receipt.prepare_commit,
+                                   after_commit=receipt.after_commit, commit_expected=receipt.commit_expected)
+                    gated = [e for e in asked.log if e.get('status') == 'gated']
+                    assert not asked.ok and gated, asked.log
+                    assert '받는 사람: NLC List Fixture · 보낼 문장: second' in gated[0]['detail']['what'], gated
+                    assert host()['sent'] == '1', host()
+                    # One receipt per run: the asking run already used its prepare.
+                    receipt = TranscriptReceipt(reader, target=TARGET, recipient='NLC List Fixture',
+                        body='second', recipient_field=Selector(role='Window', title='NLC List Fixture'),
+                        messages=Selector(role='StaticText', ancestor='transcript'), timeout_seconds=3)
+                    result = replay(driver, flow, {0: issue_approval(send.binding, send.safety)},
+                                    prepare_commit=receipt.prepare_commit, after_commit=receipt.after_commit,
+                                    commit_expected=receipt.commit_expected)
+                    proof = next(iter(result.commit_evidence.values()), None)
+                    report['transmit'] = {'asked_first': asked.log, 'ok': result.ok, 'log': result.log,
+                                          'events': result.events, 'after': host(),
+                                          'evidence': repr(proof)}
+                    assert result.ok and result.events[0]['state'] == 'confirmed', result.log
+                    assert report['transmit']['after']['sent'] == '2', report['transmit']
+
                     report['final'] = host()
                     # NSApp.isActive of this accessory fixture turns true after
                     # prepare_window (measured 2026-10-10) while the frontmost

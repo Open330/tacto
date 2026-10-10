@@ -2167,9 +2167,14 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             except Exception:
                 return {"type":"error", "error":"host_evidence_preparation_failed", "effect":"not_started"}
             try:
+                # A receipt that re-read what is about to happen (a send's
+                # recipient, from the window itself) adds it to the question.
+                confirmation = getattr(context, "confirmation", None)
+                intent = (f"{gate_desc} — {confirmation}"
+                          if isinstance(confirmation, str) and confirmation else gate_desc)
                 response = driver.act(current["obs_id"], flow.target, payload,
                                       **({"expect": claim} if claim else {}),
-                                      risk_class=risk, intent_text=gate_desc,
+                                      risk_class=risk, intent_text=intent,
                                       approved=dispatch_approved, **dispatch_parameters)
             except Exception as exc:
                 response = {"type": "error", "error": "driver_exception",

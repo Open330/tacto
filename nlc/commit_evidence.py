@@ -49,10 +49,20 @@ class DeliveryEvidence:
 
 
 @dataclass(frozen=True)
+class TranscriptEvidence:
+    """The sender's own conversation window, re-read after the send: it still
+    names `recipient` and its new last message is the sent text. Not delivery:
+    nothing here comes from the receiving side."""
+    receipt_id: str
+    recipient: str
+    body_sha256: str
+
+
+@dataclass(frozen=True)
 class CommitEvidence:
     event_id: str
     action_digest: str
-    evidence: ArtifactEvidence | DeliveryEvidence
+    evidence: ArtifactEvidence | DeliveryEvidence | TranscriptEvidence
 
 
 @dataclass(frozen=True)
@@ -145,6 +155,21 @@ def evidence_error(event, expected=None):
         body = expected.get('보낸 내용')
         if body is not None and (not isinstance(body, str) or hashlib.sha256(body.encode()).hexdigest() != detail.body_sha256):
             return 'delivery_content_mismatch'
+    elif type(detail) is TranscriptEvidence:
+        if ('transmit' not in effects or
+                effects - {'transmit', 'read', 'write_ephemeral'}):
+            return 'transcript_effect_mismatch'
+        if not all(_text(v) for v in (detail.receipt_id, detail.recipient)) or not _digest(detail.body_sha256):
+            return 'invalid_transcript_evidence'
+        # Without the approved recipient and text there is nothing to hold
+        # the window to: a message shown in some room is not this send.
+        recipient, body = expected.get('받는 사람'), expected.get('보낸 내용')
+        if not _text(recipient) or not isinstance(body, str):
+            return 'transcript_expectation_missing'
+        if recipient != detail.recipient:
+            return 'transcript_recipient_mismatch'
+        if hashlib.sha256(body.encode()).hexdigest() != detail.body_sha256:
+            return 'transcript_content_mismatch'
     else:
         return 'unsupported_commit_evidence'
     return None
