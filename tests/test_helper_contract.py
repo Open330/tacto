@@ -1002,6 +1002,11 @@ SIGNED_HELPER_ONLY = frozenset({
     "action.menu.focused_document",
     "evidence.document_rtf_export",
     "evidence.save_panel",
+    # Window-bound double click (two click pairs on one element); Driver only
+    # performs AXOpen and announces nothing.
+    "action.double_click",
+    # click falls back to one window-bound click when there is no AXPress.
+    "click.window_bound_element",
 })
 
 

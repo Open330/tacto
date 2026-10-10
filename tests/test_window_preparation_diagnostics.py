@@ -60,7 +60,7 @@ func validateNativeWindowBinding(_ b: NativeWindowBinding, scope: NativeWindowRe
 func dispatchNativeWindowPreparation(_ b: NativeWindowBinding, deadline: Double, stopped: () -> Bool,
  context: () throws -> Void, validate: (NativeWindowBinding) throws -> Void, key: String?,
  routing: ((NativeWindowBinding, Bool) throws -> Void)?, preflight: (() throws -> Void)?,
- pointClick: Bool, windowInput: NativeOpaqueWindowInput?) throws -> DispatchResult {
+ pointClick: Bool, windowInput: NativeOpaqueWindowInput?, elementClicks: Int) throws -> DispatchResult {
  dispatched += 1
  if scenario == "dispatch" { throw NativeWindowDispatchFailure(stopped:false, attempted:1, detail:"injected dispatch failure") }
  return DispatchResult()

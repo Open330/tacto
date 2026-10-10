@@ -2174,9 +2174,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 and response.get("unverified") == "observe_effect"
                 and response.get("reobserve_required") is True
                 and effects <= {"read", "write_ephemeral"})
-            from .protocol import window_key_reobservation
+            from .protocol import (double_click_reobservation, element_click_reobservation,
+                                   window_key_reobservation)
+            caps = getattr(driver, "capabilities", ())
             navigation_observation = (
-                window_key_reobservation(payload, response, getattr(driver, "capabilities", ()))
+                (window_key_reobservation(payload, response, caps)
+                 or double_click_reobservation(payload, response, caps)
+                 or element_click_reobservation(payload, response, caps))
                 and effects <= {"read", "write_ephemeral"})
             if step.action == "prepare_window" and not preparation_observation:
                 event["state"] = "unknown"
@@ -2206,6 +2210,14 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             "detail": event["evidence_error"]}
                 res.commit_evidence[event["event_id"]] = proof
                 event["state"] = "confirmed"
+                if response.get("type") == "error":
+                    # The host receipt resolved an uncertain dispatch. Keep
+                    # that transport uncertainty visible without resending a
+                    # confirmed operation or treating it as an input failure.
+                    event["dispatch_response"] = {"type": "error", "effect": "unknown"}
+                    return {"type": "acted", "action": payload["name"],
+                            "obs_id": current["obs_id"], "commit_confirmed": True,
+                            "dispatch_response_unavailable": True}
             return response
 
         r = dispatch(obs, action)

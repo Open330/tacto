@@ -4294,6 +4294,22 @@ def scenario_signed_background_window_prepare():
     return True
 
 
+def scenario_signed_element_click():
+    """Owned list: no-AXPress control click and row double click, background."""
+    import runpy
+    from pathlib import Path
+    from nlc.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    probe = runpy.run_path(str(root / "examples/probes/signed-element-click.py"))
+    output = root / "reviews/2026-10-10" / f"signed-element-click-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  signed element click report: " + str(output))
+    assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:1500]
+    return True
+
+
 def scenario_signed_rtf_refusal():
     """Signed request reaches the export handler without selecting any app body."""
     from pathlib import Path
@@ -4742,6 +4758,8 @@ SCENARIOS = [
     ("peer_authentication (channel is launcher-only; per-action schema)", scenario_peer_authentication),
     ("signed_background_window_prepare (owned key window and responder effects)",
      scenario_signed_background_window_prepare),
+    ("signed_element_click (owned no-AXPress click and row double click)",
+     scenario_signed_element_click),
     ("native_navigation (owned Python window keys)", scenario_native_navigation),
     ("signed_window_keys (owned signed window keys)", scenario_signed_window_keys),
     ("public_opaque_point (owned authorized signed coordinates)", scenario_public_opaque_point),
@@ -4824,6 +4842,7 @@ _LOOKED = [False]
 #     ./launcher/nlc eval an_abort_lasts
 ISOLATED = {
     "signed_background_window_prepare",
+    "signed_element_click",
     "native_navigation",
     "signed_window_keys",
     "public_opaque_point",
@@ -4861,6 +4880,7 @@ ISOLATED = {
 
 SCENARIO_REQUIREMENTS: dict = {
     "signed_background_window_prepare": {"gui", "native"},
+    "signed_element_click": {"gui", "native"},
     "native_navigation": {"gui", "native"},
     "signed_window_keys": {"gui", "native"},
     "public_opaque_point": {"gui", "native"},

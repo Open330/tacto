@@ -90,6 +90,9 @@ def candidates(tree: str, *, capabilities=()) -> list[dict]:
                 and (not key_bound or role in ("TextField", "TextArea", "textbox", "combobox",
                     "Button", "CheckBox", "RadioButton", "PopUpButton", "Row", "Cell"))):
             can = (*can, "press_key")
+        # A list row or cell opens on a double click (Finder, a chat list).
+        if role in ("Row", "Cell") and "action.double_click" in capabilities:
+            can = (*can, "double_click")
         bucket = act if "click" in can or "prepare_window" in can else read
         # What to CALL it and what it IS are different questions, and a
         # display answers them differently: the useful name for a readout is
@@ -1010,12 +1013,15 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             # For reversible navigation only, stop this batch and observe its
             # effect. This is not permission to retry uncertain AX actions or
             # to confirm a consequential operation without a receipt.
-            from .protocol import window_key_reobservation
+            from .protocol import (double_click_reobservation, element_click_reobservation,
+                                   window_key_reobservation)
             needs_observation = (
                 r.get("type") == "acted" and r.get("unverified") == "observe_effect"
                 and ((action.get("name"), r.get("input_route")) in
                     (("click", "window_bound_mouse"), ("prepare_window", "window_prepare"))
-                    or window_key_reobservation(action, r, capabilities))
+                    or window_key_reobservation(action, r, capabilities)
+                    or double_click_reobservation(action, r, capabilities)
+                    or element_click_reobservation(action, r, capabilities))
                 and r.get("reobserve_required") is True
                 and not consequential
                 and effects <= {"read", "write_ephemeral"})
@@ -1129,7 +1135,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                    json.dumps(_value_of(c), ensure_ascii=False))
             else:
                 done_so_far.append(f"{c['label']} ({a['do']})")
-            if needs_observation or a["do"] in ("scroll", "press_key", "select_option", "open_select", "select_custom_option", "menu"):
+            if needs_observation or a["do"] in ("scroll", "press_key", "double_click", "select_option", "open_select", "select_custom_option", "menu"):
                 if needs_observation:
                     # The expectation described the whole original batch,
                     # including actions we deliberately did not execute.

@@ -71,7 +71,7 @@ func dispatchNativeWindowPreparation(
     post: (CGEvent, pid_t) throws -> Void = nativePIDPost,
     key: String? = nil, routing: ((NativeWindowBinding, Bool) throws -> Void)? = nil,
     preflight: (() throws -> Void)? = nil, pointClick: Bool = false,
-    windowInput: NativeOpaqueWindowInput? = nil
+    windowInput: NativeOpaqueWindowInput? = nil, elementClicks: Int = 0
 ) throws -> NativeWindowPreparation {
     var attempted = 0
     func ready() throws {
@@ -83,7 +83,7 @@ func dispatchNativeWindowPreparation(
     }
     do {
         try ready()
-        guard windowInput != nil || key != nil || pointClick || (binding.pointKind == .titlebar && CFEqual(binding.element, binding.window)) else {
+        guard windowInput != nil || key != nil || pointClick || elementClicks != 0 || (binding.pointKind == .titlebar && CFEqual(binding.element, binding.window)) else {
             throw NativeWindowInputError.refused("window preparation requires a titlebar binding")
         }
         if let input = windowInput {
@@ -100,6 +100,16 @@ func dispatchNativeWindowPreparation(
         if pointClick {
             guard key == nil, binding.pointKind == .windowPoint, CFEqual(binding.element, binding.window), routing != nil else {
                 throw NativeWindowInputError.refused("coordinate input requires a bound window and routing check")
+            }
+        }
+        if elementClicks != 0 {
+            // An observed element, hit-tested at its centre, in the app's
+            // focused window: one window-bound click, or two with the second
+            // at click count 2 (2026-10-10, KakaoTalk's chat list rows offer
+            // no AXPress and open on a double click).
+            guard elementClicks == 1 || elementClicks == 2, key == nil, !pointClick, windowInput == nil, binding.pointKind == .elementCenter,
+                  !CFEqual(binding.element, binding.window), routing != nil else {
+                throw NativeWindowInputError.refused("element click requires a bound element and routing check")
             }
         }
         try validate(binding); try ready()
@@ -121,6 +131,14 @@ func dispatchNativeWindowPreparation(
             // Navigation keys only. Return has its own path (submitReturnInSheet).
             let pair = try buildNativeWindowKey(binding.windowID, key: key)
             owners = pair.owners; events = [pair.down, pair.up]
+        } else if elementClicks != 0 {
+            try routing?(binding, false); try ready()
+            let first = try buildNativeWindowClick(binding, clickCount: 1)
+            owners = first.owners; events = [first.down, first.up]
+            if elementClicks == 2 {
+                let second = try buildNativeWindowClick(binding, clickCount: 2)
+                owners += second.owners; events += [second.down, second.up]
+            }
         } else if pointClick {
             try routing?(binding, false); try ready()
             let pair = try buildNativeWindowClick(binding)

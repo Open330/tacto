@@ -648,7 +648,8 @@ private final class WindowInputCounter: @unchecked Sendable {
 }
 private let windowInputCounter = WindowInputCounter()
 
-func buildNativeWindowClick(_ binding: NativeWindowBinding) throws -> NativeWindowClick {
+func buildNativeWindowClick(_ binding: NativeWindowBinding, clickCount: Int = 1) throws -> NativeWindowClick {
+    guard clickCount == 1 || clickCount == 2 else { throw NativeWindowInputError.refused("invalid click count") }
     let bounds = binding.windowBounds
     let point = binding.point
     guard binding.windowID > 0, windowInputRectIsValid(bounds), point.x.isFinite, point.y.isFinite,
@@ -665,7 +666,7 @@ func buildNativeWindowClick(_ binding: NativeWindowBinding) throws -> NativeWind
     for (type, pressure) in [(NSEvent.EventType.leftMouseDown, Float(1)), (.leftMouseUp, Float(0))] {
         guard let owner = NSEvent.mouseEvent(with: type, location: local, modifierFlags: [], timestamp: timestamp,
                                             windowNumber: Int(binding.windowID), context: nil, eventNumber: number,
-                                            clickCount: 1, pressure: pressure), let event = owner.cgEvent else {
+                                            clickCount: clickCount, pressure: pressure), let event = owner.cgEvent else {
             throw NativeWindowInputError.refused("mouse event construction failed")
         }
         event.flags = []
@@ -681,7 +682,7 @@ func buildNativeWindowClick(_ binding: NativeWindowBinding) throws -> NativeWind
               event.getIntegerValueField(.mouseEventWindowUnderMousePointer) == Int64(binding.windowID),
               event.getIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent) == Int64(binding.windowID),
               event.getIntegerValueField(.mouseEventNumber) == Int64(number),
-              event.getIntegerValueField(.mouseEventClickState) == 1,
+              event.getIntegerValueField(.mouseEventClickState) == Int64(clickCount),
               event.getDoubleValueField(.mouseEventPressure) == (index == 0 ? 1 : 0) else {
             throw NativeWindowInputError.refused("mouse event readback mismatch")
         }

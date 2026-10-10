@@ -45,7 +45,7 @@ A step is one of two shapes. A MENU step carries a title path and NO selector:
                       "equals": "1", "attribute": "Value"},
     "safety": { ... }}
 An ELEMENT step names one element in the tree:
-   {"action": "click|set_value|type_text|scroll|secondary_action",
+   {"action": "click|double_click|set_value|type_text|scroll|secondary_action",
     "selector": {"role": "Button", "identifier": "Equals",
                  "ancestor": "CalculatorKeypadView", "in_focused_window": true},
     "params": {},            // {"value": "..."} for set_value, {"text": "..."}
@@ -68,6 +68,17 @@ observed Window selector, empty params, and an explicit postcondition with field
 equals, and attribute. Its safety effects must be write_ephemeral. Do not invent
 a ready-state value or use unverified_ok; omit this step if its result cannot be
 observed. Replay observes the result before continuing to any later action.
+
+`double_click` opens what a double click opens \u2014 a file in a list, a chat
+in a messenger's room list. Params are empty. Use it only with the
+action.double_click capability, a selector for the row or cell itself (or its
+label plus "click_ancestor"), write_ephemeral effects and a postcondition that
+shows the opened thing. Where the element offers AXOpen that is used; otherwise
+the helper sends two window-bound clicks to the element's centre with the app
+left in the background, and replay observes the result before going on.
+A `click` on an element that offers no AXPress (a list row, some profile
+buttons) is sent the same way as ONE window-bound click when the backend
+advertises click.window_bound_element; it too needs a postcondition.
 
 `menu` is usually the right answer. Save, copy, close, quit, new window, "go to
 that folder" live in the MENU BAR and nowhere else, and the window often exposes

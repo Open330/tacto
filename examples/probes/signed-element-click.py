@@ -1,0 +1,133 @@
+"""Owned fixture only: pointer clicks on elements that offer no AXPress.
+
+A messenger's room list (KakaoTalk, 2026-10-10) answers neither AXPress nor
+AXOpen: its rows open on a double click and its profile button only takes a
+mouse down. The signed helper reaches both with window-bound clicks at the
+element's hit-tested centre, the app left in the background. Effects are read
+from the fixture's own label, which only its receiving views write, and a
+double click is also replayed through a Flow whose postcondition is the opened
+room's window — the result, not the posting, is what passes.
+"""
+from pathlib import Path
+import json
+import plistlib
+import subprocess
+import tempfile
+import time
+
+TARGET = 'ai.callabo.nlc.list-fixture'
+
+
+def main(driver, output):
+    from nlc.driver import Driver, _attr
+    from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
+    from nlc.contract import Envelope, ContextBinding
+    from ApplicationServices import AXUIElementCreateApplication
+    from nlc.input_audit_process import ProcessInputAudit
+    root = Path(__file__).resolve().parents[2]
+    local = Driver()
+    audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
+    report = {'passed': False, 'scope': 'owned background AppKit list; element pointer clicks',
+              'transport': type(driver).__name__}
+    process = None
+    try:
+        assert local._resolve(TARGET, launch=False) is None, 'fixture already running'
+        assert {'action.double_click', 'click.window_bound_element'} <= set(driver.capabilities)
+        with tempfile.TemporaryDirectory(prefix='nlc-signed-element-click-') as work:
+            app = Path(work) / 'NLC List Fixture.app'
+            binary = app / 'Contents/MacOS/NativeListFixture'
+            binary.parent.mkdir(parents=True)
+            (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
+                'CFBundleIdentifier': TARGET, 'CFBundleExecutable': binary.name,
+                'CFBundleName': app.stem, 'CFBundlePackageType': 'APPL', 'LSUIElement': True}))
+            subprocess.run(['xcrun', 'swiftc', '-parse-as-library',
+                str(root / 'tests/fixtures/NativeListFixture.swift'), '-o', str(binary)],
+                check=True, capture_output=True, timeout=60)
+            with audit:
+                try:
+                    process = subprocess.Popen([str(binary)],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    deadline = time.monotonic() + 15
+                    while local._resolve(TARGET, launch=False) != process.pid:
+                        assert time.monotonic() < deadline and process.poll() is None
+                        time.sleep(.1)
+                    time.sleep(.5)
+
+                    def host():
+                        stack = [AXUIElementCreateApplication(process.pid)]
+                        while stack:
+                            node = stack.pop()
+                            if _attr(node, 'AXIdentifier') == 'list-state':
+                                return dict(part.split('=', 1) for part in str(_attr(node, 'AXValue')).split())
+                            stack.extend(_attr(node, 'AXChildren') or [])
+                        raise AssertionError('state label absent')
+
+                    def observe():
+                        view = driver.observe(TARGET, 'tree_full')
+                        assert view.get('type') == 'observation', view
+                        return view
+
+                    report['initial'] = host()
+                    assert report['initial']['active'] == 'false'
+                    view = observe()
+                    report['tree'] = view['tree']
+                    index, _ = Selector(role='Window', title='NLC List Fixture').resolve(view['tree'])
+                    prepared = driver.act(view['obs_id'], TARGET, {'name': 'prepare_window', 'element_index': index})
+                    report['preparation'] = prepared
+                    assert prepared.get('type') == 'acted', prepared
+                    time.sleep(.3)
+                    assert host()['key'] == 'true', host()
+
+                    # 1. One click on a control with no AXPress.
+                    view = observe()
+                    index, _ = Selector(role='Group', desc='Profile').resolve(view['tree'])
+                    before = host()
+                    clicked = driver.act(view['obs_id'], TARGET, {'name': 'click', 'element_index': index})
+                    time.sleep(.3)
+                    report['profile'] = {'response': clicked, 'before': before, 'after': host()}
+                    assert clicked.get('input_route') == 'window_bound_element_click', clicked
+                    assert clicked.get('posted_events') == 2, clicked
+                    assert report['profile']['after']['profileDowns'] == '1', report['profile']
+                    assert report['profile']['after']['routeErrors'] == '0', report['profile']
+
+                    # 2. A double click on a row, directly.
+                    view = observe()
+                    row = Selector(value='Room B', click_ancestor=['Row', 'Cell'])
+                    index, _ = row.resolve(view['tree'])
+                    opened = driver.act(view['obs_id'], TARGET, {'name': 'double_click', 'element_index': index})
+                    time.sleep(.4)
+                    report['double_click'] = {'response': opened, 'after': host()}
+                    assert opened.get('type') == 'acted', opened
+                    assert report['double_click']['after']['opens'] == '1', report['double_click']
+                    assert report['double_click']['after']['opened'] == 'Room_B', report['double_click']
+                    assert 'Window  Title: Room B' in observe()['tree']
+
+                    # 3. The same through replay: the postcondition is the window.
+                    env = Envelope.minimal()
+                    step = Step('double_click', Selector(value='Room C', click_ancestor=['Row', 'Cell']),
+                        safety=env.contract_for({'write_ephemeral'}, 'open room'),
+                        postcondition=Postcondition(field=Selector(role='Window', title='Room C'),
+                                                    attribute='Title', equals='Room C'))
+                    result = replay(driver, Flow('open_room', TARGET, [step], schema=2))
+                    report['replay'] = {'ok': result.ok, 'log': result.log, 'events': result.events,
+                                        'after': host()}
+                    assert result.ok, result.log
+                    assert report['replay']['after']['opens'] == '2', report['replay']
+                    report['final'] = host()
+                    # NSApp.isActive of this accessory fixture turns true after
+                    # prepare_window (measured 2026-10-10) while the frontmost
+                    # process, pointer and focus stay unchanged; the input
+                    # audit below is what decides "not brought forward".
+                    report['fixture_reported_active'] = report['final']['active']
+                    report['passed'] = True
+                finally:
+                    if process is not None:
+                        if process.poll() is None: process.terminate()
+                        process.wait(timeout=5)
+                        report['owned_child_reaped'] = True
+    except Exception as exc:
+        report.update(passed=False, error=type(exc).__name__ + ': ' + str(exc))
+    report['input_audit'] = audit.report()
+    if report['input_audit']['status'] != 'UNCHANGED_SAMPLED': report['passed'] = False
+    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    return report

@@ -157,8 +157,10 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
         let selected = (attr(el, kAXSelectedAttribute as String) as? Bool) == true
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
         let extra = secondaryActionsOf(el)
+        // "  Secondary Actions: …" when there is no label before it, so the
+        // role token never carries a comma ("Cell," matched nothing).
         let actions = extra.isEmpty ? ""
-            : ", Secondary Actions: " + extra.map { String($0.dropFirst(2)) }
+            : (text.isEmpty ? "  " : ", ") + "Secondary Actions: " + extra.map { String($0.dropFirst(2)) }
                                              .joined(separator: ", ")
         out.append(String(repeating: "  ", count: depth) + "\(idx) \(short)"
                    + (text.isEmpty ? "" : "  \(text)") + (enabled ? "" : " [disabled]")
@@ -971,7 +973,8 @@ func elementAtPoint(_ point: CGPoint, pid p: pid_t) -> AXUIElement? {
 func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
-                             windowInput: NativeOpaqueWindowInput? = nil) -> [String: Any] {
+                             windowInput: NativeOpaqueWindowInput? = nil,
+                             elementClicks: Int = 0) -> [String: Any] {
     let diagnosticStart = ProcessInfo.processInfo.systemUptime
     var phase = "identity"
     var readScope: NativeWindowReadScope?
@@ -1019,10 +1022,11 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
         try scope.ready()
         phase = "binding"
         let binding = try captureNativeWindowBinding(element, pid, expectedStart: start,
-            pointKind: windowInput != nil ? .windowInput : point != nil ? .windowPoint : key == nil ? .titlebar : .elementCenter,
+            pointKind: windowInput != nil ? .windowInput : point != nil ? .windowPoint
+                : (key == nil && elementClicks == 0) ? .titlebar : .elementCenter,
             scope: scope, relativePoint: point)
         let routing: ((NativeWindowBinding, Bool) throws -> Void)?
-        if windowInput != nil || point != nil { routing = { binding, _ in try requireNativeWindowTarget(binding, scope: scope) } }
+        if windowInput != nil || point != nil || elementClicks != 0 { routing = { binding, _ in try requireNativeWindowTarget(binding, scope: scope) } }
         else if key != nil { routing = { try requireNativeKeyTarget($0, element: $1, scope: scope) } }
         else { routing = nil }
         phase = "dispatch"
@@ -1030,15 +1034,15 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
             stopped: { abortState.isStopped }, context: context,
             validate: { try validateNativeWindowBinding($0, scope: scope) }, key: key,
             routing: routing,
-            preflight: key == nil && point == nil && windowInput == nil ? nil : {
+            preflight: key == nil && point == nil && windowInput == nil && elementClicks == 0 ? nil : {
                 try scope.ready()
                 if let expectation, let why = mismatch(expectation, element: element, pid: pid) {
                     throw NativeWindowInputError.refused(why)
                 }
                 try scope.ready()
-            }, pointClick: point != nil, windowInput: windowInput)
-        return diagnosed(["type":"acted", "action":windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
-                "input_route":windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
+            }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks)
+        return diagnosed(["type":"acted", "action":elementClicks == 2 ? "double_click" : elementClicks == 1 ? "click" : windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
+                "input_route":elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
                 "posted_events":result.posted, "window_id":result.windowID,
                 "reobserve_required":true, "unverified":"observe_effect"])
     } catch let failure as NativeWindowDispatchFailure {
@@ -1316,6 +1320,30 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline, expectation: expect,
                                        point: CGPoint(x: x.doubleValue, y: y.doubleValue))
+    case "double_click":
+        // AX has no double-click. Where the element offers AXOpen (what a
+        // double click means in a list of files or chats), that is used and
+        // no pointer event is made. Otherwise: two window-bound clicks at the
+        // element's hit-tested centre, the second with click count 2, in the
+        // app's focused window, the app in the background (2026-10-10:
+        // opening a KakaoTalk chat from its list needed this).
+        guard Set(action.keys) == Set(["name", "element_index"]), let el = element() else {
+            return ["type": "error", "error": "action_failed", "effect": "not_started",
+                    "detail": "double_click requires one observed element_index"]
+        }
+        var names: CFArray?
+        if AXUIElementCopyActionNames(el, &names) == .success,
+           let list = names as? [String], list.contains("AXOpen") {
+            let error = AXUIElementPerformAction(el, "AXOpen" as CFString)
+            if error != .success {
+                return ["type": "error", "error": "action_failed",
+                        "effect": axActionFailureEffect(error), "detail": "AXOpen 실행 실패"]
+            }
+            return ["type": "acted", "action": "double_click", "obs_id": obsID,
+                    "input_route": "ax_open", "note": "not verified — observe again"]
+        }
+        return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
+                                       expectation: expect, elementClicks: 2)
     case "prepare_window":
         guard Set(action.keys) == Set(["name", "element_index"]), let el = element(),
               str(el, kAXRoleAttribute as String) == kAXWindowRole else {
@@ -1332,14 +1360,24 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started", "detail": detail]
         }
+        // No AXPress (KakaoTalk's chat rows and profile buttons, 2026-10-10):
+        // one window-bound click at the element's hit-tested centre, the app
+        // left in the background — never inside a save panel, whose guard
+        // speaks only AXPress.
+        func pointerClick() -> [String: Any] {
+            guard savePanelToken == nil else {
+                return ["type": "error", "error": "action_failed",
+                        "effect": "not_started", "needs_pointer": true,
+                        "detail": "저장 패널 안에서는 누를 수 없는 요소를 포인터로 누르지 않습니다"]
+            }
+            return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
+                                           expectation: expect, elementClicks: 1)
+        }
         var advertised: CFArray?
         let listed = AXUIElementCopyActionNames(el, &advertised)
         if listed == .success, let names = advertised as? [String],
            !names.contains(kAXPressAction as String) {
-            return ["type": "error", "error": "action_failed",
-                      "effect": "not_started", "needs_pointer": true,
-                      "detail": "이 요소는 누를 수 있다고 알리지 않습니다 — 이 도우미는 "
-                                + "좌표 클릭을 합성하지 않습니다. 사람이 직접 눌러야 합니다"]
+            return pointerClick()
         }
         if let token = savePanelToken,
            let refusal = validateSavePanelDispatch(obsID, target, action, token, deadline: deadline) {
@@ -1350,10 +1388,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         let err = AXUIElementPerformAction(el, kAXPressAction as CFString)
         if err == AXError(rawValue: -25206) {
-            return ["type": "error", "error": "action_failed",
-                      "effect": "not_started", "needs_pointer": true,
-                      "detail": "이 요소는 누를 수 있다고 알리지 않습니다 — 이 도우미는 "
-                                + "좌표 클릭을 합성하지 않습니다. 사람이 직접 눌러야 합니다"]
+            return pointerClick()
         }
         if err == AXError(rawValue: -25204) {
             // Apple's AXUIElement.h: an action callback doing modal processing
@@ -2877,6 +2912,12 @@ let helperCapabilities: [String] = [
     // its own becomes reachable without synthesising anything.
     "action.click.by_point",
     "action.click_point", "click_point.window_bound", "click_point.host_authorization",
+    // double_click: AXOpen where offered, else two window-bound clicks at the
+    // observed element's hit-tested centre (click count 1 then 2).
+    "action.double_click",
+    // click on an element with no AXPress: one window-bound click at its
+    // hit-tested centre, instead of a refusal.
+    "click.window_bound_element",
     "action.window_input", "window_input.window_bound", "window_input.host_authorization",
     // Not "press_key.navigation_only": this helper also takes Return, narrowly.
     "action.press_key", "press_key.no_escape",

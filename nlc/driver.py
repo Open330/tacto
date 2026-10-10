@@ -1755,6 +1755,20 @@ class Driver:
             # every step had to act, so reading was only ever a side effect of
             # doing something else.
             return None
+        elif name == "double_click":
+            # In-process: AXOpen only. The window-bound pointer route is the
+            # signed helper's (it needs the window binding and hit-test there).
+            el = self._element(obs, action)
+            try:
+                error, names = AXUIElementCopyActionNames(el, None)
+            except Exception:
+                error, names = -1, None
+            if error != 0 or not names or "AXOpen" not in names:
+                raise NotStarted("이 요소는 AXOpen 을 알리지 않습니다 — 창에 묶인 더블클릭은 --helper 에서만 됩니다")
+            err = AXUIElementPerformAction(el, "AXOpen")
+            if err != 0:
+                raise RuntimeError(f"AXOpen 실행 실패 ({err})")
+            return None
         elif name == "menu" and "focused_document" in action:
             # Only the signed helper can check the focused document right
             # before the press; going ahead without the check would be

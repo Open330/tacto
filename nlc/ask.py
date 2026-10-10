@@ -456,13 +456,13 @@ def which_element(command: str, candidates: list[dict]) -> Q:
 from .protocol import NAVIGATION_KEYS
 SCROLL_DIRECTIONS = frozenset({"up", "down", "left", "right"})
 MAX_SCROLL_PAGES = 10
-_ACTIONS = ("click", "set_value", "read", "scroll", "press_key", "select_option", "open_select", "select_custom_option", "prepare_window", "inspect_menu", "menu")
+_ACTIONS = ("click", "double_click", "set_value", "read", "scroll", "press_key", "select_option", "open_select", "select_custom_option", "prepare_window", "inspect_menu", "menu")
 
 _HERE = """화면 하나를 보고, 목표를 향해 **지금 이 화면에서** 할 일을 순서대로
 쓰십시오. JSON만:
 
 {"done": false,
- "actions": [{"pick": <후보 번호>, "do": "click"|"set_value"|"read"|"scroll"|"press_key"|"select_option"|"open_select"|"select_custom_option"|"prepare_window"|"inspect_menu"|"menu",
+ "actions": [{"pick": <후보 번호>, "do": "click"|"double_click"|"set_value"|"read"|"scroll"|"press_key"|"select_option"|"open_select"|"select_custom_option"|"prepare_window"|"inspect_menu"|"menu",
               "value": "<set_value/select_option의 값, select_custom_option에는 관측된 value가 있을 때만>",
               "option_label": "<select_custom_option의 정확한 option label>",
               "direction": "<scroll 일 때 up/down/left/right>",
@@ -476,6 +476,7 @@ _HERE = """화면 하나를 보고, 목표를 향해 **지금 이 화면에서**
 `inspect_menu`는 후보의 실제 메뉴 목록을 읽습니다. `menu`는 관측된 활성 명령을 실행합니다. 경로를 직접 작성하지 말고 후보를 고르십시오. 두 동작은 이번 배치의 유일한 행동이어야 하며 이후 재관찰합니다.
 `prepare_window`는 지원되는 관측 창에만 사용할 수 있습니다. 창에 준비 입력을 보낸 뒤 반드시 새 관측으로 계획하십시오. 메뉴 활성이나 작업 완료를 보장하지 않으며 마지막 행동이어야 합니다. 이미 앞에 있는 앱의 다른 창을 고르는 용도이며, 배경 앱을 앞으로 가져오지는 못합니다.
 `open_select`는 관측된 닫힌 선택 상자를 열기만 합니다. 열린 뒤 새 화면에서 `select_custom_option`으로 options의 정확한 option_label을 고르십시오. value가 있는 항목은 value도 함께 지정할 수 있고, 값이 없는 항목은 value를 생략하십시오. 두 동작 모두 마지막 행동이어야 하며 열린 화면을 건너뛰지 마십시오.
+`double_click`은 목록의 행·셀을 엽니다(파일, 채팅방 등). `가능:`에 있을 때만 쓰고, 연 뒤 새 화면으로 다시 계획해야 하므로 마지막 행동이어야 합니다.
 `select_option`은 후보의 options에 있는 정확한 value를 선택합니다. 비활성 옵션은 선택할 수 없으며 선택 뒤 재관찰하므로 마지막 행동이어야 합니다.
 `scroll`은 후보의 영역을 지정한 방향으로 1~10페이지 이동합니다. `press_key`는
 현재 키보드 포커스에 Tab, shift+Tab, Up, Down, Left, Right, Escape 중 하나를
@@ -592,9 +593,9 @@ def _here_question(goal: str, candidates: list[dict], done_so_far=(),
             can = indexed[pick].get("can")
             if can is not None and do not in can:
                 return None                       # not a thing you do to THAT
-            if do in ("scroll", "press_key", "select_option", "open_select", "select_custom_option", "prepare_window", "inspect_menu", "menu") and (can is None or indexed[pick].get("disabled")):
+            if do in ("scroll", "press_key", "double_click", "select_option", "open_select", "select_custom_option", "prepare_window", "inspect_menu", "menu") and (can is None or indexed[pick].get("disabled")):
                 return None
-            if out and out[-1]["do"] in ("scroll", "press_key", "select_option", "open_select", "select_custom_option", "prepare_window", "inspect_menu", "menu"):
+            if out and out[-1]["do"] in ("scroll", "press_key", "double_click", "select_option", "open_select", "select_custom_option", "prepare_window", "inspect_menu", "menu"):
                 return None                       # the remaining plan needs a new observation
             if do in ("inspect_menu", "menu") and (len(raw) != 1 or set(item) - {"pick", "do", "why"}):
                 return None

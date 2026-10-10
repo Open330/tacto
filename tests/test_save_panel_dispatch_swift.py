@@ -52,8 +52,13 @@ func readSavePanel(_ request:[String:Any], operationDeadline:Double?=nil) -> [St
         "commit_control":["obs_id":mode == "obs" ? "other" : "obs", "enabled":mode != "disabled",
                           "action":["name":"click","element_index":mode == "wrong" ? 0 : 1]]]
 }
+var advertisePress = true, pointerCalls = 0
 func AXUIElementCopyActionNames(_ el:AXUIElement, _ names:UnsafeMutablePointer<CFArray?>) -> AXError {
-    names.pointee = ["AXPress"] as CFArray; return .success
+    names.pointee = (advertisePress ? ["AXPress"] : ["AXShowMenu"]) as CFArray; return .success
+}
+func prepareBackgroundWindow(_ obsID:String, _ target:String, _ element:AXUIElement, _ pid:pid_t,
+                             deadline:Double, expectation:[String:Any]?, elementClicks:Int) -> [String:Any] {
+    pointerCalls += 1; return ["type":"acted", "input_route":"window_bound_element_click"]
 }
 func AXUIElementPerformAction(_ el:AXUIElement, _ action:CFString) -> AXError {
     precondition(CFEqual(el,button)); precondition(savePanelTokens.isEmpty)
@@ -62,14 +67,16 @@ func AXUIElementPerformAction(_ el:AXUIElement, _ action:CFString) -> AXError {
 func axActionFailureEffect(_ error:AXError) -> String {"unknown"}
 func reset() {
     abortState.isStopped=false; mode="good"; posts=0; readerCalls=0; actionError = .success
+    advertisePress=true; pointerCalls=0
     latestElements=[window,button]; latestObsID="obs"; latestTargetPID=42
     savePanelTokens=[("panel",Pin(pid:42,window:window,documentToken:"document",witness:Witness(commit:button)))]
 }
 '''
         checked = r'''
-func checked(_ token:String="panel", _ duration:Double=1) -> [String:Any] {
+func checked(_ token:String?="panel", _ duration:Double=1) -> [String:Any] {
     let obsID="obs", target="owned", action:[String:Any]=["name":"click","element_index":1]
     let name="click", savePanelToken:String?=token, deadline=ProcessInfo.processInfo.systemUptime+duration
+    let p:pid_t=42, expect:[String:Any]?=nil
     func element() -> AXUIElement? {button}
     switch name {
 ''' + click + r'''
@@ -92,6 +99,12 @@ reset();latestElements.append(window);precondition(checked()["effect"] as? Strin
 reset();actionError=AXError(rawValue:-25204)!
 precondition(checked()["unverified"] as? String == "cannot_complete");precondition(posts==1 && savePanelTokens.isEmpty)
 precondition(checked()["effect"] as? String == "not_started");precondition(posts==1)
+// No AXPress: never a pointer click inside a save panel; outside one, a
+// window-bound element click instead of a refusal.
+reset();advertisePress=false
+precondition(checked()["needs_pointer"] as? Bool == true);precondition(pointerCalls==0 && posts==0)
+reset();advertisePress=false
+precondition(checked(nil)["input_route"] as? String == "window_bound_element_click");precondition(pointerCalls==1 && posts==0)
 print("SAVE_PANEL_DISPATCH_PASS")
 '''
         with tempfile.TemporaryDirectory(prefix='nlc-save-dispatch-') as directory:

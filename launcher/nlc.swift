@@ -96,6 +96,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // WINDOW, and a point inside one resolves to whatever is drawn there.
     "click":            (["name"], ["element_index", "point", "window_index"]),
     "click_point":      (["name", "element_index", "point"], []),
+    // AXOpen where offered, else two window-bound clicks on the element.
+    "double_click":     (["name", "element_index"], []),
     "window_input":     (["name", "element_index"], ["key", "text"]),
     "prepare_window":   (["name", "element_index"], []),
     "set_value":        (["name", "value"], ["element_index", "point", "window_index"]),
