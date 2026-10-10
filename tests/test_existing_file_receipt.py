@@ -79,7 +79,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
         event = save_event(self.path); ctx = r2.prepare_commit(event)
         r2._driver.token = 'other'
         with self.assertRaisesRegex(ArtifactReceiptError, 'document_identity_changed'):
-            r2.after_commit(event, {}, ctx)
+            r2.after_commit(event, {'type':'acted'}, ctx)
 
     def test_only_a_canonical_txt_path_and_only_that_document(self):
         rtf = os.path.join(self.dir, 'doc.rtf'); Path(rtf).write_text('x')
@@ -126,7 +126,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
         with self.assertRaises(ArtifactReceiptError):
             r.prepare_commit(save_event(self.path))
         Path(self.path).write_text('new text 4417', encoding='utf-8')
-        r.after_commit(event, {}, ctx)
+        r.after_commit(event, {'type':'acted'}, ctx)
         with self.assertRaises(ArtifactReceiptError):
             r.after_commit(event, {}, ctx)
 

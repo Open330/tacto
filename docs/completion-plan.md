@@ -936,3 +936,43 @@ source stable을 확인했다. 이는 앞 root 시행과 별개의 fresh fixture
 
 실제 TextEdit Save 인과 증거, 추가 앱/backbone, 입력 보존, 동일 초기 상태와
 serving model, Sky 후손 책임, 설치 등 전체 G0~G10 완료 기준은 유지한다.
+
+## G7 후속: 비실행 Save 영수증 거부와 실제 TextEdit 시행
+
+ExistingTextFileReceipt.after_commit은 driver_result를 검사하지 않았다.
+파일 내용이 이미 맞으면 None/{}/observation/error not_started/acted not_started도
+typed receipt가 발급됐다. 신규 실제 임시 파일 회귀의6 subcase가 baseline에서
+모두 실패했고, 이제 driver_dispatch_unverified로 거부한다. 거부도 single-use
+컨텍스트를 소모한다. acted 또는 effect가 not_started가 아닌 error만 상태
+확인으로 진행한다. effect 없는 error는 replay/FreshFileReceipt와 같이 불확실한
+실행으로 다루며 writer를 귀속하지 않는다. 기존 문서 교체/단일사용 테스트의
+{} 응답2곳은 acted로 수정해 원래의 문서/재사용 검사를 계속 수행한다.
+Muxa read-only req_18dd2b3252304238_7c는 P1/P2 없음이었다.
+
+`nlc eval --product-comparison --check-owned-textedit-save`는 fresh owned .txt의
+정확한 본문을 signed helper로 편집하고, 메뉴를 읽어 Save가 이미 enabled면
+불필요한 창 준비를 생략한다. disabled면 pinned document window 준비1회 뒤
+메뉴 enabled를 재확인한다. File Save에는 exact focused_document 경로를
+붙이며, prepare→Save1회→typed receipt→정확한 disk readback을 확인한다.
+잠금/전경 변경 뒤 owned 문서를 닫지 않는다. 정리는 기존 signed token close와
+관측된 부재 검증을 사용한다. 이 probe가 legacy Save/chain 비교 gate를 제거한
+것은 아니며 실제 모델의 Save 비교 시행도 아니다.
+
+owner-only `../reviews/2026-10-10/signed-textedit-save-bound.json`은 PASS였다.
+문서 본문 정확, Save 직전 disk_matched_before_save=false, bound dispatch acted,
+evidence_error=null, exact_saved_text=true, cleanup closed, artifact_removed=true다.
+source SHA prefix34d50532af72 전후 stable, 모델 요청0, 전체 fixture 구간 초기
+frontmost=System Settings 및 activation=[]였다. 이는 실제 TextEdit의 새 본문
+편집·bound Save 실행·저장된 상태 증거다. autosave가 dispatch 사이에 개입할
+가능성과 같은 UID의 다른 writer를 배제한 producer attribution은 아니다.
+
+앞 scoped Window의 role-alone Selector 거부와 불필요한 prepare_window의
+not_started 실패는 별도 signed-textedit-save-initial/prepared.json으로 보존했다.
+두 실패에서도 owned 문서 정리와 activation 없음이 확인됐다. 필요한 창 준비가
+실제 TextEdit에서 작동한다고 승격하지 않는다. 신규 probe의 enabled/disabled/
+준비 실패/준비 후 여전히 disabled/환경 변경 뒤 cleanup 금지 및 receipt 관련
+92개 테스트가 PASS였다. req_18dd2b5ea3f12318_7d 리뷰는 P1/P2 없음이었다.
+
+다음에는 Save/chain 비교 fixture의 legacy cleanup을 signed lifecycle로
+이행하고 실제 모델 비교를 수행한다. 원래 G0~G10과 인과·입력 보존·동일 조건
+완료 기준은 그대로이며 이번 실제 Save 성공으로 전체 완료를 선언하지 않는다.

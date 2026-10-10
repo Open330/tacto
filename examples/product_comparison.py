@@ -1200,6 +1200,7 @@ def main() -> int:
     ap.add_argument('--resume-owned-fixture-identity', help='trusted host recorded dev:ino of that prior fixture')
     ap.add_argument('--diagnose-owned-document-pin', help='read only the explicitly host-selected owned fixture path; no input')
     checks.add_argument('--check-owned-save-receipt', action='store_true',help='owned native Save callback and fresh-file receipt; no model')
+    checks.add_argument('--check-owned-textedit-save',action='store_true',help='actual owned TextEdit preparation and bound in-place Save; saved-state evidence only')
     args = ap.parse_args()
     if args.agent_executable is not None:
         import os
@@ -1250,6 +1251,21 @@ def main() -> int:
             observation = _driver().observe('com.apple.TextEdit', document_token=reply['document_token'])
             print(json.dumps({'type':observation.get('type'), 'buttons':[line for line in observation.get('tree','').splitlines() if re.match(r'^\s*\d+ Button(?:\s|$)',line)]}))
         return 0 if reply.get('type') == 'document_text' else 2
+    if args.check_owned_textedit_save:
+        if _locked() is not False:
+            print('owned_save_environment_unavailable')
+            return 2
+        from signed_textedit_save import run
+        from nlc.driver import Driver
+        from nlc.native_frontmost import frontmost_pid
+        def can_cleanup():
+            try:return _locked() is False and frontmost_pid()!=Driver()._resolve('com.apple.TextEdit',launch=False)
+            except Exception:return False
+        before=source_manifest()
+        result=run(_driver(),can_cleanup=can_cleanup)
+        result.update(_source_evidence(before,source_manifest()))
+        print(json.dumps(result,ensure_ascii=False))
+        return 0 if result['passed'] and not result['source_changed'] else 2
     if args.check_owned_save_receipt:
         if _locked() is not False:
             print('owned_save_environment_unavailable')

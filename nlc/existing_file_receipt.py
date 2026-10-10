@@ -63,6 +63,7 @@ class ExistingFileReceiptUnavailable(ArtifactReceiptError):
 # an exception's message, which could quote the document (Codex review of
 # 31955f0).
 PUBLIC_CODES = frozenset({
+    'driver_dispatch_unverified',
     'file_unreadable', 'not_a_regular_owned_file', 'file_over_budget',
     'path_not_canonical_txt', 'no_text_witness', 'no_focused_document_guard',
     'text_unavailable', 'document_identity_changed', 'no_canonical_path',
@@ -248,6 +249,12 @@ class ExistingTextFileReceipt:
                 or event.get('event_id') != prepared.event_id
                 or event.get('action_digest') != prepared.action_digest):
             raise _refuse('commit_mismatch')
+        # As in replay/FreshFileReceipt, an error without effect is uncertain.
+        # State readback may resolve it; it never attributes the writer.
+        if (not isinstance(driver_result, dict)
+                or driver_result.get('type') not in ('acted', 'error')
+                or driver_result.get('effect') == 'not_started'):
+            raise _refuse('driver_dispatch_unverified')
         expected = prepared.text.encode('utf-8')
         deadline = self._clock() + self._timeout
         while True:
