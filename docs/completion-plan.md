@@ -891,3 +891,48 @@ req_18dd29a2cfa63718_71은 P1/P2 없음이었다. Save/chain legacy gate 및 exp
 Save 인과 증거·추가 앱/backbone·같은 초기 상태/serving model/입력 보존·Sky 후손·
 설치 등 전체 G0~G10 완료 기준은 유지한다. 다음 단계는 Save receipt의 실제
 signed 실행과 정확한 receiving 증거를 연결하는 것이다.
+
+## G7 후속: owned native Save producer와 fresh-file 영수증
+
+`nlc eval --product-comparison --check-owned-save-receipt`는 모델 호출 없이
+전용 NSSavePanel fixture에서 signed backend로 실행한다. PID를 owned child와
+대조하고 새 nonce 파일의 directory/filename/RTF/original_changes_setting을
+확인한 뒤 guarded Save를 한 번 실행한다. FreshFileReceipt와 앱의 OK callback,
+nonce·경로·SHA256·실제 UTF-8 RTF 바이트를 모두 확인해야 통과한다.
+콜백 중복이나 written/refused 혼재는 거부한다. 이는 전용 디렉터리를 intended
+producer만 사용한다는 host 가정 아래의 증거이며 실제 TextEdit Save나 일반
+앱의 producer 귀속을 증명하지 않는다. Save/chain legacy gate는 유지한다.
+
+owner-only `../reviews/2026-10-10/owned-native-save-writer-cleanup-success.json`은
+source stable, 모델 요청0, guarded dispatch acted, typed evidence 오류 없음,
+정확한 callback/bytes, owned child 회수 및 fixture 설정 파일 부재를 기록한다.
+전체 fixture 구간에서 초기 frontmost는 System Settings, activation은 없었다.
+pointer/typing 보존이나 동일 조건 NLC/Sky 비교 완료로 승격하지 않는다.
+
+실패 보고서는 별도로 보존했다. 처음에는 format 없는 패널이 RTF-only guard에
+거부됐고, 새 leaf를 포함한 realpath는 /tmp 별칭을 해석하지 못했다. 부모
+디렉터리 realpath 후 새 leaf를 조합한다. collapsed 패널은 exact Identifier의
+DisclosureTriangle Value0를 signed AX로 한 번 확장한 뒤 재관측한다.
+/tmp의 많은 항목은 AX 관측 예산을 초과해, fixture 임시 디렉터리를 사용자
+Library/Caches 아래에 둔다. 중간 root 시행은 성공했지만 공유 작업트리의
+임시 untracked 노출을 피하도록 이동했다. window 수1 가정 대신 최대4개 창에서 정확한 panel 후보가
+하나인지 확인하며 준비 상태만15초까지 읽는다. UI 입력 재시도는 없다.
+
+NSSavePanel 자체가 fixture 도메인의 설정을 영속 저장할 수 있었다. 실행 인자
+기본값만으로 이 부작용이 사라진다고 주장하지 않는다. 기존 populated fixture
+설정이 있으면 시작을 거부하고, owned child 종료 뒤 생성된 도메인을 비운다.
+남은 empty plist는 owner·regular·single link·크기·읽기 전후 메타데이터와
+내용{}을 확인한 후 해당 fixture 파일만 제거한다. 같은 UID의 경쟁 및 최종
+확인 이후 변경까지 원자적으로 막는다는 주장은 없다.
+
+최종 owner-only `../reviews/2026-10-10/owned-native-save-writer-cache-success.json`도
+PASS였다. 실행 전 설정 파일 부재, 단일 확장 및 guarded Save, 정확한 callback/
+바이트/typed evidence, child 회수, 즉시/지연 설정 파일 부재, activation 없음,
+source stable을 확인했다. 이는 앞 root 시행과 별개의 fresh fixture다.
+
+관련52개 회귀가 PASS다. Muxa read-only 리뷰의 fixture prefs 및 공유 작업트리
+임시 디렉터리 지적을 반영했다. 정리 뒤0.2초 후 설정 파일 부재도 다시 읽는다.
+지연 재생성까지 영구히 막는다는 주장은 하지 않는다.
+
+실제 TextEdit Save 인과 증거, 추가 앱/backbone, 입력 보존, 동일 초기 상태와
+serving model, Sky 후손 책임, 설치 등 전체 G0~G10 완료 기준은 유지한다.
