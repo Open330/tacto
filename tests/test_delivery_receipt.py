@@ -5,7 +5,7 @@ import unittest
 
 from nlc.commit_evidence import CommitEvidence, evidence_error, make_event
 from nlc.delivery_receipt import (DeliveredMessageReceipt, DeliveryReceiptError,
-                                  InboxDelivery, PendingDelivery)
+                                  InboxDelivery, PendingDelivery, InboxTemporarilyUnavailable)
 
 
 class DeliveryReceiptTests(unittest.TestCase):
@@ -199,6 +199,93 @@ class DeliveryReceiptTests(unittest.TestCase):
                              ('text','x'*(4*1024*1024+1))]:
             with self.subTest(field=field), self.assertRaises(ValueError):
                 self.new_receipt(**{field:value})
+
+    def test_temporary_outage_before_dispatch_refuses_preparation_and_reuse(self):
+        def unavailable(_):
+            raise InboxTemporarilyUnavailable('PRIVATE service details')
+        receipt = self.new_receipt(read_inbox=unavailable)
+        with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
+            receipt.prepare_commit(self.event)
+        with self.assertRaisesRegex(DeliveryReceiptError, '^already_prepared$'):
+            receipt.prepare_commit(self.event)
+        self.assertEqual([], self.sleeps)
+
+    def test_explicit_temporary_read_outage_recovers_without_rebinding(self):
+        context = self.receipt.prepare_commit(self.event)
+        calls = []
+
+        def reader(request):
+            calls.append(request)
+            if len(calls) == 1:
+                raise InboxTemporarilyUnavailable('PRIVATE service details')
+            return self.delivered
+
+        self.receipt._inbox = reader
+        proof = self.receipt.after_commit(self.event, {'type':'error', 'effect':'unknown'}, context)
+        self.assertEqual('message-1', proof.evidence.receipt_id)
+        self.assertEqual(['request-1', 'request-1'], calls)
+        self.assertEqual([.01], self.sleeps)
+        self.assertEqual(1, self.bind_calls)
+
+    def test_permanent_explicit_outage_expires_without_a_read_at_deadline(self):
+        context = self.receipt.prepare_commit(self.event)
+        calls = []
+
+        def reader(request):
+            calls.append(self.now)
+            raise InboxTemporarilyUnavailable('PRIVATE service details')
+
+        self.receipt._inbox = reader
+        with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
+            self.receipt.after_commit(self.event, {}, context)
+        self.assertEqual([0, .01, .02], calls)
+        self.assertAlmostEqual(.03, self.now)
+        with self.assertRaisesRegex(DeliveryReceiptError, '^already_used$'):
+            self.receipt.after_commit(self.event, {}, context)
+        self.assertEqual(3, len(calls))
+
+    def test_generic_read_failure_is_not_retried_or_exposed(self):
+        context = self.receipt.prepare_commit(self.event)
+        calls = []
+
+        def reader(request):
+            calls.append(request)
+            raise PermissionError('PRIVATE credentials')
+
+        self.receipt._inbox = reader
+        with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
+            self.receipt.after_commit(self.event, {}, context)
+        self.assertEqual(1, len(calls))
+        self.assertEqual([], self.sleeps)
+
+    def test_mismatch_after_temporary_outage_does_not_get_a_further_poll(self):
+        context = self.receipt.prepare_commit(self.event)
+        calls = []
+
+        def reader(request):
+            calls.append(request)
+            if len(calls) == 1:
+                raise InboxTemporarilyUnavailable()
+            if len(calls) == 2:
+                return replace(self.delivered, body_sha256='0'*64)
+            return self.delivered
+
+        self.receipt._inbox = reader
+        with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_receipt_mismatch$'):
+            self.receipt.after_commit(self.event, {}, context)
+        self.assertEqual(2, len(calls))
+
+    def test_slow_temporary_failure_cannot_extend_deadline(self):
+        context = self.receipt.prepare_commit(self.event)
+
+        def reader(request):
+            self.now += .04
+            raise InboxTemporarilyUnavailable('PRIVATE outage')
+
+        self.receipt._inbox = reader
+        with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
+            self.receipt.after_commit(self.event, {}, context)
+        self.assertEqual([], self.sleeps)
 
 
 if __name__ == '__main__':

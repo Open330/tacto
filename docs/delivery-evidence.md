@@ -39,6 +39,36 @@ prepare 한 번, after 한 번만 허용한다. after는 수신 record만 마감
 OS/API 호출을 강제 취소하거나 원격 요청 비용을 중단하는 기능은 아니다.
 본문·주소·서비스 예외의 원문을 public refusal에 넣지 않는다.
 
+### 일시적인 수신함 읽기 장애
+
+신뢰된 reader가 읽기 전용 요청의 일시적인 서비스 장애를 확인한 경우에만
+`InboxTemporarilyUnavailable`(하위 클래스 포함)을 발생시킬 수 있다. 예를 들어 호스트가 자신의
+수신 API에서 HTTP503을 일시적인 읽기 장애로 분류할 때 사용한다.
+인증·권한 오류, 잘못된 record, 부분 조회 및 프로그램 오류를 이 신호로
+바꾸지 않는다. 모든 예외를 이 타입으로 감싸는 reader는 이 계약에 맞지 않는다.
+
+prepare에서 이 신호를 받으면 `inbox_read_unavailable`로 거부한다. 이전
+수신 record가 없는지 확인하지 못했으므로 전송을 허용할 수 없다. after에서만
+동일 request_id의 수신함을 남은 마감 안에서 다시 읽는다. bind나 click,
+전송 POST는 반복하지 않는다. 계속 조회할 수 없으면 미검증으로 중단한다.
+일반 예외와 account/recipient/body/message/state 불일치는 즉시 거부하며,
+마감에 도달하면 새 읽기를 시작하지 않는다. 이미 진행 중인 reader는 이
+adapter가 강제 취소할 수 없고 마감 후 반환된 record는 수용하지 않는다.
+
+```python
+from nlc.delivery_receipt import InboxTemporarilyUnavailable
+
+def read_inbox(request_id):
+    response = authenticated_receiving_service.read(request_id)
+    if response.temporary_service_unavailable:
+        raise InboxTemporarilyUnavailable()
+    # 인증/형식/부분 조회 오류는 별도 예외로 거부한다.
+    # 완전한 조회에서 아직 수신 record가 없을 때만 None을 반환한다.
+    return validated_inbox_delivery_or_none(response)
+```
+
+이 예시는 host bridge의 신호 계약이며 특정 원격 서비스용 구현이 아니다.
+
 ## 응답 유실과 실행기
 
 replay는 dispatch의 error/unknown 뒤에도 유효한 operation-bound host 영수증을
@@ -59,6 +89,10 @@ click→loopback HTTP POST→별도 인증 HTTP 수신함 조회를 실행한다
 통합 fixture는 정확한 새 수신, 송신 Sent만 있는 no-op, 수신 본문 손상,
 클릭 응답 유실 뒤 수신 증거와 중복 전송 없음, 기존 수신 요청 재사용 거부,
 승인 거절, 실제 form의 수신인 변경 및 dispatch 전 거절을 포함한다.
+실제 HTTP503 뒤 수신함 읽기 복구, dispatch 응답 유실과 HTTP503의 결합,
+지속적인503의 미검증 종료, 수신 인증403의 즉시 거부도 검사한다. 복구 사례는
+단일 전송 POST와 새로운 수신 message identity·정확한 본문을 대조하며,
+장애 사례에서도 전송이 중복되지 않았는지 검사한다.
 이 결과는 실제 원격 서비스·native 메신저·첨부·다양한 백본 또는 NLC/Sky
 동일 조건 비교의 완료 증거가 아니다. 그 실기와 서비스별 bridge는 남아 있다.
 

@@ -444,3 +444,36 @@ launcher가 없다는 exit1이 재현됐다. 먼저 installer 디렉터리를 pw
 확정한 뒤 그 부모를 repo로 계산하도록 수정했다. Codex/Claude의 설치된
 skill 경로 모두 같은 checkout을 찾는 검사를 추가했다.
 최종 installer10개+기존설치5개+docs6개는21/21 통과했다.
+
+## G6/G7 후속: 일시적인 수신 조회 장애 뒤 단일 전송 확인
+
+DeliveredMessageReceipt는 호스트가 명시적으로 InboxTemporarilyUnavailable을
+발생시킨 경우에만 after_commit의 read-only 수신함 조회를 마감 안에서
+재관측한다. prepare에서 조회불가는 이전 수신 부재를 확인하지 못한 것이므로
+입력 전에 거부한다. 일반 예외·인증 오류·수신 field 불일치는 즉시 거부한다.
+마감이 이미 지났으면 새로운 읽기를 시작하지 않으며, 진행 중인 조회를
+강제 취소하거나 늦은 수신 record를 수용하지 않는다. 같은 request_id로만
+조회하고 bind/click/POST를 다시 실행하지 않는다.
+
+새 unit6개는 준비 조회불가/재사용 거부, 일시 장애 복구, 지속 장애의 정확한
+deadline 종료, generic 권한 오류의 즉시 거부, 복구 후 본문 불일치와 느린
+조회 실패를 검사한다. 새 headless Chromium/loopback HTTP4개는 실제503
+두 번 뒤 정확한 새 수신, dispatch 응답 유실+503 뒤 단일 전송 확인,
+지속503 미검증, 수신403 즉시 거부를 검사한다. 원래 검사와 합계37개가
+18.365초에 통과했다. 성공한 복구에서도 전송 POST는1회이며 새로운 message
+identity와 수신 본문을 확인한다. 장애 사례에는 실제 수신 메시지가 있어도
+조회 증거가 없으면 commit_unverified를 유지한다.
+
+수정 전 HEAD c0cc88d 구현에 새 호스트 신호 타입만 제공해 동일한10개 새
+검사를 실행하면 failures5/errors1, exit1이었다. baseline polling 로직은
+변경하지 않았다. 로그는 `../reviews/2026-10-10/delivery-read-outage-baseline.log`다.
+이 검증은 자체 계정·본문·로컬 서버만 사용했으며 실제 원격 메신저, 첨부,
+native 앱과 여러 모델 백본 또는 NLC/Sky 동일 조건 비교의 완료 증거가 아니다.
+이 범위 밖 항목은 G0~G10 원래 완료 기준으로 계속 진행한다.
+
+Muxa read-only 리뷰(req_18dd231e9140bb18_46)는 P1/P2 없음으로 판단했다.
+명시 신호의 하위 클래스도 읽기 재관측에 해당함을 문서화했다. 표시 계층이
+private exception 클래스명만 보여 주는 문제는 별도 replay 소유 경로에서
+peer가 다루며, delivery 모듈에는 닫힌 PUBLIC_CODES와 내부 code 검증을
+제공한다. 현재 범위의 완료·오류 수용 조건은 변경하지 않는다.
+추가 typed commit/replay/observation-binding/transcript 회귀21개도 통과했다.

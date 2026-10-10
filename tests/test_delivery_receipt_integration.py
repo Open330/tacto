@@ -11,7 +11,8 @@ from urllib.request import Request, urlopen
 
 from nlc.commit_evidence import evidence_error
 from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-from nlc.delivery_receipt import DeliveredMessageReceipt, InboxDelivery, PendingDelivery
+from nlc.delivery_receipt import (DeliveredMessageReceipt, InboxDelivery, PendingDelivery,
+                                 InboxTemporarilyUnavailable)
 from nlc.flow import Flow, Selector, Step, replay
 
 
@@ -23,6 +24,9 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         self.text = '소유 수신함 검증\n정확한 본문'
         self.messages = {}
         self.posts = 0
+        self.inbox_failures = 0
+        self.inbox_auth_failure = False
+        self.inbox_reads_after_dispatch = 0
         self.mode = 'deliver'
         self.lock = threading.Lock()
         owner = self
@@ -63,11 +67,23 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
                     self.reply(403, {})
                     return
                 with owner.lock:
+                    if owner.posts:
+                        owner.inbox_reads_after_dispatch += 1
+                    unavailable = bool(owner.posts and owner.inbox_failures > 0)
+                    if unavailable:
+                        owner.inbox_failures -= 1
+                    unauthorized = owner.posts and owner.inbox_auth_failure
                     stored = owner.messages.get(self.path.removeprefix('/inbox/'))
                     message = ({key:value for key, value in stored.items() if key != 'body'}
                                if stored else None)
                     if message:
                         message['body_sha256'] = hashlib.sha256(stored['body'].encode()).hexdigest()
+                if unauthorized:
+                    self.reply(403, {})
+                    return
+                if unavailable:
+                    self.reply(503, {})
+                    return
                 self.reply(200 if message else 404, message or {})
 
             def do_POST(self):
@@ -112,6 +128,8 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
                 return InboxDelivery(**json.load(response))
         except HTTPError as error:
             if error.code == 404: return None
+            if error.code in (502, 503, 504):
+                raise InboxTemporarilyUnavailable() from None
             raise
 
     def bind(self, event):
@@ -236,3 +254,47 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         result = self.run_delivery()
         self.assertFalse(result.ok)
         self.assertEqual(0, self.posts)
+
+    def test_http_read_outage_recovers_with_one_send_and_exact_receiving_body(self):
+        self.inbox_failures = 2
+        result = self.run_delivery()
+        self.assertTrue(result.ok, result.log)
+        self.assertEqual(3, self.inbox_reads_after_dispatch)
+        self.assertEqual(1, self.posts)
+        self.assertEqual(1, len(self.messages))
+        self.assertEqual(self.text, self.messages[self.request_id]['body'])
+
+    def test_lost_dispatch_reply_and_http_read_outage_do_not_resend(self):
+        self.inbox_failures = 1
+        act = self.driver.act
+
+        def lost(*args, **kwargs):
+            act(*args, **kwargs)
+            raise TimeoutError('fixture reply lost after one dispatch')
+
+        self.driver.act = lost
+        result = self.run_delivery()
+        self.assertTrue(result.ok, result.log)
+        self.assertEqual(2, self.inbox_reads_after_dispatch)
+        self.assertEqual(1, self.posts)
+        self.assertEqual(1, len(self.messages))
+        self.assertEqual({'type':'error', 'effect':'unknown'}, result.events[0]['dispatch_response'])
+
+    def test_permanent_http_outage_remains_unverified_and_never_resends(self):
+        self.inbox_failures = float('inf')
+        result = self.run_delivery()
+        self.assertFalse(result.ok)
+        self.assertEqual(1, self.posts)
+        self.assertEqual(1, len(self.messages))
+        self.assertGreater(self.inbox_reads_after_dispatch, 1)
+        self.assertEqual({}, result.commit_evidence)
+        self.assertEqual('commit_unverified', result.log[-1]['error'])
+
+    def test_http_authentication_failure_after_delivery_is_not_retried(self):
+        self.inbox_auth_failure = True
+        result = self.run_delivery()
+        self.assertFalse(result.ok)
+        self.assertEqual(1, self.posts)
+        self.assertEqual(1, self.inbox_reads_after_dispatch)
+        self.assertEqual({}, result.commit_evidence)
+        self.assertEqual('commit_unverified', result.log[-1]['error'])

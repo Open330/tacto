@@ -21,8 +21,29 @@ from .artifact_receipt import ArtifactReceiptError
 from .commit_evidence import CommitEvidence, DeliveryEvidence, action_digest
 
 
+PUBLIC_CODES = frozenset({
+    'invalid_delivery_event', 'inbox_read_unavailable', 'inbox_receipt_mismatch',
+    'already_prepared', 'delivery_binding_unavailable', 'delivery_binding_mismatch',
+    'delivery_already_present', 'already_used', 'delivery_commit_mismatch',
+    'delivery_not_observed_before_deadline',
+})
+
+
 class DeliveryReceiptError(ArtifactReceiptError):
     """Sanitized refusal; an uncertain transmission must not be resent."""
+
+
+class InboxTemporarilyUnavailable(RuntimeError):
+    """Trusted reader explicitly signals a retryable READ failure, never absence.
+
+    Use only for temporary receiving-service availability errors. Authentication,
+    incomplete/malformed records and programming errors must not use this signal.
+    Its message is never included in receipt errors or evidence.
+    """
+
+
+class _TransientInboxRead(DeliveryReceiptError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -53,8 +74,9 @@ class _Prepared:
     binding: PendingDelivery
 
 
-def _refuse(code):
-    error = DeliveryReceiptError(code)
+def _refuse(code, cls=DeliveryReceiptError):
+    assert code in PUBLIC_CODES
+    error = cls(code)
     error.public_code = code
     return error
 
@@ -83,6 +105,9 @@ class DeliveredMessageReceipt:
     ``read_inbox(request_id)`` returns None while no delivered record exists,
     or InboxDelivery from an authenticated authoritative receiving service.
     It must distinguish unavailable/incomplete reads by raising, not None.
+    A reader may explicitly raise InboxTemporarilyUnavailable for a temporary
+    read outage. Only after dispatch is that read repeated within the deadline;
+    preparation still refuses because absence could not be verified.
 
     The service must bind request_id to this one immutable payload and stable
     message identity. The host owns/exclusively uses that request identity;
@@ -142,6 +167,8 @@ class DeliveredMessageReceipt:
     def _read(self, request_id):
         try:
             result = self._inbox(request_id)
+        except InboxTemporarilyUnavailable:
+            raise _refuse('inbox_read_unavailable', _TransientInboxRead) from None
         except Exception:
             raise _refuse('inbox_read_unavailable') from None
         if result is None:
@@ -190,11 +217,22 @@ class DeliveredMessageReceipt:
                 or self._digest(event) != prepared.digest):
             raise _refuse('delivery_commit_mismatch')
         deadline = self._clock() + self._timeout
+        last_code = 'delivery_not_observed_before_deadline'
         while True:
-            delivered = self._read(prepared.binding.request_id)
+            # Do not start another remote read when the budget is already spent.
+            # An in-progress reader still cannot be forcibly interrupted here.
+            if self._clock() >= deadline:
+                raise _refuse(last_code)
+            try:
+                delivered = self._read(prepared.binding.request_id)
+            except _TransientInboxRead:
+                delivered = None
+                last_code = 'inbox_read_unavailable'
+            else:
+                last_code = 'delivery_not_observed_before_deadline'
             remaining = deadline - self._clock()
             if remaining <= 0:
-                raise _refuse('delivery_not_observed_before_deadline')
+                raise _refuse(last_code)
             if delivered is not None:
                 return CommitEvidence(prepared.event_id, prepared.digest,
                                       DeliveryEvidence(delivered.message_id, self._recipient,
