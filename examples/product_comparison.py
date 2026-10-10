@@ -185,6 +185,22 @@ def signed_owned_edit_ask():
             'Do not create, rename or close any document.')
 
 
+def signed_owned_save_ask():
+    fixture=_SIGNED_OWNED.get('fixture')
+    if fixture is None or fixture.path is None:raise RuntimeError('owned_fixture_not_prepared')
+    return (f'In TextEdit, the document at the exact owned path {fixture.path} is already open. '
+            f'Type exactly this text into only that document: {SAVE_TEXT}. Then save that document. '
+            'Do not create, rename or close any document.')
+
+
+def signed_chain_ask():
+    fixture=_SIGNED_OWNED.get('fixture')
+    if fixture is None or fixture.path is None:raise RuntimeError('owned_fixture_not_prepared')
+    return ('Compute 23 × 19 in the macOS Calculator app, then type the result (digits only) '
+            f'into only the TextEdit document at the exact owned path {fixture.path}, which is already open. '
+            'Do not create, rename or close any document.')
+
+
 def _owned_lifecycle_probe(resume_directory=None, resume_identity=None, fixture_text=None):
     from focus_witness import FocusWitness
     from signed_owned_textedit import SignedOwnedTextEdit
@@ -266,6 +282,25 @@ def calc_reset(mode="basic"):
     from nlc.flow import Selector
     d = _driver()
     o = d.observe(CALC, "tree_full", require_window=False)
+    bootstrap='not_needed'
+    bootstrap_focus=None
+    if o.get('error')=='target_not_found':
+        from focus_witness import FocusWitness
+        if _locked() is not False:raise RuntimeError('calculator_bootstrap_environment_unavailable')
+        with FocusWitness() as witness:
+            opened=subprocess.run(['open','-g','-b',CALC],capture_output=True,timeout=20)
+            if opened.returncode!=0:raise RuntimeError('calculator_background_launch_failed')
+            deadline=time.monotonic()+8
+            while time.monotonic()<deadline:
+                if _locked() is not False:raise RuntimeError('calculator_bootstrap_environment_unavailable')
+                o=d.observe(CALC,'tree_full',require_window=False)
+                if o.get('type')=='observation':break
+                time.sleep(.1)
+            else:raise RuntimeError('calculator_observation_unavailable')
+        bootstrap_focus=witness.summary()
+        if bootstrap_focus['activations']:raise RuntimeError('calculator_bootstrap_activated_app')
+        bootstrap='background_launch'
+    if o.get('type')!='observation':raise RuntimeError('calculator_observation_unavailable')
     title = {"basic": ["Basic", "기본"], "scientific": ["Scientific", "공학용"]}[mode]
     response = d.act(o["obs_id"], CALC, {"name": "menu", "path": ["View", title]})
     if not isinstance(response, dict) or response.get('type') != 'acted':
@@ -282,6 +317,11 @@ def calc_reset(mode="basic"):
         if not isinstance(response, dict) or response.get('type') != 'acted':
             raise RuntimeError('comparison_setup_clear_unverified')
         time.sleep(0.2)
+    display,observed_mode=_calc_display(),_calc_mode()
+    if display!='0' or observed_mode!=mode:raise RuntimeError('calculator_initial_state_unverified')
+    return {'calculator_bootstrap':bootstrap,'calculator_bootstrap_focus':bootstrap_focus,
+            'calculator_initial_display':display,'calculator_initial_mode':observed_mode,
+            'harness_launched_app_left_running':bootstrap=='background_launch'}
 
 
 def _running(bundle):
@@ -764,12 +804,11 @@ def finder_cleanup():
 SAVE_TEXT = "NLC 저장 확인 4417"
 
 
-def _owned_saved_bytes():
+def _read_owned_file_bytes(path, is_ours):
     """Independent bounded file oracle; never use NLC's receipt as its judge."""
     import os
     import stat
-    path = _OWNED.get("path")
-    if not path or not _owned_file_is_ours() or os.path.realpath(path) != path:
+    if not path or not is_ours() or os.path.realpath(path) != path:
         return None
     fd = None
     limit = 4 * 1024 * 1024
@@ -797,7 +836,7 @@ def _owned_saved_bytes():
         if (identity(before) != identity(os.fstat(fd))
                 or identity(before) != identity(os.lstat(path))
                 or len(data) != before.st_size or os.path.realpath(path) != path
-                or not _owned_file_is_ours()):
+                or not is_ours()):
             return None
         return data
     except OSError:
@@ -805,6 +844,39 @@ def _owned_saved_bytes():
     finally:
         if fd is not None:
             os.close(fd)
+
+
+def _owned_saved_bytes():
+    return _read_owned_file_bytes(_OWNED.get('path'),_owned_file_is_ours)
+
+
+def signed_owned_saved_oracle(text):
+    import os
+    import stat
+    fixture=_SIGNED_OWNED.get('fixture')
+    if fixture is None or fixture.path is None:return False,'no_owned_fixture'
+    def is_ours():
+        try:
+            st=fixture.directory.lstat()
+            return (fixture.directory.resolve()==fixture.directory and stat.S_ISDIR(st.st_mode)
+                    and (st.st_dev,st.st_ino)==fixture.directory_identity and st.st_uid==os.getuid()
+                    and stat.S_IMODE(st.st_mode)==0o700 and os.listdir(fixture.directory)==[fixture.name])
+        except OSError:return False
+    disk=_read_owned_file_bytes(str(fixture.path),is_ours)
+    shown,_=signed_owned_oracle(text)
+    return disk==text.encode('utf-8') and shown, f'disk_exact={disk==text.encode("utf-8")} window_exact={shown}; saved_state_only'
+
+
+def signed_calc_then_owned_setup():
+    evidence=calc_reset()
+    signed_owned_setup()
+    return evidence
+
+
+def signed_chain_oracle(text):
+    shown,_=signed_owned_oracle(text)
+    calculated=_calc_display()
+    return shown and calculated==text, f'calculator_exact={calculated==text} document_exact={shown}; no_explicit_save_required'
 
 
 def owned_saved_oracle(text):
@@ -981,17 +1053,14 @@ TASKS = [
          lambda a: (_macos_version() in a, f"want {_macos_version()}")),
     # Added 2026-10-09: an actual save checked on disk, two apps in one task,
     # a Finder write in the harness's own folder, and a System Settings read.
-    Task("textedit_save_owned",
-         f"In TextEdit, the document named \"{OWNED_NAME}\" is already open. Type exactly this text "
-         f"into that document: {SAVE_TEXT}  Then save the document. Do not create a new document, "
-         "do not rename it, and do not close it.",
-         lambda a: owned_saved_oracle(SAVE_TEXT), setup=owned_setup, cleanup=owned_cleanup,
-         oracle_contract="textedit-save-exact-utf8-v2"),
-    Task("calc_to_textedit",
-         "Compute 23 × 19 in the macOS Calculator app, then type the result (digits only) into the "
-         f"TextEdit document named \"{OWNED_NAME}\", which is already open. Do not create a new "
-         "document, and do not close it.",
-         lambda a: owned_oracle("437"), setup=calc_then_owned_setup, cleanup=owned_cleanup),
+    Task("textedit_save_owned",signed_owned_save_ask,
+         lambda a: signed_owned_saved_oracle(SAVE_TEXT), setup=signed_owned_setup, cleanup=signed_owned_cleanup,
+         oracle_contract="signed-owned-document-exact-utf8-saved-state-v3",
+         preview="Save exact text in the evaluator-created TextEdit document; the owned path is assigned during setup."),
+    Task("calc_to_textedit",signed_chain_ask,
+         lambda a: signed_chain_oracle("437"), setup=signed_calc_then_owned_setup, cleanup=signed_owned_cleanup,
+         oracle_contract="signed-calculator-and-owned-document-exact-text-v3",
+         preview="Compute 23 × 19 in Calculator and type digits in the evaluator-created TextEdit document."),
     Task("finder_new_folder",
          lambda: (f"Using Finder, create one new folder inside the folder {_NEWDIR.get('path', '(not created)')} "
                   "and report the new folder's name."),
@@ -1031,14 +1100,15 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 "locked": [initial_lock, initial_lock], "process_exit": None,
                 "comparison_eligible": False, "cleanup_status": "not_requested",
                 **_source_evidence(source_before, source_manifest())}
+    setup_evidence=None
     if task.setup:
         try:
-            task.setup()
+            setup_evidence=task.setup()
         except Exception as exc:
             return {"task": task.name, "arm": arm, "status": "not_run",
                     "oracle_contract": task.oracle_contract,
                     "observed": f"setup failed: {type(exc).__name__}: {str(exc)[:120]}", "seconds": 0,
-                    "owned_fixture_evidence":signed_fixture_evidence() if task.setup is signed_owned_setup else None,
+                    "owned_fixture_evidence":signed_fixture_evidence() if task.cleanup is signed_owned_cleanup else None,
                     "answer": "", "calls": {}, "usage": None, "activations": [],
                     **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
@@ -1050,7 +1120,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 "locked": [initial_lock, locked_before], "process_exit": None,
                 "comparison_eligible": False, "cleanup_status": "environment_unavailable_left_as_is",
                 **_source_evidence(source_before, source_manifest())}
-    report_fixture = _SIGNED_OWNED.get('fixture') if task.setup is signed_owned_setup else None
+    report_fixture = _SIGNED_OWNED.get('fixture') if task.cleanup is signed_owned_cleanup else None
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
     ask = task.ask() if callable(task.ask) else task.ask
     prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS} {BACKGROUND_CONSTRAINT}"
@@ -1153,6 +1223,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
             result["cleanup_error"] = type(error).__name__[:80]
     if report_fixture is not None:
         result['owned_fixture_evidence'] = signed_fixture_evidence(report_fixture)
+    if isinstance(setup_evidence,dict):result['setup_evidence']=setup_evidence
     result.update(_source_evidence(source_before, source_manifest()))
     if result["source_changed"]:
         # A successful oracle cannot certify a comparison under drifting code.

@@ -976,3 +976,61 @@ not_started 실패는 별도 signed-textedit-save-initial/prepared.json으로 �
 다음에는 Save/chain 비교 fixture의 legacy cleanup을 signed lifecycle로
 이행하고 실제 모델 비교를 수행한다. 원래 G0~G10과 인과·입력 보존·동일 조건
 완료 기준은 그대로이며 이번 실제 Save 성공으로 전체 완료를 선언하지 않는다.
+
+## G8/G9 후속: signed 저장 비교와 앱 간 작업 실패 실측
+
+textedit_save_owned와 calc_to_textedit의 setup/cleanup을 signed lifecycle로
+이행했다. 과제는 basename만 아니라 새 owned path를 지정하며 setup 전 list는
+preview만 사용한다. Save oracle은 영수증 코드와 독립인 bounded fd/lstat 읽기와
+original0700 directory identity/정확한 구성원, pinned signed 본문을 결합한다.
+계약은 signed-owned-document-exact-utf8-saved-state-v3다. 비교 코드에 남은
+legacy custom cleanup gate를 전역으로 제거하지 않았다. chain wrapper도
+fixture evidence를 기록하도록 setup identity 대신 cleanup identity를 사용한다.
+
+owner-only `../reviews/2026-10-10/product-comparison-20261010-214334.jsonl`에서
+실제 Sky/NLC Save가 각각49.6/45.1초에 PASS였다. 두 arm 모두 exact disk와
+본문, 초기 빈 문서, signed close/부재/삭제 및 cleanup completed를 기록했다.
+agent 구간 초기 frontmost=System Settings, activation=[]였다. source prefix
+b930dd980e0e가 두 arm 전후 stable이다. CLI input/cache/output은
+Sky188422/178944/723, NLC132725/105472/933다. tool item event 수는
+Sky node_repl:js16, NLC shell:nlc12/shell:other2이며 고유 호출 수가 아니다.
+실제 serving model/cost, nested provider 총 비용, typing/caret/pointer 보존,
+Sky descendant/TCC graph, 완전한 초기 UI는 미검증이다. 비교 제외와 command
+exit2를 유지한다. 저장된 상태를 autosave 없는 명시 Save 인과 증거로 승격하지
+않는다. 동일 cohort의 chain 두 arm은 setup KeyError obs_id로 not_run이었다.
+
+signed observe의 target_not_found 및 NSRunningApplication count0로 Calculator
+미실행을 확인했다. calc_reset은 해당 오류에만 unlocked 확인 후 open -g -b로
+배경 실행하고,8초 read-only 재관측/activation witness를 확인한다. 다른 오류는
+명시 unavailable로 종료하며 무조건 obs_id를 읽지 않는다. signed 독립 읽기로
+표시값0/모드basic을 확인하고 setup evidence를 남긴다. 새로 실행한 Calculator는
+자동 종료하거나 포커스를 복원하지 않으며 left_running boolean을 남긴다.
+
+`../reviews/2026-10-10/product-comparison-20261010-214831.jsonl`의 실제 chain은
+NLC44.2초/Sky40.8초 모두 FAIL이었다. NLC는 CLI에서 정확한 TextEdit 문서
+경로로 관측을 제한할 수 없다고 중단했고, Sky는 background 입력과 입력 보존
+지원 여부를 확인하지 못해 중단했다. 두 문서 본문은 빈 상태였고 signed cleanup
+completed/artifact removed, activation 없음, source stable이었다. NLC setup은
+Calculator background launch 및 초기0/basic을 독립 검증했다. 이 실패를 새
+준비 성공이나 다른 과제의 Save 성공으로 지우지 않는다. command exit1이었다.
+
+chain의 이전 oracle은 owned 본문437만 검증했다. 이제 Calculator 표시437도
+독립 검증해야 하는 signed-calculator-and-owned-document-exact-text-v3를
+사용한다. 명시 Save를 요구하지 않는 앱 간 결과 전달 과제이며 새 계약의 실제
+model 실행은 아직 없다. 위 실패 cohort는 이전 v2 oracle로 그대로 보존한다.
+두 새 prerequisites audit는 source/runtime 계약을 확인하되 not_run/제외를
+보존하고 비교율을 계산하지 않는다.
+
+오래된 readiness 단위 테스트가 subprocess.run을 mock한 반면 실제 agent
+경로는 _run_agent/Popen으로 바뀌어 있었다. signed channel mock 보강 후
+실제 CLI가 기동된 테스트 실행을 SIGINT로 중단했다. _run_codex의 BaseException
+killpg/reap 및 프로세스 부재를 확인했다. 이 중단 실행의 모델 usage/cost와 GUI
+효과는 계측되지 않았으며 모델 호출 없는 단위 테스트 증거로 사용하지 않는다.
+현재 테스트는 _run_agent를 mock하고 Popen fail-fast 경계를 추가했다. 채널은
+명시 mock이며 eligible=false 검사는 실제 책임 경계 미검증 계약에 맞춘다.
+최종 관련101개 테스트가 PASS이며 모델/GUI subprocess를 실행하지 않는다.
+
+Muxa req_18dd2b9f73eeaeb0_80 및 req_18dd2bd0e99e15e8_81 리뷰의 P1/P2는
+없었다. 다음 실제 기능 격차는 installed CLI의 path-scoped 문서 관측/실행이다.
+Python API의 document_path/token 지원을 CLI 사용자가 안전하게 활용할 수
+있도록 연결하고 재평가한다. 전체 G0~G10 완료 기준을 유지한다.

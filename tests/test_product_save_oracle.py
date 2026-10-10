@@ -88,7 +88,7 @@ class SaveOracleTests(unittest.TestCase):
 
     def test_save_task_declares_new_oracle_contract(self):
         task = next(t for t in comparison.TASKS if t.name == 'textedit_save_owned')
-        self.assertEqual('textedit-save-exact-utf8-v2', task.oracle_contract)
+        self.assertEqual('signed-owned-document-exact-utf8-saved-state-v3', task.oracle_contract)
 
 
 if __name__ == '__main__':

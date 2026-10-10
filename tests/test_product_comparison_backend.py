@@ -121,7 +121,7 @@ class ComparisonBackendTests(unittest.TestCase):
 
     def test_setup_menu_refusal_does_not_proceed_to_clear_inputs(self):
         stub = Mock()
-        stub.observe.return_value = {'obs_id':'owned', 'tree':'owned'}
+        stub.observe.return_value = {'type':'observation','obs_id':'owned', 'tree':'owned'}
         stub.act.return_value = {'type':'error', 'effect':'not_started'}
         with patch.object(comparison, '_driver', return_value=stub), \
              self.assertRaisesRegex(RuntimeError, '^comparison_setup_menu_unverified$'):
@@ -130,7 +130,7 @@ class ComparisonBackendTests(unittest.TestCase):
 
     def test_setup_uncertain_clear_is_not_repeated(self):
         stub = Mock()
-        stub.observe.return_value = {'obs_id':'owned', 'tree':'owned'}
+        stub.observe.return_value = {'type':'observation','obs_id':'owned', 'tree':'owned'}
         stub.act.side_effect = [{'type':'acted'}, {'type':'error', 'effect':'unknown'}]
         with patch.object(comparison, '_driver', return_value=stub), \
              patch.object(comparison.time, 'sleep'), \

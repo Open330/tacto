@@ -13,6 +13,12 @@ from tests.test_product_comparison_provenance import comparison
 
 
 class ProductReadinessTests(unittest.TestCase):
+    def setUp(self):
+        channel=patch('nlc.helper.InheritedHelperDriver.available',return_value=True)
+        channel.start();self.addCleanup(channel.stop)
+        spawn=patch('nlc.codex_result.subprocess.Popen',side_effect=AssertionError('readiness unit tests must not spawn an external process'))
+        spawn.start();self.addCleanup(spawn.stop)
+
     def execute(self, locks, exit_code=0):
         setup, cleanup, oracle = Mock(), Mock(), Mock(return_value=(True, 'independent pass'))
         task = comparison.Task('probe', 'goal', oracle, setup=setup, cleanup=cleanup)
@@ -22,14 +28,14 @@ class ProductReadinessTests(unittest.TestCase):
             def __exit__(self, *args): pass
             def summary(self): return {'activations': []}
 
-        def agent(argv, **kwargs):
+        def agent(argv, prompt, timeout, diagnostics):
             Path(argv[argv.index('-o') + 1]).write_text('answer')
             return subprocess.CompletedProcess(argv, exit_code, '', '')
 
         with patch.dict(sys.modules, {'focus_witness': types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', side_effect=locks), \
              patch.object(comparison, 'source_manifest', return_value={'sha256':'fixed', 'files':{}}), \
-             patch.object(comparison.subprocess, 'run', side_effect=agent) as model:
+             patch.object(comparison, '_run_agent', side_effect=agent) as model:
             result = comparison.run_one(task, 'nlc')
         return result, setup, cleanup, oracle, model
 
@@ -64,7 +70,8 @@ class ProductReadinessTests(unittest.TestCase):
     def test_observable_success_allows_owned_cleanup(self):
         result, _, cleanup, _, _ = self.execute([False, False, False])
         self.assertEqual('passed', result['status'])
-        self.assertTrue(result['comparison_eligible'])
+        self.assertFalse(result['comparison_eligible'])
+        self.assertEqual('agent_responsibility_not_isolated_or_observed',result['comparison_exclusion_reason'])
         cleanup.assert_called_once()
 
     def test_invalid_cli_filters_cannot_call_run_one(self):
