@@ -30,7 +30,7 @@ class SkillInstallTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=30)
 
     def entry(self):
-        for candidate in (ROOT / "launcher" / "nlc", ROOT / ".venv" / "bin" / "nlc"):
+        for candidate in (ROOT / "launcher" / "nlc",):
             if os.access(candidate, os.X_OK):
                 return candidate
         self.skipTest("no built entry point in this checkout")
@@ -58,7 +58,7 @@ class SkillInstallTests(unittest.TestCase):
         other.mkdir()
         (other / "SKILL.md").write_text("---\nname: something-else\n---\n")
         r = self.run_script()
-        self.assertEqual(0, r.returncode, r.stdout)
+        self.assertEqual(1, r.returncode, r.stdout)
         self.assertFalse(other.is_symlink())
         self.assertIn("not the NLC skill", r.stdout)
         self.assertTrue((self.home / ".codex/skills/nlc").is_symlink())
@@ -74,7 +74,7 @@ class SkillInstallTests(unittest.TestCase):
     def test_check_changes_nothing(self):
         self.entry()
         r = self.run_script("--check")
-        self.assertEqual(0, r.returncode)
+        self.assertEqual(1, r.returncode)
         self.assertIn("missing", r.stdout)
         self.assertFalse((self.bin / "nlc").exists())
         self.assertFalse((self.home / ".claude/skills/nlc").exists())

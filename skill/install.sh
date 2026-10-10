@@ -12,48 +12,62 @@
 # agent reads is always what this checkout says.
 set -euo pipefail
 
-repo=$(cd "$(dirname "$0")/.." && pwd -P)
+skill_dir=$(cd "$(dirname "$0")" && pwd -P)
+repo=$(cd "$skill_dir/.." && pwd -P)
 skill="$repo/skill"
 bin_dir="${NLC_BIN_DIR:-$HOME/.local/bin}"
 check=0
-[ "${1:-}" = "--check" ] && check=1
+case "$#:${1:-}" in
+  0:) ;;
+  1:--check) check=1 ;;
+  1:--help) echo 'usage: skill/install.sh [--check]'; exit 0 ;;
+  *) echo 'usage: skill/install.sh [--check]' >&2; exit 2 ;;
+esac
+status=0
 
 say() { printf '  %s\n' "$*"; }
 ours() {   # is this path an NLC skill we may replace?
-  [ -L "$1" ] && return 0
+  [ "$(readlink "$1" 2>/dev/null)" = "$skill" ] && return 0
   [ -f "$1/SKILL.md" ] && grep -q '^name: nlc$' "$1/SKILL.md"
+}
+our_command_link() {
+  local old old_repo
+  old=$(readlink "$1" 2>/dev/null) || return 1
+  case "$old" in
+    "$repo/launcher/nlc"|"$repo/.venv/bin/nlc") return 0 ;;
+    /*/launcher/nlc) old_repo=${old%/launcher/nlc} ;;
+    /*/.venv/bin/nlc) old_repo=${old%/.venv/bin/nlc} ;;
+    *) return 1 ;;
+  esac
+  [ -f "$old_repo/skill/SKILL.md" ] && grep -q '^name: nlc$' "$old_repo/skill/SKILL.md"
 }
 
 echo "NLC — $repo"
 
 # 1. The command. The signed launcher is the entry point that holds the
-#    permission boundary and works from any directory; the venv script is a
-#    fallback for machines that have not built it.
+#    permission boundary and works from any directory. A Python console script
+#    cannot replace that boundary, even when it has the same command name.
 entry=""
 if [ -x "$repo/launcher/nlc" ]; then
   entry="$repo/launcher/nlc"
-elif [ -x "$repo/.venv/bin/nlc" ]; then
-  entry="$repo/.venv/bin/nlc"
 fi
 target="$bin_dir/nlc"
 echo "command"
 if [ -z "$entry" ]; then
-  say "missing: no launcher/nlc and no .venv/bin/nlc — build first:"
-  say "  uv sync && ./launcher/build.sh && ./helper/build.sh && ./helper/bundle.sh"
-  [ $check = 1 ] || exit 1
+  say "missing: launcher/nlc — build the native checkout first:"
+  say "  uv sync && ./build.sh"
+  exit 1
 elif [ $check = 1 ]; then
   if [ "$(readlink "$target" 2>/dev/null)" = "$entry" ]; then say "ok: $target -> $entry"
-  else say "missing: $target (would link to $entry)"; fi
+  else say "missing or conflicting: $target (would link to $entry)"; status=1; fi
 else
   mkdir -p "$bin_dir"
-  if [ -e "$target" ] && [ ! -L "$target" ]; then
-    say "not replacing $target: it is a file that is not ours"
+  if { [ -e "$target" ] || [ -L "$target" ]; } && ! our_command_link "$target"; then
+    say "not replacing $target: it is not our command link"
     exit 1
   fi
   ln -sfn "$entry" "$target"
   say "linked: $target -> $entry"
-  [ "$entry" = "$repo/.venv/bin/nlc" ] && \
-    say "note: unsigned entry point; build launcher/ for the permission boundary"
 fi
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
@@ -71,22 +85,41 @@ for d in "$HOME/Library/Application Support/asx/profiles"/*/skills; do
 done
 seen=""
 for parent in "${dirs[@]}"; do
-  [ -d "$parent" ] || continue
+  if [ ! -d "$parent" ]; then
+    if [ $check = 1 ]; then
+      say "missing: $parent/nlc"; status=1; continue
+    fi
+    mkdir -p "$parent"
+  fi
   real=$(cd "$parent" && pwd -P)
   case "$seen" in *"|$real|"*) continue ;; esac
   seen="$seen|$real|"
   dest="$parent/nlc"
   if [ $check = 1 ]; then
     if [ "$(readlink "$dest" 2>/dev/null)" = "$skill" ]; then say "ok: $dest"
-    elif [ -e "$dest" ]; then say "stale copy: $dest"
-    else say "missing: $dest"; fi
+    elif [ -e "$dest" ] || [ -L "$dest" ]; then say "stale copy or conflicting link: $dest"; status=1
+    else say "missing: $dest"; status=1; fi
     continue
   fi
-  if [ -e "$dest" ] && ! ours "$dest"; then
+  if { [ -e "$dest" ] || [ -L "$dest" ]; } && ! ours "$dest"; then
     say "not replacing $dest: it is not the NLC skill"
+    if [ -L "$dest" ] && [ ! -e "$dest" ]; then
+      say "link target is missing; verify the previous NLC checkout before replacing this link"
+    fi
+    status=1
     continue
   fi
-  rm -rf "$dest"
-  ln -s "$skill" "$dest"
+  if [ -L "$dest" ]; then
+    ln -sfn "$skill" "$dest"
+  else
+    if [ -e "$dest" ]; then
+      # Keep old SKILL.md outside the discovery root to avoid duplicate skills.
+      backup=$(mktemp -d "$(dirname "$parent")/.nlc-skill-backup.XXXXXX")
+      mv "$dest" "$backup/nlc"
+      say "kept previous copy: $backup/nlc"
+    fi
+    ln -s "$skill" "$dest"
+  fi
   say "linked: $dest"
 done
+exit "$status"

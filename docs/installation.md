@@ -91,7 +91,25 @@ NLC_TEST_WHEEL_INSTALL=1 .venv/bin/python -m unittest discover -s tests -p test_
 
 `skill/install.sh`는 `~/.local/bin/nlc`를 이 checkout의 signed launcher에,
 Claude/Codex의 NLC 스킬을 이 checkout의 `skill/`에 연결합니다.
-`skill/install.sh --check`는 링크만 확인하며 backend 선택을 검증하지 않습니다.
+새 사용자 환경에는 기본 Claude/Codex skills 폴더를 만들고, 명시한
+`CLAUDE_CONFIG_DIR`·`CODEX_HOME`의 skills 폴더도 연결합니다.
+`skill/install.sh --check`는 폴더를 만들거나 링크를 바꾸지 않으며,
+연결이 모두 맞으면 exit0, 누락·오래된 연결·충돌이면 exit1입니다.
+backend 선택·코드 서명·권한·helper 실행은 이 링크 검사로 검증하지 않습니다.
+
+이 installer는 `launcher/nlc`가 없을 때 Python console script로 대체하지
+않습니다. 먼저 `uv sync && ./build.sh`로 native checkout을 준비합니다.
+다른 프로그램이나 스킬의 파일·심볼릭 링크는 보존하고 충돌을 보고합니다.
+기존 NLC 스킬 복사본을 연결로 바꿀 때는 skills 폴더 밖, 그 상위 폴더의
+비공개 `.nlc-skill-backup.*/nlc` 아래에 원본과 로컬 추가 파일을 보관합니다.
+이 installer는 두 도구의 기본 스킬을 함께 준비하는 것이 목적이므로
+아직 사용하지 않는 도구의 skills 폴더도 생성합니다. 이전 checkout이 여전히
+있으면 그 NLC marker로 링크를 갱신합니다. 이전 checkout이 없어져 출처를
+확인할 수 없는 깨진 링크는 자동 교체하지 않고 경로 확인을 안내합니다.
+일부 연결만 성공해도 충돌이 남으면 exit1이므로 시작 앱은 완료로 표시하지
+않습니다. 옵션은 `--check`와 `--help`이며, 오타나 추가 인자는 설치 전에
+exit2로 거부합니다. PATH를 자동 변경하지 않으므로 필요한 경우
+`~/.local/bin/nlc`의 절대 경로를 사용할 수 있습니다.
 
 macOS UI 작업은 `nlc apps --helper`, `nlc observe <bundle-id> --helper`,
 `nlc run <flow.json> --helper`, `nlc replay <name> --helper`,

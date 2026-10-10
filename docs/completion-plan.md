@@ -397,3 +397,50 @@ README의 CLI 옵션과 API docstring에 실패·검증 재요청을 포함하�
 이 추가 경로와 CLI를 포함한 후속38개 테스트가 통과했다. 새 실제 모델 요청을
 보내지 않는 진단 변경이므로 기존 실제 모델/DOM 시험 기록은 별도 소스 범위로
 유지한다. 리뷰 request는 req_18dd223a04ea7418_3d다.
+
+## G10 후속: 새 사용자 설치·스킬 연결의 실패 경계
+
+skill/install.sh는 signed launcher 경로가 없으면 Python console script를
+연결하던 fallback을 제거했다. 새 사용자·relocated Claude/Codex 환경의
+없는 skills 폴더를 생성하고 최신 checkout의 skill 링크를 만든다.
+확인 모드는 변경 없이 누락/충돌을 exit1로 보고하며, 잘못된 옵션은
+설치를 시작하기 전에 exit2로 거부한다. 이름만 같은 다른 명령/스킬의
+파일·정상/깨진 symlink는 보존한다. 기존 NLC 스킬 복사본과 그 안의 로컬
+추가 파일은 삭제 대신 private backup에 보관한 후 연결한다.
+기존 NLC checkout의 launcher/console 링크는 NLC marker를 확인해 갱신한다.
+
+실제 bash installer를 임시 checkout·새 사용자 경로(공백 포함)에 실행한
+9개 케이스와 기존 설치5개 케이스는14/14 통과했다. 이 fixture의 launcher는
+실행하지 않는 placeholder이며 서명·TCC·실제 앱 검증을 대신하지 않는다.
+원래8개 새 케이스를 수정 전 HEAD 8c37eca의 installer로 실행한 결과는
+unittest failures8/errors2(하위 subtest 포함)였고, 전체 로그를
+`../reviews/2026-10-10/skill-installer-baseline.log`에 보존했다.
+회귀 runner의 wrapper exit는0이므로 그 exit를 테스트 성공으로 해석하지 않는다.
+
+현재 실제 설치에는 `skill/install.sh --check`만 실행했다. launcher와
+Claude/Codex skill 링크는 모두 맞고 exit0이었다. 실제 사용자 디렉터리의
+설치·권한 변경이나 앱 실행은 하지 않았다. 시작 앱의 연결 버튼은 installer의
+nonzero 상태를 실패로 표시하는 기존 계약을 그대로 사용한다. 새 Mac의
+드래그·Gatekeeper·권한 부여, standalone runtime·배포 서명·공증은 여전히
+남아 있으며, 이 연결 검증만으로 G10 전체 완료를 선언하지 않는다.
+
+후속 Muxa read-only 리뷰(req_18dd22a8bf3e80c0_41)는 P1 clobber 없음으로
+판단했다. 중복 스킬 탐색 가능성을 줄이기 위해 백업은 skills discovery root
+밖의 상위 폴더로 옮겼고 회귀에서 이를 검사한다. 기본 두 agent 폴더 생성은
+installer가 두 도구를 함께 준비하는 명시 목적이므로 유지하며 문서에 적었다.
+존재하는 이전 checkout 링크 갱신은 회귀로 검증됐지만, 이전 checkout 자체가
+없어진 dangling link는 출처를 확인할 수 없어 자동 교체하지 않는다.
+구체적인 확인 안내를 추가했고 이 이동 복구 제약도 유지한다.
+
+현재 설치의 launcher·Codex skill·.venv의 Python CLI import 경로가 이 checkout과
+일치함을 읽기 전용으로 확인했다(`../reviews/2026-10-10/installed-runtime-paths.json`).
+현재 launcher와 helper bundle의 codesign strict 검증은 모두 exit0이었다
+(`../reviews/2026-10-10/installed-signature-checks.json`). 이는 현재 로컬 signature
+유효성 확인이며 새 Mac의 권한·배포 identity·notarization 검증이 아니다.
+
+실제 설치된 skill 링크를 통해 install.sh --check를 실행하는 추가 회귀에서
+Bash의 논리적 '..' 처리 때문에 repo가 ~/.codex/skills로 잘못 계산되고,
+launcher가 없다는 exit1이 재현됐다. 먼저 installer 디렉터리를 pwd -P로
+확정한 뒤 그 부모를 repo로 계산하도록 수정했다. Codex/Claude의 설치된
+skill 경로 모두 같은 checkout을 찾는 검사를 추가했다.
+최종 installer10개+기존설치5개+docs6개는21/21 통과했다.
