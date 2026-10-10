@@ -52,3 +52,104 @@ Codex2/2, SDK Claude1/2, Codex2/2다. SDK Claude 실패는 Direct1 이후 명시
 대표 앱·장기 복구를 입증하지 않는다. SDK 서비스 대기가 기한에 포함되고 관측
 형식과 adapter overhead가 달라 latency 동등성도 주장하지 않는다. 거절 진단/UX
 수정은 GUI trial 이후이며 frozen trial과 후속 회귀 결과를 구분한다.
+
+## TextEdit 저장 비교의 정확한 바이트 판정
+
+`examples/product_comparison.py`의 `textedit_save_owned`는 새 결과부터
+`oracle_contract: textedit-save-exact-utf8-v2`를 기록한다. 파일 바이트와
+소유 문서 본문을 요청한 문자열에 정확히 대조하며, 공백·줄바꿈·BOM·본문의
+Unicode 정규화를 허용하지 않는다. 경로 표시의 NFC 정규화와 본문 비교는
+서로 다른 계약이다. 일반 읽기 과제의 기존 공백 정규화는 별도로 유지한다.
+
+파일 판정은 NLC receipt를 재사용하지 않는 독립 oracle다. 현재 사용자 소유의
+일반 파일·단일 링크·4MiB 상한·no-follow/non-blocking open과 읽기 전후
+descriptor/path metadata, canonical path, harness directory identity를 확인한다.
+본문 미관측은 빈 문자열로 바꾸지 않는다. 이 readback은 관측된 저장 상태이며,
+Save가 직접 파일을 썼다는 생산자 인과 증거나 향후 파일 불변성을 제공하지 않는다.
+
+이전 cohort의 oracle는 공백을 정규화했다. 기존 원시 결과를 새 oracle의 성공으로
+재분류하거나 덮어쓰지 않는다. 같은 소스·초기 상태에서 양쪽을 새 contract로
+다시 실행해야 정확한 저장 성공률을 비교할 수 있다. 새 저장 oracle의 회귀 검사는
+임시 파일과 주입된 문서 응답만 사용하며 실제 TextEdit GUI 실행이 아니다.
+
+## 비교 실행의 환경과 종료 상태
+
+Runner는 fixture 준비 전에 화면 잠금/세션 미관측을 확인하며, 이 경우
+setup·모델·cleanup을 실행하지 않는다. setup 뒤 환경이 달라져도 모델을 시작하지
+않고 소유 fixture를 보존한다. 실행 후 잠금 또는 세션 미관측이 보이면 cleanup
+입력을 보내지 않으며 `comparison_eligible: false`로 기록한다.
+이미 시도한 작업의 `failed`/`timeout`/`passed` 상태는 유지한다. 환경의 전후
+관측은 실패 원인이나 실행 중 잠금이 없었다는 증거가 아니다.
+
+알 수 없는 과제·빈 `--only`·0 이하 reps는 실행 전에 오류다. 새 report는
+0600으로 배타적으로 생성한다. CLI는 모든 결과가 eligible PASS이면0,
+FAIL/TIMEOUT/INVALID가 있으면1, 그 밖의 미실행·비교 제외가 있으면2로 끝난다.
+`--list`는 실행하지 않고0으로 끝난다. 기존 기록에는 새 필드를 소급 추가하지 않는다.
+
+## 외형 설정 읽기 실제 재실행
+
+`reviews/2026-10-10/product-comparison-20261010-155619.jsonl`: NLC1/1·Sky1/1
+oracle PASS, 양쪽 Light. NLC42.3초/입력149159/캐시126848/출력458,
+Sky53.9초/입력118828/캐시104960/출력366. 이는 원시 usage이며 비용으로
+환산하지 않는다. Codex CLI0.161.0을 사용했으며 실제 serving model은 미관측이다.
+
+양쪽 before/after manifest SHA256은
+`41ebde9ff344b8f999d1ef193d5d906992e2bc5779db52cf9e7bd33ed20a2c2b`로
+동일하다. source_changed=false, process exit0, comparison_eligible=true,
+잠금 전후 관측false, activation0건, cleanup은 요청하지 않았다. layer/shortcut
+검사는 기록된 호출의 휴리스틱이며 전체 실행 경로의 인증이 아니다.
+전경 앱/캐럿/사용자 동시 typing의 동일 초기 상태·보존은 입증하지 않는다.
+
+이 과제는 `legacy-ui-state-v1` 읽기 oracle로 실행했다. 새 정확한 저장 oracle,
+Dark/Auto 설정, 반복 성공률, 지연·비용 우위나 전체 제품 동등성의 증거로
+확대하지 않는다. 이전 실패 cohort는 보존한다.
+
+## 정확한 TextEdit 저장 상태의 실제 비교
+
+`reviews/2026-10-10/product-comparison-20261010-160030.jsonl`: 신규 private
+directory의 소유 `.txt` 문서로 `textedit-save-exact-utf8-v2`를 양쪽1회 실행했다.
+NLC1/1·Sky1/1 PASS, 각 행에서 disk_exact=true/window_exact=true이며 자체
+문서 cleanup은 completed다. NLC41.2초/입력168253/캐시152704/출력450,
+Sky49.5초/입력204135/캐시195968/출력804. 입력/cache를 비용으로 환산하지 않는다.
+
+양쪽 manifest SHA256은
+`41ebde9ff344b8f999d1ef193d5d906992e2bc5779db52cf9e7bd33ed20a2c2b`로
+동일하다. source_changed=false, process exit0, comparison_eligible=true,
+전후 lock=false, TextEdit hidden=false, layer/shortcut 휴리스틱 false다.
+파일은0600이다. NLC activation0건, Sky2건(cmuxterm·Blender)이 관측됐으나
+이 이벤트를 agent가 유발했는지 사용자의 앱 전환인지 판별하지 못했다.
+포커스 침해의 인과 증거나 성능 우위로 사용하지 않는다.
+
+이번 기록은 정확한 최종 저장 상태를 증명하며 명시 Save와 autosave의
+생산자 기여를 분리하지 못한다. source-format/첨부 보존, 사용자 caret,
+동시 typing, 여러 앱·백본·반복의 완료 증거도 아니다. 이전 저장 실패 기록을
+삭제하거나 이번1회 성공으로 안정성 완료를 선언하지 않는다.
+
+이 시행에는 초기 전경 앱 bundle 기록이 없으므로 양쪽 전경 상태가 같았다고
+주장하지 않는다. 시행 후 runner는 witness의 `initial_frontmost_bundle`을
+보존하도록 보강했다. 이 후속 변경은 위 frozen manifest에 포함되지 않으며
+기존 행에 값을 추정해 추가하지 않는다. 이 메타데이터만으로 caret/selection
+또는 실행 중 사용자의 입력 수신이 증명되는 것도 아니다.
+
+## Finder 새 폴더 재실행: 실패 유지
+
+`reviews/2026-10-10/product-comparison-20261010-160542.jsonl`은 NLC0/1,
+Sky1/1이다. Sky44.9초에 `untitled folder` 한 개가 실제 directory로 확인됐고,
+NLC165.7초 뒤 `children=[]`로 실패했다. 양쪽 process exit0이며 CLI도
+전체 실패를 exit1로 반환했다. 자기 시험 폴더 cleanup은 양쪽 folder_removed다.
+
+NLC 최종 응답은 New Folder disabled와 창 준비 timeout을 보고했다. 이는 모델의
+보고이며 원시 native 실패 코드/phase별 trace를 보존한 진단은 아니다. 따라서
+readiness 전체-tree 예산, key/responder 상태 또는 다른 원인 중 하나로 확정하지
+않는다. 다음 수정 전에 bounded 준비 진단과 실제 tool 실패 근거를 확보해야 한다.
+
+Full SHA256은 양쪽 before/after 모두
+`a2241b5073e3c2a2f7727dfe5fe062f5da95122e2d376b1b1e0a2d2acfa764cf`다.
+source_changed=false, comparison_eligible=true, 전후 lock=false다.
+이 flag는 환경/소스 검사를 뜻하며 완전한 초기 상태 동등성을 인증하지 않는다.
+초기 전경은 Sky `godot#75802`, NLC Finder로 달랐으므로 동일 초기 상태의
+성능 비교라고 주장하지 않는다. activation은 Sky3건, NLC1건으로 원인 미확정이다.
+
+NLC 원시 input603060/cache555776/output2139, Sky input205396/cache186624/
+output668이다. 반복 준비에 든 실제 요청량을 보존하며 비용으로 환산하지 않는다.
+이번 실패를 이전 저장/외형 읽기 성공으로 덮어쓰지 않는다.

@@ -972,11 +972,34 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
                              windowInput: NativeOpaqueWindowInput? = nil) -> [String: Any] {
+    let diagnosticStart = ProcessInfo.processInfo.systemUptime
+    var phase = "identity"
+    var readScope: NativeWindowReadScope?
+    func diagnosed(_ result: [String: Any]) -> [String: Any] {
+        let detail = result["detail"] as? String ?? ""
+        let reason: String
+        switch detail {
+        case "readiness budget exceeded: deadline": reason = "readiness_deadline"
+        case "readiness budget exceeded: nodes": reason = "readiness_nodes"
+        case "window observation deadline expired": reason = "observation_deadline"
+        case "window AX timeout unavailable": reason = "ax_timeout_unavailable"
+        case "window AX timeout reset failed": reason = "ax_timeout_reset_failed"
+        case "no blank native titlebar point": reason = "titlebar_point_unavailable"
+        case "modal or unknown window", "sheet or malformed sheet list": reason = "modal_or_unverifiable"
+        case "window observation identity unavailable", "window observation or process changed": reason = "identity_changed"
+        default: reason = result["type"] as? String == "acted" ? "dispatched_unverified" : "unclassified_refusal"
+        }
+        var out = result
+        out["preparation_diagnostic"] = ["phase": phase, "reason": reason,
+            "elapsed_ms": Int(max(0, min(600000, (ProcessInfo.processInfo.systemUptime - diagnosticStart) * 1000))),
+            "scoped_ax_operations": readScope?.operationCount ?? 0]
+        return out
+    }
     let elements = latestElements
     guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
           elements.filter({ CFEqual($0, element) }).count == 1 else {
-        return ["type":"error", "error":"action_failed", "effect":"not_started",
-                "detail":"window observation identity unavailable"]
+        return diagnosed(["type":"error", "error":"action_failed", "effect":"not_started",
+                "detail":"window observation identity unavailable"])
     }
     func context() throws {
         try validateDocumentObservation(target)
@@ -991,7 +1014,10 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
     }
     do {
         let scope = NativeWindowReadScope(deadline: deadline, check: context)
+        readScope = scope
+        phase = "context"
         try scope.ready()
+        phase = "binding"
         let binding = try captureNativeWindowBinding(element, pid, expectedStart: start,
             pointKind: windowInput != nil ? .windowInput : point != nil ? .windowPoint : key == nil ? .titlebar : .elementCenter,
             scope: scope, relativePoint: point)
@@ -999,6 +1025,7 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
         if windowInput != nil || point != nil { routing = { binding, _ in try requireNativeWindowTarget(binding, scope: scope) } }
         else if key != nil { routing = { try requireNativeKeyTarget($0, element: $1, scope: scope) } }
         else { routing = nil }
+        phase = "dispatch"
         let result = try dispatchNativeWindowPreparation(binding, deadline: deadline,
             stopped: { abortState.isStopped }, context: context,
             validate: { try validateNativeWindowBinding($0, scope: scope) }, key: key,
@@ -1010,14 +1037,14 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                 }
                 try scope.ready()
             }, pointClick: point != nil, windowInput: windowInput)
-        return ["type":"acted", "action":windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
+        return diagnosed(["type":"acted", "action":windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
                 "input_route":windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
                 "posted_events":result.posted, "window_id":result.windowID,
-                "reobserve_required":true, "unverified":"observe_effect"]
+                "reobserve_required":true, "unverified":"observe_effect"])
     } catch let failure as NativeWindowDispatchFailure {
-        return ["type":"error", "error":failure.stopped ? "aborted_by_user" : "action_failed",
+        return diagnosed(["type":"error", "error":failure.stopped ? "aborted_by_user" : "action_failed",
                 "effect":failure.attempted > 0 ? "unknown" : "not_started",
-                "posted_or_attempted_events":failure.attempted, "detail":failure.detail]
+                "posted_or_attempted_events":failure.attempted, "detail":failure.detail])
     } catch {
         let detail: String
         switch error {
@@ -1025,18 +1052,23 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
              NativeWindowInputError.needsForeground(let value): detail = value
         default: detail = "window preparation observation failed"
         }
-        return ["type":"error", "error":abortState.isStopped ? "aborted_by_user" : "action_failed",
-                "effect":"not_started", "detail":detail]
+        return diagnosed(["type":"error", "error":abortState.isStopped ? "aborted_by_user" : "action_failed",
+                "effect":"not_started", "detail":detail])
     }
 }
 
 func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                    _ pid: pid_t, deadline: Double) -> [String: Any] {
     var attempted = false
+    let diagnosticStart = ProcessInfo.processInfo.systemUptime
+    var phase = "identity"
     func refuse(_ error: String, _ detail: String, foreground: Bool = false) -> [String: Any] {
         var out: [String: Any] = ["type": "error", "error": error,
                                   "effect": attempted ? "unknown" : "not_started", "detail": detail]
         if foreground { out["needs_foreground"] = true }
+        out["preparation_diagnostic"] = ["phase": phase,
+            "reason": "foreground_refusal",
+            "elapsed_ms": Int(max(0, min(600000, (ProcessInfo.processInfo.systemUptime - diagnosticStart) * 1000)))]
         return out
     }
     guard obsID == latestObsID, pid == latestTargetPID,
@@ -1056,6 +1088,7 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
         return refuse("action_failed", "최소화된 창은 준비할 수 없습니다")
     }
     var wrote: [String] = []
+    phase = "foreground_write"
     for name in ["AXMain", "AXFocused"] {
         var settable = DarwinBoolean(false)
         guard AXUIElementIsAttributeSettable(element, name as CFString, &settable) == .success,
@@ -1082,6 +1115,7 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
     }
     // Ask the window what actually happened rather than assuming the write
     // took: a window can accept the attribute and still not become key.
+    phase = "revalidate"
     guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline,
           isFrontmost(pid: pid) else {
         return refuse("action_failed", "window preparation context changed")
@@ -1091,6 +1125,8 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
     var out: [String: Any] = ["type": "acted", "action": "prepare_window", "obs_id": obsID,
                               "input_route": "window_prepare", "wrote": wrote,
                               "window_reports_key": became]
+    out["preparation_diagnostic"] = ["phase": phase, "reason": "dispatched_unverified",
+        "elapsed_ms": Int(max(0, min(600000, (ProcessInfo.processInfo.systemUptime - diagnosticStart) * 1000)))]
     if !became {
         out["unverified"] = "observe_effect"
         out["reobserve_required"] = true

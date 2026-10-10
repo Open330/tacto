@@ -52,7 +52,7 @@ class Provenance(unittest.TestCase):
         class Witness:
             def __enter__(self): return self
             def __exit__(self, *args): pass
-            def summary(self): return {'activations': []}
+            def summary(self): return {'initial': 'com.example.foreground-sentinel', 'activations': []}
         def fake_run(argv, **kwargs):
             pathlib.Path(argv[argv.index('-o') + 1]).write_text('claimed success')
             if change:
@@ -73,7 +73,9 @@ class Provenance(unittest.TestCase):
         self.assertNotEqual(result['source'], result['source_end'])
 
     def test_setup_changes_are_included_and_unchanged_run_passes(self):
-        self.assertEqual('passed', self.execute()['status'])
+        unchanged = self.execute()
+        self.assertEqual('passed', unchanged['status'])
+        self.assertEqual('com.example.foreground-sentinel', unchanged['initial_frontmost_bundle'])
         result = self.execute(setup=lambda: self.write('nlc/setup.py', 'changed'))
         self.assertTrue(result['source_changed'])
         self.assertEqual('invalid', result['status'])
@@ -404,9 +406,11 @@ class NewTaskOracleTests(unittest.TestCase):
     def test_saved_means_on_disk_and_shown(self):
         import tempfile, os
         with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, 'doc.txt')
+            d = os.path.realpath(d)
+            path = os.path.join(d, self.P.OWNED_NAME)
             self.P._OWNED.clear(); self.addCleanup(self.P._OWNED.clear)
-            self.P._OWNED['path'] = path
+            st = os.stat(d)
+            self.P._OWNED.update(path=path, directory=d, inode=(st.st_dev, st.st_ino))
             for disk, shown, want in (('NLC 저장 확인 4417', True, True),
                                       ('', True, False),          # typed but not saved
                                       ('NLC 저장 확인 4417', False, False),

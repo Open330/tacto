@@ -242,3 +242,76 @@ PID/window에만 보낸다. 같은 shared input deadline과 사용자 전경·�
 raw host API와 명시적 input_actions를 선언한 GeneralVisual/Flow의 image proposal에
 key/text를 연결했다. 기본 시각 scope는 click만 허용한다. 일반 앱·IME composition·단축키·selection replacement·저장 결과와
 사용자 동시 타이핑 보존을 이 owned fixture 검증으로 보장하지 않는다.
+
+## 창 준비의 bounded 진단
+
+서명 helper의 창 준비 응답은 `preparation_diagnostic`을 포함한다.
+`phase`는 identity/context/binding/dispatch 또는 foreground_write/revalidate다.
+background `reason`은 readiness_deadline/readiness_nodes/observation_deadline,
+ax_timeout_unavailable/ax_timeout_reset_failed/titlebar_point_unavailable,
+modal_or_unverifiable/identity_changed, dispatched_unverified/unclassified_refusal
+중 하나다. 전경 거절은 foreground_refusal로 분류한다.
+
+`elapsed_ms`는 해당 handler 안의 경과 시간이며0~600000으로 제한한다.
+background `scoped_ax_operations`는 timeout 설정 이후 실제 시작한 read scope
+작업 수다. scope 밖 PID/AX 검사나 모든 AX 호출·고유 노드 수를 세는 값은 아니다.
+새 진단 필드에는 창 제목/경로/문서 본문/임의 exception 문자열을 복사하지 않는다.
+기존 detail 응답과 별개이므로 외부 report에는 이 닫힌 진단만 보존해야 한다.
+
+이 필드는 실행 권한·재시도 승인·완료 증거가 아니다. 기존 readiness/modal/
+identity/deadline 검사와 attempted=0의 not_started, attempted>0의 unknown
+분류를 유지한다. scoped read counter도 수행 여부를 바꾸지 않는다.
+
+실제 background helper 함수와 read scope를 추출해 실패 경계를 주입한 Swift
+검사 및 기존 window readiness/dispatch 검사7개가 통과했다. 새 helper 빌드와
+번들의 기존 designated requirement 서명 검증도 통과했다. signed owned AppKit
+eval1/1 PASS에서 background dispatch 진단(scoped AX552회,1015ms)을 수신했고,
+독립 responder/menu counter와 소유 자식 회수도 확인했다.
+`reviews/2026-10-01/signed-background-window-1791616831661391000.json`이
+원시 probe다. 폴더 날짜는 기존 scenario의 고정 경로이며 시행은2026-10-10이다.
+상위 eval report는 `reviews/2026-10-10/window-preparation-diagnostics-eval.json`이다.
+전경 입력 표본 UNCHANGED_SAMPLED는 caret/동시 typing 보존이나 범용 Finder
+지원 완료의 증거가 아니다. Finder 실패를 새 진단으로 재현하는 작업은 남아 있다.
+
+CLI replay는 검증된 진단을 `preparation-diagnostic: <JSON>` 줄로 출력한다.
+ReplayResult의 별도 bounded 목록에64건까지 보존하므로 후속 postcondition
+timeout이 원래 준비 응답의 진단을 덮어쓰지 않는다. 진단만 보존된 거절을
+dispatch event로 바꾸지 않으며 결과 판정에 사용하지 않는다.
+`nlc.preparation_diagnostic`은 닫힌 field set/phase/reason과 숫자 범위를 검사한다.
+외부 문자열·bool counter·추가 필드는 버린다. 비교 runner는 completed NLC
+command output의 marker만 수집하고 전체 output/줄/건수 상한을 적용한다.
+reported_preparation_diagnostics는 tool 보고이며 native provenance 인증이 아니다.
+
+실제 Finder 단독 시행 `reviews/2026-10-10/product-comparison-20261010-162643.jsonl`
+은256초 뒤 새 directory 한 개로 PASS했으나 진단 배열은 비어 있었다.
+따라서 어떤 실패를 극복했는지나 특정 원인 해결을 이 시행으로 확정하지 않는다.
+후속 코드 감사에서 replay의 postcondition timeout 시 진단 누락 및 `--trace`
+밖에서의 조건부 지역 json import 예외 경로를 수정했다. no-trace CLI를 실제
+replay+주입 driver로 실행하는 회귀를 포함해 관련75개 PASS다. 이 후속 수정은
+위 실제 시행의 frozen source에 포함되지 않는다.
+
+## Readiness 속성 batch와 node-local 수명
+
+각 DFS 노드의 AXRole/AXModal/AXChildren은 scoped CopyMultiple 한 번으로 읽는다.
+개별 AXError는 유지한다. unsupported/notImplemented batch만 기존 strict 단건
+조회로 fallback하며 timeout/기타 실패·잘못된 길이·error wrapper는 거부한다.
+임시 packet은 해당 노드 iteration이 끝나거나 throw하면 버린다. 전체 tree·nodes/
+depth/deadline 검사와 순회 후 top의 role/modal/sheets 재조회는 유지한다.
+Finder desktop의 역할이 바뀌면 이전 AXModal 예외를 재사용하지 않는다.
+
+기존 adversarial tree corpus를 실제 batch decoder/DFS로 실행해 단건 경로와
+동일한 거부 결과를 확인했다. packet 오류·leaf top의 late modal·Finder desktop
+role change 회귀와 기존 readiness/dispatch/진단 검사9개가 통과했다.
+helper와 bundle의 기존 서명 requirement 검증도 통과했다.
+
+실제 Finder `reviews/2026-10-10/finder-preparation-batch-directed.json`은 binding의
+readiness_nodes,455ms/scoped AX193회로 거부됐다. source_changed=false다.
+이 프로파일은 초기 단건 검사와 앱 tree 상태가 다르므로 속도 향상률이 아니다.
+별도 signed AppKit eval 두 건은 binding을 통과했지만 dispatch의 기존 사용자
+포커스 guard에서 not_started/attempted0으로 거부됐다. 실패 artifact는
+`reviews/2026-10-10/window-preparation-batch-eval.json`과
+`window-preparation-batch-eval-retry.json`에 보존한다. 두 번째 eval은 Finder
+probe의 실행 시간과 겹쳤으므로 독립 환경 성능 비교로 사용하지 않는다.
+소유 fixture 자식은 모두 회수했다. 후속 role 재조회 보강은 이 GUI trial 뒤
+추가됐으며 최종 소스와 바이너리에 반영했다. 이번 변경만으로 receiving 성공,
+대규모 트리의 node budget 또는 Finder 지원 완료를 주장하지 않는다.

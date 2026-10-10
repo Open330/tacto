@@ -312,7 +312,7 @@ def _run_flow(flow, argv, walked: bool = False):
             print("--trace requires a path")
             return 2
         trace_path = argv[k + 1]
-        import json, os
+        import os
         if os.path.exists(trace_path):
             try:
                 with open(trace_path, encoding="utf-8") as fh:
@@ -361,6 +361,11 @@ def _run_flow(flow, argv, walked: bool = False):
                         confirm=_confirmer(argv), escalate=judge, budget=think, **hooks)
     if tracer:
         print(f"트레이스 저장: {tracer.trace.save(trace_path)}")
+    from .preparation_diagnostic import MARKER, preparation_diagnostic
+    for candidate in getattr(result, 'preparation_diagnostics', ()):
+        diagnostic = preparation_diagnostic(candidate)
+        if diagnostic is not None:
+            print(MARKER + json.dumps(diagnostic, ensure_ascii=True, separators=(',', ':')))
     if result.ok:
         value = result.log[-1].get("result") if result.log else None
         # A recipe that ANSWERS says its answer: the run's closing entry holds

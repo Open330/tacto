@@ -1507,6 +1507,7 @@ class ReplayResult:
         self.visual_used = False
         self.visual_history: list[dict] = []
         self.provider_calls: list[dict] = []
+        self.preparation_diagnostics: list[dict] = []
         self._secrets: set[str] = set()
         # Steps an agent walked for a decision's answer that had none:
         # {(decision name, answer): [steps]}. Reported, never saved here.
@@ -2149,6 +2150,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             except Exception as exc:
                 response = {"type": "error", "error": "driver_exception",
                             "effect": "unknown", "detail": str(exc)}
+            from .preparation_diagnostic import preparation_diagnostic
+            diagnostic = preparation_diagnostic(response.get('preparation_diagnostic'))
+            if diagnostic is not None and len(res.preparation_diagnostics) < 64:
+                res.preparation_diagnostics.append(diagnostic)
             dispatched = response.get("type") == "acted" or (
                 response.get("type") == "error" and response.get("effect", "unknown") != "not_started")
             if not dispatched:

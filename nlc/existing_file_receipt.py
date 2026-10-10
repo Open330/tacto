@@ -60,6 +60,7 @@ PUBLIC_CODES = frozenset({
     'different_document', 'already_prepared', 'not_a_bound_save',
     'event_malformed', 'already_used', 'commit_mismatch',
     'changed_during_save', 'file_does_not_hold_text',
+    'file_changed_during_read',
 })
 
 
@@ -90,7 +91,8 @@ def _file_state(path):
     file within budget — read without following a final symlink, and never
     opened unless lstat already says it is a regular file: a FIFO named .txt
     blocked the read (Codex review of 4d04b80). Opened non-blocking and
-    checked again after opening, so a swap in between is refused."""
+    checked again after opening and reading, so a swap or mutation during
+    readback is refused. These checks do not prevent changes after return."""
     try:
         before = os.lstat(path)
     except OSError as exc:
@@ -117,8 +119,23 @@ def _file_state(path):
                 raise _refuse('file_over_budget')
             chunks.append(chunk)
         data = b''.join(chunks)
+        # Reading an open descriptor can return the old file after the name
+        # has been atomically replaced. A successful read alone says nothing
+        # about what the approved path now holds. Check both the descriptor
+        # and the named file, including ctime (mtime can be restored).
+        def snapshot(info):
+            return (info.st_dev, info.st_ino, info.st_mode, info.st_uid,
+                    info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        after = os.fstat(fd)
+        named = os.lstat(path)
+        if (snapshot(before) != snapshot(st) or snapshot(st) != snapshot(after)
+                or snapshot(after) != snapshot(named) or len(data) != after.st_size
+                or _nfc(os.path.realpath(path)) != _nfc(path)):
+            raise _refuse('file_changed_during_read')
         return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns,
                 hashlib.sha256(data).hexdigest(), data)
+    except OSError:
+        raise _refuse('file_unreadable') from None
     finally:
         os.close(fd)
 

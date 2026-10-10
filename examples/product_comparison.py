@@ -266,12 +266,15 @@ def owned_setup():
     raise RuntimeError("owned document did not open")
 
 
-def owned_oracle(text):
+def owned_oracle(text, *, exact=False):
     window = owned_window()
     if window is None:
         return False, "owned document not provable"
-    body = _text_of(window) or ""
-    return " ".join(body.split()) == " ".join(text.split()), body[:60]
+    body = _text_of(window)
+    if not isinstance(body, str):
+        return False, "owned document text unobservable"
+    matches = body == text if exact else " ".join(body.split()) == " ".join(text.split())
+    return matches, body[:60]
 
 
 def owned_cleanup():
@@ -359,7 +362,8 @@ def textedit_hidden():
 
 def _locked():
     import Quartz
-    return bool((Quartz.CGSessionCopyCurrentDictionary() or {}).get("CGSSessionScreenIsLocked"))
+    state = Quartz.CGSessionCopyCurrentDictionary()
+    return None if state is None else bool(state.get("CGSSessionScreenIsLocked", False))
 
 
 # ---------------------------------------------------------------- tasks
@@ -372,6 +376,7 @@ class Task:
     setup: object = None
     cleanup: object = None
     notes: str = ""
+    oracle_contract: str = "legacy-ui-state-v1"
 
 
 def _number_in(answer, want):
@@ -562,18 +567,56 @@ def finder_cleanup():
 SAVE_TEXT = "NLC 저장 확인 4417"
 
 
+def _owned_saved_bytes():
+    """Independent bounded file oracle; never use NLC's receipt as its judge."""
+    import os
+    import stat
+    path = _OWNED.get("path")
+    if not path or not _owned_file_is_ours() or os.path.realpath(path) != path:
+        return None
+    fd = None
+    limit = 4 * 1024 * 1024
+    def identity(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_nlink,
+                info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    try:
+        named_before = os.lstat(path)
+        if not stat.S_ISREG(named_before.st_mode):
+            return None
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        before = os.fstat(fd)
+        if (identity(before) != identity(named_before) or before.st_uid != os.getuid()
+                or before.st_nlink != 1 or before.st_size > limit):
+            return None
+        parts, count = [], 0
+        while True:
+            part = os.read(fd, min(65536, limit + 1 - count))
+            if not part:
+                break
+            parts.append(part); count += len(part)
+            if count > limit:
+                return None
+        data = b"".join(parts)
+        if (identity(before) != identity(os.fstat(fd))
+                or identity(before) != identity(os.lstat(path))
+                or len(data) != before.st_size or os.path.realpath(path) != path
+                or not _owned_file_is_ours()):
+            return None
+        return data
+    except OSError:
+        return None
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def owned_saved_oracle(text):
     """Saved means on disk: the harness's own file holds exactly the text,
     and the window still shows it (Codex/plan 2026-10-09: 'actual save')."""
-    path = _OWNED.get("path")
-    try:
-        on_disk = Path(path).read_text(encoding="utf-8") if path else None
-    except (OSError, UnicodeDecodeError):
-        on_disk = None
-    norm = lambda v: " ".join((v or "").split())
-    shown_ok, shown = owned_oracle(text)
-    return (on_disk is not None and norm(on_disk) == norm(text) and shown_ok,
-            f"disk={norm(on_disk)[:40]!r} window={shown[:40]!r}")
+    on_disk = _owned_saved_bytes()
+    shown_ok, _shown = owned_oracle(text, exact=True)
+    return (on_disk == text.encode("utf-8") and shown_ok,
+            f"disk_exact={on_disk == text.encode('utf-8')} window_exact={shown_ok}")
 
 
 def calc_then_owned_setup():
@@ -745,7 +788,8 @@ TASKS = [
          f"In TextEdit, the document named \"{OWNED_NAME}\" is already open. Type exactly this text "
          f"into that document: {SAVE_TEXT}  Then save the document. Do not create a new document, "
          "do not rename it, and do not close it.",
-         lambda a: owned_saved_oracle(SAVE_TEXT), setup=owned_setup, cleanup=owned_cleanup),
+         lambda a: owned_saved_oracle(SAVE_TEXT), setup=owned_setup, cleanup=owned_cleanup,
+         oracle_contract="textedit-save-exact-utf8-v2"),
     Task("calc_to_textedit",
          "Compute 23 × 19 in the macOS Calculator app, then type the result (digits only) into the "
          f"TextEdit document named \"{OWNED_NAME}\", which is already open. Do not create a new "
@@ -767,15 +811,34 @@ TASKS = [
 def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     from focus_witness import FocusWitness
     source_before = source_manifest()
+    initial_lock = _locked()
+    if initial_lock is not False:
+        # Do not create fixtures or issue setup actions in an inaccessible GUI.
+        return {"task": task.name, "arm": arm, "status": "not_run", "seconds": 0,
+                "oracle_contract": task.oracle_contract, "oracle_passed": None,
+                "observed": "screen_locked" if initial_lock is True else "session_unobservable",
+                "answer": "", "calls": {}, "usage": None, "activations": [],
+                "locked": [initial_lock, initial_lock], "process_exit": None,
+                "comparison_eligible": False, "cleanup_status": "not_requested",
+                **_source_evidence(source_before, source_manifest())}
     if task.setup:
         try:
             task.setup()
         except Exception as exc:
             return {"task": task.name, "arm": arm, "status": "not_run",
+                    "oracle_contract": task.oracle_contract,
                     "observed": f"setup failed: {type(exc).__name__}: {str(exc)[:120]}", "seconds": 0,
                     "answer": "", "calls": {}, "usage": None, "activations": [],
                     **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
+    if locked_before is not False:
+        return {"task": task.name, "arm": arm, "status": "not_run", "seconds": 0,
+                "oracle_contract": task.oracle_contract, "oracle_passed": None,
+                "observed": "environment_unavailable_after_setup",
+                "answer": "", "calls": {}, "usage": None, "activations": [],
+                "locked": [initial_lock, locked_before], "process_exit": None,
+                "comparison_eligible": False, "cleanup_status": "environment_unavailable_left_as_is",
+                **_source_evidence(source_before, source_manifest())}
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
     ask = task.ask() if callable(task.ask) else task.ask
     prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS}"
@@ -794,6 +857,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         seconds = time.monotonic() - started
         answer = Path(last.name).read_text(errors="replace").strip()
     calls, usage, layer_violation, shortcut = {}, None, False, False
+    preparation_diagnostics = []
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -808,6 +872,12 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         elif item.get("type") == "command_execution":
             cmd = item.get("command", "")
             if re.search(r"(^|[\s'\"/])nlc\s", cmd):
+                if event.get('type') == 'item.completed':
+                    from nlc.preparation_diagnostic import diagnostic_lines
+                    # Tool-reported diagnostics, not a completion oracle or
+                    # attestation of a command's execution provenance.
+                    preparation_diagnostics.extend(diagnostic_lines(item.get('aggregated_output')))
+                    preparation_diagnostics = preparation_diagnostics[:64]
                 calls["shell:nlc"] = calls.get("shell:nlc", 0) + 1
                 if arm == "sky":
                     layer_violation = True
@@ -830,19 +900,27 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
               else "invalid" if (layer_violation or shortcut)
               else "failed" if process_exit != 0
               else "passed" if passed else "failed")
+    focus = witness.summary()
     result = {"task": task.name, "arm": arm, "status": status, "seconds": round(seconds, 1),
+              "oracle_contract": task.oracle_contract,
+              "reported_preparation_diagnostics": preparation_diagnostics,
               "observed": observed, "answer": answer[-400:], "calls": calls, "usage": usage,
-              "activations": witness.summary()["activations"],
+              "activations": focus["activations"],
+              "initial_frontmost_bundle": focus.get("initial"),
               "layer_violation": layer_violation, "shortcut": shortcut,
               "process_exit": process_exit, "oracle_passed": bool(passed),
-              # A lock during the run is the environment, not either arm; such
-              # a run is reported, and excluded from the comparison.
               "locked": [locked_before, _locked()],
               "textedit_hidden_before": hidden_before}
-    if any(result["locked"]) and status in ("failed", "timeout"):
-        result["status"] = "not_run"
+    # Preserve the attempted outcome. An environment observation is grounds
+    # to exclude a comparison, not evidence that the attempt never happened
+    # or that the environment caused its failure.
+    result["comparison_eligible"] = all(value is False for value in result["locked"])
+    if not result["comparison_eligible"]:
+        result["environment_issue"] = "screen_locked_or_session_unobservable"
     result["cleanup_status"] = "not_requested"
-    if task.cleanup:
+    if task.cleanup and not result["comparison_eligible"]:
+        result["cleanup_status"] = "environment_unavailable_left_as_is"
+    elif task.cleanup:
         try:
             outcome = task.cleanup()
             # A cleanup that could not prove what it owned says so instead of
@@ -858,6 +936,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         result["observed_status"] = result["status"]
         result["status"] = "invalid"
         result["invalid_reason"] = "source_changed"
+        result["comparison_eligible"] = False
     return result
 
 
@@ -868,19 +947,30 @@ def main() -> int:
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
     args = ap.parse_args()
+    if args.reps <= 0:
+        ap.error("--reps must be positive")
+    if args.only == []:
+        ap.error("--only requires a task name")
+    unknown = set(args.only or ()) - {task.name for task in TASKS}
+    if unknown:
+        ap.error("unknown task: " + ", ".join(sorted(unknown)))
     tasks = [t for t in TASKS if not args.only or t.name in args.only]
     if args.list:
         for t in tasks:
             print(f"{t.name:16} {t.ask() if callable(t.ask) else t.ask}")
         return 0
-    import Quartz
-    if (Quartz.CGSessionCopyCurrentDictionary() or {}).get("CGSSessionScreenIsLocked"):
-        print("화면이 잠겨 있습니다 — 잠금을 풀고 다시 실행하세요")
+    locked = _locked()
+    if locked is not False:
+        print("화면이 잠겨 있습니다" if locked is True else "화면 세션을 확인할 수 없습니다")
         return 2
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     out = ROOT / "reviews" / datetime.date.today().isoformat() / f"product-comparison-{stamp}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
+    import os
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.close(fd)
     print(f"results: {out}")
+    results = []
     for rep in range(args.reps):
         for task in tasks:
             # Alternate which arm goes first, so neither always meets the
@@ -888,12 +978,18 @@ def main() -> int:
             arms = args.arms if (rep + TASKS.index(task)) % 2 == 0 else list(reversed(args.arms))
             for arm in arms:
                 r = run_one(task, arm)
+                results.append(r)
                 r["rep"] = rep
                 with out.open("a") as f:
                     f.write(json.dumps(r, ensure_ascii=False) + "\n")
                 tok = (r["usage"] or {}).get("input_tokens")
                 print(f"  {r['status']:8} {arm:3} {task.name:15} {r['seconds']:6.1f}s "
                       f"tok={tok} act={len(r['activations'])} obs={str(r['observed'])[:40]}")
+    if any(r["status"] in ("failed", "timeout", "invalid") for r in results):
+        return 1
+    if not results or any(r["status"] != "passed" or not r.get("comparison_eligible", False)
+                          for r in results):
+        return 2
     return 0
 
 

@@ -460,6 +460,7 @@ uv run python examples/eval.py --offline --report /tmp/nlc-eval.json
 - [`docs/installation.md`](docs/installation.md) — Python wheel·브라우저·서명된 macOS source 설치 범위
 - [`docs/visual.md`](docs/visual.md) — 시각 관측·좌표 클릭 API와 검증 경계
 - [`docs/capabilities.md`](docs/capabilities.md) — backend별 기능과 실험 범위
+- [`docs/completion-plan.md`](docs/completion-plan.md) — 전체 목표의 완료 기준·남은 작업·비교 증거와 우선순위
 - [`docs/input-observation.md`](docs/input-observation.md) — 포커스·캐럿 표본 관측과 검증 한계
 - [`docs/artifact-receipts.md`](docs/artifact-receipts.md) — 실제 새 파일 readback을 통한 완료 증거
 - [`docs/recipes.md`](docs/recipes.md) — 실행 기록에서 레시피로, 판단 단계, 분기가 자라는 방식

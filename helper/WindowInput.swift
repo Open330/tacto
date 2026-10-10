@@ -161,6 +161,7 @@ enum WindowInputSPI {
 
 final class NativeWindowReadScope {
     let deadline: Double
+    private(set) var operationCount = 0
     let check: () throws -> Void
     init(deadline: Double, check: @escaping () throws -> Void) { self.deadline = deadline; self.check = check }
     func ready() throws {
@@ -175,6 +176,7 @@ final class NativeWindowReadScope {
         guard remaining > 0, AXUIElementSetMessagingTimeout(element, Float(min(0.5, remaining))) == .success else {
             throw NativeWindowInputError.unavailable("window AX timeout unavailable")
         }
+        operationCount += 1
         let result = operation()
         guard AXUIElementSetMessagingTimeout(element, 0) == .success else {
             throw NativeWindowInputError.unavailable("window AX timeout reset failed")
@@ -332,14 +334,55 @@ func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
 ///   container is a file list; it bought nothing either, preparation then
 ///   failed for want of a visible titlebar point). Large Finder windows can
 ///   therefore exceed the budget; that is reported as such.
+typealias AXBatchRead = (AXUIElement, [String]) throws -> (AXError, CFArray?)
+
+/// One packet per node. Individual unsupported/no-value attributes retain
+/// their AX error, rather than becoming false/empty state. No cross-node or
+/// cross-validation cache is permitted.
+func nativeReadinessBatch(_ element: AXUIElement, names: [String],
+                          scope: NativeWindowReadScope? = nil,
+                          read injected: AXBatchRead? = nil) throws -> [(AXError, CFTypeRef?)]? {
+    let reply: (AXError, CFArray?)
+    if let injected { reply = try injected(element, names) }
+    else {
+        func copy() -> (AXError, CFArray?) {
+            var values: CFArray?
+            let error = AXUIElementCopyMultipleAttributeValues(element, names as CFArray,
+                AXCopyMultipleAttributeOptions(rawValue: 0), &values)
+            return (error, values)
+        }
+        reply = try scope?.withTimeout(element, copy) ?? copy()
+    }
+    // Unsupported batch transport can fall back to the existing strict reads;
+    // timeout/other failures cannot be hidden by trying a different API.
+    if reply.0 == .attributeUnsupported || reply.0 == .notImplemented { return nil }
+    guard reply.0 == .success, let values = reply.1 as? [AnyObject], values.count == names.count else {
+        throw NativeWindowInputError.refused("readiness batch unavailable or malformed")
+    }
+    return try values.map { value in
+        if CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetType(value as! AXValue) == .axError {
+            var error = AXError.success
+            guard AXValueGetValue(value as! AXValue, .axError, &error), error != .success else {
+                throw NativeWindowInputError.refused("readiness batch error malformed")
+            }
+            return (error, nil)
+        }
+        return (.success, value as CFTypeRef)
+    }
+}
+
 func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
                               maxNodes: Int = 5000, maxDepth: Int = 64,
                               scope: NativeWindowReadScope? = nil,
                               read injected: AXRead? = nil,
+                              readBatch injectedBatch: AXBatchRead? = nil,
                               isFinder knownFinder: Bool? = nil) throws {
     // (A file-list prune was here briefly; withdrawn — see above.)
     guard maxNodes > 0, maxDepth >= 0 else { throw NativeWindowInputError.refused("invalid readiness budget") }
+    var packetNode: AXUIElement?
+    var packet: [String: (AXError, CFTypeRef?)] = [:]
     func raw(_ node: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
+        if let packetNode, CFEqual(packetNode, node), let result = packet[name] { return result }
         if let injected { return try injected(node, name) }
         if let scope { return try scope.read(node, name) }
         var value: CFTypeRef?
@@ -415,6 +458,18 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
             guard remaining >= 0, depth <= maxDepth else {
                 throw NativeWindowInputError.refused("readiness budget exceeded: nodes")
             }
+            // Cache only this DFS iteration. Top-level post-walk modal/sheet
+            // reads below MUST query the provider again, even for a leaf top.
+            defer { packetNode = nil; packet.removeAll(keepingCapacity: true) }
+            if injectedBatch != nil || (injected == nil && scope != nil) {
+                let names = [kAXRoleAttribute as String, "AXModal", kAXChildrenAttribute as String]
+                if let values = try budgeted({ try nativeReadinessBatch(node, names: names,
+                                              scope: scope, read: injectedBatch) }) {
+                    guard values.count == names.count else { throw NativeWindowInputError.refused("readiness batch malformed") }
+                    packetNode = node
+                    packet = Dictionary(uniqueKeysWithValues: zip(names, values))
+                }
+            }
             let nodeRole = try role(node)
             guard !nodeRole.isEmpty, nodeRole != "AXSheet" else { throw NativeWindowInputError.refused("attached sheet or malformed role") }
             if depth > 0, let modal = try optional(node, "AXModal"),
@@ -434,6 +489,9 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
         throw NativeWindowInputError.refused("window state changed during validation")
     }
     for (top, topRole) in zip(before, roles) {
+        guard try role(top) == topRole else {
+            throw NativeWindowInputError.refused("window role changed during validation")
+        }
         guard try topNotModal(top, topRole) else { throw NativeWindowInputError.refused("window became modal during validation") }
         // A sheet attached after the walk is caught here too (Codex review of 97398cb).
         if let value = try optional(top, "AXSheets") {
