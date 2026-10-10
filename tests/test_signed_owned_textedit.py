@@ -153,6 +153,18 @@ class EvaluationIntegrationTests(unittest.TestCase):
         self.assertIn('exact path',output.getvalue())
         driver.assert_not_called();run.assert_not_called()
 
+    def test_fixture_report_copies_bounded_status_records_and_contains_no_token(self):
+        from tests.test_product_comparison_provenance import comparison
+        fixture=types.SimpleNamespace(path=Path('/private/tmp/own/file.txt'),directory_identity=(1,2),
+            token='PRIVATE-TOKEN',directory=Path('/private/tmp/own'),close_requested=True,closed_observed=True,
+            status_observations=[{'state':'closed','reason_code':None}],status_observations_truncated=False)
+        report=comparison.signed_fixture_evidence(fixture)
+        self.assertNotIn('PRIVATE-TOKEN',str(report))
+        self.assertEqual([{'state':'closed','reason_code':None}],report['status_observations'])
+        report['status_observations'][0]['state']='changed'
+        self.assertEqual('closed',fixture.status_observations[0]['state'])
+        self.assertFalse(report['status_observations_truncated'])
+
     def test_owned_text_oracle_rejects_whitespace_changes(self):
         from tests.test_product_comparison_provenance import comparison
         fixture=Mock()

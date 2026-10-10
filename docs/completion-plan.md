@@ -850,3 +850,44 @@ receipt와 legacy Save/chain task 통합, Sky/다른 backbone 및 대표 앱 반
 완료 기준은 유지한다. 이 host fixture 실기를 모델·전체 비교 완료로 계산하지 않는다.
 
 최종 관련123개가4.631초에 PASS, 문서 변경 뒤 docs6도0.037초에 PASS였다.
+
+
+## G8/G9 모델 편집 pair의 cleanup 재검증
+
+installed signed doctor의 기존 권한·8개 앱·세션 준비를 확인하고
+textedit_edit_owned를 NLC/Sky 한 번씩, 양쪽120초 timeout,
+background-v2/signed-owned-document-exact-text-v2로 실행했다. 각각 독립적인
+private empty fixture를 열고 정확한 경로만 ask에 전달했다. 원시는
+`../reviews/2026-10-10/product-comparison-20261010-210206.jsonl`이다.
+
+두 arm 모두 초기 empty/complete body, 정확한 기대 본문, process exit0,
+cleanup completed/closed_observed/artifact_removed=true를 확인했다.
+NLC64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/cleanup
+시간을 포함하지 않는다. NLC는 global_window_still_present 한 번, Sky는
+세 번 뒤 closed로 읽혔다. 이 횟수는 창 해제 타이밍의 진단이며 계층 성능
+지표로 사용하지 않는다. close를 반복하지 않고 readonly poll만 했다.
+각 model witness의 초기 전경 Settings/activations[]이고 두 arm source manifest는
+서로 같고 전후 stable이다. 이 witness는 agent 실행만 관측하므로 setup/cleanup
+전체 activation 또는 pointer/typing 보존을 주장하지 않는다.
+
+CLI telemetry 입력/cache/출력은 NLC311178/282368/1370,
+Sky140453/129280/559다. calls(shell:nlc14/node_repl:js12)는 tool item event
+수이며 고유 invocation 수나 실행 layer의 완전한 attestation이 아니다.
+이 usage는 nested provider 전체 비용이 아니며 actual serving model/cost는
+확인하지 못했다. 전체 초기 UI·좌표/선택 상태, Sky 후손 책임과 실제 TCC 판정,
+입력 보존은 미검증이다. comparison_eligible=false 및 전체 command exit2를
+유지한다. root의 주 프로세스 진단으로 Sky 그래프를 추정하지 않는다.
+
+신규 owner-only 감사
+`../reviews/2026-10-10/signed-edit-pair-prerequisites-audit.json`은 run_not_eligible을
+보존하며 비교율을 계산하지 않는다. 실제 정확한 본문 및 cleanup의 성공을
+전체 동일 조건 비교 완료로 승격하지 않는다. 과거 미확정 fixture/실패 보고서는
+그대로이고 이 성공은 새 fixture/new cohort다.
+
+host report에 상태/닫힌 reason_code의 복사본과 truncation 표지를 추가했다.
+문서 token·본문·원시 오류는 새 diagnostics 필드에 넣지 않으며 mutable fixture와
+alias하지 않는다. 관련91개 회귀가1.992초에 PASS였다. Muxa read-only 리뷰
+req_18dd29a2cfa63718_71은 P1/P2 없음이었다. Save/chain legacy gate 및 explicit
+Save 인과 증거·추가 앱/backbone·같은 초기 상태/serving model/입력 보존·Sky 후손·
+설치 등 전체 G0~G10 완료 기준은 유지한다. 다음 단계는 Save receipt의 실제
+signed 실행과 정확한 receiving 증거를 연결하는 것이다.

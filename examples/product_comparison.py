@@ -169,6 +169,8 @@ def signed_fixture_evidence(fixture=None):
     return {'path':str(fixture.path) if fixture.path is not None else None,
             'directory_identity':fixture.directory_identity,
             'initial_empty_text_verified':fixture.token is not None,
+            'status_observations':[dict(record) for record in fixture.status_observations],
+            'status_observations_truncated':fixture.status_observations_truncated,
             'close_requested':fixture.close_requested,
             'closed_observed':fixture.closed_observed,
             'artifact_removed':fixture.directory is not None and not fixture.directory.exists()}
