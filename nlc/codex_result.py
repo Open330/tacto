@@ -79,6 +79,12 @@ def parse_codex_events(stdout: str, final_text: str) -> dict:
                 continue
             if item.get('type') == 'error' or item.get('status') == 'failed':
                 raise CodexProtocolError('provider item failed')
+            # This adapter supplies planning answers, never execution receipts.
+            # Reject tool activity even when its final text and usage look valid.
+            # This is an acceptance check AFTER the CLI runs; it cannot undo or
+            # prevent a tool side effect. Unknown future item types fail closed.
+            if item.get('type') not in ('reasoning', 'agent_message'):
+                raise CodexProtocolError('non-planning provider item')
             if kind == 'item.completed' and item.get('type') == 'agent_message':
                 if not isinstance(item.get('text'), str):
                     raise CodexProtocolError('invalid agent message')

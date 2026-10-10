@@ -13,7 +13,7 @@
 | G2 paging | 원본 후보 번호·참조 조회·예산 계약 및 회귀 구현 | provider tokenizer를 사용한 token 예산/큰 화면 실모델 반복. byte 예산과 provider 전체 context 한도를 구분 | P1 |
 | G3 메뉴·키 | capability·menu-state·dispatch guard 구현. 0d86230에서 timeout set/reset 실패 거부, 401f960에서 Document URL raw 정책 통일 | 배경 Finder New Folder와 TextEdit Save의 실제 효과. 앱/창별 timeout 분기 회귀 유지; 거절 자체는 지원 기능 완료가 아님 | P0 |
 | G4 provider | 공통 envelope·attempt usage·로컬 process-group 정리 구현 | 지원 백본별 실제 framing/usage 반복, 실패 시 비용 누락 구분. 원격 취소/비용 중단은 현재 미보장으로 기록 | P1 |
-| G5 시각 | browser/native capture 및 host-authorized window 입력 계약. 소유 canvas 결과는 capabilities 문서 참조 | 다양한 실제 앱의 AX 밖 화면과 receiving 증거. 캡처·event 전송 성공을 결과 성공으로 계산하지 않음 | P1 |
+| G5 시각 | browser/native capture 및 host-authorized window 입력 계약. 자체 headless canvas 실제 Codex 이미지 읽기 3/3, 아래 범위 참조 | 다양한 실제 앱의 AX 밖 화면과 receiving 증거. 캡처·event 전송 성공을 결과 성공으로 계산하지 않음 | P1 |
 | G6 장기 복구 | 시간/화면 예산·모달·detached·commit 불확실성 회귀 구현 | native 앱의 긴 작업과 끊긴 연결/중단 뒤 상태 재검증. 비멱등 저장·전송의 자동 중복 금지 유지 | P1 |
 | G7 저장·전송 | event-bound receipt·정확한 파일 readback·document token·save-panel guard 구현; ExistingTextFileReceipt는 관측된 상태 증거 | 정확한 신규 본문 저장 및 안정된 disk readback, source-format/첨부/목적지 검증, 실제 수신자/본문/신규 message identity의 전송 증거. 이미 있던 정답 파일·앱 autosave를 Save 인과 증거로 계산하지 않음 | P0 |
 | G8 대표 평가 | native/Web 과제와 원시 결과/manifest/oracle 기록 존재 | 위 미완료 과제와 다른 앱·백본·반복을 같은 source cohort에서 확장. 실패·SKIP·환경 미지원 보존 | P1 |
@@ -329,3 +329,26 @@ message_id의 colon/dot/@/Unicode는 보존하고 control·공백·초과 길이
 해당 변경을 포함한 delivery/replay/typed evidence/transcript 검사54개는
 12.267초에 통과했다. 송신 transcript와 수신함 증거의 품질 구분은 유지하며
 실제 native bridge·첨부·독점 요청 조건이 없는 서비스에는 성공을 주장하지 않는다.
+
+## G4/G5 후속: 계획 응답의 도구 기록 거부와 실제 이미지 읽기
+
+Codex 계획 adapter는 reasoning/agent_message 이외의 turn item을 거부한다.
+성공한 명령 실행이나 MCP 호출 뒤 정답 final이 나와도 계획 응답 성공으로
+인정하지 않는다. 이는 실행 후 수용 조건이며 도구 실행 차단의 증거가 아니다.
+관련 provider/visual/process 회귀 34개가 통과했다.
+
+`examples/probes/browser-visual-score.py`로 자체 headless Chromium의 canvas에
+무작위 네 자리 게임 점수를 그려 실제 Codex 이미지 요청을 세 번 실행했다.
+점수는 AX tree와 DOM 문자열에 없음을 각 사례에서 검사했고, 위치·배경 대비·
+글꼴을 바꾼 세 이미지 모두 정확한 점수를 반환했다(3/3).
+원시 이미지·답변·provider metadata는
+`../reviews/2026-10-10/visual-score-codex-acceptance/`에 보존한다.
+관측 input 합계 48,784 tokens, output 합계 48 tokens이며 이는 CLI telemetry다.
+실제 serving model과 비용은 null이고 요청은 기본 Codex image 경로를 사용했다.
+
+이 실행은 HEAD 3351584에 미커밋 adapter/probe 변경을 포함했다. 최초 실행은
+HEAD checkpoint만 기록해 전체 dependency freeze 또는 source 불변성을
+증명하지 않는다. 후속 probe는 제한된 여섯 소스의 전후 hash도 기록하지만
+전체 의존성 폐쇄를 증명하지 않는다. 사용자의 실제 브라우저·macOS 창,
+시각 좌표 행동, 저장·전송 receiving 증거, NLC/Sky 동일 조건 비교를 수행한
+결과가 아니다. 전체 G5 완료 기준은 유지한다.

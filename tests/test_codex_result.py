@@ -63,6 +63,45 @@ class CodexResultTests(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(CodexProtocolError):
                 parse_codex_events(stream(sequence), '{"done":true}')
 
+    def test_tool_activity_cannot_be_accepted_as_a_planning_answer(self):
+        for phase in ('started', 'updated', 'completed'):
+            for item_type in ('command_execution', 'mcp_tool_call', 'web_search',
+                              'file_change', 'todo_list', 'future_tool', None):
+                source = events()
+                item = {'type': 'item.' + phase, 'item': {
+                    'id': 'tool', 'type': item_type, 'status': 'completed'}}
+                with self.subTest(phase=phase, item_type=item_type), \
+                     self.assertRaises(CodexProtocolError):
+                    parse_codex_events(stream(source[:2] + [item] + source[2:]),
+                                       '{"done":true}')
+
+    def test_reasoning_before_final_answer_is_still_accepted(self):
+        source = events()
+        reasoning = {'type': 'item.completed', 'item': {
+            'id': 'reason', 'type': 'reasoning', 'text': 'analysis'}}
+        parsed = parse_codex_events(stream(source[:2] + [reasoning] + source[2:]),
+                                    '{"done":true}')
+        self.assertEqual('{"done":true}', parsed['text'])
+        self.assertNotIn('analysis', str(parsed))
+
+    def test_adapter_discards_answer_and_usage_after_tool_activity(self):
+        source = events()
+        tool = {'type': 'item.completed', 'item': {
+            'id': 'tool', 'type': 'command_execution', 'status': 'completed'}}
+
+        def launch(argv, prompt, timeout):
+            Path(argv[argv.index('--output-last-message')+1]).write_text('{"done":true}')
+            return subprocess.CompletedProcess(argv, 0,
+                stream(source[:2] + [tool] + source[2:]), '')
+
+        with patch('nlc.codex_result._run_codex', side_effect=launch):
+            result = codex_result('q')
+        self.assertEqual('error', result.status)
+        self.assertEqual('CodexProtocolError', result.error.code)
+        self.assertIsNone(result.text)
+        self.assertIsNone(result.input_tokens)
+        self.assertIsNone(result.output_tokens)
+
     def test_explicit_adapter_stdin_private_file_and_unknown_metadata(self):
         paths = []
         def launch(argv, prompt, timeout):

@@ -49,6 +49,16 @@ Codex의 local CLI 경로도 `codex_result`의 `--json`·`--ephemeral`·명시�
 
 현재 CLI 0.159.2는 thread 시작 후 turn 시작 전에 비종결 진단 `item.completed`를 낼 수 있다. 알려진 error-item 모양만 최대 32개 허용하며 진단 본문은 결과에 복사하지 않는다. turn 내부의 error/failed item, 전체 error/turn.failed, 불완전 turn, 중복 terminal, final 파일 불일치는 여전히 거절한다. 이 호환성 검사는 시작 진단을 일반 작업 성공 증거로 쓰는 것이 아니다.
 
+계획용 Codex adapter는 turn 안에서 `reasoning`과 `agent_message` item만
+수용한다. 명령 실행, MCP 호출, 웹 검색, 파일 변경 또는 알려지지 않은 item이
+started/updated/completed 어느 단계에서든 관측되면 final 답변이 일치해도
+성공으로 인정하지 않는다. 이 검사는 CLI 실행 후의 응답 수용 조건이다.
+이미 발생한 도구 부작용을 방지하거나 취소하지 않으며 도구가 없는 실행 환경을
+보장하지 않는다. 실패한 응답의 usage를 이 검사로 복원하지도 않는다.
+도구 권한은 별도 실행 경계에서 제한해야 한다. 공식 문서는
+[기능 설정](https://developers.openai.com/codex/config-basic/#feature-flags)과
+shell 기능을 설명하지만 read-only 자체를 도구 실행 금지로 정의하지 않는다.
+
 `tests/test_provider_attempts.py`는 거절된 유료 답변의 fallback usage 보존, 최종 성공 비용 중복 합산 방지, 미관측 시도와 legacy 구분, signed envelope parser의 시도 타입 검증, 실제 로컬 호출자 중단을 검증한다. 이 테스트에는 실제 provider 요청이나 추가 token 지출이 없다.
 
 CLI 2.1.286은 `init` 전에 빈 `commands_changed` 알림을 보내기도 한다. 관측한 정확한 field set(type/subtype/session_id/uuid/commands), canonical UUID, 빈 commands 배열을 가진 알림을 같은 세션에서 최대 한 번 허용한다. init 없는 응답, 다른 세션, assistant 선행, 중복 알림, 추가 필드/명령, terminal 뒤 알림은 계속 거절한다. 그 알림만으로 model·usage·완료를 판정하지 않는다.
