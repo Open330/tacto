@@ -352,3 +352,48 @@ HEAD checkpoint만 기록해 전체 dependency freeze 또는 source 불변성을
 전체 의존성 폐쇄를 증명하지 않는다. 사용자의 실제 브라우저·macOS 창,
 시각 좌표 행동, 저장·전송 receiving 증거, NLC/Sky 동일 조건 비교를 수행한
 결과가 아니다. 전체 G5 완료 기준은 유지한다.
+
+## G2/G1 후속: 실제 token 예산·재요청 한도·웹 옵션 선택
+
+`ask_here_paged`의 최초 prompt 검사 뒤 `ask`가 검증 재요청 안내문을 붙여
+예산보다 큰 요청을 보낼 수 있었고, 재요청은 max_pages 호출 상한에도
+포함되지 않았다. 실제 reach_model 직전 guard가 최종 prompt와 논리 요청 수를
+함께 검사한다. validation retry가 한도를 소진하면 추가 페이지를 요청하지
+않으며, 기존의 예산 안 재요청과 원래 후보 선택은 유지한다.
+새 테스트4개를 HEAD 2207886의 ask 소스로 실행하면3개가 실패했다.
+수정 후 paging/validation/provider-envelope/docs 검사33개가 통과했다.
+기준 실패 로그는 `../reviews/2026-10-10/paging-request-limit-baseline.log`다.
+
+실제 tiktoken 0.14.0의 o200k_base·cl100k_base로 한글·emoji·결합 문자·
+JSON escape·특수 토큰처럼 보이는 문자열이 있는211개 후보를 각각29페이지로
+손실 없이 재조립했다. 전체 renderer prompt는350 token 예산 안에 있었다.
+같은 원문의 text paging은180 token 예산 안에서 각각23·25페이지로 재조립했다.
+기록: `../reviews/2026-10-10/tokenizer-lossless-paging.json`.
+선택한 tokenizer의 문자열 예산을 검증한 것이며 실제 serving model tokenizer,
+숨겨진 provider system/tool/framing 토큰 또는 전체 context 한도를 증명하지 않는다.
+
+자체 headless Chromium에36개·48개 select control을 만들고 실제 AX tree에서
+후보와 disabled option을 추출했다. 기본 direct Codex CLI 모델에 전체 task
+prompt의 o200k_base 예산2500을 적용해 뒤쪽 후보를 찾고 Priority를 선택했다.
+호스트는 목표 control·단일 select_option·정확한 value를 독립 대조한 뒤
+동작을 적용했고, DOM에서 목표 하나만 변경되고 나머지 선택값은 모두 그대로임을
+검사했다. 모델 요청은 각각3·5회, 최대 측정 task prompt는2420 tokens,
+최종 DOM oracle은2/2 통과했다. actual model·비용은 미관측이며 native 앱이나
+Sky 동일 조건 비교 결과가 아니다. 직접 adapter를 주입했으므로 Muxa 우선
+라우팅 검증으로 취급하지 않는다.
+
+첫 시험은 probe의 driver.act 인자 순서 오류로 target_mismatch/not_started,
+DOM oracle0/2였다. 모델이 올바른 후보를 고른 것만으로 성공 처리하지 않았으며
+그 실패 기록 `../reviews/2026-10-10/token-budget-select-codex/`를 보존했다.
+인자 순서를 수정한 후의 실제 재시험은
+`../reviews/2026-10-10/token-budget-select-codex-corrected/`에 별도 보존했다.
+두 실행 모두 측정한 Python source subset의 전후 hash는 같았으나 전체 의존성
+freeze를 증명하지 않는다. 전체 G1/G2의 실제 native 앱·백본별 완료 기준은 유지한다.
+
+Muxa read-only 리뷰는 P1 없음으로 판단했다. 요청 상한의 의미 변화는 의도이며
+README의 CLI 옵션과 API docstring에 실패·검증 재요청을 포함하는 시도 기준으로
+명시했다. 재요청 거부 metadata에 phase를 남기고, 재요청 직전 계측 실패는
+모델 실패(None)로 숨기지 않고 token_counter_failed·미측정 count null로 반환한다.
+이 추가 경로와 CLI를 포함한 후속38개 테스트가 통과했다. 새 실제 모델 요청을
+보내지 않는 진단 변경이므로 기존 실제 모델/DOM 시험 기록은 별도 소스 범위로
+유지한다. 리뷰 request는 req_18dd223a04ea7418_3d다.

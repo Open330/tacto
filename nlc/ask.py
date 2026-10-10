@@ -57,8 +57,18 @@ class Q:
     shown: dict = field(default_factory=dict)
 
 
+class _PagingRequestLimit(ValueError):
+    """Closed paging stop, including the final validation-retry prompt."""
+
+    def __init__(self, reason, token_count, phase):
+        super().__init__(reason)
+        self.reason = reason
+        self.token_count = token_count
+        self.phase = phase
+
+
 def ask(q: Q, provider: str = "auto", narrate=None, *, timeout_seconds=420,
-        validation_retries=0) -> dict | None:
+        validation_retries=0, _request_guard=None) -> dict | None:
     """Put one question and return the answer ONLY if it passes its check.
 
     Everything is inside the try: the model call, the JSON, and the check. A
@@ -70,6 +80,8 @@ def ask(q: Q, provider: str = "auto", narrate=None, *, timeout_seconds=420,
         deadline = time.monotonic() + remaining_model_seconds(timeout_seconds)
         prompt = q.prompt
         for attempt in range(validation_retries + 1):
+            if _request_guard is not None:
+                _request_guard(prompt, attempt)
             with model_deadline(deadline):
                 raw = _extract_json(reach_model(prompt, provider, expect_json=True,
                     timeout_seconds=remaining_model_seconds(timeout_seconds)))
@@ -88,7 +100,7 @@ def ask(q: Q, provider: str = "auto", narrate=None, *, timeout_seconds=420,
                     '사용하여 JSON 구조와 필요한 필드를 다시 확인하십시오. '
                     '이미 목표를 달성했다면 done=true와 빈 actions를 반환하십시오.')
         return None
-    except TimeoutError:
+    except (TimeoutError, _PagingRequestLimit):
         raise
     except Exception as e:
         if narrate:
@@ -660,7 +672,8 @@ def ask_here_paged(goal: str, candidates: list[dict], done_so_far=(),
 
     Long candidates and accumulated history remain available as referenced text.
     Display excerpts are explicit, and returned actions retain original candidates.
-    The page limit bounds all model calls, including context reads.
+    The page limit bounds logical request attempts, including context reads and
+    validation retries; it does not bound provider fallback inside a request.
     """
     from .candidate_paging import page_candidates, utf8_token_upper_bound
     from .text_paging import page_text, text_ref
@@ -739,6 +752,20 @@ def ask_here_paged(goal: str, candidates: list[dict], done_so_far=(),
                      if timeout_seconds is not None else None)
     cursor = None
     requested_context = None
+    requests_used = 0
+
+    def guard_request(prompt, attempt):
+        nonlocal requests_used
+        phase = 'validation_retry' if attempt else 'planning'
+        try:
+            count = counter(prompt)
+        except Exception:
+            raise _PagingRequestLimit('token_counter_failed', None, phase) from None
+        if count > budget:
+            raise _PagingRequestLimit('context_budget_overflow', count, phase)
+        if requests_used >= max_pages:
+            raise _PagingRequestLimit('model_request_limit', count, phase)
+        requests_used += 1
     # Reserve room before selecting a candidate page. Shrinking that page only
     # after read_context could evict the very candidate whose ref was requested.
     display_budget = budget - budget // 3 if documents else budget
@@ -784,8 +811,16 @@ def ask_here_paged(goal: str, candidates: list[dict], done_so_far=(),
         if metadata["token_count"] > budget:
             return {"done": False, "actions": [], "expect": None,
                     "stop_reason": "context_budget_overflow", "paging": metadata}
-        with model_deadline(page_deadline):
-            answer = ask(q, provider=provider, narrate=narrate, validation_retries=1)
+        try:
+            with model_deadline(page_deadline):
+                answer = ask(q, provider=provider, narrate=narrate, validation_retries=1,
+                             _request_guard=guard_request)
+        except _PagingRequestLimit as error:
+            metadata.update(token_count=error.token_count, requests_used=requests_used,
+                            phase=error.phase)
+            return {"done": False, "actions": [], "expect": None,
+                    "stop_reason": error.reason, "paging": metadata}
+        metadata['requests_used'] = requests_used
         if text_page is not None:
             record = {"ref":text_page.ref,"start":text_page.start,"end":text_page.end,
                       "total":text_page.total,"text":text_page.text}
@@ -794,14 +829,14 @@ def ask_here_paged(goal: str, candidates: list[dict], done_so_far=(),
         if answer is None:
             return None
         if answer.get("read_context"):
-            if number == max_pages:
+            if number == max_pages or requests_used >= max_pages:
                 return {"done": False, "actions": [], "expect": None,
                         "stop_reason": "context_page_limit", "paging": metadata}
             requested_context = answer["read_context"]
             continue
         if not answer.get("next_page"):
             return answer
-        if number == max_pages:
+        if number == max_pages or requests_used >= max_pages:
             return {"done": False, "actions": [], "expect": None,
                     "stop_reason": "candidate_page_limit", "paging": metadata}
         cursor = page.next_cursor
