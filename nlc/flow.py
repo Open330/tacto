@@ -367,6 +367,12 @@ class Selector:
                     if v is not None and (v.lower() in want
                                           or self._stable_id(v.lower()) in want):
                         return True
+                # A document window by the file it shows: two open documents
+                # can share a title, never a path (an exact owned file,
+                # 2026-10-10). Compared composed, as TextEdit reports NFD.
+                document = self._attr(prev, "Document")
+                if document is not None and _norm(document).lower() in want:
+                    return True
                 indent = pind   # climb to the next shallower ancestor
         return False
 

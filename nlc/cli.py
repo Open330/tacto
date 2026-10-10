@@ -218,6 +218,61 @@ def _load_recipe(name: str):
     return build() if build is not None else FlowStore().load(name)
 
 
+def _document_observation(driver, target, path):
+    """Pin before reading contents; never fall back to an app-wide tree."""
+    import os
+    import unicodedata
+    def refuse():
+        return {'type':'error','error':'document_scope_unavailable','effect':'not_started'}
+    normalize=lambda value:unicodedata.normalize('NFC',value)
+    required={'evidence.document_text.path_selector','observe.document_token'}
+    if target!='com.apple.TextEdit' or not required<=set(getattr(driver,'capabilities',())):
+        return refuse()
+    if (not isinstance(path,str) or not os.path.isabs(path) or '\0' in path
+            or normalize(os.path.realpath(path))!=normalize(path)):
+        return refuse()
+    try:
+        pin=driver.document_text(target,document_path=path,max_utf16_units=0)
+        if (not isinstance(pin,dict) or pin.get('type')!='document_text'
+                or not isinstance(pin.get('document_path'),str)
+                or normalize(pin['document_path'])!=normalize(path)
+                or not isinstance(pin.get('document_token'),str)
+                or not 0<len(pin['document_token'])<=128 or not pin['document_token'].strip()
+                or pin.get('text')!='' or type(pin.get('text_complete')) is not bool):
+            return refuse()
+        result=driver.observe(target,'tree_full',document_token=pin['document_token'])
+        if (not isinstance(result,dict) or result.get('type')!='observation'
+                or result.get('document_token')!=pin['document_token']
+                or not isinstance(result.get('tree'),str)):
+            return refuse()
+        return result
+    except Exception:
+        return refuse()
+
+
+def document_window_view(tree: str, path: str) -> str | None:
+    """Only the window whose `Document:` is exactly this file, or None.
+
+    "The document at this path" is not "the focused window": the person may be
+    working in another document of the same app (2026-10-10, an agent could
+    not tell which TextEdit window held the evaluator's file). Indices are the
+    observation's own, so a recipe can act on what is printed; select inside
+    it with `"ancestor": "<the same path>"`.
+    """
+    from .flow import Selector, _norm
+    want = _norm(path)
+    blocks, current = [], None
+    for line in tree.splitlines():
+        if line and not line[0].isspace():
+            current = [line]
+            blocks.append(current)
+        elif current is not None:
+            current.append(line)
+    found = [b for b in blocks
+             if (lambda d: d is not None and _norm(d) == want)(Selector._attr(b[0], "Document"))]
+    return "\n".join(found[0]) if len(found) == 1 else None
+
+
 def focused_window_view(tree: str) -> str:
     """The window being worked on, and only the titles of the others.
 
@@ -477,16 +532,36 @@ def _dispatch(cmd, rest):
         return 0
 
     if cmd == "observe":
+        usage = "usage: observe <bundle-id> [--helper] [--all-windows | --document <absolute path>]"
+        document = None
+        if "--document" in rest:
+            k = rest.index("--document")
+            if rest.count("--document") != 1 or k + 1 >= len(rest) or "--all-windows" in rest:
+                print(usage)
+                return 2
+            document = rest[k + 1]
+            rest = rest[:k] + rest[k + 2:]
+            if not document.startswith("/"):
+                print(usage)
+                return 2
         targets = [value for value in rest if value not in ("--helper", "--all-windows")]
         if len(targets) != 1 or targets[0].startswith("-"):
-            print("usage: observe <bundle-id> [--helper] [--all-windows]")
+            print(usage)
             return 2
-        o = _make_driver(rest).observe(targets[0], "tree_full")
+        if document is not None and targets[0]!='com.apple.TextEdit':
+            print('document_scope_unavailable: --document requires com.apple.TextEdit')
+            return 2
+        driver=_make_driver(rest)
+        o = (_document_observation(driver,targets[0],document) if document is not None
+             else driver.observe(targets[0], "tree_full"))
         if o["type"] != "observation":
             reason = o.get("reason")
             suffix = f" (reason={reason})" if reason else ""
             print(f"{o.get('error')}{suffix}: {o.get('detail','')}")
             return 1
+        if document is not None:
+            print(o['tree'])
+            return 0
         print(o["tree"] if "--all-windows" in rest else focused_window_view(o["tree"]))
         return 0
 

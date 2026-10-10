@@ -219,6 +219,13 @@ document (its title is checked right before the press), and the run ends
 — not which writer did). A recipe of your own with File > Save ends
 `commit_unverified`: nothing witnessed the file.
 
+**To work in one exact document** when an app has several open (TextEdit),
+read just that window: `nlc observe com.apple.TextEdit --helper --document
+/abs/path/name.txt` (it fails rather than guess when no window, or more than
+one, shows that file). In a recipe, scope to it with the path as the ancestor:
+`{"role": "TextArea", "identifier": "First Text View", "ancestor":
+"/abs/path/name.txt"}` — titles can repeat across windows, paths cannot.
+
 **To show a folder in Finder, use `open_folder`** (with `--helper`):
 `{"action": "open_folder", "params": {"path": "/abs/path"}}` — no selector.
 Finder shows the folder without coming to the front (no keys, no sheet).
