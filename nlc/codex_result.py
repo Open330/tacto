@@ -119,27 +119,36 @@ def parse_codex_events(stdout: str, final_text: str) -> dict:
                 cached_input_tokens=usage.get('cached_input_tokens'))
 
 
-def _run_codex(argv: list[str], prompt: str, timeout: float):
+def _run_codex(argv: list[str], prompt: str, timeout: float, process_observations=None):
+    from contextlib import nullcontext
+    from .process_responsibility import OwnedProcessSampler
     with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, env=_provider_env(),
                           start_new_session=(os.name == 'posix')) as proc:
+        sampler = OwnedProcessSampler(proc) if process_observations is not None else None
         try:
-            stdout, stderr = proc.communicate(input=prompt, timeout=timeout)
-        except BaseException:
-            if os.name == 'posix':
+            with sampler if sampler is not None else nullcontext():
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                proc.kill()
-            proc.wait()
-            raise
+                    stdout, stderr = proc.communicate(input=prompt, timeout=timeout)
+                except BaseException:
+                    if os.name == 'posix':
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        proc.kill()
+                    proc.wait()
+                    raise
+        finally:
+            if sampler is not None:
+                process_observations.append(sampler.snapshot())
         return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
 
 
 def codex_result(prompt: str, *, model: str | None = None,
-                 timeout: float = 420, image_bytes: bytes | None = None) -> ProviderResult:
+                 timeout: float = 420, image_bytes: bytes | None = None,
+                 process_observations: list | None = None) -> ProviderResult:
     """Call read-only ephemeral Codex explicitly, with prompt only on stdin.
 
     The common routing uses this adapter for the local Codex CLI. It reports
@@ -157,6 +166,8 @@ def codex_result(prompt: str, *, model: str | None = None,
             raise ValueError('timeout must be positive and finite')
         if model is not None and (not isinstance(model, str) or not model.strip()):
             raise ValueError('model must be nonempty text')
+        if process_observations is not None and type(process_observations) is not list:
+            raise ValueError('process_observations must be a host-owned list')
         with tempfile.TemporaryDirectory(prefix='nlc-codex-result-') as folder:
             output = Path(folder) / 'final.txt'
             fd = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -181,7 +192,8 @@ def codex_result(prompt: str, *, model: str | None = None,
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
                 raise TimeoutError("deadline exceeded")
-            response = _run_codex(argv, prompt, remaining)
+            response = (_run_codex(argv, prompt, remaining) if process_observations is None
+                        else _run_codex(argv, prompt, remaining, process_observations))
             if response.returncode != 0:
                 reason = classify_unavailable(response.stdout, response.stderr)
                 if reason:

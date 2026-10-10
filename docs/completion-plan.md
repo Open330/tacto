@@ -580,3 +580,25 @@ cleanup timeout은 소유 자식을 kill/wait한 뒤 닫힌 status와 exit2로 �
 일반 probe 실패의 예외 본문은 출력하지 않는다. caller interrupt는 소유 자식
 정리 후 재발생시킨다. start_new_session=True도 결과에 기록하며 이를 TCC
 분리로 주장하지 않는다. 추가 회귀 후60개가0.345초에 통과했다.
+
+
+## G4/G9 후속: 실제 Codex 주 프로세스 관측과 provider 환경 정리
+
+공통 provider 환경에서 private NLC 채널 표지를 항상 제거하도록 수정했다.
+부모 환경·profile·credential은 보존한다. Codex structured adapter에는
+호스트 소유 list로만 전달되는 선택적 OwnedProcessSampler를 추가했다.
+주 PID를 최대64회 관측하고 요청 종료 시 bounded join하며 실패·timeout에도
+진단을 보존한다. tool/model 결과 envelope와 분리하고 후손 및 TCC permission은
+미관측으로 유지한다. 긴 요청의 전체 시간 관측은 보장하지 않는다.
+
+실제 도구 없는 Codex 산술 요청은 성공하고 정답 oracle도 통과했다.
+31회 관측에서 주 프로세스/책임 실행 경로는 Codex CLI였고 observer는 종료했다.
+요청 전후 source hash가 같고 report는 owner-only 새 파일
+`../reviews/2026-10-10/live-codex-process-observation.json`에 보존했다.
+이 live 요청은 signed controller 비교 과제가 아니므로 앞선 비교 제외를
+해제하지 않는다. actual Sky 및 후손 책임 그래프, 외부 agent↔signed host 경계,
+owned TextEdit signed cleanup, 같은 초기 상태/모델 cohort와 설치 검증 등
+G0~G10 완료 기준은 계속 남는다.
+
+Muxa read-only 리뷰 req_18dd252e1646a7d0_59에서 P1/P2 없음으로 판단했다.
+관측 한도·경로 공유 주의·미관측 범위를 문서에 명시했다.

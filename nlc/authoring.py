@@ -219,8 +219,12 @@ def _provider_env() -> dict:
     purpose (ANTHROPIC_API_KEY and friends) is a real choice and stays.
     """
     env = dict(os.environ)
+    # A fresh model CLI does not own the launcher's inherited socket. Keeping
+    # its markers makes grandchildren mistake a closed/reused fd for authority.
+    for key in ('NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+        env.pop(key, None)
     if not env.get("CLAUDECODE"):
-        return env                      # not inside a session; nothing to undo
+        return env                      # no Claude session markers to remove
     for key in list(env):
         if key.startswith("CLAUDE_CODE_") or key in (
                 "CLAUDECODE", "CLAUDE_CONFIG_DIR", "CLAUDE_PID"):

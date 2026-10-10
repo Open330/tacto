@@ -105,3 +105,30 @@ code에도 보존한다. 앞선 접근 제한으로 나중 route의 다른 실�
 그 실패의 text/model/usage/cost는 검증된 모델 턴으로 반환하지 않는다.
 사용량 미관측은0이 아니다. API key/profile·조직 설정·모델 routing을 변경하지
 않으며, 현재 Claude 구독 경로의 실제 백본/UI 평가는 접근 제약으로 미실행이다.
+
+
+## 실제 Codex 호출의 선택적 프로세스 관측
+
+공통 `_provider_env()`는 Claude 세션 여부와 관계없이 NLC_HELPER_FD,
+NLC_LAUNCHER, NLC_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
+사용자 profile·credential은 유지한다. 이는 채널 표지 제거이며 TCC 책임 분리를
+증명하지 않는다.
+
+`codex_result(..., process_observations=records)`에 호스트 소유 list를 넘기면
+소유 Popen의 주 PID를 요청 중 관측한다. 진단은 ProviderResult와 분리되며
+기본 호출에는 관측 스레드가 없다. 최대64회, 읽기 사이0.2초 간격이므로 긴 요청의
+전체 구간을 관측하지 않는다. 요청 종료 시 stop 후 최대0.2초 join하고
+`observer_stopped`와 `sample_limit_reached`를 기록한다. native read가 늦게
+끝나도 반환 snapshot은 바뀌지 않는다. 오류 본문 대신 닫힌 코드만 남긴다.
+주 프로세스 종료가 읽기 중 감지되면 그 sample을 버린다. 후손·PID 재사용·
+실행 코드 신원·TCC 판정은 이 진단으로 확정하지 않는다. 경로에는 로컬 홈이
+포함될 수 있으므로 외부 공유 시 홈 접두어를 치환해야 한다.
+
+[실제 기록](../reviews/2026-10-10/live-codex-process-observation.json)은
+Codex CLI의 도구 없는 산술 요청이 성공하고 독립 정답 검사가 통과한 결과다.
+주 프로세스의 실행 경로와 책임 경로는 Codex CLI였으며31회 관측했고
+observer 종료·오류 없음·sample 한도 미도달을 확인했다. 경과6.241초,
+입력16139/cache12160/출력9 token은 CLI telemetry다. 실제 모델명·비용은
+null로 유지했다. owner-only 보고서의 source hash는 호출 전후 일치했다.
+이는 signed comparison에서 실행한 native task나 Sky 관측이 아니며
+기존 `comparison_eligible=false`를 변경하지 않는다.
