@@ -273,3 +273,40 @@ observer 종료·오류 없음·sample 한도 미도달을 확인했다. 경과6
 null로 유지했다. owner-only 보고서의 source hash는 호출 전후 일치했다.
 이는 signed comparison에서 실행한 native task나 Sky 관측이 아니며
 기존 `comparison_eligible=false`를 변경하지 않는다.
+
+
+## G9 후속: signed 비교의 실제 모델 주 프로세스 관측
+
+두 arm은 공통 `_run_agent`에서 owned process group을 시작하고 timeout·호출자
+중단 시 kill/wait한다. prompt는 stdin이며 실제 tool event를 planning-only
+ProviderResult로 수용하지 않는다. 주 PID의 선택적 diagnostics를
+`agent_primary_process_diagnostics`로 기록하고 기존 null 책임 그래프 및
+comparison 제외를 유지한다. 주 PID sample로 후손/Sky/TCC 권한을 추론하지 않는다.
+실행 파일 부재는 닫힌 agent_launch_unavailable/not_run으로 보존하며 oracle을
+읽지 않는다. 이미 발생한 setup을 취소했다고 주장하지 않는다.
+
+signed launcher는 PATH를 고정하므로 default codex 경로가 실제 미발견이었다.
+실패 기록은 `../reviews/2026-10-10/signed-agent-probe-path-unavailable.json`이다.
+`--agent-executable ABSOLUTE_PATH`는 평가 호스트가 선택한 실행 파일을 두 arm에
+공통 적용하며 PATH/권한/profile을 바꾸지 않는다. 경로 존재·실행 가능 여부가
+코드 서명이나 실제 모델 신원 증거는 아니다.
+
+```sh
+nlc eval --product-comparison --agent-executable /absolute/path/to/codex --check-agent-responsibility
+```
+
+이 명령은 실제 모델 tokens를 쓰는 tool-free 산술 probe다. native 앱 입력이나
+Sky 과제는 없다. owner-only 새 report
+`../reviews/2026-10-10/signed-live-codex-process-observation.json`에서 oracle PASS,
+exit0, source 전후 일치,32 samples/observer stopped/error 없음, Codex 주 PID와
+책임 PID 일치를 관측했다. elapsed6.523초이며 실제 model/cost는 null이다.
+이는 signed host의 실제 Codex 주 프로세스 관측이고 Sky/후손 책임 그래프나
+TCC 판정이 아니다. 전체 G0~G10, 동일 초기 상태/serving model 감사, 대표 앱
+반복과 설치 검증을 완료했다고 계산하지 않는다.
+
+후속 Muxa read-only 리뷰 req_18dd258a65ab9a68_5c는 P1/P2 없음이었다.
+실측 probe 당시 CLI의 cwd는 controller 저장소 경로를 상속했다. 이후 기존
+비교 조건을 유지하도록 transport의 cwd를 /tmp로 명시했다. 두 arm과 probe는
+요청 실행 경로·해석 경로·cwd·new-session을 기록한다. 앞선 실측 report는
+그 후속 변경 이전 source manifest이며 새 상태 실측이라고 소급하지 않는다.
+new session은 POSIX 그룹 정리 범위이며 TCC/asid 분리 증거가 아니다.

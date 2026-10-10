@@ -111,12 +111,15 @@ class Provenance(unittest.TestCase):
         self.assertNotEqual(before['sha256'], comparison.source_manifest()['sha256'])
         self.assertIn('nlc/a.py', before['files'])
 
-    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None):
+    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="nlc", launch_error=False):
         class Witness:
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def summary(self): return {'initial': 'com.example.foreground-sentinel', 'activations': []}
-        def fake_run(argv, **kwargs):
+        def fake_run(argv, prompt, timeout, diagnostics):
+            diagnostics.extend(observations)
+            if launch_error:
+                raise FileNotFoundError('PRIVATE executable details')
             pathlib.Path(argv[argv.index('-o') + 1]).write_text('claimed success')
             if change:
                 self.write('helper/nlc-helper', 'rebuilt-during-run')
@@ -125,8 +128,8 @@ class Provenance(unittest.TestCase):
         with patch.dict(sys.modules, {'focus_witness': types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', return_value=False), \
              patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
-             patch.object(comparison.subprocess, 'run', side_effect=fake_run):
-            return comparison.run_one(task, 'nlc')
+             patch.object(comparison, '_run_agent', side_effect=fake_run):
+            return comparison.run_one(task, arm)
 
     def test_drifting_source_cannot_pass_even_when_oracle_passes(self):
         result = self.execute(change=True)

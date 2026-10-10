@@ -38,6 +38,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "examples" / "probes"))
 
+_AGENT_EXECUTABLE = "codex"
+_AGENT_REQUESTED_EXECUTABLE = "codex"
+
 CALC = "com.apple.calculator"
 NO_SHORTCUTS = ("Do not use a command-line calculator, Python, AppleScript/osascript, "
                 "`open`, or any other automation than the one named; work through the app.")
@@ -66,6 +69,55 @@ def _agent_env():
     for key in ('NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
         env.pop(key, None)
     return env
+
+
+def _run_agent(argv, prompt, timeout, diagnostics):
+    """Same owned process-group lifecycle for both arms; tool events stay raw.
+
+    This is execution, not the planning-only codex_result acceptance parser.
+    Process diagnostics grant neither GUI authority nor comparison eligibility.
+    """
+    from nlc.codex_result import _run_codex
+    return _run_codex([_AGENT_EXECUTABLE, *argv[1:]], prompt, timeout, diagnostics, cwd="/tmp")
+
+
+def _live_agent_probe():
+    """Actual model request through this signed host, without a native task."""
+    import os
+    import secrets
+    from nlc.codex_result import parse_codex_events
+    from nlc.process_responsibility import observe_responsibility
+    a, b = secrets.randbelow(10000), secrets.randbelow(10000)
+    records = []
+    controller = observe_responsibility(os.getpid())
+    before = source_manifest()
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix='nlc-agent-probe-') as folder:
+        final = Path(folder) / 'answer.txt'
+        fd = os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+        proc = _run_agent(['codex', 'exec', '--skip-git-repo-check', '--ephemeral',
+                           '--sandbox', 'read-only', '-C', '/tmp', '--json', '-o', str(final), '-'],
+                          f'Without using any tools compute {a}+{b}. Return only JSON with the integer field value.',
+                          90, records)
+        if proc.returncode != 0:
+            raise RuntimeError('agent_probe_failed')
+        parsed = parse_codex_events(proc.stdout, final.read_text())
+        answer = json.loads(parsed['text'])
+        oracle = (type(answer) is dict and set(answer) == {'value'}
+                  and type(answer['value']) is int and answer['value'] == a+b)
+    return {'scope':'signed_controller_actual_codex_primary_process_only',
+            'controller':controller, 'agent_primary_process_diagnostics':records,
+            'agent_requested_executable':_AGENT_REQUESTED_EXECUTABLE,
+            'agent_executable':_AGENT_EXECUTABLE, 'agent_cli_cwd':'/tmp',
+            'agent_started_in_new_session':True,
+            'oracle_passed':oracle, 'process_exit':proc.returncode,
+            'elapsed_seconds':time.monotonic()-started,
+            'observed_usage':{k:v for k,v in parsed.items() if k != 'text'},
+            'observed_model':None, 'observed_cost':None,
+            'native_task_executed':False, 'sky_process_observed':False,
+            'descendants_observed':False, 'tcc_permission_verified':False,
+            'comparison_eligible':False, **_source_evidence(before, source_manifest())}
 
 
 def _responsibility_probe():
@@ -911,17 +963,21 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS}"
     with tempfile.NamedTemporaryFile("r", suffix=".txt") as last, FocusWitness() as witness:
         started = time.monotonic()
+        process_diagnostics = []
+        proc, launch_error = None, None
         try:
-            proc = subprocess.run(
+            proc = _run_agent(
                 ["codex", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access",
-                 "-C", "/tmp", "--json", "-o", last.name, prompt],
-                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
-                env=_agent_env(),
-                cwd="/tmp")
+                 "-C", "/tmp", "--json", "-o", last.name, "-"],
+                prompt, timeout, process_diagnostics)
             stdout, timed_out = proc.stdout, False
         except subprocess.TimeoutExpired as exc:
             stdout, timed_out = (exc.stdout or b"").decode(errors="replace") if isinstance(
                 exc.stdout, bytes) else (exc.stdout or ""), True
+        except OSError:
+            stdout, timed_out = '', False
+            launch_error = ('agent_transport_failed' if process_diagnostics
+                            else 'agent_launch_unavailable')
         seconds = time.monotonic() - started
         answer = Path(last.name).read_text(errors="replace").strip()
     calls, usage, layer_violation, shortcut = {}, None, False, False
@@ -956,21 +1012,22 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         if event.get("type") == "turn.completed":
             usage = event.get("usage")
     passed, observed = (False, "not checked")
-    if answer or not timed_out:
+    if launch_error is None and (answer or not timed_out):
         try:
             passed, observed = task.oracle(answer)
         except Exception as exc:
             passed, observed = False, f"oracle error: {type(exc).__name__}"
     provider_down = (not answer and re.search(r"usage limit|rate limit|not logged in",
                                               stdout, re.I))
-    process_exit = None if timed_out else proc.returncode
-    status = ("not_run" if provider_down else "timeout" if timed_out
+    process_exit = None if proc is None else proc.returncode
+    status = ("failed" if launch_error == "agent_transport_failed"
+              else "not_run" if launch_error or provider_down else "timeout" if timed_out
               else "invalid" if (layer_violation or shortcut)
               else "failed" if process_exit != 0
               else "passed" if passed else "failed")
     focus = witness.summary()
     result = {"task": task.name, "arm": arm, "status": status, "seconds": round(seconds, 1),
-              "oracle_contract": task.oracle_contract,
+              "oracle_contract": task.oracle_contract, "agent_launch_error":launch_error,
               "reported_preparation_diagnostics": preparation_diagnostics,
               "observed": observed, "answer": answer[-400:], "calls": calls, "usage": usage,
               "activations": focus["activations"],
@@ -1010,14 +1067,21 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     # Keep task outcomes, but exclude them from product parity until an external
     # agent boundary or independently observed responsibility is implemented.
     result['agent_spawn_parent_boundary'] = 'signed_nlc_controller'
+    result['agent_requested_executable'] = _AGENT_REQUESTED_EXECUTABLE
+    result['agent_executable'] = _AGENT_EXECUTABLE
+    result['agent_cli_cwd'] = '/tmp'
+    result['agent_started_in_new_session'] = True
     result['agent_responsible_process_observed'] = None
+    result['agent_primary_process_diagnostics'] = process_diagnostics
     result['comparison_eligible'] = False
     result['comparison_exclusion_reason'] = 'agent_responsibility_not_isolated_or_observed'
     return result
 
 
 def main() -> int:
+    global _AGENT_EXECUTABLE, _AGENT_REQUESTED_EXECUTABLE
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument('--agent-executable', help='host-selected absolute Codex CLI path; does not change PATH')
     ap.add_argument("--reps", type=int, default=1)
     ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
     ap.add_argument("--only", nargs="*")
@@ -1027,7 +1091,19 @@ def main() -> int:
                     help="read signed helper metadata only; no setup, model or task input")
     checks.add_argument('--check-responsibility', action='store_true',
                         help='read controller/owned idle child process responsibility; no model or GUI')
+    checks.add_argument('--check-agent-responsibility', action='store_true',
+                        help='spend model tokens on a tool-free arithmetic probe; no native task')
     args = ap.parse_args()
+    if args.agent_executable is not None:
+        import os
+        agent = Path(args.agent_executable)
+        if not agent.is_absolute() or not agent.is_file() or not os.access(agent, os.X_OK):
+            ap.error('--agent-executable must be an absolute executable file')
+        _AGENT_REQUESTED_EXECUTABLE = args.agent_executable
+        _AGENT_EXECUTABLE = str(agent.resolve())
+    else:
+        _AGENT_REQUESTED_EXECUTABLE = 'codex'
+        _AGENT_EXECUTABLE = 'codex'
     if args.reps <= 0:
         ap.error("--reps must be positive")
     if args.only == []:
@@ -1044,6 +1120,14 @@ def main() -> int:
     if not InheritedHelperDriver.available():
         print('Use the signed launcher: nlc eval --product-comparison [options]')
         return 2
+    if args.check_agent_responsibility:
+        try:
+            result = _live_agent_probe()
+        except Exception as error:
+            print('agent_responsibility_probe_unavailable:' + type(error).__name__)
+            return 2
+        print(json.dumps(result))
+        return 0 if result['oracle_passed'] and not result['source_changed'] else 2
     if args.check_responsibility:
         try:
             result = _responsibility_probe()

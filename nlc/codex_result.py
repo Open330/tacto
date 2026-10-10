@@ -119,12 +119,12 @@ def parse_codex_events(stdout: str, final_text: str) -> dict:
                 cached_input_tokens=usage.get('cached_input_tokens'))
 
 
-def _run_codex(argv: list[str], prompt: str, timeout: float, process_observations=None):
+def _run_codex(argv: list[str], prompt: str, timeout: float, process_observations=None, *, cwd=None):
     from contextlib import nullcontext
     from .process_responsibility import OwnedProcessSampler
     with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, env=_provider_env(),
-                          start_new_session=(os.name == 'posix')) as proc:
+                          start_new_session=(os.name == 'posix'), cwd=cwd) as proc:
         sampler = OwnedProcessSampler(proc) if process_observations is not None else None
         try:
             with sampler if sampler is not None else nullcontext():
