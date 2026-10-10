@@ -26,6 +26,8 @@ class SignedOwnedTextEdit:
         self.path = self.directory = self.directory_identity = self.token = None
         self.close_requested = False
         self.closed_observed = False
+        self.status_observations = []
+        self.status_observations_truncated = False
 
     def setup(self):
         if self.directory is not None:
@@ -93,16 +95,38 @@ class SignedOwnedTextEdit:
             return reply['text']
         return None
 
+    def write(self, text):
+        from nlc.flow import Selector
+        if not isinstance(text,str) or 'action.set_value' not in self.driver.capabilities:
+            raise RuntimeError('owned_fixture_write_unavailable')
+        obs=self.driver.observe(TARGET,document_token=self.token)
+        if obs.get('type')!='observation' or obs.get('document_token')!=self.token or obs.get('truncated') is not False:
+            raise RuntimeError('owned_fixture_write_observation_unavailable')
+        index,_=Selector(role='TextArea',identifier='First Text View').resolve(obs['tree'])
+        result=self.driver.act(obs['obs_id'],TARGET,{'name':'set_value','element_index':index,'value':text},
+            expect={'role':'TextArea','attribute':'Identifier','label':'First Text View','enabled':True},
+            risk_class='preapproved',approved=True,intent_text='Edit only the evaluator-created temporary document')
+        if result.get('type')!='acted':
+            raise RuntimeError('owned_fixture_write_unverified')
+        return self.read()==text
+
     def status(self):
         if self.token is None:
             return None
         reply=self.driver.document_window_status(TARGET,self.token)
-        if (type(reply) is dict and reply.get('type')=='document_window_status'
-                and reply.get('document_token')==self.token
-                and reply.get('same_process_verified') is True
-                and reply.get('state') in ('open','closed')):
-            return reply['state']
-        return None
+        from nlc.helper import DOCUMENT_WINDOW_STATUS_REASONS
+        valid=(type(reply) is dict and reply.get('type')=='document_window_status'
+               and reply.get('document_token')==self.token
+               and reply.get('same_process_verified') is True
+               and reply.get('state') in ('open','closed'))
+        state=reply['state'] if valid else None
+        if len(self.status_observations)<64:
+            reason=reply.get('reason_code') if type(reply) is dict else None
+            self.status_observations.append({'state':state,
+                'reason_code':reason if isinstance(reason,str) and reason in DOCUMENT_WINDOW_STATUS_REASONS else None})
+        else:
+            self.status_observations_truncated=True
+        return state
 
     def _remove_artifact(self):
         # Anchor file unlink to the original directory fd; never recursively

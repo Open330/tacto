@@ -469,3 +469,37 @@ Save/연쇄 TextEdit 과제의 legacy cleanup gate는 유지한다. 실제 편�
 cleanup 미확정의 원인과 개선한 readonly poll 실측, causal Save receipt 연결,
 다른 앱·backbone 반복/동일 초기 상태·serving model·Sky 후손/입력 보존/설치 등
 전체 G0~G10 완료 기준은 계속 남는다. 관련120개 테스트가5.556초에 통과했다.
+
+
+## G6/G7 후속: 편집 후 닫힘의 과도 상태 실증
+
+새로운 소유 fixture에만 signed document-token scoped set_value로 host-authored
+본문을 입력하고 complete text와 정확히 비교하는 lifecycle probe를 추가했다.
+`--owned-fixture-text`는 --check-owned-document-lifecycle에만 허용하고 추가
+모델 호출은 없다. write 결과가 unknown이면 입력을 반복하지 않는다.
+
+실제 `../reviews/2026-10-10/signed-edited-document-lifecycle-diagnostic.json`은
+open/초기 empty/입력 receiving 검증 뒤 single close에 성공했다. 닫기 직후
+native_read_failed, global_window_still_present 두 번을 거쳐 closed가 관측됐고
+그때만 artifact를 제거했다. setup~cleanup FocusWitness의 초기 전경은 System
+Settings, activations[]였고 source 전후 일치/model requests0이다. 이는 과도
+상태에서 읽기만 재검증하는 경로의 실측이며 창 잔존을 closed로 앞당기거나
+재클릭하지 않는다. 이전 모델 run의 첫 실패 reply 전체가 없으므로 이 새로운
+케이스를 모든 과거 실패의 유일한 원인으로 소급하지 않는다. 과거 미확정
+fixture/report를 새 성공으로 덮어쓰거나 그 문서에 입력·닫기를 재전송하지 않았다.
+
+상태 오류의 reason_code는 helper의 고정 매핑과 Python의 정확한 field set/
+화이트리스트를 통과한 코드만 보존한다. 알 수 없는 detail은 native_read_failed다.
+원시 error/detail·본문·경로가 진단에 들어가지 않는다. effect=not_started는
+읽기 전용 상태 query에 관한 값이며 앞선 close가 미실행이라는 뜻이 아니다.
+reason_code 자체로 open/closed 또는 permission 원인을 추정하지 않는다.
+fixture diagnostics는 token/same_process가 유효한 state만 기록하며 최대64개다.
+후속 code는 잘림 표지를 남기고 failure 문자열/매핑 누락 회귀를 추가했다.
+원시 실기는 그 telemetry 후속 전 source다. 기존 renderer/close 판정은 그대로다.
+Muxa read-only req_18dd2919fa7a3a68_6d는 P1/P2 없음이었다.
+
+전체 build.sh 및 bundle/launcher 서명 확인은 성공했고 서명 식별자·권한 설정은
+바꾸지 않았다. 실제 model-agent 편집 후 새 코드 cleanup 반복, causal Save
+receipt와 legacy Save/chain task 통합, Sky/다른 backbone 및 대표 앱 반복,
+같은 초기 상태/serving model/입력 보존·Sky 후손·설치 검증 등 G0~G10의
+완료 기준은 유지한다. 이 host fixture 실기를 모델·전체 비교 완료로 계산하지 않는다.

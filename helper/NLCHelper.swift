@@ -3613,13 +3613,13 @@ func documentText(_ target: String, token requested: String?, budget: Int,
 /// A stale token, failed AX read or process restart is never "closed".
 /// Metadata only: no body read, AX action, launch, focus or file deletion.
 func documentWindowStatus(_ msg: [String:Any]) -> [String:Any] {
-    func refuse() -> [String:Any] {
-        ["type":"error", "error":"document_window_status_unavailable", "effect":"not_started"]
+    func refuse(_ reason: String = "native_read_failed") -> [String:Any] {
+        ["type":"error", "error":"document_window_status_unavailable", "effect":"not_started", "reason_code":reason]
     }
     guard Set(msg.keys) == Set(["type","target","document_token"]),
           msg["target"] as? String == "com.apple.TextEdit",
           let token = msg["document_token"] as? String, !token.isEmpty, token.count <= 128,
-          let pinned = documentTokens.first(where: { $0.token == token })?.document else { return refuse() }
+          let pinned = documentTokens.first(where: { $0.token == token })?.document else { return refuse("request_invalid_or_pin_missing") }
     let previousDeadline = documentOperationDeadline
     documentOperationDeadline = min(previousDeadline ?? .infinity,
                                     ProcessInfo.processInfo.systemUptime + 6)
@@ -3680,10 +3680,27 @@ func documentWindowStatus(_ msg: [String:Any]) -> [String:Any] {
         }
         let first = try read(), second = try read()
         guard first.0 == second.0, first.1.count == second.1.count,
-              zip(first.1, second.1).allSatisfy({ CFEqual($0.0, $0.1) }) else { return refuse() }
+              zip(first.1, second.1).allSatisfy({ CFEqual($0.0, $0.1) }) else { return refuse("window_snapshot_changed") }
         try documentCheckAbort()
         return ["type":"document_window_status", "document_token":token,
                 "state":first.0 ? "open" : "closed", "same_process_verified":true]
+    } catch let DocumentError.fail(detail) {
+        let codes = ["process changed":"process_changed",
+                     "document application is not running":"process_unavailable",
+                     "document application identity unavailable":"process_unavailable",
+                     "application launch identity unavailable":"process_unavailable",
+                     "invalid application launch identity":"process_unavailable",
+                     "window enumeration unavailable":"window_enumeration_unavailable",
+                     "window role unavailable":"window_role_unavailable",
+                     "window changed":"window_changed",
+                     "document path changed":"document_path_changed",
+                     "document path is ambiguous or reopened":"document_path_ambiguous_or_reopened",
+                     "global windows unavailable":"global_windows_unavailable",
+                     "global window identity malformed":"global_window_identity_malformed",
+                     "window still exists outside AX enumeration":"global_window_still_present",
+                     "document read deadline elapsed":"deadline_or_abort",
+                     "사용자가 중단해 문서 읽기를 멈췄습니다":"deadline_or_abort"]
+        return refuse(codes[detail] ?? "native_read_failed")
     } catch { return refuse() }
 }
 

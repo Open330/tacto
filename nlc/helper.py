@@ -85,6 +85,14 @@ REQUIRED_CAPABILITIES = {
 }
 
 
+DOCUMENT_WINDOW_STATUS_REASONS = frozenset({
+    'native_read_failed','request_invalid_or_pin_missing','process_changed','process_unavailable',
+    'window_enumeration_unavailable','window_role_unavailable','window_changed',
+    'document_path_changed','document_path_ambiguous_or_reopened','global_windows_unavailable',
+    'global_window_identity_malformed','global_window_still_present','window_snapshot_changed','deadline_or_abort',
+})
+
+
 class InheritedHelperDriver:
     """Speak L2 over the socket the signed launcher handed us.
 
@@ -650,6 +658,11 @@ class HelperDriver:
             return unavailable
         result = self._send({'type':'document_window_status', 'target':target,
                              'document_token':document_token})
+        if (type(result) is dict and set(result) == {'type','error','effect','reason_code'}
+                and result.get('type') == 'error' and result.get('error') == unavailable['error']
+                and result.get('effect') == 'not_started' and isinstance(result.get('reason_code'),str)
+                and result['reason_code'] in DOCUMENT_WINDOW_STATUS_REASONS):
+            return {**unavailable, 'reason_code':result['reason_code']}
         if (type(result) is not dict or result.get('type') != 'document_window_status'
                 or set(result) != {'type','document_token','state','same_process_verified'}
                 or result['document_token'] != document_token

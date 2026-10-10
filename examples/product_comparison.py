@@ -183,7 +183,7 @@ def signed_owned_edit_ask():
             'Do not create, rename or close any document.')
 
 
-def _owned_lifecycle_probe(resume_directory=None, resume_identity=None):
+def _owned_lifecycle_probe(resume_directory=None, resume_identity=None, fixture_text=None):
     from focus_witness import FocusWitness
     from signed_owned_textedit import SignedOwnedTextEdit
     fixture = SignedOwnedTextEdit(_driver(), OWNED_NAME)
@@ -195,8 +195,12 @@ def _owned_lifecycle_probe(resume_directory=None, resume_identity=None):
             fixture.resume(resume_directory, resume_identity)
         opened = fixture.status()
         empty = fixture.read() == ''
+        receiving = fixture.write(fixture_text) if fixture_text is not None else None
         cleanup = fixture.cleanup()
-    return {'scope':'signed_owned_empty_textedit_window_lifecycle',
+    return {'scope':'signed_owned_empty_textedit_window_lifecycle' if fixture_text is None else 'signed_owned_edited_textedit_window_lifecycle',
+            'receiving_text_verified':receiving,'status_observations':fixture.status_observations,
+            'status_observations_truncated':fixture.status_observations_truncated,
+            'owned_fixture_evidence':signed_fixture_evidence(fixture),
             'opened_state':opened, 'initial_empty_text_verified':empty,
             'cleanup_status':cleanup, 'closed_observed':fixture.closed_observed,
             'artifact_removed':not fixture.directory.exists(),
@@ -1189,6 +1193,7 @@ def main() -> int:
                         help='spend model tokens on a tool-free arithmetic probe; no native task')
     checks.add_argument('--check-owned-document-lifecycle', action='store_true',
                         help='create/open/close only an owned empty TextEdit fixture; no model')
+    ap.add_argument('--owned-fixture-text', help='host-authored text for a newly owned lifecycle probe fixture; sends signed UI input')
     ap.add_argument('--resume-owned-fixture-directory', help='trusted host path of a prior owned fixture; lifecycle probe only')
     ap.add_argument('--resume-owned-fixture-identity', help='trusted host recorded dev:ino of that prior fixture')
     ap.add_argument('--diagnose-owned-document-pin', help='read only the explicitly host-selected owned fixture path; no input')
@@ -1203,6 +1208,8 @@ def main() -> int:
     else:
         _AGENT_REQUESTED_EXECUTABLE = 'codex'
         _AGENT_EXECUTABLE = 'codex'
+    if args.owned_fixture_text is not None and not args.check_owned_document_lifecycle:
+        ap.error('--owned-fixture-text requires the owned lifecycle probe')
     resume_identity = None
     if args.resume_owned_fixture_directory is not None or args.resume_owned_fixture_identity is not None:
         if not args.check_owned_document_lifecycle or not args.resume_owned_fixture_directory or not args.resume_owned_fixture_identity:
@@ -1245,12 +1252,12 @@ def main() -> int:
             print('owned_document_lifecycle_environment_unavailable')
             return 2
         try:
-            result = _owned_lifecycle_probe(args.resume_owned_fixture_directory, resume_identity)
+            result = _owned_lifecycle_probe(args.resume_owned_fixture_directory, resume_identity, args.owned_fixture_text)
         except Exception as error:
             print('owned_document_lifecycle_unavailable:' + type(error).__name__)
             return 2
         print(json.dumps(result))
-        return 0 if result['opened_state'] == 'open' and result['initial_empty_text_verified'] and result['cleanup_status'] == 'closed' and result['artifact_removed'] and not result['source_changed'] else 2
+        return 0 if result['opened_state'] == 'open' and result['initial_empty_text_verified'] and result['cleanup_status'] == 'closed' and result['receiving_text_verified'] is not False and result['artifact_removed'] and not result['source_changed'] else 2
     if args.check_agent_responsibility:
         try:
             result = _live_agent_probe()

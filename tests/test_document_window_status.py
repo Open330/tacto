@@ -1,6 +1,7 @@
 """Closed is successful same-process absence, never a general token/read error."""
 from pathlib import Path
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,26 @@ class StatusChannelTests(unittest.TestCase):
             result=self.driver(reply).document_window_status('com.apple.TextEdit','own')
             self.assertEqual('document_window_status_unavailable',result['error'])
             self.assertNotIn('PRIVATE',str(result))
+
+    def test_only_closed_diagnostic_codes_survive_error_transport(self):
+        for reason in ('process_changed','window_snapshot_changed','request_invalid_or_pin_missing'):
+            reply={'type':'error','error':'document_window_status_unavailable','effect':'not_started','reason_code':reason}
+            self.assertEqual(reply,self.driver(reply).document_window_status('com.apple.TextEdit','own'))
+        for reason in ('PRIVATE',True,[],None):
+            reply={'type':'error','error':'document_window_status_unavailable','effect':'not_started','reason_code':reason}
+            result=self.driver(reply).document_window_status('com.apple.TextEdit','own')
+            self.assertNotIn('reason_code',result)
+            self.assertNotIn('PRIVATE',str(result))
+
+    def test_status_local_failure_strings_keep_their_closed_reason_mapping(self):
+        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        handler=source[source.index('func documentWindowStatus('):source.index('func documentRTFExport(')]
+        thrown=set(re.findall(r'DocumentError\.fail\("([^"\n]+)"\)',handler))
+        mapping=handler[handler.index('let codes = '):]
+        keys=set(re.findall(r'"([^"\n]+)"\s*:',mapping))
+        self.assertFalse(thrown-keys,thrown-keys)
+        self.assertIn('document read deadline elapsed',keys)
+        self.assertIn('사용자가 중단해 문서 읽기를 멈췄습니다',keys)
 
     def test_old_capability_bad_target_or_token_never_sends(self):
         for target,token in [('foreign','own'),('com.apple.TextEdit',''),('com.apple.TextEdit',True),('com.apple.TextEdit','x'*129)]:
@@ -137,6 +158,9 @@ for kind in ["gone","restart","readerror","overflow","drift","reopened","duplica
  let result=documentWindowStatus(request)
  precondition(result["type"] as? String == "error","\(kind) \(result)")
  precondition(result["state"]==nil && documentTokens.count==1 && documentOperationDeadline==old)
+ if kind=="offspace" {precondition(result["reason_code"] as? String == "global_window_still_present")}
+ if kind=="restart" {precondition(result["reason_code"] as? String == "process_changed")}
+ if kind=="readerror" {precondition(result["reason_code"] as? String == "native_read_failed")}
 }
 mode="no-id";documentOperationDeadline=nil
 let held=documentTokens

@@ -33,6 +33,35 @@ class FixtureTests(unittest.TestCase):
         self.driver.document_window_status.side_effect=None
         self.driver.document_window_status.return_value={'type':'document_window_status','document_token':'owned-token','state':'closed','same_process_verified':True}
 
+    def test_write_is_bound_to_only_the_pinned_body_and_requires_receiving_text(self):
+        self.driver.capabilities=set(m.CAPS)|{'action.set_value'}
+        self.driver.observe.return_value={'type':'observation','obs_id':'owned-obs','document_token':'owned-token','truncated':False,
+                                         'tree':'0 Window\n  1 TextArea  Identifier: First Text View'}
+        with patch.object(self.fixture,'read',return_value='owned text'):
+            self.assertTrue(self.fixture.write('owned text'))
+        self.assertEqual({'name':'set_value','element_index':1,'value':'owned text'},self.driver.act.call_args.args[2])
+        self.driver.observe.return_value['document_token']='other'
+        self.driver.act.reset_mock()
+        with self.assertRaises(RuntimeError):self.fixture.write('owned text')
+        self.driver.act.assert_not_called()
+
+    def test_status_diagnostics_never_store_raw_failure_text(self):
+        self.driver.document_window_status.side_effect=None
+        self.driver.document_window_status.return_value={'type':'error','reason_code':'PRIVATE'}
+        self.assertIsNone(self.fixture.status())
+        self.assertNotIn('PRIVATE',str(self.fixture.status_observations))
+        self.driver.document_window_status.return_value={'type':'error','reason_code':'window_snapshot_changed'}
+        self.assertIsNone(self.fixture.status())
+        self.assertEqual('window_snapshot_changed',self.fixture.status_observations[-1]['reason_code'])
+        self.driver.document_window_status.return_value={'type':'document_window_status','document_token':'other','same_process_verified':True,'state':'open'}
+        self.assertIsNone(self.fixture.status())
+        self.assertIsNone(self.fixture.status_observations[-1]['state'])
+
+    def test_bounded_status_diagnostics_mark_truncation(self):
+        for _ in range(65):self.fixture.status()
+        self.assertEqual(64,len(self.fixture.status_observations))
+        self.assertTrue(self.fixture.status_observations_truncated)
+
     def test_unknown_lifecycle_preserves_file_and_sends_no_close(self):
         self.driver.document_window_status.side_effect=None
         self.driver.document_window_status.return_value={'type':'error'}
