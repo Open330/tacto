@@ -37,6 +37,11 @@ def audit(url, output, axe_source=None):
         response = page.goto(url, wait_until='networkidle')
         checks['http_200'] = response.status == 200
         checks['one_h1'] = page.locator('h1').count() == 1
+        checks['three_verified_use_cases'] = page.locator('#use-cases .use-case').count() == 3
+        checks['case_evidence_links'] = page.locator('.case-source').evaluate_all(
+            '(items)=>items.length===3&&items.every(e=>e.href.startsWith("https://github.com/Open330/tacto/blob/main/docs/"))')
+        checks['hero_has_real_job'] = 'TextEdit' in page.locator('.hero-visual').inner_text()
+
         checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
             '(items)=>items.length===6&&items.every(e=>e.complete&&e.naturalWidth>0)')
         checks['no_placeholder_icon_glyphs'] = page.evaluate(
