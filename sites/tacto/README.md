@@ -10,11 +10,22 @@ Claude·Codex가 만든 computer-use Flow를 재사용하는 Tacto의 온보딩 
 저장소 루트에서:
 
 ```sh
-python3 -m http.server 8787 --bind 127.0.0.1 --directory sites/tacto/dist
+python3 sites/tacto/serve.py
 ```
 
 브라우저에서 http://127.0.0.1:8787 을 엽니다. 종료는 Ctrl+C입니다.
-빌드 단계나 npm 의존성이 없습니다.
+빌드 단계나 npm 의존성이 없습니다. Python 3.9 이상이 필요합니다.
+
+다른 기기에서 보려면 서버를 실행하는 컴퓨터의 LAN 주소를 지정합니다.
+
+```sh
+python3 sites/tacto/serve.py --host <LAN-IP> --port 8787
+```
+
+같은 네트워크에서 `http://<LAN-IP>:8787`로 접속합니다.
+서버는 `dist/`의 정적 파일만 제공하며 폴더 목록·숨김 경로·심볼릭 링크는 제공하지 않습니다.
+CSP·referrer·프레임·MIME 보호 헤더를 함께 보냅니다.
+이 명령을 직접 실행한 경우 Ctrl+C로 종료합니다.
 
 ## 파일
 

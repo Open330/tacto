@@ -2,10 +2,11 @@
 
 ![Tacto — Make it once. Use it again.](docs/assets/tacto-banner.svg)
 
-### Your agent’s execution layer.
+### Let your agent use your apps.
 
-**Claude든 Codex든, 컴퓨터 작업을 한 번 만들고 여러 번 실행하세요.**<br>
-Tacto는 에이전트가 작성한 작업 흐름을 저장하고, 다음 실행에서는 반복적인 추론을 줄입니다.
+**Claude와 Codex가 사용자를 대신해 앱을 조작하도록.**<br>
+Tacto는 에이전트의 컴퓨터 조작(computer use)을 연결합니다.<br>
+한 번 만든 작업 흐름을 저장하고, 다음에는 입력값을 바꿔 다시 실행하세요.
 
 [![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
@@ -17,8 +18,10 @@ Tacto는 에이전트가 작성한 작업 흐름을 저장하고, 다음 실행�
 
 <br>
 
-## 반복할수록 가벼워지는 Computer Use
+## 에이전트에게 앱 조작을 맡기세요
 
+에이전트가 앱 화면을 읽고 버튼을 누르고 내용을 입력합니다.
+이처럼 사용자를 대신해 컴퓨터를 조작하는 기능을 **computer use**라고 부릅니다.
 처음에는 에이전트가 앱을 관찰하고 작업 방법을 만듭니다. 그 흐름을 **Flow**로 저장하면,
 다음에는 입력값을 바꿔 다시 실행할 수 있습니다. 대상을 찾고, 동작하고, 결과를 확인하는 반복은 Tacto 런타임이 맡습니다.
 
@@ -61,8 +64,8 @@ Tacto는 실행할 때 대상을 새 관찰에서 찾고 결과 조건을 검사
 Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools, 로컬 코드 서명 identity가 필요합니다.
 
 ```sh
-git clone https://github.com/Open330/nlc.git
-cd nlc
+git clone https://github.com/Open330/tacto.git
+cd tacto
 uv sync
 ./build.sh
 ./skill/install.sh
@@ -139,7 +142,7 @@ Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습�
 실제 앱이나 모델을 실행하지 않는 인터랙티브 소개입니다.
 
 ```sh
-python3 -m http.server 8787 --bind 127.0.0.1 --directory sites/tacto/dist
+python3 sites/tacto/serve.py
 ```
 
 `http://127.0.0.1:8787`에서 확인할 수 있습니다.
