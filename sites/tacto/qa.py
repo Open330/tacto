@@ -37,10 +37,10 @@ def audit(url, output, axe_source=None):
         response = page.goto(url, wait_until='networkidle')
         checks['http_200'] = response.status == 200
         checks['one_h1'] = page.locator('h1').count() == 1
-        checks['three_verified_use_cases'] = page.locator('#use-cases .use-case').count() == 3
-        checks['case_evidence_links'] = page.locator('.case-source').evaluate_all(
-            '(items)=>items.length===3&&items.every(e=>e.href.startsWith("https://github.com/Open330/tacto/blob/main/docs/"))')
-        checks['hero_has_real_job'] = 'TextEdit' in page.locator('.hero-visual').inner_text()
+        checks['two_recorded_cases'] = page.locator('#use-cases .recorded-case').count() == 2
+        checks['case_screenshots'] = page.locator('.case-source').evaluate_all(
+            '(items)=>items.length===2&&items.every(e=>e.href.endsWith(".png"))')
+        checks['hero_has_real_video'] = page.locator('.hero-visual video source').count() == 1
 
         checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
             '(items)=>items.length===6&&items.every(e=>e.complete&&e.naturalWidth>0)')
@@ -75,6 +75,18 @@ def audit(url, output, axe_source=None):
                 and tab.evaluate('(e)=>e===document.activeElement')
                 and page.locator('#demo-panel').get_attribute('aria-labelledby') == 'demo-tab-'+name)
         checks['one_tab_stop'] = page.locator('[role="tab"][tabindex="0"]').count() == 1
+        checks['no_autoplay_or_preload'] = page.locator('video').evaluate_all(
+            '(items)=>items.length===3&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.controls)')
+        for index in range(page.locator('video').count()):
+            video = page.locator('video').nth(index)
+            video.evaluate('(e)=>e.load()')
+            page.wait_for_function('(i)=>document.querySelectorAll("video")[i].readyState>=2', arg=index)
+            checks['video_decodes_'+str(index)] = video.evaluate('(e)=>e.duration>10&&e.videoWidth>0&&!e.error')
+            video.evaluate('(e)=>e.currentTime=3')
+            page.wait_for_function('(i)=>!document.querySelectorAll("video")[i].seeking', arg=index)
+            checks['video_seeks_'+str(index)] = video.evaluate('(e)=>Math.abs(e.currentTime-3)<0.3')
+            video.evaluate('(e)=>{e.currentTime=0;e.pause();}')
+
         for agent in ['Codex', 'Claude']:
             page.locator('[data-agent="'+agent+'"]').click()
             checks['agent_'+agent] = page.locator('#agent-label').inner_text() == agent

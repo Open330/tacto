@@ -1807,3 +1807,120 @@ button:disabled {
     margin-top: 30px;
   }
 }
+
+/* Genuine app-window recordings, with native controls and original screenshots. */
+.hero-real-media {
+  margin: 18px 20px 0;
+}
+.hero-real-media video {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #1b211c;
+  border-radius: 8px;
+}
+.hero-real-media figcaption {
+  padding: 18px 0 20px;
+  font-size: 12px;
+}
+.hero-real-media figcaption strong {
+  font-weight: 600;
+}
+.hero-real-media figcaption p {
+  margin: 8px 0;
+  color: #46563d;
+}
+.hero-real-media figcaption a,
+.recording-method a {
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.recordings-heading {
+  margin: 20px 0 27px;
+  scroll-margin-top: 30px;
+}
+.recordings-heading h3 {
+  font-size: 25px;
+  margin: 12px 0;
+  letter-spacing: -0.7px;
+}
+.recordings-heading > p {
+  max-width: 760px;
+  color: #526247;
+  font-size: 13px;
+}
+.recording-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.recorded-case {
+  padding: 25px;
+  border: 1px solid #ccd3c2;
+  border-radius: 12px;
+  background: #f1f2e9;
+  min-width: 0;
+}
+.recorded-case h3 {
+  font-size: 27px;
+  line-height: 1.4;
+  letter-spacing: -1px;
+  margin: 24px 0;
+}
+.recorded-case video {
+  display: block;
+  width: 100%;
+  height: 370px;
+  object-fit: contain;
+  background: #242423;
+  border-radius: 8px;
+}
+.recorded-case blockquote {
+  margin: 20px 0 14px;
+  border-left: 2px solid var(--accent);
+  padding-left: 13px;
+  font-size: 15px;
+}
+.recorded-case > p {
+  font-size: 13px;
+  color: #46563d;
+  line-height: 1.9;
+}
+.recorded-case .recording-caption {
+  color: #526247;
+  font-size: 11px;
+  margin-top: 12px;
+}
+.recorded-case .case-source {
+  display: inline-block;
+}
+.recording-method {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #ccd3c2;
+  border-radius: 8px;
+  color: #46563d;
+  font-size: 12px;
+}
+.recording-method p {
+  margin: 15px 0;
+  line-height: 1.9;
+}
+@media (max-width: 760px) {
+  .recording-grid {
+    grid-template-columns: 1fr;
+  }
+  .recorded-case {
+    padding: 20px;
+  }
+  .recorded-case video {
+    height: 330px;
+  }
+  .hero-real-media {
+    margin: 16px 16px 0;
+  }
+  .recordings-heading h3 {
+    font-size: 23px;
+  }
+}

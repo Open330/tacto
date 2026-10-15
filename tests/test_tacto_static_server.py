@@ -143,3 +143,43 @@ class StaticServerTests(unittest.TestCase):
             with self.subTest(name=name),self.assertRaises(HTTPError) as error:
                 urlopen(self.url+'/'+name,timeout=2)
             self.assertEqual(404,error.exception.code)
+
+
+    def test_video_ranges_support_seek_suffix_and_if_range(self):
+        payload = b'0123456789'
+        (self.dist/'clip.mp4').write_bytes(payload)
+        url = self.url+'/clip.mp4'
+        with urlopen(url) as response:
+            etag = response.headers['ETag']
+            self.assertEqual('bytes', response.headers['Accept-Ranges'])
+        for requested, expected, bounds in [('bytes=2-5', b'2345', '2-5'),
+                                             ('bytes=7-', b'789', '7-9'),
+                                             ('bytes=-3', b'789', '7-9')]:
+            with self.subTest(requested=requested), urlopen(Request(url, headers={'Range':requested, 'If-Range':etag})) as response:
+                self.assertEqual(206, response.status)
+                self.assertEqual('bytes '+bounds+'/10', response.headers['Content-Range'])
+                self.assertEqual(str(len(expected)), response.headers['Content-Length'])
+                self.assertEqual(expected, response.read())
+        with urlopen(Request(url, headers={'Range':'bytes=2-5', 'If-Range':'"stale"'})) as response:
+            self.assertEqual(200, response.status)
+            self.assertEqual(payload, response.read())
+        with urlopen(Request(url, headers={'Range':'bytes=2-5'}, method='HEAD')) as response:
+            self.assertEqual(200, response.status)
+            self.assertEqual('10', response.headers['Content-Length'])
+            self.assertEqual(b'', response.read())
+
+    def test_video_unsatisfiable_range_and_conditional_request(self):
+        (self.dist/'clip.mp4').write_bytes(b'0123456789')
+        url = self.url+'/clip.mp4'
+        for requested in ['bytes=30-', 'bytes=9-3', 'bytes=-0']:
+            with self.subTest(requested=requested), self.assertRaises(HTTPError) as error:
+                urlopen(Request(url, headers={'Range':requested}))
+            self.assertEqual(416, error.exception.code)
+            self.assertEqual('bytes */10', error.exception.headers['Content-Range'])
+            self.assertEqual(b'', error.exception.read())
+        with urlopen(url) as response:
+            etag = response.headers['ETag']
+        with self.assertRaises(HTTPError) as error:
+            urlopen(Request(url, headers={'Range':'bytes=2-5', 'If-None-Match':etag}))
+        self.assertEqual(304, error.exception.code)
+        self.assertEqual(b'', error.exception.read())

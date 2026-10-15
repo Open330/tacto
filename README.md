@@ -18,6 +18,21 @@
 
 <br>
 
+## 실제 실행 화면
+
+[![Tacto가 자체 macOS 테스트 앱에서 실제로 입력·계산·검토한 결과](sites/tacto/dist/assets/demos/workflow-result.png)](sites/tacto/dist/assets/demos/workflow-replay.mp4)
+
+**설명 그림이 아닌 실제 앱 창 캡처입니다.** 자체 macOS 테스트 앱에서 같은 11단계 Flow를
+다른 입력값으로 5회 재생했습니다. 결과 89·34·62·79·108과 작업별 완료 1회를 확인했습니다.
+
+[반복 작업 영상 · 약 17초](sites/tacto/dist/assets/demos/workflow-replay.mp4) ·
+[실제 계산기 영상 · 약 14초](sites/tacto/dist/assets/demos/calculator.mp4) ·
+[계산기 원본 스크린샷](sites/tacto/dist/assets/demos/calculator-result.png) ·
+[촬영 조건과 한계](docs/tacto-recorded-demos-2026-10-15.md)
+
+영상은 작성된 Flow의 실행을 보여주며 자연어 작성 과정의 녹화가 아닙니다.
+테스트 앱은 상용 업무 앱이 아닙니다. 정상 재생 중 모델 호출은 없지만 최초 작성 비용은 별도입니다.
+
 ## 에이전트에게 앱 조작을 맡기세요
 
 에이전트가 앱 화면을 읽고 버튼을 누르고 내용을 입력합니다.
@@ -32,7 +47,7 @@
 
 작성·판단·수리에는 모델 비용이 발생합니다. 자동 선택자 수리는 현재 개발 버전의 Codex provider가 지원합니다.
 
-## 실제로 어떤 일을 했나요?
+## 기존 검증 기록
 
 | 맡긴 일 | 앱에서 수행한 동작 | 확인한 결과 |
 | :--- | :--- | :--- |
@@ -195,6 +210,7 @@ batch·session·repair 등 개발 중인 명령은 기본 브랜치에 아직 �
 
 - [로고·시각 아이덴티티](docs/tacto-visual-identity.md)
 - [랜딩페이지 개선·검증](docs/tacto-landing-engineering-2026-10-15.md)
+- [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)

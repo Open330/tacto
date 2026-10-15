@@ -10,6 +10,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import io
 import os
+import re
 from pathlib import Path
 import stat
 from urllib.parse import unquote, urlsplit
@@ -18,7 +19,7 @@ DIRECTORY = (Path(__file__).resolve().parent / 'dist').resolve()
 MAX_ASSET_BYTES = 4 * 1024 * 1024
 MAX_CACHED_BYTES = 512 * 1024
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "
-       "font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; "
+       "font-src 'self'; media-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; "
        "object-src 'none'; frame-ancestors 'none'")
 COMPRESSIBLE = {'.html', '.css', '.js', '.svg', '.json', '.txt'}
 
@@ -126,9 +127,46 @@ class StaticHandler(SimpleHTTPRequestHandler):
                 not_modified = int(info.st_mtime) <= since.timestamp()
             except (ValueError, TypeError, OverflowError):
                 pass
-        self.send_response(HTTPStatus.NOT_MODIFIED if not_modified else HTTPStatus.OK)
+        status = HTTPStatus.NOT_MODIFIED if not_modified else HTTPStatus.OK
+        full_length = len(body)
+        content_range = None
+        is_media = path.suffix.lower() == '.mp4'
+        if not not_modified and is_media and self.command == 'GET':
+            range_header = self.headers.get('Range', '')
+            if_range = self.headers.get('If-Range')
+            range_allowed = not if_range or if_range == etag
+            if if_range and not range_allowed:
+                try:
+                    since = parsedate_to_datetime(if_range)
+                    if since.tzinfo is None:
+                        since = since.replace(tzinfo=timezone.utc)
+                    range_allowed = int(info.st_mtime) <= since.timestamp()
+                except (ValueError, TypeError, OverflowError):
+                    pass
+            match = re.fullmatch(r'bytes=(\d*)-(\d*)', range_header)
+            if range_allowed and match and any(match.groups()):
+                left, right = match.groups()
+                try:
+                    start = int(left) if left else max(0, full_length - int(right))
+                    end = min(int(right), full_length - 1) if left and right else full_length - 1
+                    valid = start <= end and start < full_length and (left or int(right) > 0)
+                except ValueError:
+                    valid = False
+                if valid:
+                    status = HTTPStatus.PARTIAL_CONTENT
+                    content_range = f'bytes {start}-{end}/{full_length}'
+                    body = body[start:end + 1]
+                else:
+                    status = HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE
+                    content_range = f'bytes */{full_length}'
+                    body = b''
+        self.send_response(status)
         self.send_header('ETag', etag)
         self.send_header('Vary', 'Accept-Encoding')
+        if is_media:
+            self.send_header('Accept-Ranges', 'bytes')
+        if content_range:
+            self.send_header('Content-Range', content_range)
         self.send_header('Last-Modified', self.date_time_string(info.st_mtime))
         if encoding:
             self.send_header('Content-Encoding', encoding)
