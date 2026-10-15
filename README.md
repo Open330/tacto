@@ -7,9 +7,9 @@
 **Claude든 Codex든, 컴퓨터 작업을 한 번 만들고 여러 번 실행하세요.**<br>
 NLC는 에이전트가 작성한 작업 흐름을 저장하고, 다음 실행에서는 반복적인 추론을 줄입니다.
 
-[![macOS](https://img.shields.io/badge/macOS-native-161e18?style=flat-square&labelColor=161e18)](docs/installation.md)
-[![Claude + Codex](https://img.shields.io/badge/Claude_+_Codex-compatible-bef47b?style=flat-square&labelColor=161e18)](skill/SKILL.md)
-[![Status](https://img.shields.io/badge/status-working_prototype-161e18?style=flat-square&labelColor=161e18)](#getting-started)
+[![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
+[![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
+[![Status](docs/assets/badge-status.svg)](#getting-started)
 
 [시작하기](#getting-started) &nbsp;·&nbsp; [작동 방식](#how-it-works) &nbsp;·&nbsp; [벤치마크](#benchmarks) &nbsp;·&nbsp; [온보딩 웹사이트](sites/nlc-onboarding/README.md) &nbsp;·&nbsp; [문서](#documentation)
 
