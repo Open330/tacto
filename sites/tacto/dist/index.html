@@ -16,7 +16,7 @@
     <meta property="og:title" content="Tacto — Your agent’s execution layer." />
     <meta property="og:description" content="Let your agent use your apps." />
     <meta property="og:image" content="assets/tacto-banner.svg" />
-    <title>Tacto — Make it once. Use it again.</title>
+    <title>Tacto — 에이전트의 앱 조작을 재사용하세요.</title>
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="style.css" />
     <script defer src="app.js"></script>
@@ -69,17 +69,17 @@
       <section class="hero wrap">
         <div class="hero-copy">
           <div class="eyebrow">
-            <span class="signal"></span> YOUR AGENT. ONE GOOD FLOW.
+            <span class="signal"></span> MACOS · 에이전트의 앱 조작과 작업
+            재사용
           </div>
-          <h1 lang="en">Make it once.<br /><span>Use it again.</span></h1>
+          <h1>앱 조작은 에이전트에게.<br /><span>반복은 Tacto에게.</span></h1>
           <p class="hero-description">
-            에이전트가 사용자를 대신해,<br />앱을 조작하도록.
+            Claude·Codex가 내 Mac의 앱을 조작하게 하는 도구.
           </p>
           <p class="hero-support">
-            Claude와 Codex가 화면을 읽고, 버튼을 누르고, 내용을 입력합니다.<br
-              class="desktop-break"
-            />
-            한 번 만든 작업은 Flow로 남겨 다음에도 실행하세요.
+            에이전트가 화면을 읽고, 클릭하고, 입력합니다. 수행한 작업은
+            <strong>Flow라는 실행 순서로 저장</strong>해 다음에는 입력값만 바꿔
+            다시 실행하세요.
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#start"
@@ -92,7 +92,7 @@
               >
                 <use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a
             ><a class="button secondary" href="#demo"
-              >어떻게 작동하나요?
+              >실행 예시 보기
               <svg
                 class="ui-icon"
                 aria-hidden="true"
@@ -127,7 +127,7 @@
               />
               Codex</b
             ><span class="compatibility-note"
-              >macOS native · Local flows · Formerly NLC</span
+              >macOS · 로컬 실행 · 소스 빌드로 설치하는 개발 버전</span
             >
           </div>
         </div>
@@ -136,10 +136,8 @@
           aria-label="저장한 Flow의 반복 실행을 설명하는 예시"
         >
           <div class="visual-top">
-            <span class="tiny-square"></span> ONE FLOW. MANY NEXT TIMES.<span
-              class="live"
-              >ILLUSTRATION</span
-            >
+            <span class="tiny-square"></span> 계산기 작업을 한 번 익히고, 다시
+            실행<span class="live">설명용 예시</span>
           </div>
           <div class="agent-row">
             <div class="agent-chip">
@@ -168,7 +166,11 @@
               Codex
             </div>
           </div>
-          <div class="connector"><span>WRITE ONCE</span></div>
+          <div class="hero-request">
+            <span>에이전트에게 요청</span>
+            <p>“계산기에서 12 × 34를 계산하고 결과를 확인해줘.”</p>
+          </div>
+          <div class="connector"><span>작업 방법을 Flow로 저장</span></div>
           <div class="flow-file">
             <svg
               class="ui-icon file-icon"
@@ -179,17 +181,19 @@
               <use href="assets/ui-icons.svg#file-code"></use>
             </svg>
             <div>
-              <b>review-and-finish.json</b
-              ><span>Saved once. Ready for the next run.</span>
+              <b>calculator.json</b
+              ><span>계산기 열기 · 값 입력 · 계산 · 결과 확인</span>
             </div>
             <span class="file-status">SAVED</span>
           </div>
-          <div class="replay-line"><span></span><b>REPLAY</b><span></span></div>
+          <div class="replay-line">
+            <span></span><b>입력값을 바꿔 같은 순서로 재생</b><span></span>
+          </div>
           <div class="run-stack">
             <div>
-              <span class="run-index">01</span><span>입력 → 검토 → 완료</span
+              <span class="run-index">01</span><span>12 × 34</span
               ><b
-                >verified
+                >408
                 <svg
                   class="ui-icon"
                   aria-hidden="true"
@@ -200,10 +204,9 @@
               ></b>
             </div>
             <div>
-              <span class="run-index">02</span
-              ><span>새 매개변수, 같은 Flow</span
+              <span class="run-index">02</span><span>25 × 16</span
               ><b
-                >verified
+                >400
                 <svg
                   class="ui-icon"
                   aria-hidden="true"
@@ -214,10 +217,9 @@
               ></b>
             </div>
             <div>
-              <span class="run-index">03</span
-              ><span>관찰 → 실행 → 결과 확인</span
+              <span class="run-index">03</span><span>48 × 12</span
               ><b
-                >verified
+                >576
                 <svg
                   class="ui-icon"
                   aria-hidden="true"
@@ -243,14 +245,14 @@
           </div>
         </div>
         <div class="hero-footer">
-          <span>THE REUSABLE LAYER FOR YOUR AGENT</span
-          ><span>GOOD WORK DESERVES A SECOND RUN.</span>
+          <span>MAKE IT ONCE. USE IT AGAIN.</span
+          ><span>처음에는 에이전트와 함께. 다음에는 저장한 순서대로.</span>
         </div>
       </section>
       <section class="intro wrap" id="how">
         <div class="section-label">01 — A BETTER LOOP</div>
         <div class="intro-heading">
-          <h2>앱 조작은 에이전트에게.<br />반복은 Tacto에게.</h2>
+          <h2>한 번 만든 작업 방법을,<br />다음에도 그대로.</h2>
           <p>
             사용자를 대신해 컴퓨터를 조작하는 computer use. Tacto는 그 작업
             방법을 Flow로 남깁니다. 다음에는 입력값을 바꾸고 같은 흐름을

@@ -1,12 +1,12 @@
 <div align="center">
 
-![Tacto — Make it once. Use it again.](docs/assets/tacto-banner.svg)
+![Tacto — Agents use apps. Tacto repeats.](docs/assets/tacto-banner.svg)
 
-### Let your agent use your apps.
+### 에이전트의 앱 조작을 저장하고, 다음에도 실행하세요.
 
-**Claude와 Codex가 사용자를 대신해 앱을 조작하도록.**<br>
-Tacto는 에이전트의 컴퓨터 조작(computer use)을 연결합니다.<br>
-한 번 만든 작업 흐름을 저장하고, 다음에는 입력값을 바꿔 다시 실행하세요.
+**Tacto는 Claude·Codex가 Mac의 앱을 조작하게 하는 도구입니다.**<br>
+에이전트가 화면을 읽고 클릭·입력하는 작업을 Flow라는 실행 순서로 저장합니다.<br>
+같은 작업은 입력값만 바꿔 재생하고, 결과를 확인하세요.
 
 [![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
