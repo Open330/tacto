@@ -1,0 +1,881 @@
+{
+  "schema": 1,
+  "purpose": "Explanatory pointer, action rings and field highlights over unmodified captured app pixels.",
+  "timing": "Approximate annotation times reconstructed from visible frame transitions and executed action order; not recorded OS cursor coordinates or precise dispatch timestamps.",
+  "motion": "Animated guide pointer only. Tacto performs the underlying UI actions via accessibility APIs; the system mouse was not moved.",
+  "scenarios": {
+    "calculator": {
+      "source": "calculator.mp4",
+      "output": "calculator-guided.mp4",
+      "width": 460,
+      "height": 816,
+      "seconds": 13.833333,
+      "poster_source": "calculator-result.png",
+      "poster_output": "calculator-guided-poster.png",
+      "poster_marker": {
+        "time": 12.2,
+        "x": 330,
+        "y": 215,
+        "label": "CHECK  12",
+        "kind": "read",
+        "box": [
+          235,
+          180,
+          210,
+          70
+        ]
+      },
+      "markers": [
+        {
+          "time": 0,
+          "x": 280,
+          "y": 220,
+          "label": "READY",
+          "kind": "idle"
+        },
+        {
+          "time": 0.75,
+          "x": 175,
+          "y": 315,
+          "label": "CLICK  AC",
+          "kind": "click"
+        },
+        {
+          "time": 1.5,
+          "x": 67,
+          "y": 425,
+          "label": "CLICK  7",
+          "kind": "click"
+        },
+        {
+          "time": 2.85,
+          "x": 391,
+          "y": 641,
+          "label": "CLICK  +",
+          "kind": "click"
+        },
+        {
+          "time": 3.55,
+          "x": 175,
+          "y": 425,
+          "label": "CLICK  8",
+          "kind": "click"
+        },
+        {
+          "time": 4.95,
+          "x": 391,
+          "y": 749,
+          "label": "CLICK  =",
+          "kind": "click"
+        },
+        {
+          "time": 5.5,
+          "x": 330,
+          "y": 215,
+          "label": "CHECK  15",
+          "kind": "read",
+          "box": [
+            235,
+            180,
+            210,
+            70
+          ]
+        },
+        {
+          "time": 7.45,
+          "x": 175,
+          "y": 315,
+          "label": "CLICK  AC",
+          "kind": "click"
+        },
+        {
+          "time": 8.85,
+          "x": 283,
+          "y": 641,
+          "label": "CLICK  3",
+          "kind": "click"
+        },
+        {
+          "time": 9.65,
+          "x": 391,
+          "y": 641,
+          "label": "CLICK  +",
+          "kind": "click"
+        },
+        {
+          "time": 10.95,
+          "x": 283,
+          "y": 425,
+          "label": "CLICK  9",
+          "kind": "click"
+        },
+        {
+          "time": 11.65,
+          "x": 391,
+          "y": 749,
+          "label": "CLICK  =",
+          "kind": "click"
+        },
+        {
+          "time": 12.2,
+          "x": 330,
+          "y": 215,
+          "label": "CHECK  12",
+          "kind": "read",
+          "box": [
+            235,
+            180,
+            210,
+            70
+          ]
+        }
+      ]
+    },
+    "workflow": {
+      "source": "workflow-replay.mp4",
+      "output": "workflow-guided.mp4",
+      "width": 1220,
+      "height": 1004,
+      "seconds": 17.416667,
+      "poster_source": "workflow-result.png",
+      "poster_output": "workflow-guided-poster.png",
+      "poster_marker": {
+        "time": 14.65,
+        "x": 220,
+        "y": 760,
+        "label": "5/5  CHECK  result",
+        "kind": "read",
+        "box": [
+          35,
+          727,
+          250,
+          65
+        ]
+      },
+      "markers": [
+        {
+          "time": 0,
+          "x": 1080,
+          "y": 760,
+          "label": "READY",
+          "kind": "idle"
+        },
+        {
+          "time": 1.05,
+          "x": 1100,
+          "y": 128,
+          "label": "1/5  INPUT  amount",
+          "kind": "input",
+          "box": [
+            315,
+            99,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 1.3,
+          "x": 1100,
+          "y": 218,
+          "label": "1/5  INPUT  factor",
+          "kind": "input",
+          "box": [
+            315,
+            189,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 1.55,
+          "x": 1100,
+          "y": 308,
+          "label": "1/5  INPUT  discount",
+          "kind": "input",
+          "box": [
+            315,
+            279,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 1.8,
+          "x": 1100,
+          "y": 398,
+          "label": "1/5  INPUT  reference",
+          "kind": "input",
+          "box": [
+            315,
+            369,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 2.05,
+          "x": 60,
+          "y": 626,
+          "label": "1/5  SET  bonus",
+          "kind": "input",
+          "box": [
+            35,
+            595,
+            470,
+            60
+          ]
+        },
+        {
+          "time": 2.3,
+          "x": 170,
+          "y": 914,
+          "label": "1/5  CLICK  Review",
+          "kind": "click",
+          "box": [
+            35,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 2.55,
+          "x": 460,
+          "y": 914,
+          "label": "1/5  CLICK  Compute",
+          "kind": "click",
+          "box": [
+            325,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 2.8,
+          "x": 1100,
+          "y": 488,
+          "label": "1/5  INPUT  audit result",
+          "kind": "input",
+          "box": [
+            315,
+            459,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 3.05,
+          "x": 750,
+          "y": 914,
+          "label": "1/5  CLICK  Audit",
+          "kind": "click",
+          "box": [
+            615,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 3.3,
+          "x": 1040,
+          "y": 914,
+          "label": "1/5  CLICK  Finish",
+          "kind": "click",
+          "box": [
+            905,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 3.55,
+          "x": 220,
+          "y": 760,
+          "label": "1/5  CHECK  result",
+          "kind": "read",
+          "box": [
+            35,
+            727,
+            250,
+            65
+          ]
+        },
+        {
+          "time": 4.5,
+          "x": 1100,
+          "y": 128,
+          "label": "2/5  INPUT  amount",
+          "kind": "input",
+          "box": [
+            315,
+            99,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 4.655,
+          "x": 1100,
+          "y": 218,
+          "label": "2/5  INPUT  factor",
+          "kind": "input",
+          "box": [
+            315,
+            189,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 4.81,
+          "x": 1100,
+          "y": 308,
+          "label": "2/5  INPUT  discount",
+          "kind": "input",
+          "box": [
+            315,
+            279,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 4.965,
+          "x": 1100,
+          "y": 398,
+          "label": "2/5  INPUT  reference",
+          "kind": "input",
+          "box": [
+            315,
+            369,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 5.12,
+          "x": 60,
+          "y": 626,
+          "label": "2/5  SET  bonus",
+          "kind": "input",
+          "box": [
+            35,
+            595,
+            470,
+            60
+          ]
+        },
+        {
+          "time": 5.275,
+          "x": 170,
+          "y": 914,
+          "label": "2/5  CLICK  Review",
+          "kind": "click",
+          "box": [
+            35,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 5.43,
+          "x": 460,
+          "y": 914,
+          "label": "2/5  CLICK  Compute",
+          "kind": "click",
+          "box": [
+            325,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 5.585,
+          "x": 1100,
+          "y": 488,
+          "label": "2/5  INPUT  audit result",
+          "kind": "input",
+          "box": [
+            315,
+            459,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 5.74,
+          "x": 750,
+          "y": 914,
+          "label": "2/5  CLICK  Audit",
+          "kind": "click",
+          "box": [
+            615,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 5.895,
+          "x": 1040,
+          "y": 914,
+          "label": "2/5  CLICK  Finish",
+          "kind": "click",
+          "box": [
+            905,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 6.05,
+          "x": 220,
+          "y": 760,
+          "label": "2/5  CHECK  result",
+          "kind": "read",
+          "box": [
+            35,
+            727,
+            250,
+            65
+          ]
+        },
+        {
+          "time": 7.05,
+          "x": 1100,
+          "y": 128,
+          "label": "3/5  INPUT  amount",
+          "kind": "input",
+          "box": [
+            315,
+            99,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 7.25,
+          "x": 1100,
+          "y": 218,
+          "label": "3/5  INPUT  factor",
+          "kind": "input",
+          "box": [
+            315,
+            189,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 7.45,
+          "x": 1100,
+          "y": 308,
+          "label": "3/5  INPUT  discount",
+          "kind": "input",
+          "box": [
+            315,
+            279,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 7.65,
+          "x": 1100,
+          "y": 398,
+          "label": "3/5  INPUT  reference",
+          "kind": "input",
+          "box": [
+            315,
+            369,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 7.85,
+          "x": 60,
+          "y": 626,
+          "label": "3/5  SET  bonus",
+          "kind": "input",
+          "box": [
+            35,
+            595,
+            470,
+            60
+          ]
+        },
+        {
+          "time": 8.05,
+          "x": 170,
+          "y": 914,
+          "label": "3/5  CLICK  Review",
+          "kind": "click",
+          "box": [
+            35,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 8.25,
+          "x": 460,
+          "y": 914,
+          "label": "3/5  CLICK  Compute",
+          "kind": "click",
+          "box": [
+            325,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 8.45,
+          "x": 1100,
+          "y": 488,
+          "label": "3/5  INPUT  audit result",
+          "kind": "input",
+          "box": [
+            315,
+            459,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 8.65,
+          "x": 750,
+          "y": 914,
+          "label": "3/5  CLICK  Audit",
+          "kind": "click",
+          "box": [
+            615,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 8.85,
+          "x": 1040,
+          "y": 914,
+          "label": "3/5  CLICK  Finish",
+          "kind": "click",
+          "box": [
+            905,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 9.05,
+          "x": 220,
+          "y": 760,
+          "label": "3/5  CHECK  result",
+          "kind": "read",
+          "box": [
+            35,
+            727,
+            250,
+            65
+          ]
+        },
+        {
+          "time": 9.95,
+          "x": 1100,
+          "y": 128,
+          "label": "4/5  INPUT  amount",
+          "kind": "input",
+          "box": [
+            315,
+            99,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 10.11,
+          "x": 1100,
+          "y": 218,
+          "label": "4/5  INPUT  factor",
+          "kind": "input",
+          "box": [
+            315,
+            189,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 10.27,
+          "x": 1100,
+          "y": 308,
+          "label": "4/5  INPUT  discount",
+          "kind": "input",
+          "box": [
+            315,
+            279,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 10.43,
+          "x": 1100,
+          "y": 398,
+          "label": "4/5  INPUT  reference",
+          "kind": "input",
+          "box": [
+            315,
+            369,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 10.59,
+          "x": 60,
+          "y": 626,
+          "label": "4/5  SET  bonus",
+          "kind": "input",
+          "box": [
+            35,
+            595,
+            470,
+            60
+          ]
+        },
+        {
+          "time": 10.75,
+          "x": 170,
+          "y": 914,
+          "label": "4/5  CLICK  Review",
+          "kind": "click",
+          "box": [
+            35,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 10.91,
+          "x": 460,
+          "y": 914,
+          "label": "4/5  CLICK  Compute",
+          "kind": "click",
+          "box": [
+            325,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 11.07,
+          "x": 1100,
+          "y": 488,
+          "label": "4/5  INPUT  audit result",
+          "kind": "input",
+          "box": [
+            315,
+            459,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 11.23,
+          "x": 750,
+          "y": 914,
+          "label": "4/5  CLICK  Audit",
+          "kind": "click",
+          "box": [
+            615,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 11.39,
+          "x": 1040,
+          "y": 914,
+          "label": "4/5  CLICK  Finish",
+          "kind": "click",
+          "box": [
+            905,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 11.55,
+          "x": 220,
+          "y": 760,
+          "label": "4/5  CHECK  result",
+          "kind": "read",
+          "box": [
+            35,
+            727,
+            250,
+            65
+          ]
+        },
+        {
+          "time": 12.5,
+          "x": 1100,
+          "y": 128,
+          "label": "5/5  INPUT  amount",
+          "kind": "input",
+          "box": [
+            315,
+            99,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 12.715,
+          "x": 1100,
+          "y": 218,
+          "label": "5/5  INPUT  factor",
+          "kind": "input",
+          "box": [
+            315,
+            189,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 12.93,
+          "x": 1100,
+          "y": 308,
+          "label": "5/5  INPUT  discount",
+          "kind": "input",
+          "box": [
+            315,
+            279,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 13.145,
+          "x": 1100,
+          "y": 398,
+          "label": "5/5  INPUT  reference",
+          "kind": "input",
+          "box": [
+            315,
+            369,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 13.36,
+          "x": 60,
+          "y": 626,
+          "label": "5/5  SET  bonus",
+          "kind": "input",
+          "box": [
+            35,
+            595,
+            470,
+            60
+          ]
+        },
+        {
+          "time": 13.575,
+          "x": 170,
+          "y": 914,
+          "label": "5/5  CLICK  Review",
+          "kind": "click",
+          "box": [
+            35,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 13.79,
+          "x": 460,
+          "y": 914,
+          "label": "5/5  CLICK  Compute",
+          "kind": "click",
+          "box": [
+            325,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 14.005,
+          "x": 1100,
+          "y": 488,
+          "label": "5/5  INPUT  audit result",
+          "kind": "input",
+          "box": [
+            315,
+            459,
+            850,
+            58
+          ]
+        },
+        {
+          "time": 14.22,
+          "x": 750,
+          "y": 914,
+          "label": "5/5  CLICK  Audit",
+          "kind": "click",
+          "box": [
+            615,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 14.435,
+          "x": 1040,
+          "y": 914,
+          "label": "5/5  CLICK  Finish",
+          "kind": "click",
+          "box": [
+            905,
+            885,
+            270,
+            60
+          ]
+        },
+        {
+          "time": 14.65,
+          "x": 220,
+          "y": 760,
+          "label": "5/5  CHECK  result",
+          "kind": "read",
+          "box": [
+            35,
+            727,
+            250,
+            65
+          ]
+        }
+      ]
+    }
+  }
+}

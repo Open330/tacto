@@ -20,16 +20,18 @@
 
 ## 실제 실행 화면
 
-[![Tacto가 자체 macOS 테스트 앱에서 실제로 입력·계산·검토한 결과](sites/tacto/dist/assets/demos/workflow-result.png)](sites/tacto/dist/assets/demos/workflow-replay.mp4)
+[![Tacto가 자체 macOS 테스트 앱에서 실제로 입력·계산·검토한 결과](sites/tacto/dist/assets/demos/workflow-guided-poster.png)](sites/tacto/dist/assets/demos/workflow-guided.mp4)
 
-**설명 그림이 아닌 실제 앱 창 캡처입니다.** 자체 macOS 테스트 앱에서 같은 11단계 Flow를
+**실제 앱 창 촬영에 조작 위치를 보여주는 안내 포인터를 추가했습니다.** 자체 macOS 테스트 앱에서 같은 11단계 Flow를
 다른 입력값으로 5회 재생했습니다. 결과 89·34·62·79·108과 작업별 완료 1회를 확인했습니다.
 
-[반복 작업 영상 · 약 17초](sites/tacto/dist/assets/demos/workflow-replay.mp4) ·
-[실제 계산기 영상 · 약 14초](sites/tacto/dist/assets/demos/calculator.mp4) ·
+[반복 작업 영상 · 약 17초](sites/tacto/dist/assets/demos/workflow-guided.mp4) ·
+[실제 계산기 영상 · 약 14초](sites/tacto/dist/assets/demos/calculator-guided.mp4) ·
 [계산기 원본 스크린샷](sites/tacto/dist/assets/demos/calculator-result.png) ·
 [촬영 조건과 한계](docs/tacto-recorded-demos-2026-10-15.md)
 
+포인터·클릭 효과는 설명용으로 추가했으며 실제 시스템 커서 이동 기록이 아닙니다.
+[반복 작업 원본](sites/tacto/dist/assets/demos/workflow-replay.mp4) · [계산기 원본](sites/tacto/dist/assets/demos/calculator.mp4)도 제공합니다.
 영상은 작성된 Flow의 실행을 보여주며 자연어 작성 과정의 녹화가 아닙니다.
 테스트 앱은 상용 업무 앱이 아닙니다. 정상 재생 중 모델 호출은 없지만 최초 작성 비용은 별도입니다.
 

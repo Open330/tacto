@@ -1924,3 +1924,21 @@ button:disabled {
     font-size: 23px;
   }
 }
+
+.raw-recording {
+  display: block;
+  width: fit-content;
+  margin-top: 16px;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.pointer-disclosure {
+  margin-top: 22px;
+  padding: 15px 18px;
+  border-left: 3px solid #2b7de9;
+  background: #eaf0f7;
+  font-size: 12px;
+  color: #29405b;
+  line-height: 1.9;
+}

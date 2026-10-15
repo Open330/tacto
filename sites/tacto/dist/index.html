@@ -171,12 +171,12 @@
               controls
               playsinline
               preload="none"
-              poster="assets/demos/workflow-result.png"
+              poster="assets/demos/workflow-guided-poster.png"
               width="1220"
               height="1004"
               aria-label="Tacto가 자체 macOS 테스트 앱에서 11단계 Flow를 5회 재생하는 실제 창 캡처 영상"
             >
-              <source src="assets/demos/workflow-replay.mp4" type="video/mp4" />
+              <source src="assets/demos/workflow-guided.mp4" type="video/mp4" />
               <track
                 kind="captions"
                 src="assets/demos/workflow-replay.ko.vtt"
@@ -187,7 +187,7 @@
               <a href="assets/demos/workflow-replay.mp4">실행 영상 다운로드</a>
             </video>
             <figcaption>
-              <strong>실제 창에서 입력값이 바뀌고, 작업이 완료됩니다.</strong>
+              <strong>포인터를 따라 클릭·입력 위치를 확인하세요.</strong>
               <p>
                 자체 macOS 테스트 앱 · 11단계 Flow 재생 5건 모두 완료. 재생
                 버튼을 눌러 실제 변화를 확인하세요.
@@ -232,12 +232,15 @@
               controls
               playsinline
               preload="none"
-              poster="assets/demos/calculator-result.png"
+              poster="assets/demos/calculator-guided-poster.png"
               width="460"
               height="816"
               aria-label="macOS 계산기에서 7 더하기 8과 3 더하기 9를 Tacto로 실행한 실제 촬영 영상"
             >
-              <source src="assets/demos/calculator.mp4" type="video/mp4" />
+              <source
+                src="assets/demos/calculator-guided.mp4"
+                type="video/mp4"
+              />
               <track
                 kind="captions"
                 src="assets/demos/calculator.ko.vtt"
@@ -248,7 +251,8 @@
               <a href="assets/demos/calculator.mp4">계산기 영상 다운로드</a>
             </video>
             <p class="recording-caption">
-              약 14초 · 실제 창 캡처 · 두 작업 사이 대기 구간만 편집
+              약 14초 · 실제 창 캡처 + 안내 포인터 · 두 작업 사이 대기 구간만
+              편집
             </p>
             <blockquote>
               “7 더하기 8을 계산해줘.”<br />다음에는 같은 Flow로 “3 더하기 9”.
@@ -257,6 +261,13 @@
               Tacto가 계산기 버튼을 조작하고 15, 12라는 결과를 확인했습니다. 두
               번째 작업은 저장한 Flow에 입력값만 바꿔 재생했습니다.
             </p>
+            <a
+              class="raw-recording"
+              href="assets/demos/calculator.mp4"
+              target="_blank"
+              rel="noopener"
+              >포인터 없는 원본 영상 보기</a
+            >
             <a
               class="case-source"
               href="assets/demos/calculator-result.png"
@@ -275,12 +286,12 @@
               controls
               playsinline
               preload="none"
-              poster="assets/demos/workflow-result.png"
+              poster="assets/demos/workflow-guided-poster.png"
               width="1220"
               height="1004"
               aria-label="자체 macOS 테스트 앱에서 11단계 Flow를 입력값을 바꿔 5회 실행하는 실제 촬영 영상"
             >
-              <source src="assets/demos/workflow-replay.mp4" type="video/mp4" />
+              <source src="assets/demos/workflow-guided.mp4" type="video/mp4" />
               <track
                 kind="captions"
                 src="assets/demos/workflow-replay.ko.vtt"
@@ -293,7 +304,7 @@
               >
             </video>
             <p class="recording-caption">
-              약 17초 · 실제 창 캡처 · 속도 변경 없이 시간순 재생
+              약 17초 · 실제 창 캡처 + 안내 포인터 · 속도 변경 없이 시간순 재생
             </p>
             <blockquote>
               “이 다섯 건을 같은 순서로 입력하고, 계산 결과를 확인해줘.”
@@ -308,6 +319,13 @@
               호출 0회이며 최초 작성 비용은 별도입니다.
             </p>
             <a
+              class="raw-recording"
+              href="assets/demos/workflow-replay.mp4"
+              target="_blank"
+              rel="noopener"
+              >포인터 없는 원본 영상 보기</a
+            >
+            <a
               class="case-source"
               href="assets/demos/workflow-result.png"
               target="_blank"
@@ -316,6 +334,11 @@
             >
           </article>
         </div>
+        <p class="pointer-disclosure">
+          흰색 포인터·파란 클릭 링·입력 강조는 조작 위치를 설명하기 위해 추가한
+          표시입니다. 실제 시스템 커서의 이동 기록은 아니며, 원본 영상도 함께
+          제공합니다.
+        </p>
         <details class="recording-method">
           <summary>촬영 방식과 확인한 결과</summary>
           <p>

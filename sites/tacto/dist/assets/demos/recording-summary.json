@@ -161,5 +161,24 @@
       "sha256": "be0bca3d5b0a4e54c38bbf87db17b43b70b14dcc33683ae46c2b7be74a2697f2",
       "source": "unmodified signed-helper native-window PNG capture"
     }
-  ]
+  ],
+  "guided_editions": {
+    "notice": "Explanatory guide pointer, click rings, target outlines and step labels; not recorded OS mouse coordinates. Original app recordings are unchanged.",
+    "timing": "Approximate annotation timing based on visible captured transitions and executed action order; not precise input timestamps.",
+    "schedule": "pointer-guide.json",
+    "videos": [
+      {
+        "file": "calculator-guided.mp4",
+        "seconds": 13.833,
+        "bytes": 160877,
+        "sha256": "4ec487ac3f50d6bf2c02c498fcb0dff28c7624c77a94c9047d0a5da685c481f4"
+      },
+      {
+        "file": "workflow-guided.mp4",
+        "seconds": 17.417,
+        "bytes": 537234,
+        "sha256": "58695eae549823a391e8f09bd260121d42b7128219854332705b70a5e45dfac1"
+      }
+    ]
+  }
 }

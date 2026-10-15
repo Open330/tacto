@@ -53,3 +53,23 @@ visual states even though action outcomes are independently checked.
 
 See [machine-readable conditions and results](../sites/tacto/dist/assets/demos/recording-summary.json)
 for per-job values, durations, edit intervals and video SHA-256 hashes.
+
+## Pointer-guided editions
+
+The default players now use `calculator-guided.mp4` and `workflow-guided.mp4`.
+A white arrow moves between action targets, blue rings indicate clicks, outlines
+identify input fields and result checks, and labels identify the current step.
+`GUIDE POINTER` remains visible in each frame. Posters include the same guide.
+
+These marks are explanatory overlays, **not recorded system mouse movement**.
+The underlying actions use accessibility APIs and need not move the mouse.
+Target identifiers follow the executed action order; annotation times are
+approximately reconstructed from captured frame transitions. They are not
+precise dispatch timestamps. No additional UI execution is claimed.
+
+Original recordings and screenshots remain unchanged and have separate links.
+Playback duration and original app pixels are preserved beneath the overlays.
+The overlay source is [annotate_recordings.py](../sites/tacto/annotate_recordings.py)
+and its target/time schedule is [pointer-guide.json](../sites/tacto/dist/assets/demos/pointer-guide.json).
+Only development-time `ffmpeg` and `rsvg-convert` are needed to regenerate them;
+the shipped players add no JavaScript or external dependency.
