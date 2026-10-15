@@ -4,7 +4,7 @@
 
 ### 에이전트의 앱 조작을 저장하고, 다음에도 실행하세요.
 
-**Tacto는 Claude·Codex가 Mac의 앱을 조작하게 하는 도구입니다.**<br>
+**Tacto는 에이전트가 브라우저와 Mac 앱을 조작하게 하는 도구입니다.**<br>
 에이전트가 화면을 읽고 클릭·입력하는 작업을 Flow라는 실행 순서로 저장합니다.<br>
 같은 작업은 입력값만 바꿔 재생하고, 결과를 확인하세요.
 
@@ -18,7 +18,23 @@
 
 <br>
 
-## 실제 실행 화면
+## 브라우저에서는 이렇게 사용합니다
+
+[![Wikipedia에서 검색한 서울 문서로 이동하는 Tacto 실제 브라우저 실행](sites/tacto/dist/assets/demos/browser-wikipedia-preview.png)](sites/tacto/dist/assets/demos/browser-wikipedia.mp4)
+
+| 맡긴 일 | 실제로 확인한 결과 | 촬영 영상 |
+| :--- | :--- | :--- |
+| 공개 사이트에서 정보 찾기 | Wikipedia에서 Seoul 검색 후 History 항목 도착 | [약 14초](sites/tacto/dist/assets/demos/browser-wikipedia.mp4) |
+| 상품 카테고리·상세 확인 | Books to Scrape에서 여행 도서의 가상 가격·재고 표시 확인 | [약 9초](sites/tacto/dist/assets/demos/browser-shopping.mp4) |
+| 여러 입력란·날짜·옵션 작성 | Selenium 테스트 폼의 입력값 4개 확인, 제출 전 상태 유지 | [약 13초](sites/tacto/dist/assets/demos/browser-form.mp4) |
+
+실제 웹사이트를 새 Chromium 세션에서 열고 Tacto의 **Python BrowserDriver + Flow**로 수행했습니다.
+Books to Scrape·Selenium은 공개 테스트 사이트입니다. 개인 Chrome·Safari 탭 연결은 현재 지원 범위 밖입니다.
+영상에는 안내 포인터와 촬영을 위한 대기 시간이 포함되며, 자연어 작성 과정이나 속도 벤치마크를 보여주는 것은 아닙니다.
+
+[브라우저 예제의 재현 방법·검증 범위](docs/tacto-browser-examples-2026-10-15.md)
+
+## Mac 앱의 실제 실행 화면
 
 [![Tacto가 자체 macOS 테스트 앱에서 실제로 입력·계산·검토한 결과](sites/tacto/dist/assets/demos/workflow-guided-poster.png)](sites/tacto/dist/assets/demos/workflow-guided.mp4)
 
@@ -213,6 +229,7 @@ batch·session·repair 등 개발 중인 명령은 기본 브랜치에 아직 �
 - [로고·시각 아이덴티티](docs/tacto-visual-identity.md)
 - [랜딩페이지 개선·검증](docs/tacto-landing-engineering-2026-10-15.md)
 - [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
+- [브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)

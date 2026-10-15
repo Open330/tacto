@@ -37,9 +37,10 @@ def audit(url, output, axe_source=None):
         response = page.goto(url, wait_until='networkidle')
         checks['http_200'] = response.status == 200
         checks['one_h1'] = page.locator('h1').count() == 1
-        checks['two_recorded_cases'] = page.locator('#use-cases .recorded-case').count() == 2
+        checks['five_recorded_cases'] = page.locator('#use-cases .recorded-case').count() == 5
         checks['case_screenshots'] = page.locator('.case-source').evaluate_all(
-            '(items)=>items.length===2&&items.every(e=>e.href.endsWith(".png"))')
+            '(items)=>items.length===5&&items.every(e=>e.href.endsWith(".png"))')
+        checks['three_browser_examples'] = page.locator('.browser-case').count() == 3
         checks['hero_has_real_video'] = page.locator('.hero-visual video source').count() == 1
 
         checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
@@ -76,12 +77,12 @@ def audit(url, output, axe_source=None):
                 and page.locator('#demo-panel').get_attribute('aria-labelledby') == 'demo-tab-'+name)
         checks['one_tab_stop'] = page.locator('[role="tab"][tabindex="0"]').count() == 1
         checks['no_autoplay_or_preload'] = page.locator('video').evaluate_all(
-            '(items)=>items.length===3&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.controls)')
+            '(items)=>items.length===6&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.parentElement.querySelector(".video-start"))')
         for index in range(page.locator('video').count()):
             video = page.locator('video').nth(index)
             video.evaluate('(e)=>e.load()')
             page.wait_for_function('(i)=>document.querySelectorAll("video")[i].readyState>=2', arg=index)
-            checks['video_decodes_'+str(index)] = video.evaluate('(e)=>e.duration>10&&e.videoWidth>0&&!e.error')
+            checks['video_decodes_'+str(index)] = video.evaluate('(e)=>e.duration>3&&e.videoWidth>0&&!e.error')
             video.evaluate('(e)=>e.currentTime=3')
             page.wait_for_function('(i)=>!document.querySelectorAll("video")[i].seeking', arg=index)
             checks['video_seeks_'+str(index)] = video.evaluate('(e)=>Math.abs(e.currentTime-3)<0.3')
@@ -146,6 +147,7 @@ def audit(url, output, axe_source=None):
         nojs = browser.new_context(java_script_enabled=False, viewport={'width':390,'height':844})
         fallback = nojs.new_page()
         fallback.goto(url, wait_until='networkidle')
+        checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===6&&items.every(e=>e.controls)')
         checks['nojs_example_complete'] = fallback.locator('#demo-lines').inner_text().endswith('결과 조건 검증 완료')
         checks['nojs_install_present'] = 'github.com/Open330/tacto.git' in fallback.locator('#install-command').inner_text()
         checks['nojs_controls_disabled'] = fallback.locator('[data-copy="install-command"]').is_disabled()

@@ -5,11 +5,16 @@
 Claude·Codex가 만든 computer-use Flow를 재사용하는 Tacto의 온보딩 랜딩페이지입니다.
 한국어 제품 설명과 영어 브랜드 문구, 반응형 레이아웃, 실행 예시, 시작 안내를 제공합니다.
 
-첫 화면과 사례 영역에서 실제 앱 창 촬영에 안내 포인터·클릭 링·입력 강조를 넣은 영상을 제공합니다.
-안내 표시는 실제 시스템 커서 이동 기록이 아니며, 편집 전 MP4 2개와 원본 PNG도 함께 제공합니다.
-macOS 계산기와 자체 네이티브 테스트 앱을 구분하며, 재생 버튼·탐색·한국어 자막을 제공합니다.
-영상은 자동 재생하지 않고 사용자가 재생할 때 로드합니다.
-[촬영 조건·결과·한계](../../docs/tacto-recorded-demos-2026-10-15.md)를 참고하세요.
+첫 화면은 Wikipedia 검색 실행을 촬영한 브라우저 영상입니다.
+사례 영역에는 브라우저 영상 3개와 Mac 앱 영상 2개를 제공합니다.
+모든 영상은 실제 실행에 안내 포인터를 포함하며, 자동 재생 없이 재생할 때 로드합니다.
+
+브라우저 예제는 Python API가 여는 별도 Chromium 세션이며, 개인 Chrome·Safari 탭에
+연결하지 않습니다. 공개 사이트 Wikipedia와 공개 테스트 사이트 Books to Scrape·Selenium을
+구분해 표시하고, Selenium 폼은 제출하지 않습니다.
+
+[브라우저 예제·재현 방법](../../docs/tacto-browser-examples-2026-10-15.md) ·
+[Mac 앱 촬영 조건](../../docs/tacto-recorded-demos-2026-10-15.md)
 
 ## 로컬 미리보기
 
@@ -90,3 +95,16 @@ python3 sites/tacto/annotate_recordings.py
 `assets/demos/pointer-guide.json`의 대상 위치·동작 순서와 캡처 프레임 변화에
 맞춰 안내 표시를 렌더링합니다. 표시 시각은 설명을 위한 재구성이며 실제
 마우스 좌표·정밀한 입력 시각을 측정한 값이 아닙니다. 원본 파일은 유지합니다.
+
+## 브라우저 예제 다시 촬영하기
+
+프로젝트 Python 환경에 Playwright·Chromium과 ffmpeg를 준비한 뒤 실행합니다.
+공개 사이트에 접속하므로 네트워크 연결이 필요합니다. 결과 폴더는 새 경로를 사용합니다.
+
+```sh
+python3 sites/tacto/record_browser_demos.py --output /tmp/tacto-new-browser-recording
+```
+
+`--scenario wikipedia`, `shopping`, `form`으로 한 예제만 선택할 수도 있습니다.
+개인 프로필을 사용하지 않으며, 입력·클릭·선택은 Tacto Flow로 실행합니다.
+촬영을 위한 안내 포인터와 동작 전후 대기 시간이 있으므로 실행 시간 벤치마크로 쓰지 않습니다.

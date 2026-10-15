@@ -69,20 +69,20 @@
       <section class="hero wrap">
         <div class="hero-copy">
           <div class="eyebrow">
-            <span class="signal"></span> MACOS · 에이전트의 앱 조작과 작업
-            재사용
+            <span class="signal"></span> BROWSER + MACOS · 에이전트의 컴퓨터
+            조작
           </div>
           <h1>매번 하던 앱 작업,<br /><span>말로 맡기고 다시 쓰세요.</span></h1>
           <p class="hero-description">
-            앱의 값을 입력하고, 계산하고,<br />결과를 확인하는 실제 실행 장면.
+            웹에서 정보를 찾고 양식을 채우는 일부터,<br />Mac 앱의 반복
+            작업까지.
           </p>
           <p class="hero-support">
-            Tacto는 Claude·Codex가 Mac 앱의 화면을 읽고 클릭·입력하도록
-            연결합니다. 작업 순서는 저장해 두고, 같은 일을 할 때 다시
-            실행합니다.
+            Tacto는 에이전트가 브라우저와 Mac 앱을 읽고 클릭·입력하도록
+            연결합니다. 작업 순서를 저장해 같은 일을 할 때 다시 실행합니다.
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="#recordings"
+            <a class="button primary" href="#browser-examples"
               >실제 실행 영상 보기
               <svg
                 class="ui-icon"
@@ -131,10 +131,7 @@
             >
           </div>
         </div>
-        <div
-          class="hero-visual"
-          aria-label="저장한 Flow의 반복 실행을 설명하는 예시"
-        >
+        <div class="hero-visual" aria-label="Tacto의 실제 브라우저 실행 영상">
           <div class="visual-top">
             <span class="tiny-square"></span> 말로 요청한 일이 앱 안에서
             이루어집니다<span class="live">실행 영상</span>
@@ -171,28 +168,33 @@
               controls
               playsinline
               preload="none"
-              poster="assets/demos/workflow-guided-poster.png"
-              width="1220"
-              height="1004"
-              aria-label="Tacto가 자체 macOS 테스트 앱에서 11단계 Flow를 5회 재생하는 실제 창 캡처 영상"
+              poster="assets/demos/browser-wikipedia-preview.png"
+              width="1280"
+              height="800"
+              aria-label="Wikipedia에서 서울을 검색하고 History 항목으로 이동하는 실제 브라우저 촬영 영상"
             >
-              <source src="assets/demos/workflow-guided.mp4" type="video/mp4" />
+              <source
+                src="assets/demos/browser-wikipedia.mp4"
+                type="video/mp4"
+              />
               <track
                 kind="captions"
-                src="assets/demos/workflow-replay.ko.vtt"
+                src="assets/demos/browser-wikipedia.ko.vtt"
                 srclang="ko"
                 label="한국어"
                 default
               />
-              <a href="assets/demos/workflow-replay.mp4">실행 영상 다운로드</a>
+              <a href="assets/demos/browser-wikipedia.mp4"
+                >실행 영상 다운로드</a
+              >
             </video>
             <figcaption>
-              <strong>포인터를 따라 클릭·입력 위치를 확인하세요.</strong>
+              <strong>검색부터 원하는 항목까지, 실제 웹사이트에서.</strong>
               <p>
-                자체 macOS 테스트 앱 · 11단계 Flow 재생 5건 모두 완료. 재생
-                버튼을 눌러 실제 변화를 확인하세요.
+                Wikipedia의 서울 검색·History 항목 이동. 안내 포인터가 포함된
+                별도 Chromium·Python API 실행입니다.
               </p>
-              <a href="#recordings">계산기 촬영 영상도 보기</a>
+              <a href="#browser-examples">브라우저 예제 3개 모두 보기</a>
             </figcaption>
           </figure>
         </div>
@@ -213,9 +215,197 @@
             확인한 범위만 표시했습니다.
           </p>
         </div>
+        <div class="browser-examples" id="browser-examples">
+          <div class="recordings-heading">
+            <span class="evidence-tag">새로 촬영한 브라우저 예제 3개</span>
+            <h3>
+              검색, 상품 확인, 양식 작성.<br />익숙한 웹 작업을 맡겨보세요.
+            </h3>
+            <p>
+              같은 Tacto 실행 형식으로 서로 다른 웹 작업을 수행했습니다.
+              포인터가 따라가는 위치와 최종 결과를 영상으로 확인하세요.
+            </p>
+          </div>
+          <div class="browser-recording-grid">
+            <article class="recorded-case browser-case">
+              <div class="case-top">
+                <span class="case-number">01</span
+                ><span class="evidence-tag">실제 공개 사이트 · Wikipedia</span>
+              </div>
+              <h4>궁금한 정보를 찾고,<br />원하는 항목으로.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="assets/demos/browser-wikipedia-poster.png"
+                width="1280"
+                height="800"
+                aria-label="실제 공개 사이트 · Wikipedia에서 수행한 실제 브라우저 촬영"
+              >
+                <source
+                  src="assets/demos/browser-wikipedia.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="assets/demos/browser-wikipedia.ko.vtt"
+                  srclang="ko"
+                  label="한국어"
+                  default
+                />
+                <a href="assets/demos/browser-wikipedia.mp4">영상 다운로드</a>
+              </video>
+              <p class="recording-caption">
+                약 14초 · 별도 Chromium · 안내 포인터 포함
+              </p>
+              <blockquote>
+                “위키피디아에서 서울을 검색하고 역사 항목을 열어줘.”
+              </blockquote>
+              <p>
+                검색어 입력 → 서울 문서 열기 → History 이동. 최종 URL과 항목
+                도착을 확인했습니다.
+              </p>
+              <p class="recording-caption">로그인 없는 공개 문서 읽기입니다.</p>
+              <a
+                class="case-source"
+                href="assets/demos/browser-wikipedia-original.png"
+                target="_blank"
+                rel="noopener"
+                >원본 스크린샷 보기</a
+              ><a
+                class="browser-source"
+                href="https://en.wikipedia.org/wiki/Seoul#History"
+                target="_blank"
+                rel="noopener noreferrer"
+                >촬영한 사이트 열기</a
+              >
+            </article>
+            <article class="recorded-case browser-case">
+              <div class="case-top">
+                <span class="case-number">02</span
+                ><span class="evidence-tag">공개 쇼핑 테스트 사이트</span>
+              </div>
+              <h4>카테고리에서 골라,<br />가격·재고 확인.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="assets/demos/browser-shopping-poster.png"
+                width="1280"
+                height="800"
+                aria-label="공개 쇼핑 테스트 사이트에서 수행한 실제 브라우저 촬영"
+              >
+                <source
+                  src="assets/demos/browser-shopping.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="assets/demos/browser-shopping.ko.vtt"
+                  srclang="ko"
+                  label="한국어"
+                  default
+                />
+                <a href="assets/demos/browser-shopping.mp4">영상 다운로드</a>
+              </video>
+              <p class="recording-caption">
+                약 9초 · 별도 Chromium · 안내 포인터 포함
+              </p>
+              <blockquote>
+                “여행 도서 분류에서 이 책의 가격과 재고를 확인해줘.”
+              </blockquote>
+              <p>
+                Travel 분류에서 지정 도서를 열고 £49.43, 재고 15개라는 표시를
+                확인했습니다.
+              </p>
+              <p class="recording-caption">
+                Books to Scrape의 가상 상품 정보입니다. 실제 가격·구매 사례가
+                아닙니다.
+              </p>
+              <a
+                class="case-source"
+                href="assets/demos/browser-shopping-original.png"
+                target="_blank"
+                rel="noopener"
+                >원본 스크린샷 보기</a
+              ><a
+                class="browser-source"
+                href="https://books.toscrape.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                >촬영한 사이트 열기</a
+              >
+            </article>
+            <article class="recorded-case browser-case">
+              <div class="case-top">
+                <span class="case-number">03</span
+                ><span class="evidence-tag">공개 테스트 폼 · Selenium</span>
+              </div>
+              <h4>여러 입력란을 채우고,<br />제출 전에 검토.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="assets/demos/browser-form-poster.png"
+                width="1280"
+                height="800"
+                aria-label="공개 테스트 폼 · Selenium에서 수행한 실제 브라우저 촬영"
+              >
+                <source src="assets/demos/browser-form.mp4" type="video/mp4" />
+                <track
+                  kind="captions"
+                  src="assets/demos/browser-form.ko.vtt"
+                  srclang="ko"
+                  label="한국어"
+                  default
+                />
+                <a href="assets/demos/browser-form.mp4">영상 다운로드</a>
+              </video>
+              <p class="recording-caption">
+                약 13초 · 별도 Chromium · 안내 포인터 포함
+              </p>
+              <blockquote>
+                “문의 내용을 채우고 날짜와 옵션을 선택한 뒤, 제출 전에 보여줘.”
+              </blockquote>
+              <p>
+                텍스트·문의 내용·2026-10-20 날짜·옵션 Two를 입력하고 각 값이
+                맞는지 확인했습니다.
+              </p>
+              <p class="recording-caption">
+                Selenium 테스트 페이지입니다. Submit을 누르거나 등록을 완료하지
+                않았습니다.
+              </p>
+              <a
+                class="case-source"
+                href="assets/demos/browser-form-original.png"
+                target="_blank"
+                rel="noopener"
+                >원본 스크린샷 보기</a
+              ><a
+                class="browser-source"
+                href="https://www.selenium.dev/selenium/web/web-form.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                >촬영한 사이트 열기</a
+              >
+            </article>
+          </div>
+          <p class="browser-path-note">
+            브라우저 예제는 Python API가 여는 별도 Chromium 세션에서
+            실행했습니다. 개인 Chrome·Safari 탭 연결은 현재 지원 범위 밖입니다.
+            영상은 작성된 Flow의 재생이며, 화면을 보며 Flow를 작성하는 과정의
+            녹화는 아닙니다.
+          </p>
+          <a
+            class="browser-source"
+            href="assets/demos/browser-examples.json"
+            download
+            >브라우저 예제의 실행 조건·결과·파일 해시</a
+          >
+        </div>
         <div class="recordings-heading" id="recordings">
           <span class="evidence-tag">2026-10-15 실제 촬영</span>
-          <h3>클릭·입력부터 결과 확인까지, 실제 실행.</h3>
+          <h3>Mac 앱과 반복 작업도 확인하세요.</h3>
           <p>
             녹화 대상 창만 캡처했습니다. 아래는 실제 UI 실행을 촬영한 영상이며,
             자연어 요청부터 Flow를 작성하는 과정의 녹화는 아닙니다.
@@ -340,7 +530,7 @@
           제공합니다.
         </p>
         <details class="recording-method">
-          <summary>촬영 방식과 확인한 결과</summary>
+          <summary>Mac 앱 영상의 촬영 방식과 확인한 결과</summary>
           <p>
             2026-10-15 · 서명된 Tacto 도우미로 앱 창의 PNG를 약 1–2fps로
             캡처하고, 원래 시간 간격대로 MP4로 연결했습니다. 프레임 사이에 합성

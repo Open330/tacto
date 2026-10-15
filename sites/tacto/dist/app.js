@@ -169,6 +169,40 @@
     });
   });
 
+  // Keep an unloaded video on its poster until the user requests playback.
+  // Native controls remain the no-JavaScript fallback and take over on play.
+  document.querySelectorAll("video").forEach((video) => {
+    const shell = document.createElement("div");
+    shell.className = "video-shell";
+    video.before(shell);
+    shell.append(video);
+    const start = document.createElement("button");
+    start.type = "button";
+    start.className = "video-start";
+    start.setAttribute(
+      "aria-label",
+      `영상 재생: ${video.getAttribute("aria-label") || "실행 예제"}`,
+    );
+    start.innerHTML =
+      '<svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#play"></use></svg><span>영상 재생</span>';
+    shell.append(start);
+    video.controls = false;
+    video.addEventListener("play", () => {
+      video.controls = true;
+      start.hidden = true;
+    });
+    start.addEventListener("click", async () => {
+      video.controls = true;
+      start.hidden = true;
+      try {
+        await video.play();
+      } catch {
+        // Leave the native controls available when playback needs another click.
+        video.controls = true;
+      }
+    });
+  });
+
   renderDemo("replay");
   document
     .querySelectorAll(

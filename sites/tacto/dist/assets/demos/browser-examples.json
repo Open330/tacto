@@ -1,0 +1,260 @@
+{
+  "recorded_on": "2026-10-15",
+  "scenarios": [
+    {
+      "name": "wikipedia",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://en.wikipedia.org/wiki/Main_Page",
+      "final": {
+        "article": "Seoul",
+        "section": "History",
+        "url": "https://en.wikipedia.org/wiki/Seoul#History"
+      },
+      "flow_steps": 4,
+      "actions": [
+        {
+          "at": 2.719,
+          "action": "set_value",
+          "target": "Search Wikipedia",
+          "bounds": {
+            "x": 266,
+            "y": 17,
+            "width": 404.296875,
+            "height": 32
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 4.297,
+          "action": "click",
+          "target": "Search",
+          "bounds": {
+            "x": 669.296875,
+            "y": 17,
+            "width": 70.703125,
+            "height": 32
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 7.104,
+          "action": "click",
+          "target": "History",
+          "bounds": {
+            "x": 60,
+            "y": 228.375,
+            "width": 164,
+            "height": 28
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 9.415,
+          "action": "read",
+          "target": "History",
+          "bounds": {
+            "x": 264,
+            "y": 75.46875,
+            "width": 79.828125,
+            "height": 27
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-wikipedia.mp4",
+        "bytes": 851227,
+        "sha256": "ae3c24931fbf974db59bad5995b21bf49102e75a576506d305443e43e27cedc6",
+        "seconds": 13.64
+      },
+      "screenshots": [
+        {
+          "file": "browser-wikipedia-poster.png",
+          "sha256": "2dfdcd54486b60034e08130ab66548d69f039e1d74782178601530b8833c3234"
+        },
+        {
+          "file": "browser-wikipedia-original.png",
+          "sha256": "76f82a8bc0b2a8671dee3c2b8c45401ba680ef3be26cbeb90c9ce8fb176e0194"
+        }
+      ]
+    },
+    {
+      "name": "shopping",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://books.toscrape.com/",
+      "final": {
+        "title": "Full Moon over Noah’s Ark: An Odyssey to Mount Ararat and Beyond",
+        "price": "£49.43",
+        "stock": "In stock (15 available)",
+        "url": "https://books.toscrape.com/catalogue/full-moon-over-noahs-ark-an-odyssey-to-mount-ararat-and-beyond_811/index.html",
+        "site_kind": "public shopping sandbox, not real prices or purchase"
+      },
+      "flow_steps": 3,
+      "actions": [
+        {
+          "at": 3.583,
+          "action": "click",
+          "target": "Travel",
+          "bounds": {
+            "x": 90,
+            "y": 277.109375,
+            "width": 36.5625,
+            "height": 16
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 5.303,
+          "action": "click",
+          "target": "Full Moon over Noah’s Ark: An Odyssey to Mount Ararat and Beyond",
+          "bounds": {
+            "x": 590,
+            "y": 437.109375,
+            "width": 195,
+            "height": 155
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 6.992,
+          "action": "read",
+          "target": "Full Moon over Noah’s Ark: An Odyssey to Mount Ararat and Beyond",
+          "bounds": {
+            "x": 655,
+            "y": 215.109375,
+            "width": 580,
+            "height": 78.21875
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-shopping.mp4",
+        "bytes": 355561,
+        "sha256": "b0bfdb208c080f576bd2ac7d354f0dd842838905fcddf313891a85bffe8a3dab",
+        "seconds": 9.28
+      },
+      "screenshots": [
+        {
+          "file": "browser-shopping-poster.png",
+          "sha256": "f66b215c1757817a8fea6d15f0bb68cab32673de64ad01ac3c07a42e27255974"
+        },
+        {
+          "file": "browser-shopping-original.png",
+          "sha256": "c338d7d2a2ebd32203a592c37b5d97038430bc1da4c42d6a2c593a0d6a324104"
+        }
+      ]
+    },
+    {
+      "name": "form",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://www.selenium.dev/selenium/web/web-form.html",
+      "final": {
+        "text": "Tacto Demo",
+        "date": "10/20/2026",
+        "message": "Please confirm the weekend workshop details.",
+        "choice": "2",
+        "submitted": false,
+        "url": "https://www.selenium.dev/selenium/web/web-form.html",
+        "site_kind": "Selenium public test form; draft only"
+      },
+      "flow_steps": 5,
+      "actions": [
+        {
+          "at": 2.255,
+          "action": "set_value",
+          "target": "Text input",
+          "bounds": {
+            "x": 82,
+            "y": 88,
+            "width": 356,
+            "height": 38
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 3.746,
+          "action": "set_value",
+          "target": "Date picker",
+          "bounds": {
+            "x": 842,
+            "y": 160,
+            "width": 356,
+            "height": 38
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 5.235,
+          "action": "set_value",
+          "target": "Textarea",
+          "bounds": {
+            "x": 82,
+            "y": 228,
+            "width": 356,
+            "height": 86
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 6.704,
+          "action": "select_option",
+          "target": "Dropdown (select)",
+          "bounds": {
+            "x": 462,
+            "y": 88,
+            "width": 356,
+            "height": 38
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 8.181,
+          "action": "read",
+          "target": "Text input",
+          "bounds": {
+            "x": 82,
+            "y": 88,
+            "width": 356,
+            "height": 38
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-form.mp4",
+        "bytes": 208424,
+        "sha256": "d90beebdb7c6532c25bc1951f2b0194fa0ed0f8c125a225c79dc906babe77215",
+        "seconds": 12.72
+      },
+      "screenshots": [
+        {
+          "file": "browser-form-poster.png",
+          "sha256": "8863ba52416f2ecb21d7387548881c2c2e7aefdebf23fa056fdd74df7d3308bd"
+        },
+        {
+          "file": "browser-form-original.png",
+          "sha256": "670b41bf3e82474e7b776f211ef2d0bf8979a93a3d9f8b4f833bf8b44ddc650c"
+        }
+      ]
+    }
+  ],
+  "browser_path": "Tacto BrowserDriver Python API, dedicated headless Chromium context; no existing Chrome/Safari profile connection.",
+  "annotation": "Decorative pointer/highlight recording overlay uses observed element bounds. Click rings follow actual browser pointerdown events. It is not the system mouse.",
+  "pacing": "450ms pointer preview and 650ms after-action pause added for legibility. Continuous viewport recordings; not execution-time or token benchmarks.",
+  "network_note": "These are live public websites and may issue their own telemetry requests. The recording host made no credential entry, purchase, or form submission. The landing page serves only local recordings.",
+  "limits": [
+    "No natural-language agent authoring is filmed; these are authored Flow replays.",
+    "Books to Scrape and Selenium are public test sites, not real shopping/registration services.",
+    "TodoMVC was not included: Enter-only item creation is unsupported by the current BrowserDriver key policy. No navigation-key policy was weakened."
+  ]
+}
