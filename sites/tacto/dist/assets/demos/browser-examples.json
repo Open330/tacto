@@ -246,6 +246,249 @@
           "sha256": "670b41bf3e82474e7b776f211ef2d0bf8979a93a3d9f8b4f833bf8b44ddc650c"
         }
       ]
+    },
+    {
+      "name": "translate",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://translate.google.com/?sl=en&tl=ko&op=translate",
+      "final": {
+        "source": "Hello. Thank you.",
+        "korean_output_present": true,
+        "output": "Translation results\n안녕하세요. 감사합니다.",
+        "signed_in": false
+      },
+      "flow_steps": 2,
+      "flow_replay_ok": false,
+      "actions": [
+        {
+          "at": 2.874,
+          "action": "set_value",
+          "target": "Source text",
+          "bounds": {
+            "x": 41,
+            "y": 193,
+            "width": 534,
+            "height": 32
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-translate.mp4",
+        "bytes": 66946,
+        "sha256": "f80b58971c7188e2b20800dce9196daf855c9bf7126abde8d752131706e527f9",
+        "seconds": 7.4
+      },
+      "screenshots": [
+        {
+          "file": "browser-translate-poster.png",
+          "sha256": "c93a39cc43ce106952bf47bc540a8cd4d4efb75e461c93c96efb7f7188ae8e9e"
+        },
+        {
+          "file": "browser-translate-original.png",
+          "sha256": "31691335f9fcc689ef6df90df34d0194738140a10b8a663bfee215a6cd949341"
+        }
+      ]
+    },
+    {
+      "name": "github",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://github.com/microsoft/vscode/issues",
+      "final": {
+        "query": "is:issue state:open label:bug sort:comments-desc",
+        "result_count_on_page": 25,
+        "url": "https://github.com/microsoft/vscode/issues?q=is%3Aissue+state%3Aopen+label%3Abug+sort%3Acomments-desc",
+        "issue_created": false
+      },
+      "flow_steps": 3,
+      "actions": [
+        {
+          "at": 4.702,
+          "action": "set_value",
+          "target": "Search issues",
+          "bounds": {
+            "x": 293,
+            "y": 331,
+            "width": 902,
+            "height": 30
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 6.242,
+          "action": "click",
+          "target": "Search",
+          "bounds": {
+            "x": 1224,
+            "y": 330,
+            "width": 32,
+            "height": 32
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 7.849,
+          "action": "read",
+          "target": "Issues",
+          "bounds": {
+            "x": 281,
+            "y": 435,
+            "width": 974,
+            "height": 460
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-github.mp4",
+        "bytes": 406837,
+        "sha256": "c27b8c6be2701f4f71f20a9ef026e93fddec25475f7aeaa5ad6ddd838596200c",
+        "seconds": 9.24
+      },
+      "screenshots": [
+        {
+          "file": "browser-github-poster.png",
+          "sha256": "e5eb08b2ebcac80203ecac8a26077cda72dc72d8c26b782dca5a50fcaae29a9c"
+        },
+        {
+          "file": "browser-github-original.png",
+          "sha256": "6883fef5cb364e734f29bb07b54c4329724eeb9bfec3351df9d56b066e98ec73"
+        }
+      ]
+    },
+    {
+      "name": "units",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://www.unitconverters.net/length-converter.html",
+      "final": {
+        "meters": 3.5,
+        "feet": "11.482939633",
+        "independent_formula": "3.5 / 0.3048",
+        "matches_within": 1e-05
+      },
+      "flow_steps": 3,
+      "actions": [
+        {
+          "at": 2.89,
+          "action": "set_value",
+          "target": "From:",
+          "bounds": {
+            "x": 159.4375,
+            "y": 194.953125,
+            "width": 276,
+            "height": 41
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 4.415,
+          "action": "click",
+          "target": "foot [ft]",
+          "bounds": {
+            "x": 472.4375,
+            "y": 443.546875,
+            "width": 274.125,
+            "height": 20.1875
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 6.008,
+          "action": "read",
+          "target": "To:",
+          "bounds": {
+            "x": 468.4375,
+            "y": 215.953125,
+            "width": 276,
+            "height": 41
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-units.mp4",
+        "bytes": 184287,
+        "sha256": "0fa07fa490505803186a6a49755754ed003c43c35ed588346f96840f2dc23c4d",
+        "seconds": 9.44
+      },
+      "screenshots": [
+        {
+          "file": "browser-units-poster.png",
+          "sha256": "25c3dc90b291588098ad6e491701b829feb1fbf25d5bde03f6a9d4be81cc2c7b"
+        },
+        {
+          "file": "browser-units-original.png",
+          "sha256": "f2da5d14f4c6e027ecf84f447f3d125abc79d6b665f1151ac6ffbbbfed95311b"
+        }
+      ]
+    },
+    {
+      "name": "markdown",
+      "recorded_on": "2026-10-15",
+      "entry_url": "https://markdownlivepreview.com/",
+      "final": {
+        "heading": "Weekend plan",
+        "subheading": "Saturday",
+        "bold_text": "Bring a notebook.",
+        "exported": false,
+        "plan_list_items": 2,
+        "remaining_sample_content": true
+      },
+      "flow_steps": 2,
+      "actions": [
+        {
+          "at": 14.472,
+          "action": "set_value",
+          "target": "Editor content",
+          "bounds": {
+            "x": 52,
+            "y": 40,
+            "width": 565,
+            "height": 21
+          },
+          "outcome": "acted"
+        },
+        {
+          "at": 15.987,
+          "action": "read",
+          "target": "Weekend plan",
+          "bounds": {
+            "x": 658.984375,
+            "y": 48,
+            "width": 605.015625,
+            "height": 50.59375
+          },
+          "outcome": "acted"
+        }
+      ],
+      "passed": true,
+      "model_calls_during_replay": 0,
+      "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
+      "video": {
+        "file": "browser-markdown.mp4",
+        "bytes": 170598,
+        "sha256": "1fe04ff1a6e4f4ca8b4ffce109dcbe3b95d9aa3f87e521358431199f8b2014f5",
+        "seconds": 18.24
+      },
+      "screenshots": [
+        {
+          "file": "browser-markdown-poster.png",
+          "sha256": "b4f6845abcd1eda2814a85f5f81ea608b2abe8a9095b12bcaed57356db6551e2"
+        },
+        {
+          "file": "browser-markdown-original.png",
+          "sha256": "27803503c39f03e3b5a23e0407cb6ed0b770a41f1cc8e8f7906c703d9e743670"
+        }
+      ]
     }
   ],
   "browser_path": "Tacto BrowserDriver Python API, dedicated headless Chromium context; no existing Chrome/Safari profile connection.",

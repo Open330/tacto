@@ -203,6 +203,28 @@
     });
   });
 
+  const filters = document.querySelector(".example-filters");
+  const cases = [...document.querySelectorAll(".everyday-case")];
+  if (filters && cases.length) {
+    filters.hidden = false;
+    filters.querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        const kind = button.dataset.exampleFilter;
+        filters
+          .querySelectorAll("button")
+          .forEach((item) =>
+            item.setAttribute("aria-pressed", String(item === button)),
+          );
+        cases.forEach((card) => {
+          card.hidden = kind !== "all" && card.dataset.category !== kind;
+          if (card.hidden) card.querySelector("video")?.pause();
+        });
+        document.querySelector("#example-count").textContent =
+          `${cases.filter((card) => !card.hidden).length}개 사례를 표시합니다.`;
+      });
+    });
+  }
+
   renderDemo("replay");
   document
     .querySelectorAll(

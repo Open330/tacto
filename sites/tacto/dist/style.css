@@ -2038,3 +2038,50 @@ button:disabled {
   width: 19px;
   height: 19px;
 }
+
+/* Real application gallery; all examples remain available without JavaScript. */
+.example-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 24px 0 12px;
+}
+.example-filters[hidden],
+.everyday-case[hidden] {
+  display: none;
+}
+.example-filters button {
+  min-height: 46px;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.example-filters button[aria-pressed="true"] {
+  background: var(--text);
+  color: #fff;
+}
+.case-result {
+  border-left: 3px solid #cc542e;
+  padding-left: 12px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.fixture-example {
+  margin: 20px 0 40px;
+}
+.fixture-example > article {
+  max-width: 740px;
+  margin: 20px 0;
+}
+.everyday-case video {
+  object-fit: contain;
+  background: #fff;
+}
+.everyday-case .video-shell {
+  margin-top: auto;
+}

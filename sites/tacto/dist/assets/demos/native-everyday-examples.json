@@ -1,0 +1,72 @@
+{
+  "recorded_on": "2026-10-15",
+  "scenarios": [
+    {
+      "name": "textedit",
+      "target": "com.apple.TextEdit",
+      "final": {
+        "file": "tacto-workshop-notes.txt",
+        "contents_match": true,
+        "saved_state_verified": true,
+        "edit_replay_ok": false,
+        "save_replay_ok": true
+      },
+      "seconds": 10.152,
+      "capture_frames": 6,
+      "width": 1312,
+      "height": 844,
+      "video": {
+        "file": "native-textedit.mp4",
+        "sha256": "a2de3c1d7a1e3acfbfdee70f5b0ceffaef0ebb9c499d082f84f2fc8c8c96fb88",
+        "bytes": 70282
+      },
+      "screenshots": [
+        {
+          "file": "native-textedit-original.png",
+          "sha256": "b6c109aae87952afff72b46750a7d578182cdafd0066dcb2ba62bfeb8fa58739"
+        },
+        {
+          "file": "native-textedit-poster.png",
+          "sha256": "6808b9661af56480775ad91a853fda3f8960471a285f7ed7dfb0c063c4f0f6d0"
+        }
+      ],
+      "annotation": "Explanatory pointer over timestamped real window captures. Last frame held 2 seconds. Not a runtime benchmark.",
+      "privacy_crop": "Only the owned TextEdit document window"
+    },
+    {
+      "name": "finder",
+      "target": "com.apple.finder",
+      "final": {
+        "verified": true,
+        "window": "native-files",
+        "result": "5 items, sorted by Name"
+      },
+      "seconds": 7.651,
+      "capture_frames": 7,
+      "width": 1520,
+      "height": 870,
+      "video": {
+        "file": "native-finder.mp4",
+        "sha256": "d96da5b413f7ab4101abd1b75796e56dab734a949a5af37c5c04e5e3f35a8724",
+        "bytes": 95026
+      },
+      "screenshots": [
+        {
+          "file": "native-finder-original.png",
+          "sha256": "32eab00789c3e25611ebf524670f9457adc989ad7a0318929be7a8f67bc5bb7c"
+        },
+        {
+          "file": "native-finder-poster.png",
+          "sha256": "63a0cddda49bc53111d6fd5239ea3d93c9363542ca04c2127294dfede41489bf"
+        }
+      ],
+      "annotation": "Explanatory pointer over timestamped real window captures. Last frame held 2 seconds. Not a runtime benchmark.",
+      "privacy_crop": "Sidebar and path bar removed"
+    }
+  ],
+  "limits": [
+    "TextEdit edit replay stopped commit_unverified; a separate built-in Save replay passed saved-state verification. No automatic completion or causal writer claim.",
+    "Finder only sorts/displays the owned folder; it does not move/delete files.",
+    "Preview PDF experiment excluded: window preparation refused no blank native titlebar point; page transition was not verified."
+  ]
+}

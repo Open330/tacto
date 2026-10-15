@@ -37,10 +37,12 @@ def audit(url, output, axe_source=None):
         response = page.goto(url, wait_until='networkidle')
         checks['http_200'] = response.status == 200
         checks['one_h1'] = page.locator('h1').count() == 1
-        checks['five_recorded_cases'] = page.locator('#use-cases .recorded-case').count() == 5
+        checks['eleven_recorded_cases'] = page.locator('#use-cases .recorded-case').count() == 11
+        checks['ten_everyday_cases'] = page.locator('.everyday-case').count() == 10
+        checks['eight_real_app_cases'] = page.locator('.everyday-case[data-real="true"]').count() == 8
         checks['case_screenshots'] = page.locator('.case-source').evaluate_all(
-            '(items)=>items.length===5&&items.every(e=>e.href.endsWith(".png"))')
-        checks['three_browser_examples'] = page.locator('.browser-case').count() == 3
+            '(items)=>items.length===11&&items.every(e=>e.href.endsWith(".png"))')
+        checks['seven_browser_examples'] = page.locator('.everyday-case video[width="1280"]').count() == 7
         checks['hero_has_real_video'] = page.locator('.hero-visual video source').count() == 1
 
         checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
@@ -77,7 +79,8 @@ def audit(url, output, axe_source=None):
                 and page.locator('#demo-panel').get_attribute('aria-labelledby') == 'demo-tab-'+name)
         checks['one_tab_stop'] = page.locator('[role="tab"][tabindex="0"]').count() == 1
         checks['no_autoplay_or_preload'] = page.locator('video').evaluate_all(
-            '(items)=>items.length===6&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.parentElement.querySelector(".video-start"))')
+            '(items)=>items.length===12&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.parentElement.querySelector(".video-start"))')
+        page.locator('.fixture-example summary').click()
         for index in range(page.locator('video').count()):
             video = page.locator('video').nth(index)
             video.evaluate('(e)=>e.load()')
@@ -87,6 +90,18 @@ def audit(url, output, axe_source=None):
             page.wait_for_function('(i)=>!document.querySelectorAll("video")[i].seeking', arg=index)
             checks['video_seeks_'+str(index)] = video.evaluate('(e)=>Math.abs(e.currentTime-3)<0.3')
             video.evaluate('(e)=>{e.currentTime=0;e.pause();}')
+
+        for kind, expected in [('native',3),('web',5),('test',2),('all',10)]:
+            button = page.locator('[data-example-filter="'+kind+'"]')
+            button.click()
+            checks['gallery_filter_'+kind] = (page.locator('.everyday-case:visible').count()==expected
+                and button.get_attribute('aria-pressed')=='true'
+                and page.locator('#example-count').inner_text().startswith(str(expected)+'개'))
+        page.locator('.everyday-case .video-start').first.click()
+        page.wait_for_function('()=>document.querySelector(".everyday-case video").currentTime>.2')
+        page.locator('[data-example-filter="web"]').click()
+        checks['filter_pauses_hidden_video'] = page.locator('.everyday-case video').first.evaluate('(v)=>v.paused')
+        page.locator('[data-example-filter="all"]').click()
 
         for agent in ['Codex', 'Claude']:
             page.locator('[data-agent="'+agent+'"]').click()
@@ -147,7 +162,8 @@ def audit(url, output, axe_source=None):
         nojs = browser.new_context(java_script_enabled=False, viewport={'width':390,'height':844})
         fallback = nojs.new_page()
         fallback.goto(url, wait_until='networkidle')
-        checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===6&&items.every(e=>e.controls)')
+        checks['nojs_all_ten_cases'] = fallback.locator('.everyday-case:visible').count()==10
+        checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===12&&items.every(e=>e.controls)')
         checks['nojs_example_complete'] = fallback.locator('#demo-lines').inner_text().endswith('결과 조건 검증 완료')
         checks['nojs_install_present'] = 'github.com/Open330/tacto.git' in fallback.locator('#install-command').inner_text()
         checks['nojs_controls_disabled'] = fallback.locator('[data-copy="install-command"]').is_disabled()

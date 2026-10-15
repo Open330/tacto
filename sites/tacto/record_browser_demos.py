@@ -18,27 +18,24 @@ from nlc.browser import BrowserDriver
 from nlc.flow import Flow, replay
 
 GUIDE = r'''(() => {
-  function install() {
-    const root=document.createElement('div');root.id='tacto-recording-guide';root.setAttribute('aria-hidden','true');
-    root.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:2147483647;font:14px Arial,sans-serif;color:white';
-    root.innerHTML='<div data-badge style="position:absolute;right:12px;top:12px;background:#153864;border-radius:7px;padding:9px 13px">TACTO · GUIDE POINTER</div><div data-target style="position:absolute;border:3px solid #287de9;background:rgba(40,125,233,.07);border-radius:7px;opacity:0"></div><div data-pointer style="position:absolute;left:0;top:0;transform:translate(25px,70px);transition:transform .35s ease"><svg width="34" height="42" viewBox="0 0 34 42"><path d="M2 2V31L10 23L16 38L23 35L17 21H30Z" fill="white" stroke="#142133" stroke-width="2.4" stroke-linejoin="round"/></svg><span data-label style="position:absolute;left:30px;top:8px;background:#153864;border-radius:6px;padding:8px 11px;white-space:nowrap">READY</span></div>';
-    document.documentElement.append(root);
-    window.__tactoShow = ({x,y,width:w,height:h,label}) => {
-      const pointer=root.querySelector('[data-pointer]'),target=root.querySelector('[data-target]');
-      pointer.style.transform=`translate(${Math.max(5,Math.min(innerWidth-190,x+w/2))}px,${Math.max(55,Math.min(innerHeight-70,y+h/2))}px)`;
-      root.querySelector('[data-label]').textContent=label;
-      Object.assign(target.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px',opacity:'1'});
-    };
-    const pulse=document.createElement('div');pulse.style.cssText='position:absolute;width:42px;height:42px;border:3px solid #287de9;border-radius:50%;background:rgba(40,125,233,.12);opacity:0';root.append(pulse);
-    document.addEventListener('pointerdown',event=>{
-      pulse.style.left=(event.clientX-21)+'px';pulse.style.top=(event.clientY-21)+'px';
-      pulse.animate([{opacity:.9,transform:'scale(.45)'},{opacity:0,transform:'scale(1.8)'}],{duration:700,easing:'ease-out'});
-    },true);
-    window.__tactoHide=()=>root.style.visibility='hidden';
-    window.__tactoUnhide=()=>root.style.visibility='visible';
-  }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
-})();'''
+ function install() {
+  if(document.getElementById('tacto-recording-guide'))return;
+  const make=(tag,style,parent)=>{const e=document.createElement(tag);e.style.cssText=style;parent?.append(e);return e;};
+  const root=make('div','position:fixed;inset:0;pointer-events:none;z-index:2147483647;font:14px Arial,sans-serif;color:white',document.documentElement);root.id='tacto-recording-guide';root.setAttribute('aria-hidden','true');
+  const badge=make('div','position:absolute;right:12px;top:12px;background:#153864;border-radius:7px;padding:9px 13px',root);badge.textContent='TACTO · GUIDE POINTER';
+  const target=make('div','position:absolute;border:3px solid #287de9;background:rgba(40,125,233,.07);border-radius:7px;opacity:0',root);
+  const pointer=make('div','position:absolute;left:0;top:0;transform:translate(25px,70px);transition:transform .35s ease',root);
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('width','34');svg.setAttribute('height','42');svg.setAttribute('viewBox','0 0 34 42');
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');for(const [k,v] of Object.entries({d:'M2 2V31L10 23L16 38L23 35L17 21H30Z',fill:'white',stroke:'#142133','stroke-width':'2.4','stroke-linejoin':'round'}))path.setAttribute(k,v);svg.append(path);pointer.append(svg);
+  const label=make('span','position:absolute;left:30px;top:8px;background:#153864;border-radius:6px;padding:8px 11px;white-space:nowrap',pointer);label.textContent='READY';
+  window.__tactoShow=({x,y,width:w,height:h,label:text})=>{pointer.style.transform=`translate(${Math.max(5,Math.min(innerWidth-190,x+w/2))}px,${Math.max(55,Math.min(innerHeight-70,y+h/2))}px)`;label.textContent=text;Object.assign(target.style,{left:x+'px',top:y+'px',width:w+'px',height:h+'px',opacity:'1'});};
+  const pulse=make('div','position:absolute;width:42px;height:42px;border:3px solid #287de9;border-radius:50%;background:rgba(40,125,233,.12);opacity:0',root);
+  document.addEventListener('pointerdown',event=>{if(!root.isConnected)return;pulse.style.left=(event.clientX-21)+'px';pulse.style.top=(event.clientY-21)+'px';pulse.animate([{opacity:.9,transform:'scale(.45)'},{opacity:0,transform:'scale(1.8)'}],{duration:700,easing:'ease-out'});},true);
+  window.__tactoHide=()=>root.style.visibility='hidden';window.__tactoUnhide=()=>root.style.visibility='visible';
+ }
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
+})();
+'''
 
 
 class RecordingDriver:
@@ -50,6 +47,7 @@ class RecordingDriver:
 
     def act(self, obs_id, target, action, **kwargs):
         page=self.inner._page
+        page.evaluate(GUIDE)
         node=None;box=None
         current=self.inner._latest.get(target)
         index=action.get('element_index')
@@ -92,7 +90,7 @@ def scenario(name):
     return 'https://www.selenium.dev/selenium/web/web-form.html',steps
 
 
-def run(name, output, assets):
+def run(name, output, assets, *, definition=None, verify=None, approve=False, inspect_unverified_transmit=False):
     directory=output/name;directory.mkdir(parents=True,mode=0o700,exist_ok=False)
     inner=BrowserDriver(headless=True)
     context=None;video=None;source_video=None;requests=[]
@@ -105,19 +103,28 @@ def run(name, output, assets):
         page=inner._page;page.set_default_navigation_timeout(30000)
         page.on('request',lambda request:requests.append({'method':request.method,'url':request.url}))
         video=page.video;source_video=Path(video.path());started=time.monotonic()
-        url,steps=scenario(name);inner.goto(url);observed=inner.observe()
+        url,steps=definition if definition is not None else scenario(name);inner.goto(url);observed=inner.observe()
         assert observed['type']=='observation'
         (directory/'initial-observation.json').write_text(json.dumps(observed,ensure_ascii=False,indent=2))
-        flow_data={'schema':3,'name':'browser-demo-'+name,'target':'page',
+        flow_data={'schema':2,'name':'browser-demo-'+name,'target':'page',
             'safety_defaults':{'effects':['write_ephemeral'],'reversibility':'reversible',
                 'resource':{'object_type':'owned disposable browser context','scope':'entry'}},'steps':steps}
         flow=Flow.from_json(json.dumps(flow_data));driver=RecordingDriver(inner,started)
         (directory/'flow.json').write_text(flow.to_json())
         page.wait_for_timeout(900)
-        result=replay(driver,flow)
+        approvals={}
+        if approve:
+            from nlc.agent import Agent
+            approvals,blocked=Agent(driver=driver).authorize(flow,ask=lambda message:True)
+            assert not blocked,blocked
+        result=replay(driver,flow,approvals=approvals)
         (directory/'flow-result.json').write_text(json.dumps({'ok':result.ok,'log':result.log,'actions':driver.actions},ensure_ascii=False,indent=2))
-        assert result.ok,result.log
-        if name=='wikipedia':
+        if not result.ok:
+            last=result.log[-1]
+            assert inspect_unverified_transmit and name=='translate' and last.get('error')=='commit_unverified' and last.get('status')=='unverified',result.log
+        if verify is not None:
+            verified,box=verify(page,driver)
+        elif name=='wikipedia':
             assert page.url=='https://en.wikipedia.org/wiki/Seoul#History'
             assert page.locator('#History').is_visible() and page.evaluate('scrollY')>100
             verified={'article':'Seoul','section':'History','url':page.url}
@@ -135,12 +142,13 @@ def run(name, output, assets):
             assert not any(row['action']=='click' and row['target']=='Submit' for row in driver.actions)
             verified={**actual,'submitted':False,'url':page.url,'site_kind':'Selenium public test form; draft only'}
             box=page.get_by_label('Text input',exact=True).bounding_box()
+        page.evaluate(GUIDE)
         if box:page.evaluate('(d)=>window.__tactoShow?.(d)',dict(box,label='CHECK  verified result'))
         page.wait_for_timeout(1000)
         page.screenshot(path=str(assets/f'browser-{name}-poster.png'))
         page.evaluate('()=>window.__tactoHide?.()');page.screenshot(path=str(assets/f'browser-{name}-original.png'));page.evaluate('()=>window.__tactoUnhide?.()')
         page.wait_for_timeout(1300)
-        report={'name':name,'recorded_on':'2026-10-15','entry_url':url,'final':verified,'flow_steps':len(steps),
+        report={'name':name,'recorded_on':'2026-10-15','entry_url':url,'final':verified,'flow_steps':len(steps),'flow_replay_ok':result.ok,
             'actions':driver.actions,'passed':True,'model_calls_during_replay':0,'observed_page_non_get_requests':[r for r in requests if r['method'] not in ('GET','HEAD')],
             'scope':'Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.'}
         context.close();context=None

@@ -1,6 +1,6 @@
 # Browser examples recorded on 2026-10-15
 
-Three real website tasks were executed in dedicated Chromium contexts through
+This initial recording contains three real website tasks were executed in dedicated Chromium contexts through
 Tacto's Python `BrowserDriver` and `Flow` replay. No personal browser profile,
 existing Chrome/Safari tab, account credentials or desktop was used. The
 recording source is [record_browser_demos.py](../sites/tacto/record_browser_demos.py).
@@ -73,3 +73,6 @@ No affiliation or endorsement is claimed.
   not relaxed and no direct Playwright key press was substituted.
 - An exact HTML-label lookup did not identify the Selenium select reliably.
   Independent verification uses its observed combobox role and accessible name.
+
+The gallery has since expanded to seven browser examples and three real Mac-app
+examples; see [everyday task coverage and limits](tacto-everyday-examples-2026-10-15.md).

@@ -6,7 +6,8 @@ Claude·Codex가 만든 computer-use Flow를 재사용하는 Tacto의 온보딩 
 한국어 제품 설명과 영어 브랜드 문구, 반응형 레이아웃, 실행 예시, 시작 안내를 제공합니다.
 
 첫 화면은 Wikipedia 검색 실행을 촬영한 브라우저 영상입니다.
-사례 영역에는 브라우저 영상 3개와 Mac 앱 영상 2개를 제공합니다.
+사례 영역에는 실제 앱·웹 8개와 공개 테스트 2개의 영상 및 종류별 필터를 제공합니다.
+자체 앱의 반복 재사용 영상은 별도 접힌 검증 영역에 둡니다.
 모든 영상은 실제 실행에 안내 포인터를 포함하며, 자동 재생 없이 재생할 때 로드합니다.
 
 브라우저 예제는 Python API가 여는 별도 Chromium 세션이며, 개인 Chrome·Safari 탭에
@@ -15,6 +16,8 @@ Claude·Codex가 만든 computer-use Flow를 재사용하는 Tacto의 온보딩 
 
 [브라우저 예제·재현 방법](../../docs/tacto-browser-examples-2026-10-15.md) ·
 [Mac 앱 촬영 조건](../../docs/tacto-recorded-demos-2026-10-15.md)
+
+[확장한 일상 작업 10개·검증 범위](../../docs/tacto-everyday-examples-2026-10-15.md)
 
 ## 로컬 미리보기
 

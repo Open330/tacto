@@ -1,5 +1,9 @@
 # Actual app-window recordings — 2026-10-15
 
+Later recording coverage: [everyday examples](tacto-everyday-examples-2026-10-15.md)
+adds real TextEdit and Finder footage with explicit saved-state limits. The
+TextEdit failure below describes the earlier attempt, not the later outcome.
+
 The landing page now presents real macOS application captures instead of its
 former reconstructed TextEdit scene. These assets contain actual application
 pixels captured through the signed Tacto helper. No desktop, personal browser

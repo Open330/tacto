@@ -18,23 +18,39 @@
 
 <br>
 
-## 브라우저에서는 이렇게 사용합니다
+## 실제 앱에서 이런 일을 맡깁니다
 
-[![Wikipedia에서 검색한 서울 문서로 이동하는 Tacto 실제 브라우저 실행](sites/tacto/dist/assets/demos/browser-wikipedia-preview.png)](sites/tacto/dist/assets/demos/browser-wikipedia.mp4)
+[![실제 Wikipedia 화면에서 검색·이동하는 Tacto 실행](sites/tacto/dist/assets/demos/browser-wikipedia-preview.png)](sites/tacto/dist/assets/demos/browser-wikipedia.mp4)
 
-| 맡긴 일 | 실제로 확인한 결과 | 촬영 영상 |
+**실제 앱·웹사이트 8개와 공개 테스트 2개, 총 10개 상황의 실행 영상**을 제공합니다.
+
+| 앱·사이트 | 맡긴 작업과 확인한 결과 | 실제 영상 |
 | :--- | :--- | :--- |
-| 공개 사이트에서 정보 찾기 | Wikipedia에서 Seoul 검색 후 History 항목 도착 | [약 14초](sites/tacto/dist/assets/demos/browser-wikipedia.mp4) |
-| 상품 카테고리·상세 확인 | Books to Scrape에서 여행 도서의 가상 가격·재고 표시 확인 | [약 9초](sites/tacto/dist/assets/demos/browser-shopping.mp4) |
-| 여러 입력란·날짜·옵션 작성 | Selenium 테스트 폼의 입력값 4개 확인, 제출 전 상태 유지 | [약 13초](sites/tacto/dist/assets/demos/browser-form.mp4) |
+| TextEdit | 워크숍 메모 입력 후 별도 저장 검증으로 디스크·문서 내용 일치 확인 | [약 10초](sites/tacto/dist/assets/demos/native-textedit.mp4) |
+| Finder | 파일 종류 정렬 → 이름 오름차순 정렬, 파일 5개 확인 | [약 8초](sites/tacto/dist/assets/demos/native-finder.mp4) |
+| Google 번역 | 영어 합성 예문 입력 → 한국어 출력 별도 확인 | [약 7초](sites/tacto/dist/assets/demos/browser-translate.mp4) |
+| GitHub | 열린 버그만 필터링하고 댓글 많은 순서로 조회 | [약 9초](sites/tacto/dist/assets/demos/browser-github.mp4) |
+| UnitConverters.net | 3.5 m → 11.482939633 ft, 별도 계산식과 대조 | [약 9초](sites/tacto/dist/assets/demos/browser-units.mp4) |
+| Markdown Live Preview | 기존 예제 앞부분을 계획으로 수정, 제목·목록·굵은 글씨 확인 | [약 18초](sites/tacto/dist/assets/demos/browser-markdown.mp4) |
+| Wikipedia | Seoul 검색 후 History 항목 도착 | [약 14초](sites/tacto/dist/assets/demos/browser-wikipedia.mp4) |
+| Mac 계산기 | 같은 Flow에 다른 입력값을 넣어 15·12 확인 | [약 14초](sites/tacto/dist/assets/demos/calculator-guided.mp4) |
 
-실제 웹사이트를 새 Chromium 세션에서 열고 Tacto의 **Python BrowserDriver + Flow**로 수행했습니다.
-Books to Scrape·Selenium은 공개 테스트 사이트입니다. 개인 Chrome·Safari 탭 연결은 현재 지원 범위 밖입니다.
-영상에는 안내 포인터와 촬영을 위한 대기 시간이 포함되며, 자연어 작성 과정이나 속도 벤치마크를 보여주는 것은 아닙니다.
+<a href="sites/tacto/dist/assets/demos/native-textedit.mp4"><img src="sites/tacto/dist/assets/demos/native-textedit-poster.png" alt="실제 TextEdit 문서 입력과 저장 상태 확인" width="48%"></a>
+<a href="sites/tacto/dist/assets/demos/native-finder.mp4"><img src="sites/tacto/dist/assets/demos/native-finder-poster.png" alt="실제 Finder에서 파일 정렬" width="48%"></a>
 
-[브라우저 예제의 재현 방법·검증 범위](docs/tacto-browser-examples-2026-10-15.md)
+공개 테스트 환경의 [상품 확인](sites/tacto/dist/assets/demos/browser-shopping.mp4)과
+[폼 작성](sites/tacto/dist/assets/demos/browser-form.mp4)도 제공합니다. 구매·등록은 하지 않았습니다.
+브라우저 사례는 **Python BrowserDriver + Flow가 여는 별도 Chromium**이며 개인 Chrome·Safari 탭 연결은 지원 범위 밖입니다.
 
-## Mac 앱의 실제 실행 화면
+TextEdit 입력은 저장 증거 부족으로 멈춘 뒤 별도 Save의 저장 상태 검증이 통과했습니다.
+Google 번역도 입력 전송의 전달 증명과 화면의 한국어 출력 확인을 구분합니다.
+Markdown은 나머지 예제가 남는 부분 수정입니다. 모든 사례가 자동으로 끝까지 완료됐다는 주장은 하지 않습니다.
+영상에는 설명용 포인터와 촬영 대기가 포함되어 속도·토큰 벤치마크로 사용할 수 없습니다.
+
+[10개 사례의 실제 조건·결과·한계](docs/tacto-everyday-examples-2026-10-15.md) ·
+[온보딩 페이지](sites/tacto/README.md)
+
+## 반복 재사용을 확인한 자체 테스트 앱
 
 [![Tacto가 자체 macOS 테스트 앱에서 실제로 입력·계산·검토한 결과](sites/tacto/dist/assets/demos/workflow-guided-poster.png)](sites/tacto/dist/assets/demos/workflow-guided.mp4)
 
@@ -229,7 +245,8 @@ batch·session·repair 등 개발 중인 명령은 기본 브랜치에 아직 �
 - [로고·시각 아이덴티티](docs/tacto-visual-identity.md)
 - [랜딩페이지 개선·검증](docs/tacto-landing-engineering-2026-10-15.md)
 - [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
-- [브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
+- [실제 앱·웹 일상 작업 10개](docs/tacto-everyday-examples-2026-10-15.md)
+- [초기 브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)
