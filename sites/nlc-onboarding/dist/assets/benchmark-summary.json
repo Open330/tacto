@@ -1,0 +1,40 @@
+{
+  "same_requested_conditions": true,
+  "summary": {
+    "nlc": {
+      "runs": 3,
+      "passed": 3,
+      "seconds": 126.29850741592236,
+      "mean_seconds": 42.09950247197412,
+      "total_input_tokens": 201447,
+      "new_input_tokens": 22119,
+      "cache_read_tokens": 179328,
+      "output_tokens": 1605
+    },
+    "sky": {
+      "runs": 3,
+      "passed": 3,
+      "seconds": 138.50689641595818,
+      "mean_seconds": 46.16896547198606,
+      "total_input_tokens": 433312,
+      "new_input_tokens": 50592,
+      "cache_read_tokens": 382720,
+      "output_tokens": 1604
+    }
+  },
+  "observed_reduction_percent": {
+    "seconds": 8.814282404662432,
+    "total_input_tokens": 53.509942027915216,
+    "new_input_tokens": 56.27964895635673,
+    "output_tokens": -0.06234413965087171
+  },
+  "basis": "three fresh independent paired case runs; requested gpt-6.1-sol/medium; fixture preparation excluded",
+  "not_proven": [
+    "actual serving-model identity",
+    "server cache equality",
+    "all-app generalization",
+    "ten-job scripted-replay comparison"
+  ],
+  "source": "Local paired benchmark, 2026-10-14; docs/nlc-matched-comparison-2026-10-14.md",
+  "working_prototype": true
+}
