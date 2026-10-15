@@ -1,4 +1,6 @@
 """The LAN preview serves public site assets, never the checkout or symlinks."""
+import gzip
+import os
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -72,3 +74,72 @@ class StaticServerTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error:
             urlopen(Request(self.url,data=b'no action',method='POST'))
         self.assertEqual(501,error.exception.code)
+
+
+    def test_gzip_matches_identity_and_zero_quality_is_respected(self):
+        payload = (b"body{color:#123456}\n" * 300)
+        (self.dist/'assets/large.css').write_bytes(payload)
+        url = self.url+'/assets/large.css'
+        with urlopen(Request(url,headers={'Accept-Encoding':'gzip'})) as response:
+            packed=response.read()
+            self.assertEqual('gzip',response.headers['Content-Encoding'])
+            self.assertIn('Accept-Encoding',response.headers['Vary'])
+            compressed_etag=response.headers['ETag']
+            self.assertEqual(payload,gzip.decompress(packed))
+            self.assertLess(len(packed),len(payload))
+        for accepted in ('gzip;q=0','*;q=1, gzip;q=0','gzip;q=invalid'):
+            with self.subTest(accepted=accepted), urlopen(Request(url,headers={'Accept-Encoding':accepted})) as response:
+                self.assertIsNone(response.headers.get('Content-Encoding'))
+                self.assertEqual(payload,response.read())
+                self.assertNotEqual(compressed_etag,response.headers['ETag'])
+
+    def test_matching_etag_returns_empty_304_for_exact_or_weak_tag(self):
+        with urlopen(self.url) as response:
+            etag=response.headers['ETag']
+        for condition in (etag,'W/'+etag,'"unrelated", '+etag,'*'):
+            with self.subTest(condition=condition), self.assertRaises(HTTPError) as error:
+                urlopen(Request(self.url,headers={'If-None-Match':condition}))
+            self.assertEqual(304,error.exception.code)
+            self.assertEqual(b'',error.exception.read())
+            self.assertEqual(etag,error.exception.headers['ETag'])
+
+    def test_same_size_edit_with_preserved_mtime_changes_etag(self):
+        path=self.dist/'index.html'
+        with urlopen(self.url) as response:
+            old_etag=response.headers['ETag']
+        old=path.stat()
+        path.write_bytes(b'<h1>Fresh</h1>')
+        os.utime(path,ns=(old.st_atime_ns,old.st_mtime_ns))
+        with urlopen(Request(self.url,headers={'If-None-Match':old_etag})) as response:
+            self.assertEqual(200,response.status)
+            self.assertEqual(b'<h1>Fresh</h1>',response.read())
+            self.assertNotEqual(old_etag,response.headers['ETag'])
+
+    def test_conditional_gzip_head_has_same_representation_headers(self):
+        (self.dist/'assets/large.css').write_bytes(b'a{color:red}'*500)
+        url=self.url+'/assets/large.css'
+        with urlopen(Request(url,headers={'Accept-Encoding':'gzip'})) as response:
+            headers=response.headers
+            response.read()
+        with urlopen(Request(url,headers={'Accept-Encoding':'gzip'},method='HEAD')) as response:
+            self.assertEqual(headers['ETag'],response.headers['ETag'])
+            self.assertEqual(headers['Content-Length'],response.headers['Content-Length'])
+            self.assertEqual('gzip',response.headers['Content-Encoding'])
+            self.assertEqual(b'',response.read())
+
+
+    def test_nonmatching_etag_takes_precedence_over_a_future_modified_since(self):
+        headers={'If-None-Match':'"stale"','If-Modified-Since':'Wed, 01 Jan 2098 00:00:00 GMT'}
+        with urlopen(Request(self.url,headers=headers)) as response:
+            self.assertEqual(200,response.status)
+            self.assertEqual(b'<h1>Tacto</h1>',response.read())
+
+    def test_large_files_and_fifo_are_refused_without_reading(self):
+        oversized=self.dist/'large.bin'
+        with oversized.open('wb') as stream:
+            stream.truncate(site.MAX_ASSET_BYTES+1)
+        os.mkfifo(self.dist/'pipe')
+        for name in ['large.bin','pipe']:
+            with self.subTest(name=name),self.assertRaises(HTTPError) as error:
+                urlopen(self.url+'/'+name,timeout=2)
+            self.assertEqual(404,error.exception.code)

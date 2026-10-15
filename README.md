@@ -177,6 +177,8 @@ batch·session·repair 등 개발 중인 명령은 기본 브랜치에 아직 �
 <details>
 <summary><strong>문서 찾아보기</strong></summary>
 
+- [로고·시각 아이덴티티](docs/tacto-visual-identity.md)
+- [랜딩페이지 개선·검증](docs/tacto-landing-engineering-2026-10-15.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)

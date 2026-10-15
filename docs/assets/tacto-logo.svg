@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-labelledby="tacto-logo-title">
+  <title id="tacto-logo-title">Tacto</title>
+  <!-- A lowercase t whose crossbar runs on into a return arc, left open:
+       touch (coral) → the authored path → around again for the next run.
+       Explicit Tacto ink (#1b211c) and coral (#fa6b3b). -->
+  <path d="M15.5 3.5V19.5A6 6 0 0 0 21.5 25.5H22.5M26.5 21.5V15A4 4 0 0 0 22.5 11H8.6" fill="none" stroke="#1b211c" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="5.4" cy="11" r="2.9" fill="#fa6b3b"/>
+</svg>
