@@ -40,12 +40,12 @@ class SkillInstallTests(unittest.TestCase):
         r = self.run_script()
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
         self.assertEqual(str(entry), os.readlink(self.bin / "nlc"))
-        for d in (".claude/skills/nlc", ".codex/skills/nlc"):
+        for d in (".claude/skills/tacto", ".codex/skills/tacto"):
             self.assertEqual(str(ROOT / "skill"), os.readlink(self.home / d))
 
     def test_a_stale_copy_of_our_skill_is_replaced_by_a_link(self):
         self.entry()
-        stale = self.home / ".codex/skills/nlc"
+        stale = self.home / ".codex/skills/tacto"
         stale.mkdir()
         (stale / "SKILL.md").write_text("---\nname: nlc\n---\nold\n")
         self.assertIn("stale copy", self.run_script("--check").stdout)
@@ -54,14 +54,14 @@ class SkillInstallTests(unittest.TestCase):
 
     def test_another_skill_by_that_name_is_left_alone(self):
         self.entry()
-        other = self.home / ".claude/skills/nlc"
+        other = self.home / ".claude/skills/tacto"
         other.mkdir()
         (other / "SKILL.md").write_text("---\nname: something-else\n---\n")
         r = self.run_script()
         self.assertEqual(1, r.returncode, r.stdout)
         self.assertFalse(other.is_symlink())
-        self.assertIn("not the NLC skill", r.stdout)
-        self.assertTrue((self.home / ".codex/skills/nlc").is_symlink())
+        self.assertIn("not the Tacto skill", r.stdout)
+        self.assertTrue((self.home / ".codex/skills/tacto").is_symlink())
 
     def test_another_program_called_nlc_is_left_alone(self):
         self.entry()
@@ -77,7 +77,7 @@ class SkillInstallTests(unittest.TestCase):
         self.assertEqual(1, r.returncode)
         self.assertIn("missing", r.stdout)
         self.assertFalse((self.bin / "nlc").exists())
-        self.assertFalse((self.home / ".claude/skills/nlc").exists())
+        self.assertFalse((self.home / ".claude/skills/tacto").exists())
 
 
 if __name__ == "__main__":
@@ -110,7 +110,7 @@ class SandboxTests(unittest.TestCase):
             self.assertEqual(0, cli.main(["list"]))
 
     def test_the_skill_tells_an_agent_what_to_do_in_a_sandbox(self):
-        skill = (ROOT / "skill" / "SKILL.md").read_text()
+        skill = "\n".join(p.read_text() for p in [ROOT / "skill/SKILL.md", *sorted((ROOT / "skill/references").glob("*.md"))])
         self.assertIn("require_escalated", skill)
         self.assertIn("danger-full-access", skill)
         self.assertIn("exit code 3", skill)
@@ -255,7 +255,7 @@ class AgentFrictionTests(unittest.TestCase):
 
     def test_the_skill_points_to_built_ins_and_its_docs_resolve(self):
         skill = ROOT / "skill"
-        self.assertIn("nlc list", (skill / "SKILL.md").read_text())
+        self.assertIn("tacto list", (skill / "SKILL.md").read_text())
         self.assertTrue((skill / "docs" / "recipes.md").is_file())
 
 

@@ -32,7 +32,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         helper = root.appendingPathComponent("helper/NLC Helper.app")
         window = NSWindow(contentRect: NSRect(x:0,y:0,width:640,height:620),
                           styleMask:[.titled,.closable,.miniaturizable], backing:.buffered, defer:false)
-        window.title = "NLC 시작하기 · 개발용 미리보기"
+        window.title = "Tacto 시작하기 · 개발용 미리보기"
         window.center()
         let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -48,7 +48,7 @@ final class Setup: NSObject, NSApplicationDelegate {
             field.widthAnchor.constraint(equalToConstant:584).isActive = true
             return field
         }
-        stack.addArrangedSubview(label("NLC를 사용할 준비",size:26))
+        stack.addArrangedSubview(label("Tacto를 사용할 준비",size:26))
         stack.addArrangedSubview(label("1. 아래 도우미를 권한 목록에 추가하고 켜주세요.",size:16))
         let icon = HelperIcon(); icon.helperURL = helper
         icon.image = NSWorkspace.shared.icon(forFile:helper.path)
@@ -68,7 +68,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         stack.addArrangedSubview(actions)
         status.widthAnchor.constraint(equalToConstant:584).isActive = true; stack.addArrangedSubview(status)
         stack.addArrangedSubview(label("2. 사용할 에이전트에 연결하세요.",size:16))
-        connectButton = button("NLC 명령·스킬 연결",#selector(connect)); connectButton.isEnabled = false
+        connectButton = button("Tacto 명령·스킬 연결",#selector(connect)); connectButton.isEnabled = false
         stack.addArrangedSubview(connectButton)
         stack.addArrangedSubview(screenStatus)
         stack.addArrangedSubview(button("화면 기록 설정 열기",#selector(screenSettings)))
@@ -96,7 +96,7 @@ final class Setup: NSObject, NSApplicationDelegate {
     @objc func checkPermissions() {
         clearReport(); state = SetupState(); connectButton.isEnabled = false
         guard FileManager.default.fileExists(atPath:helper.path) else {
-            status.stringValue = "NLC Helper를 찾지 못했습니다. 현재 NLC 설치 경로를 확인해주세요."; return
+            status.stringValue = "NLC Helper를 찾지 못했습니다. 현재 Tacto 설치 경로를 확인해주세요."; return
         }
         // Use the helper's own LaunchServices receipt. Never ask a shared Python
         // interpreter for its grant or run doctor --check's current UI side effect.
@@ -141,7 +141,7 @@ final class Setup: NSObject, NSApplicationDelegate {
             do { try process.run(); process.waitUntilExit(); ok = process.terminationStatus == 0 } catch {}
             DispatchQueue.main.async {
                 self.connectButton.isEnabled = true
-                self.message.stringValue = ok ? "연결했습니다. 에이전트에서 NLC 스킬을 새로 불러와주세요." : "연결을 완료하지 못했습니다. 기존 설치 경로와 파일 충돌을 확인해주세요."
+                self.message.stringValue = ok ? "연결했습니다. 에이전트에서 Tacto 스킬을 새로 불러와주세요." : "연결을 완료하지 못했습니다. 기존 설치 경로와 파일 충돌을 확인해주세요."
             }
         }
     }

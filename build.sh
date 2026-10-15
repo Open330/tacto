@@ -15,5 +15,5 @@ cd "$(dirname "$0")"
 ./helper/build.sh
 ./helper/bundle.sh
 echo
-echo "다음: ./launcher/nlc doctor    (권한을 도우미에 부여)"
-echo "실행: ./launcher/nlc do \"계산기로 12 곱하기 34\" --helper"
+echo "다음: ./skill/install.sh && ~/.local/bin/tacto doctor"
+echo "실행: ~/.local/bin/tacto do \"계산기로 12 곱하기 34\" --helper"

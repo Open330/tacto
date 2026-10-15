@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <!-- Background only: the helper never shows in the Dock or takes focus. -->
   <key>LSUIElement</key>             <true/>
   <key>NSAccessibilityUsageDescription</key>
-  <string>NLC이 사용자를 대신해 앱의 버튼을 누르고 화면을 읽으려면 필요합니다. 조작 중에는 해당 창에 표시가 나타나며 Esc로 즉시 멈출 수 있습니다.</string>
+  <string>Tacto가 사용자를 대신해 앱의 버튼을 누르고 화면을 읽는 데 필요합니다. 조작 중에는 메뉴 막대에 표시가 나타나며 Esc로 즉시 멈출 수 있습니다.</string>
 </dict>
 </plist>
 PLIST

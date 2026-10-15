@@ -152,7 +152,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         if st["built"]:
             narrate("— 권한 경계 —")
             if run_helper_onboarding(narrate, interactive=interactive):
-                narrate("   실행:  nlc <명령> --helper   (설치 전이면 NLC 폴더에서 ./launcher/nlc)")
+                narrate("   실행:  tacto <명령> --helper   (설치 전이면 Tacto checkout에서 ./launcher/nlc)")
             else:
                 all_ok = False
         else:

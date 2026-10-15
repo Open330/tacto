@@ -36,5 +36,10 @@
     "ten-job scripted-replay comparison"
   ],
   "source": "Local paired benchmark, 2026-10-14; docs/nlc-matched-comparison-2026-10-14.md",
-  "working_prototype": true
+  "working_prototype": true,
+  "product": {
+    "name": "Tacto",
+    "previous_name": "NLC",
+    "measurement_label": "nlc"
+  }
 }

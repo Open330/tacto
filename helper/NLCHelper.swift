@@ -2314,7 +2314,7 @@ final class ControlMenuTarget: NSObject {
         abortState.stopNow()
         note("nlc-helper: 표시 메뉴에서 중단했습니다")
         DispatchQueue.main.async {
-            controlItem?.button?.title = "● NLC 중단됨"
+            controlItem?.button?.title = "● Tacto 중단됨"
         }
     }
 }
@@ -2322,11 +2322,11 @@ final class ControlMenuTarget: NSObject {
 @discardableResult
 func showControlIndicator(forPID pid: pid_t) -> Bool {
     let who = NSRunningApplication(processIdentifier: pid)?.localizedName
-    // Short on purpose: menu bar space is the person's, and "● NLC · Calculator
+    // Short on purpose: menu bar space is the person's, and "● Tacto · Calculator
     // · Esc" crowded it (reported). Which app, and how to stop, are one click
     // away in the menu and on hover in the tooltip.
-    let title = "● NLC"
-    let tip = (who.map { "NLC가 \($0) 을(를) 조작하고 있습니다" } ?? "NLC가 이 화면을 조작하고 있습니다")
+    let title = "● Tacto"
+    let tip = (who.map { "Tacto가 \($0) 을(를) 조작하고 있습니다" } ?? "Tacto가 이 화면을 조작하고 있습니다")
         + ". Esc로 즉시 멈춥니다."
     if let existing = controlItem {
         existing.button?.title = title

@@ -80,34 +80,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nlc"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
-    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
-    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
-]
-
-[package.optional-dependencies]
-native-visual = [
-    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
-]
-web = [
-    { name = "playwright" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "playwright", marker = "extra == 'web'", specifier = ">=1.40" },
-    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
-    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
-    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
-    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin' and extra == 'native-visual'", specifier = ">=10.0" },
-]
-provides-extras = ["web", "native-visual"]
-
-[[package]]
 name = "playwright"
 version = "1.63.0"
 source = { registry = "https://pypi.org/simple" }
@@ -276,6 +248,34 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/47/01/543afe3b5da651cea12b3fff9fc2638f4b551b7b6225c81222a8a4b0a20b/pyobjc_framework_screencapturekit-12.2.2-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:508147c240cddbde87149c2918c780fd3f896238ee290550565957a3c85dffc9", size = 11667, upload-time = "2026-08-11T19:41:07.574Z" },
     { url = "https://files.pythonhosted.org/packages/b5/ab/cfb7fad425532537b6620eba9e78c050cad4219fdd6a725bcf2e1c76e1aa/pyobjc_framework_screencapturekit-12.2.2-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:b052df28a13814b2b2eb25b7585224a4fcbd7ca1c5c711b485bb97be7789810f", size = 11870, upload-time = "2026-08-11T19:41:08.302Z" },
 ]
+
+[[package]]
+name = "tacto-runtime"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
+]
+
+[package.optional-dependencies]
+native-visual = [
+    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
+]
+web = [
+    { name = "playwright" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "playwright", marker = "extra == 'web'", specifier = ">=1.40" },
+    { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
+    { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },
+    { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin' and extra == 'native-visual'", specifier = ">=10.0" },
+]
+provides-extras = ["web", "native-visual"]
 
 [[package]]
 name = "typing-extensions"

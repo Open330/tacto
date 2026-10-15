@@ -134,6 +134,10 @@ class InstallationTests(unittest.TestCase):
             executable = environment / ('Scripts/nlc.exe' if os.name == 'nt' else 'bin/nlc')
             result = execute([str(executable), '--help'])
             self.assertIn('Usage:', result.stdout)
+            branded = environment / ('Scripts/tacto.exe' if os.name == 'nt' else 'bin/tacto')
+            branded_result = execute([str(branded), '--help'])
+            self.assertEqual(result.stdout, branded_result.stdout)
+            self.assertIn('Tacto', branded_result.stdout)
             result = execute([str(python), '-I', '-m', 'nlc.cli', '--help'])
             self.assertIn('Usage:', result.stdout)
             data = work / 'user-data'

@@ -17,7 +17,7 @@
 | 저장·전송 완료 | 앱별 host receipt 연결 필요 | 호스트가 제공한 event-bound receipt 필요 | 이미지나 모델의 done은 완료 증거가 아님 |
 
 브라우저 드라이버는 기존 Chrome/Safari 사용자 세션에 자동 연결하지 않는다.
-`nlc do`는 현재 macOS 경로이며, 브라우저와 시각 API는 Python에서 명시적으로
+`tacto do`는 현재 macOS 경로이며, 브라우저와 시각 API는 Python에서 명시적으로
 사용한다. wheel 설치만으로 서명된 macOS helper가 설치되지는 않는다.
 
 저장·전송의 host receipt 검사는 일반 실행과 flow replay에 연결되어 있다. 기존 저장
@@ -60,7 +60,7 @@ signed helper와 Python driver의 배경 준비는 검증된 PID/window 이벤�
 로컬 문서의 Python 한글·이모지 입력도 정확한 본문과 61개 무변화 표본을 확인했다.
 signed helper의 텍스트 입력·스크롤·팝업·저장과 사용자 동시 입력은 후속 검증이
 남아 있다. 표본 사이의 짧은 변화까지 배제하는 증거는 아니다.
-[G0 원시 결과와 한계](../reviews/2026-09-19/background-input.md)를 참조한다.
+G0 원시 결과와 한계（로컬 기록: `../reviews/2026-09-19/background-input.md`）를 참조한다.
 
 owned 네이티브 키/시각 입력9개 시험의 `--require-selection` 옵션은 numeric caret/
 selection 관측을 필수로 한다. 준비되지 않으면 fixture·입력·모델 호출 전에
@@ -88,7 +88,7 @@ Chromium 과제를 Codex·Claude 백본으로 수행했다. 다른 provider가 �
 Codex·Claude CLI를 지원하며 두 백본의 실제 canvas 클릭을 확인했다.
 
 후보 paging은 모든 후보의 원래 번호를 유지하며, 기본 prompt 예산은 UTF-8 byte를
-보수적으로 센다. 정확한 token 계수가 필요하면 provider tokenizer를 전달한다. 이 예산은 NLC 요청 본문에 적용되며 provider CLI의 숨은 시스템 지침·도구 정의까지 포함한 전체 context 상한은 아니다.
+보수적으로 센다. 정확한 token 계수가 필요하면 provider tokenizer를 전달한다. 이 예산은 Tacto 요청 본문에 적용되며 provider CLI의 숨은 시스템 지침·도구 정의까지 포함한 전체 context 상한은 아니다.
 넘치는 후보를 조용히 자르지 않으며 읽지 못한 페이지는 명시적으로 남긴다.
 
 일반 실행의 시간·취소 검사는 호출 사이에서 확인하는 방식이다. 실행 중인 driver나
@@ -106,8 +106,8 @@ Codex·Claude CLI를 지원하며 두 백본의 실제 canvas 클릭을 확인�
 - [설치](installation.md)
 - [시각 API](visual.md)
 - [네이티브 캡처와 권한 한계](native-visual.md)
-- [전체 goal](../reviews/2026-09-19/next-goal.md)
-- [최신 단계별 결과](../reviews/2026-09-19/goal-progress-4.md)
+- 전체 goal（로컬 기록: `../reviews/2026-09-19/next-goal.md`）
+- 최신 단계별 결과（로컬 기록: `../reviews/2026-09-19/goal-progress-4.md`）
 
 파일 receipt는 파일 쓰기만, 전송 receipt는 전송만 증명한다. 다른 중요한 효과가 함께 선언되면 같은 receipt로 완료 처리하지 않는다. 실제 저장 항목 삭제용 receipt는 아직 지원하지 않는다.
 

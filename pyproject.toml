@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nlc"
+name = "tacto-runtime"
 version = "0.1.0"
-description = "자연어로 컴퓨터를 조작하는 인터페이스 — 토큰 효율적·결정론적 computer use 모사"
+description = "Tacto — reusable computer use for Claude, Codex and agent-authored flows"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -28,6 +28,7 @@ web = ["playwright>=1.40"]
 native-visual = ["pyobjc-framework-ScreenCaptureKit>=10.0; sys_platform == 'darwin'"]
 
 [project.scripts]
+tacto = "nlc.cli:main"
 nlc = "nlc.cli:main"
 
 [tool.setuptools]

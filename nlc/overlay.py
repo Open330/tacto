@@ -32,7 +32,7 @@ import subprocess
 import sys
 import time
 
-LABEL = "● NLC"
+LABEL = "● Tacto"
 
 
 def run_indicator(pid: int, heartbeat: str | None = None, ttl: float = 4.0):
@@ -71,8 +71,8 @@ def run_indicator(pid: int, heartbeat: str | None = None, ttl: float = 4.0):
     def tip_for(target_pid):
         who = NSRunningApplication.runningApplicationWithProcessIdentifier_(target_pid)
         name = who.localizedName() if who is not None else None
-        return (f"NLC가 {name} 을(를) 조작하고 있습니다" if name
-                else "NLC가 이 화면을 조작하고 있습니다") + ". Esc로 즉시 멈춥니다."
+        return (f"Tacto가 {name} 을(를) 조작하고 있습니다" if name
+                else "Tacto가 이 화면을 조작하고 있습니다") + ". Esc로 즉시 멈춥니다."
 
     # Short on purpose: the menu bar is the person's, and the app's name and
     # the way to stop are in the tooltip rather than taking its width.

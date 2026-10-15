@@ -18,6 +18,22 @@ def read(name):
     return (ROOT / name).read_text(encoding="utf-8")
 
 
+def skill_stage_text():
+    """Check reachable skill stages without requiring every detail in SKILL.md."""
+    pending=[ROOT/'skill/SKILL.md'];seen=set();texts=[]
+    reference_root=(ROOT/'skill/references').resolve()
+    while pending:
+        path=pending.pop().resolve()
+        if path in seen:continue
+        seen.add(path);text=path.read_text();texts.append(text)
+        for target in re.findall(r'\[[^\]]*\]\(([^)]+)\)',text):
+            target=target.split('#',1)[0]
+            if not target or '://' in target:continue
+            linked=(path.parent/target).resolve()
+            if linked.suffix=='.md' and linked.is_relative_to(reference_root):
+                pending.append(linked)
+    return '\n'.join(texts)
+
 class DocsFollowCodeTests(unittest.TestCase):
     def test_every_cli_command_is_in_the_readme(self):
         commands = re.findall(r'if cmd == "(\w+)"', read("nlc/cli.py"))
@@ -40,14 +56,14 @@ class DocsFollowCodeTests(unittest.TestCase):
     def test_every_decision_parameter_is_explained_where_recipes_are_written(self):
         from nlc.flow import FLOW_ACTIONS
         for doc in ("docs/recipes.md", "skill/SKILL.md", "docs/api.md"):
-            text = read(doc)
+            text = skill_stage_text() if doc == "skill/SKILL.md" else read(doc)
             for name in FLOW_ACTIONS["decide"]:
                 with self.subTest(doc=doc, name=name):
                     self.assertIn(name, text)
 
     def test_every_replay_error_is_explained(self):
         codes = set(re.findall(r'error="([a-z_]+)"', read("nlc/flow.py")))
-        text = read("skill/SKILL.md") + read("docs/recipes.md")
+        text = skill_stage_text() + read("docs/recipes.md")
         for code in sorted(codes):
             with self.subTest(code=code):
                 self.assertIn(f"`{code}`", text)

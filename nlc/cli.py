@@ -1,40 +1,40 @@
-"""nlc — the single entry point tying onboarding, the agent, and the store.
+"""Tacto — reusable computer use. Legacy command: nlc.
 
 Usage:
-  python -m nlc.cli doctor            # check/guide permissions
-  python -m nlc.cli apps              # list running apps (GUI session check)
-  python -m nlc.cli list              # list saved flows (+ where the IR lives)
-  python -m nlc.cli show <name>       # print a flow's IR (JSON)
-  python -m nlc.cli compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
+  tacto doctor            # check/guide permissions
+  tacto apps              # list running apps (GUI session check)
+  tacto list              # list saved flows (+ where the IR lives)
+  tacto show <name>       # print a flow's IR (JSON)
+  tacto compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
       (--verify runs the result once and lets the model fix what failed)
-  python -m nlc.cli do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
+  tacto do "<intent>"     # STAGE 1+2+3 (add --learn to author unknown tasks)
       (--provider codex|claude|gemini|opencode|cxweb|auto selects the model provider)
       (--think [N] lets a run stop and ask when the screen disagrees; N calls.
        Unset: 0 for built-in recipes, 1 for ones promoted from a walk; --think 0 = never)
       (--strict turns off reading the request itself: only phrasings the
        patterns already know, and an honest "I did not understand" otherwise)
-  python -m nlc.cli do "<intent>" --trace run.json   # …and record a reproducible trace
-  python -m nlc.cli parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
-  python -m nlc.cli run <flow.json>   # execute a Flow IR file directly (no intent step)
+  tacto do "<intent>" --trace run.json   # …and record a reproducible trace
+  tacto parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
+  tacto run <flow.json>   # execute a Flow IR file directly (no intent step)
       (--helper routes through the signed Swift helper that holds the permissions)
-      (add --no-indicator to hide the "● NLC" menu-bar item shown while it runs)
-  python -m nlc.cli replay <name>     # replay a saved flow by name
+      (add --no-indicator to hide the "● Tacto" menu-bar item shown while it runs)
+  tacto replay <name>     # replay a saved flow by name
       (run/replay: --think N lets a step that declared a surprise ask N times;
        unset, a recipe promoted from a walk may ask once, a written one never)
-  python -m nlc.cli candidates        # what a screen-loop run would like to
+  tacto candidates        # what a screen-loop run would like to
                                       # become a recipe, and why it is not yet
-  python -m nlc.cli promote <name> [-p 25=n]
+  tacto promote <name> [-p 25=n]
                                       # make one a recipe, if its gate is clean;
                                       # -p turns a value from the request into an
                                       # input, and the recipe then answers the
-                                      # same sentence with any value (nlc do "…")
+                                      # same sentence with any value (tacto do "…")
       (a model reviews the walk once for judgment points; --no-decisions skips it)
 
   A step the policy will not run on its own authority (saving a file, sending a
   message) asks first. Answer at the prompt, or pass --yes for scripts; with no
   terminal to ask at, the answer is no.
 
-Things it already knows how to do (nlc do "…"):
+Things it already knows how to do (tacto do "…"):
   7 더하기 8 해줘                  계산기 — 사칙연산 전부
   다운로드 폴더 열어줘              Finder
   새 문서 만들어줘                  TextEdit
@@ -207,7 +207,7 @@ def _promote_decisions(rec: dict, flow, provider: str, taken_names=frozenset()):
 def _load_recipe(name: str):
     """A recipe by name — a built-in always from the code, never a stale copy.
 
-    `nlc do` already worked this way; `nlc replay` and `nlc show` read the
+    `tacto do` already worked this way; `tacto replay` and `tacto show` read the
     saved copy, and the one in flows/ for textedit_write_note dated from
     2026-09-16 and declared `write_ephemeral` where the code now says
     `write_persistent`, so every replay was refused as a contract mismatch —
@@ -347,7 +347,7 @@ def _indicator_for(target, argv):
 def _run_flow(flow, argv, walked: bool = False):
     """All direct replay commands use the same consent and trace path.
 
-    And the same judgment as `nlc do`: a recipe promoted from a walk may ask
+    And the same judgment as `tacto do`: a recipe promoted from a walk may ask
     once where a step declared a surprise, `--think N` sets how often, and
     `--think 0` turns it off. Before this, the same recipe re-aimed its way
     past Calculator's `Clear`/`All Clear` under `do` and failed under `replay`.
@@ -439,8 +439,8 @@ def _run_flow(flow, argv, walked: bool = False):
             # plainly, because the raw record sent an agent round three more
             # times looking for what went wrong (2026-10-07).
             print("unverified — 입력은 보냈지만 저장된 파일이 없어 확인 영수증이 없습니다 "
-                  "(저장하지 않은 문서라면 정상). 내용은 `nlc observe <앱>` 으로 확인하세요.\n"
-                  "  TextEdit 의 .txt 문서를 저장·확인하려면: nlc replay textedit_save "
+                  "(저장하지 않은 문서라면 정상). 내용은 `tacto observe <앱>` 으로 확인하세요.\n"
+                  "  TextEdit 의 .txt 문서를 저장·확인하려면: tacto replay textedit_save "
                   "-p document=<절대 경로> -p name=<파일 이름> --helper --yes\n"
                   f"  detail: {last}")
         else:
@@ -610,14 +610,14 @@ def _dispatch(cmd, rest):
             if explored:
                 print("           살펴보기만 한 단계(레시피에서 뺌): "
                       + ", ".join(str(a.get("label") or a.get("match")) for a in explored))
-        print("\n  레시피로 만들려면:  nlc promote <이름>")
+        print("\n  레시피로 만들려면:  tacto promote <이름>")
         return 0
 
     if cmd == "promote":
         from .flow import Flow
         from .promote import CandidateStore
         if not rest:
-            print("사용법: nlc promote <이름>"); return 2
+            print("사용법: tacto promote <이름>"); return 2
         name = rest[0]
         rec = CandidateStore().get(name)
         if rec is None:
@@ -693,11 +693,11 @@ def _dispatch(cmd, rest):
             offered = {}
         if flow.params:
             example = " ".join(f"-p {p}=…" for p in flow.params)
-            print(f"  {how}:  nlc replay {flow.name} {example}")
+            print(f"  {how}:  tacto replay {flow.name} {example}")
         else:
-            print(f"  {how}:  nlc run {path}")
+            print(f"  {how}:  tacto run {path}")
             if offered:
-                print(f"  값을 바꿔 쓰려면:  nlc promote {name} "
+                print(f"  값을 바꿔 쓰려면:  tacto promote {name} "
                       + " ".join(f"-p {lit}=이름" for lit in offered))
         return 0
 
@@ -710,7 +710,7 @@ def _dispatch(cmd, rest):
         print(f"  저장 위치(Flow IR): {store.path}")
         for n in names:
             print(f"  {n}")
-        print("  전체 IR 보기:  nlc show <이름>")
+        print("  전체 IR 보기:  tacto show <이름>")
         return 0
 
     if cmd == "compile":
@@ -757,7 +757,7 @@ def _dispatch(cmd, rest):
         else:
             path = _FS().save(flow)
         print(f"  ✓ IR 저장: {path}  ({len(flow.steps)}단계, 앱 {flow.target})")
-        print(f"  실행:  nlc run {path}")
+        print(f"  실행:  tacto run {path}")
         return 0
 
     if cmd == "parameterize":
@@ -791,7 +791,7 @@ def _dispatch(cmd, rest):
             path = FlowStore().save(tmpl)
         print(f"  ✓ 파라미터화: {path}")
         print(f"    params={tmpl.params} derived={tmpl.derived or {}}")
-        print(f"    실행:  nlc run {path} " + " ".join(f"-p {k}=…" for k in tmpl.params))
+        print(f"    실행:  tacto run {path} " + " ".join(f"-p {k}=…" for k in tmpl.params))
         return 0
 
     if cmd == "run":
@@ -802,7 +802,7 @@ def _dispatch(cmd, rest):
             # `--help` used to be opened as a file and crash with
             # FileNotFoundError — the first thing an agent tries (2026-10-07).
             print('usage: run <flow.json> [-p a=12 -p b=34] [--helper] [--yes] [--think N]\n'
-                  '  built-in recipes: nlc list · nlc show <name> · nlc replay <name> -p key=value')
+                  '  built-in recipes: tacto list · tacto show <name> · tacto replay <name> -p key=value')
             return 2 if not rest else 0
         from .flow import Flow as _F, replay as _replay
         try:
@@ -824,7 +824,7 @@ def _dispatch(cmd, rest):
         params, rest = _params_from(rest)
         if not rest or rest[0] in ("--help", "-h", "help"):
             print("usage: replay <name> [-p a=12 -p b=34] [--helper] [--yes] [--think N]\n"
-                  "  names: nlc list · inputs and steps: nlc show <name>")
+                  "  names: tacto list · inputs and steps: tacto show <name>")
             return 2 if not rest else 0
         flow = _load_recipe(rest[0])
         walked = bool(flow.intents)      # binding drops it; decide first
@@ -849,7 +849,7 @@ def _dispatch(cmd, rest):
         intent = " ".join(rest)
         # gate on permissions first — the beginner path
         if not onboard.run(interactive=False, narrate=lambda s: None):
-            print("먼저 권한이 필요해요:  python -m nlc.cli doctor")
+            print("먼저 권한이 필요해요:  tacto doctor")
             return 1
         from .session import preflight
         pf = preflight()
@@ -887,11 +887,11 @@ def _dispatch(cmd, rest):
             if clashes:
                 print(f"'{trace_path}' 은(는) 실행 레시피(Flow IR)입니다. "
                       f"트레이스는 다른 경로에 저장해 주세요 (예: --trace run.json).\n"
-                      f"  Flow IR  = 무엇을 할지 (nlc show <이름>)\n"
+                      f"  Flow IR  = 무엇을 할지 (tacto show <이름>)\n"
                       f"  Trace IR = 실행 중 무엇이 보였는지 (--trace)")
                 return 2
 
-        # Flags are not part of what the user asked for. Left in, `nlc do "..."
+        # Flags are not part of what the user asked for. Left in, `tacto do "..."
         # --helper` sends "… --helper" to the intent matcher as if it were words
         # the person said.
         # `--think [N]`: let the run stop and ask when the screen disagrees with

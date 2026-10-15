@@ -39,7 +39,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         self.assertEqual(str(self.entry), os.readlink(self.bin / 'nlc'))
         for directory in ('.codex', '.claude'):
             self.assertEqual(str(self.root / 'skill'),
-                             os.readlink(self.home / directory / 'skills/nlc'))
+                             os.readlink(self.home / directory / 'skills/tacto'))
         checked = self.run_script('--check')
         self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
 
@@ -53,11 +53,11 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         env = {'HOME': str(self.home), 'PATH': f'{self.bin}:/usr/bin:/bin',
                'NLC_BIN_DIR': str(self.bin)}
         for tool in ('.codex', '.claude'):
-            script = self.home / tool / 'skills/nlc/install.sh'
+            script = self.home / tool / 'skills/tacto/install.sh'
             checked = subprocess.run(['/bin/bash', str(script), '--check'], env=env,
                                      capture_output=True, text=True, timeout=10)
             self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
-            self.assertIn('NLC — ' + str(self.root), checked.stdout)
+            self.assertIn('Tacto — ' + str(self.root), checked.stdout)
 
     def test_no_python_console_fallback_when_launcher_is_missing(self):
         self.entry.unlink()
@@ -85,14 +85,14 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         foreign.mkdir()
         (foreign / 'SKILL.md').write_text('---\nname: another-skill\n---\n')
         for directory, target in (('.codex', foreign), ('.claude', self.home / 'missing')):
-            destination = self.home / directory / 'skills/nlc'
+            destination = self.home / directory / 'skills/tacto'
             destination.parent.mkdir(parents=True)
             destination.symlink_to(target)
         installed = self.run_script()
         self.assertEqual(1, installed.returncode)
-        self.assertEqual(str(foreign), os.readlink(self.home / '.codex/skills/nlc'))
-        self.assertEqual(str(self.home / 'missing'), os.readlink(self.home / '.claude/skills/nlc'))
-        self.assertIn('not the NLC skill', installed.stdout)
+        self.assertEqual(str(foreign), os.readlink(self.home / '.codex/skills/tacto'))
+        self.assertEqual(str(self.home / 'missing'), os.readlink(self.home / '.claude/skills/tacto'))
+        self.assertIn('not the Tacto skill', installed.stdout)
         self.assertEqual(1, self.run_script('--check').returncode)
 
     def test_relocated_agent_roots_are_created_without_skipping_defaults(self):
@@ -102,7 +102,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         installed = self.run_script(**extra)
         self.assertEqual(0, installed.returncode, installed.stdout + installed.stderr)
         for parent in (codex, claude, self.home / '.codex', self.home / '.claude'):
-            self.assertEqual(str(self.root / 'skill'), os.readlink(parent / 'skills/nlc'))
+            self.assertEqual(str(self.root / 'skill'), os.readlink(parent / 'skills/tacto'))
         self.assertEqual(0, self.run_script('--check', **extra).returncode)
 
     def test_previous_nlc_checkout_links_are_repaired(self):
@@ -111,7 +111,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         (old / 'skill/SKILL.md').write_text('---\nname: nlc\n---\nold\n')
         self.bin.mkdir(parents=True)
         (self.bin / 'nlc').symlink_to(old / 'launcher/nlc')
-        destination = self.home / '.codex/skills/nlc'
+        destination = self.home / '.codex/skills/tacto'
         destination.parent.mkdir(parents=True)
         destination.symlink_to(old / 'skill')
         installed = self.run_script()
@@ -135,13 +135,14 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         (old / 'local-recipe.json').write_text('{"owned":"customization"}')
         installed = self.run_script()
         self.assertEqual(0, installed.returncode, installed.stdout + installed.stderr)
-        backups = list(parent.parent.glob('.nlc-skill-backup.*/nlc'))
+        backups = list(parent.parent.glob('.tacto-skill-backup.*/nlc'))
         self.assertEqual(1, len(backups))
         self.assertEqual('{"owned":"customization"}',
                          (backups[0] / 'local-recipe.json').read_text())
         self.assertEqual(0o700, backups[0].parent.stat().st_mode & 0o777)
         self.assertFalse(list(parent.glob('.nlc*')))
-        self.assertEqual(str(self.root / 'skill'), os.readlink(old))
+        self.assertFalse(old.exists())
+        self.assertEqual(str(self.root / 'skill'), os.readlink(parent/'tacto'))
         self.assertEqual(0, self.run_script('--check').returncode)
 
 

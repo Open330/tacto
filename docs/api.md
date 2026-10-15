@@ -132,7 +132,7 @@ print(turn.status, turn.say)          # Turn(status, say, flow, detail)
 - `think=None` 이면 에이전트 실행에서 승격된 레시피는 1, 나머지는 0.
 - `ask` 는 승인 질문에 답합니다(실행 전 `authorize`, 실행 중 `confirm` 모두).
 - 성공한 실행 뒤: 요청 읽기로 찾았다면 그 말투를, 새 분기를 조작했다면 그 분기를 저장합니다.
-- 콜백을 주지 않으면 해당 기능은 꺼집니다. `nlc do` 가 붙이는 콜백은 `nlc/cli.py` 의 `do` 명령을 보면 됩니다.
+- 콜백을 주지 않으면 해당 기능은 꺼집니다. `tacto do` 가 붙이는 콜백은 `nlc/cli.py` 의 `do` 명령을 보면 됩니다.
 
 ## 모델에 묻는 콜백 — `nlc.judge`
 
@@ -166,7 +166,7 @@ CandidateStore().record(c, request, name)         # 레시피 옆 _candidates/ �
 맞지 않으면 다음 단계로 진행하지 않는다. 지원 키는 Tab·shift+Tab·방향키이고 Escape는
 제외한다. 이 조건은 저장·제출·단축키의 권한이나 완료 증거가 아니다.
 
-판단 지점 검토(`nlc promote` 가 하는 것):
+판단 지점 검토(`tacto promote` 가 하는 것):
 
 ```python
 from nlc.authoring import reach_model, _extract_json
