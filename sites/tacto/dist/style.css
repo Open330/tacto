@@ -204,11 +204,6 @@ h1 span {
   font-size: 14px;
   font-weight: 500;
 }
-.claude-mark {
-  color: #a75b40;
-  font-size: 21px;
-  vertical-align: middle;
-}
 .compatibility-note {
   flex-basis: 100%;
   color: #60665c;
@@ -466,7 +461,9 @@ h2 {
   color: var(--muted);
   font-size: 11px;
 }
-.repair-note > span {
+.repair-note > .ui-icon {
+  width: 24px;
+  height: 24px;
   font-size: 24px;
   color: #61685a;
 }
@@ -931,8 +928,8 @@ code {
   font-size: 12px;
   color: var(--muted);
 }
-.faq-items details[open] summary > span,
-.methodology[open] summary > span {
+.faq-items details[open] .disclosure-icon,
+.methodology[open] .disclosure-icon {
   transform: rotate(45deg);
 }
 .final-cta {
@@ -1383,4 +1380,65 @@ button:disabled {
   .metric-grid b {
     font-size: clamp(34px, 10.4vw, 41px);
   }
+}
+
+/* Vector UI icons and unmodified, locally served official product assets. */
+.ui-icon {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.15em;
+  flex-shrink: 0;
+}
+.agent-icon {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.compatibility b {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.compatibility .agent-icon {
+  width: 20px;
+  height: 20px;
+}
+.agent-chip .agent-icon {
+  width: 24px;
+  height: 24px;
+}
+.agent-picker .agent-icon {
+  width: 20px;
+  height: 20px;
+}
+.ui-icon.file-icon {
+  width: 32px;
+  height: 32px;
+}
+.ui-icon.advantage-icon {
+  width: 42px;
+  height: 42px;
+  color: #5e6855;
+  justify-self: end;
+}
+.ui-icon.proof-icon {
+  width: 33px;
+  height: 33px;
+}
+.visual-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.disclosure-icon {
+  width: 14px;
+  height: 14px;
+}
+.workflow-arrow {
+  width: 16px;
+  height: 16px;
+  color: #69765f;
 }

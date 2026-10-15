@@ -44,3 +44,22 @@ not presented as a causal speed improvement.
 The shipped page has no build step, third-party script, tracking or external
 font dependency. Playwright and axe are QA-only tools. Reproduce the browser
 checks using the [onboarding page guide](../sites/tacto/README.md).
+
+## Official icon follow-up
+
+Replaced the Unicode stand-ins throughout the landing page with official
+product images and a shared SVG UI symbol sheet. This includes all six product
+marks, link arrows, completion and stop states, repeat, workflow, code file,
+feature symbols and disclosure controls. Source URLs and hashes are recorded
+in the [visual identity guide](tacto-visual-identity.md#product-and-interface-icons).
+Textual step arrows and calculator operators remain meaningful text.
+
+The updated page passes 45/45 browser checks on the LAN service, including
+product-image loading, actual SVG symbol bounds and absence of placeholder
+glyphs. All three axe states still report no violations. The measurements above
+predate this icon update and are retained as that revision's results.
+
+The LAN check exposed connection resets during concurrent asset loading with
+the server's five-connection default backlog. Increasing the listening queue
+to 32 resolved the observed failure; the final LAN browser check and three
+additional fresh browser loads completed without failed resource requests.

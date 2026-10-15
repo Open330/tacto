@@ -9,7 +9,7 @@
         ["01", "새 관찰에서 입력 필드 확인", ""],
         ["02", "매개변수로 입력 · 보너스 상태 확인", ""],
         ["03", "검토 → 계산 → 완료", ""],
-        ["✓", "결과 조건 검증 완료", "good"],
+        ["check", "결과 조건 검증 완료", "good"],
       ],
     },
     repair: {
@@ -19,7 +19,7 @@
         ["01", "계산 버튼의 선택자 변경 감지", "warn"],
         ["02", "실패 단계와 후보만 에이전트에 전달", ""],
         ["03", "현재 상태와 수리 후보 검증", ""],
-        ["✓", "남은 단계부터 재개 · 앞 단계 유지", "good"],
+        ["check", "남은 단계부터 재개 · 앞 단계 유지", "good"],
       ],
     },
     stop: {
@@ -29,7 +29,7 @@
         ["01", "완료 요청 후 결과 확인 실패", "warn"],
         ["02", "이미 처리됐을 가능성 확인", ""],
         ["03", "같은 요청을 다시 보내지 않음", ""],
-        ["■", "작업 중단 · 현재 상태 검토 필요", "warn"],
+        ["stop", "작업 중단 · 현재 상태 검토 필요", "warn"],
       ],
     },
   };
@@ -46,7 +46,25 @@
         const row = document.createElement("div");
         const label = document.createElement("span");
         label.className = "line-number";
-        label.textContent = number;
+        if (number === "check" || number === "stop") {
+          const svg = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "svg",
+          );
+          svg.classList.add("ui-icon");
+          svg.setAttribute("aria-hidden", "true");
+          svg.setAttribute("focusable", "false");
+          svg.setAttribute("viewBox", "0 0 24 24");
+          const use = document.createElementNS(
+            "http://www.w3.org/2000/svg",
+            "use",
+          );
+          use.setAttribute("href", `assets/ui-icons.svg#${number}`);
+          svg.append(use);
+          label.append(svg);
+        } else {
+          label.textContent = number;
+        }
         const content = document.createElement("span");
         content.className = tone;
         content.textContent = text;

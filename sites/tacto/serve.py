@@ -150,6 +150,12 @@ class StaticHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+class StaticServer(ThreadingHTTPServer):
+    # Browsers open several asset connections at once; Python 3.9 defaults
+    # to a backlog of only five and can reset a burst over the LAN.
+    request_queue_size = 32
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host', default='127.0.0.1', help='Local interface address')
@@ -157,7 +163,7 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error('port must be 1..65535')
-    with ThreadingHTTPServer((args.host, args.port), StaticHandler) as server:
+    with StaticServer((args.host, args.port), StaticHandler) as server:
         print('Tacto landing: http://{}:{}'.format(args.host, args.port), flush=True)
         try:
             server.serve_forever()

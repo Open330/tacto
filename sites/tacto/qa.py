@@ -37,6 +37,13 @@ def audit(url, output, axe_source=None):
         response = page.goto(url, wait_until='networkidle')
         checks['http_200'] = response.status == 200
         checks['one_h1'] = page.locator('h1').count() == 1
+        checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
+            '(items)=>items.length===6&&items.every(e=>e.complete&&e.naturalWidth>0)')
+        checks['no_placeholder_icon_glyphs'] = page.evaluate(
+            r'!/[' + '✳⌘↗↓↳↔∅✓↻■⌁' + r']/.test(document.body.innerText)')
+        checks['vector_icons_render'] = page.locator('svg.ui-icon use').evaluate_all(
+            '(items)=>items.length>20&&items.every(e=>e.getBBox().width>0&&e.getBBox().height>0)')
+
         checks['anchors_resolve'] = page.evaluate('''() => [...document.querySelectorAll('a[href^="#"]')]
           .every(a=>!a.hash||document.getElementById(decodeURIComponent(a.hash.slice(1))))''')
         initial = page.evaluate('''({vitals:window.__metrics,

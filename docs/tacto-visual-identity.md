@@ -45,3 +45,33 @@ same everywhere. Only the banner uses live text, set in the system sans stack.
 
 - Mark: 16 px. At 16–24 px prefer the favicon tile on busy or dark surfaces.
 - Wordmark: 20 px tall. Below that, use the mark alone.
+
+## Product and interface icons
+
+Claude and Codex are identified with unmodified official raster assets served
+locally, not font glyphs or approximations. They identify compatible products;
+Tacto is independent and does not claim sponsorship or endorsement. These
+third-party marks remain the property of their respective owners and are not
+covered by the Tacto artwork description above.
+
+Retrieved 2026-10-15:
+
+| Local asset | Official source | Context |
+|---|---|---|
+| `sites/tacto/dist/assets/claude-icon.png` | [Claude homepage](https://claude.com/) · [original asset](https://assets.claude.com/95a868946ac8a31e5ff832e2899f294aa368b836.png) | Homepage favicon; 32 × 32 |
+| `sites/tacto/dist/assets/codex-icon.png` | [Codex extension published by OpenAI](https://marketplace.visualstudio.com/items?itemName=openai.chatgpt) · [original asset](https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.51007.21434/1791508178385/Microsoft.VisualStudio.Services.Icons.Default) | Official extension icon (OpenAI Blossom); 400 × 400 |
+
+The Codex entry deliberately uses the icon shipped by OpenAI with its Codex
+extension. It is the OpenAI Blossom, not an invented Codex-specific symbol.
+See [OpenAI's brand guidelines](https://openai.com/brand/).
+
+`sites/tacto/dist/assets/ui-icons.svg` contains project-authored vector symbols
+for arrows, check, repeat, zero, swap, disclosure, stop, workflow and code file.
+The same symbols serve static HTML and dynamic demo rows. Decorative icons are
+hidden from assistive technology; adjacent labels provide the accessible name.
+Textual workflow arrows and the calculator multiplication sign remain text.
+
+Asset checksums (SHA-256):
+
+- `claude-icon.png`: `4004381309500f25e49a1ae639912ce307ea81da74cc383954a1ac8b9d343fe6`
+- `codex-icon.png`: `2ce1c57dd3b312417106a487815ab1235bddce17e1fa9b32a2f048bd71ee25d3`
