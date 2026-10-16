@@ -53,7 +53,7 @@ when a launcher or helper connection fails.
 ## Check the actual sandbox profile
 
 Tacto needs a real GUI session. An actual agent sandbox can block screen and
-accessibility APIs; Tacto then reports "NLC가 샌드박스 안에서 실행됐습니다"
+accessibility APIs; Tacto then reports "Tacto가 샌드박스 안에서 실행됐습니다"
 (exit code 3). This is separate from macOS app permissions.
 
 - With `danger-full-access` or unrestricted filesystem execution, run normally.

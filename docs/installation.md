@@ -73,7 +73,7 @@ uv sync
 런처 빌드는 실패합니다. 도우미 파일을 wheel에 복사하거나 임의로 재서명해
 설치 문제를 우회하지 않습니다.
 
-wheel의 `nlc` console script는 Python CLI입니다. 서명된 `./launcher/nlc`와
+wheel의 `tacto` console script는 Python CLI입니다. 서명된 `./launcher/nlc`와
 같은 프로그램이 아니며 wheel만 설치해서 `--helper` 채널을 얻을 수는 없습니다.
 네이티브 `doctor`, `apps`, `observe`, `do`, `run`, `replay`에는 macOS 실행
 환경과 해당 경로의 권한이 필요합니다.

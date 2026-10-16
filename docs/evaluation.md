@@ -75,9 +75,9 @@ CI를 그대로 통과한다 — 그것이 이 규칙의 목적이다.
 [Stagehand evals](https://www.stagehand.dev/evals)는 정확도·속도·비용을 함께
 표시한다. [공식 평가 문서](https://github.com/browserbase/stagehand/tree/main/packages/evals)는
 실행 전 `--preview`, 과제 선택, 반복 시행, 여러 harness와 모델의 비교를 제공한다.
-NLC에는 우선 실행 계획과 구조화된 결과를 적용했다.
+Tacto에는 우선 실행 계획과 구조화된 결과를 적용했다.
 
-NLC의 현재 suite는 안전한 거절·계약·재생 회귀도 PASS로 센다. 따라서 이
+Tacto의 현재 suite는 안전한 거절·계약·재생 회귀도 PASS로 센다. 따라서 이
 통과율은 브라우저 작업 완료율이 아니며 Stagehand 순위와 직접 비교할 수 없다.
 시나리오마다 공유 앱·flow store 상태가 남아 있어, 반복 횟수나 병렬 실행을
 늘리는 기능은 추가하지 않았다. 비교 실험에는 과제별 독립 초기 상태,
@@ -85,8 +85,8 @@ NLC의 현재 suite는 안전한 거절·계약·재생 회귀도 PASS로 센다
 
 ## 에이전트 수용 검사 — 스킬만 가진 에이전트로
 
-단위 테스트와 평가 스위트는 이 저장소 안에서 NLC를 돌립니다. 그래서 에이전트가 실제로 겪은
-문제 — `nlc` 명령이 설치되지 않음, 샌드박스를 권한 문제로 오진, 잠긴 화면에서 원인을 추측 —
+단위 테스트와 평가 스위트는 이 저장소 안에서 Tacto를 돌립니다. 그래서 에이전트가 실제로 겪은
+문제 — `tacto` 명령이 설치되지 않음, 샌드박스를 권한 문제로 오진, 잠긴 화면에서 원인을 추측 —
 는 어느 쪽에서도 드러나지 않았습니다. `examples/agent_acceptance.py`는 기억도 저장소도 없는
 **새 에이전트 세션**을 `/tmp`에서 띄워 과제를 주고, 에이전트의 **최종 답**으로 판정합니다.
 
@@ -98,7 +98,7 @@ python examples/agent_acceptance.py --list           # 지금 상태에서 무�
 
 | 사례 | 확인하는 것 |
 |---|---|
-| `finds_nlc` | 스킬을 읽고 `nlc` 를 찾는다 |
+| `finds_nlc` | 스킬을 읽고 `tacto` 를 찾는다 |
 | `names_the_sandbox` (Codex) | 샌드박스를 샌드박스라고 말하고, 권한을 켜라고 하지 않는다 |
 | `names_the_lock` (잠긴 화면에서만) | 잠긴 화면을 잠긴 화면이라고 말한다 |
 | `does_a_task` (풀린 화면에서만) | 스스로 흐름을 써서 계산기로 12×12=144 를 확인한다 |
@@ -141,7 +141,7 @@ parity. Each model case uses the bounded image relay and retains call metadata.
 ### Product comparison provenance
 
 New `examples/product_comparison.py` results record version-2 manifests before
-setup and after oracle/cleanup. The explicit set includes NLC Python sources,
+setup and after oracle/cleanup. The explicit set includes Tacto Python sources,
 helper Swift sources, both signed helper executable paths, launcher source and
 binary, skill, evaluation/probe sources, fixtures, flows and dependency lock.
 Missing fixed artifacts are recorded as null. This set is not a dependency

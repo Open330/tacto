@@ -1,6 +1,6 @@
 # Browser visual reads and clicks
 
-NLC can capture a browser viewport, ask the Codex or Claude CLI about the image, and execute a single host-authorized coordinate click before observing again. This is an optional browser path. It does not provide native macOS screenshot control, arbitrary app automation, or a general computer-use completion guarantee.
+Tacto can capture a browser viewport, ask the Codex or Claude CLI about the image, and execute a single host-authorized coordinate click before observing again. This is an optional browser path. It does not provide native macOS screenshot control, arbitrary app automation, or a general computer-use completion guarantee.
 
 Install the project's optional Playwright browser dependencies and Chromium before using this path. The image adapter requires an authenticated local `codex` CLI with `exec --image` support. The `claude` provider is also supported through the image stdin adapter described in [claude-adapter.md](claude-adapter.md). Unsupported providers raise an error instead of silently falling back to text.
 

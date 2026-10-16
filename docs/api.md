@@ -1,6 +1,6 @@
 # Python API
 
-CLI(`nlc …`)가 하는 일은 모두 Python에서도 할 수 있습니다. 이 문서는 공개 진입점과 그 약속을
+CLI(`tacto …`)가 하는 일은 모두 Python에서도 할 수 있습니다. 이 문서는 공개 진입점과 그 약속을
 정리합니다. 흐름 전체의 설명은 [`recipes.md`](recipes.md), IR 작성 가이드는
 [`../skill/SKILL.md`](../skill/SKILL.md)에 있습니다.
 

@@ -1,6 +1,6 @@
 # 비교 실행 기록
 
-`examples/task_benchmark.py`의 fixture 실행은 NLC의 알려진 page target을 사용하는 로컬 작업 평가다. 실제 앱 routing, arbitrary 저장 witness discovery, 범용 computer-use 성공률은 측정하지 않는다.
+`examples/task_benchmark.py`의 fixture 실행은 Tacto의 알려진 page target을 사용하는 로컬 작업 평가다. 실제 앱 routing, arbitrary 저장 witness discovery, 범용 computer-use 성공률은 측정하지 않는다.
 
 실행 결과의 `requested_provider`는 설정값이다. `provider`, `model`, `provider_calls`, `model_usage`는 관측한 값만 사용한다. 계측이 없으면 provider/model은 null이며 토큰·비용을 0으로 채우지 않는다. 공통 집계는 route attempt를 한 번만 더하며 비용의 currency/basis 및 관측 누락 개수를 유지한다.
 
@@ -37,13 +37,13 @@ Runner의 기존 `diagnostics.model_calls`는 planner 함수 호출 수다. 계�
 2026-10-01 click/read 한정 동일 source-set의 8회는 AX/Sky × Claude/Codex × 2회다. AX는 두 provider 모두 0/2, SDK는 모두 2/2였고, 8회 모두 전경·pointer·focus 표본 감사가 통과했다. 이 결과는 owned fixture의 background responder-chain 차이를 드러내며 native runtime의 해결을 뜻하지 않는다. 기록은 `reviews/2026-10-01/verification/autonomous-menu-comparison.json`에 있고, 준비·provider·서비스 실패를 포함한 전체 23회도 보존했다.
 
 
-2026-10-04에는 NLC의 production Python `prepare_window`를 후보에 포함하고 AX-only
+2026-10-04에는 Tacto의 production Python `prepare_window`를 후보에 포함하고 AX-only
 준비 힌트를 제거한 새 자율 cohort를 실행했다. 두 경로는 같은 목표·65초·12 screen·
 새 fixture·독립 counter와 정확한 command 순서 oracle을 사용한다. SDK는 공개
-`get_app_state`/`click`만 사용한다. SDK 서비스를 사전 준비한 8회는 NLC Claude2/2,
+`get_app_state`/`click`만 사용한다. SDK 서비스를 사전 준비한 8회는 Tacto Claude2/2,
 Codex2/2, SDK Claude1/2, Codex2/2다. SDK Claude 실패는 Direct1 이후 명시 모델
 거절로 Responder0이며 FAIL로 유지한다. 이전 서비스 대기 실패 3회와 bootstrap
-거절도 별도 cohort로 보존한다. 이를 NLC의 기능 우위나 전체 제품 동등성으로
+거절도 별도 cohort로 보존한다. 이를 Tacto의 기능 우위나 전체 제품 동등성으로
 해석하지 않는다.
 
 원시 경로·SHA256·조건·40 selected sources·provider telemetry·표본 감사는
@@ -61,7 +61,7 @@ Codex2/2, SDK Claude1/2, Codex2/2다. SDK Claude 실패는 Direct1 이후 명시
 Unicode 정규화를 허용하지 않는다. 경로 표시의 NFC 정규화와 본문 비교는
 서로 다른 계약이다. 일반 읽기 과제의 기존 공백 정규화는 별도로 유지한다.
 
-파일 판정은 NLC receipt를 재사용하지 않는 독립 oracle다. 현재 사용자 소유의
+파일 판정은 Tacto receipt를 재사용하지 않는 독립 oracle다. 현재 사용자 소유의
 일반 파일·단일 링크·4MiB 상한·no-follow/non-blocking open과 읽기 전후
 descriptor/path metadata, canonical path, harness directory identity를 확인한다.
 본문 미관측은 빈 문자열로 바꾸지 않는다. 이 readback은 관측된 저장 상태이며,
@@ -116,7 +116,7 @@ PYTHONPATH=. .venv/bin/python examples/audit_product_pairs.py \
 2026-10-10의 네 cohort를 감사한 결과는
 `reviews/2026-10-10/product-pair-prerequisites-audit.json`에 있다.
 appearance/save cohort는 초기 전경이 행에 없었고, Finder 두-arm cohort는
-초기 전경이 달랐으며, Finder 후속은 NLC 한쪽만 실행했다. 원래 task oracle
+초기 전경이 달랐으며, Finder 후속은 Tacto 한쪽만 실행했다. 원래 task oracle
 결과는 보존하지만 이들 기록만으로 동일 조건 비교가 증명됐다고 선언하지 않는다.
 
 알 수 없는 과제·빈 `--only`·0 이하 reps는 실행 전에 오류다. 새 report는
@@ -154,7 +154,7 @@ Sky49.5초/입력204135/캐시195968/출력804. 입력/cache를 비용으로 환
 `41ebde9ff344b8f999d1ef193d5d906992e2bc5779db52cf9e7bd33ed20a2c2b`로
 동일하다. source_changed=false, process exit0, comparison_eligible=true,
 전후 lock=false, TextEdit hidden=false, layer/shortcut 휴리스틱 false다.
-파일은0600이다. NLC activation0건, Sky2건(cmuxterm·Blender)이 관측됐으나
+파일은0600이다. Tacto activation0건, Sky2건(cmuxterm·Blender)이 관측됐으나
 이 이벤트를 agent가 유발했는지 사용자의 앱 전환인지 판별하지 못했다.
 포커스 침해의 인과 증거나 성능 우위로 사용하지 않는다.
 
@@ -176,7 +176,7 @@ Sky1/1이다. Sky44.9초에 `untitled folder` 한 개가 실제 directory로 확
 NLC165.7초 뒤 `children=[]`로 실패했다. 양쪽 process exit0이며 CLI도
 전체 실패를 exit1로 반환했다. 자기 시험 폴더 cleanup은 양쪽 folder_removed다.
 
-NLC 최종 응답은 New Folder disabled와 창 준비 timeout을 보고했다. 이는 모델의
+Tacto 최종 응답은 New Folder disabled와 창 준비 timeout을 보고했다. 이는 모델의
 보고이며 원시 native 실패 코드/phase별 trace를 보존한 진단은 아니다. 따라서
 readiness 전체-tree 예산, key/responder 상태 또는 다른 원인 중 하나로 확정하지
 않는다. 다음 수정 전에 bounded 준비 진단과 실제 tool 실패 근거를 확보해야 한다.
@@ -185,23 +185,23 @@ Full SHA256은 양쪽 before/after 모두
 `a2241b5073e3c2a2f7727dfe5fe062f5da95122e2d376b1b1e0a2d2acfa764cf`다.
 source_changed=false, comparison_eligible=true, 전후 lock=false다.
 이 flag는 환경/소스 검사를 뜻하며 완전한 초기 상태 동등성을 인증하지 않는다.
-초기 전경은 Sky `godot#75802`, NLC Finder로 달랐으므로 동일 초기 상태의
+초기 전경은 Sky `godot#75802`, Tacto Finder로 달랐으므로 동일 초기 상태의
 성능 비교라고 주장하지 않는다. activation은 Sky3건, NLC1건으로 원인 미확정이다.
 
-NLC 원시 input603060/cache555776/output2139, Sky input205396/cache186624/
+Tacto 원시 input603060/cache555776/output2139, Sky input205396/cache186624/
 output668이다. 반복 준비에 든 실제 요청량을 보존하며 비용으로 환산하지 않는다.
 이번 실패를 이전 저장/외형 읽기 성공으로 덮어쓰지 않는다.
 
 ### signed 비교 host와 모델 프로세스의 경계
 
-새 native 비교 host는 `nlc eval --product-comparison`으로 signed launcher 아래
+새 native 비교 host는 `tacto eval --product-comparison`으로 signed launcher 아래
 실행한다. `_driver`는 inherited helper만 사용하며 Python Driver로 대체하지
 않는다. `--check-backend`는 helper의 앱 metadata와 capability만 읽고, task
 setup·모델·입력을 실행하지 않는다. `--list`는 경로와 무관하게 목록만 표시한다.
 
 ```sh
-nlc eval --product-comparison --check-backend
-nlc eval --product-comparison --list
+tacto eval --product-comparison --check-backend
+tacto eval --product-comparison --list
 ```
 
 Calculator setup의 menu/clear가 error·unknown·미지원이면 후속 입력이나 모델을
@@ -229,7 +229,7 @@ PPID를 대신 쓰거나 관리자 권한을 요청하지 않으며 argv·환경
 pid_t 반환/인자를 참고했다. private API이므로 플랫폼에 따라 제공되지 않을 수 있다.
 
 ```sh
-nlc eval --product-comparison --check-responsibility
+tacto eval --product-comparison --check-responsibility
 ```
 
 이 명령은 controller와 자체 대기 중인 Python 자식 하나만 관측하고 자식을
@@ -240,7 +240,7 @@ nlc eval --product-comparison --check-responsibility
 comparison_eligible=false를 유지한다. 프로세스 경로의 반복 일치로 실행 중
 코드 신원·PID 재사용·후손 책임·동일 모델을 증명하지 않는다.
 
-이 Python probe를 근거로 '실제 model이 NLC launcher 책임을 상속한다'거나
+이 Python probe를 근거로 '실제 model이 Tacto launcher 책임을 상속한다'거나
 '실제 model이 Python 귀속이다'라고 단정하지 않는다. 이전 launcher 상속
 설명은 가능한 혼입에 대한 가설이었으며 실제 model/Sky 관측은 아직 없다.
 probe의 start_new_session=True는 소유 자식의 세션/프로세스 그룹 설정으로
@@ -292,7 +292,7 @@ signed launcher는 PATH를 고정하므로 default codex 경로가 실제 미발
 코드 서명이나 실제 모델 신원 증거는 아니다.
 
 ```sh
-nlc eval --product-comparison --agent-executable /absolute/path/to/codex --check-agent-responsibility
+tacto eval --product-comparison --agent-executable /absolute/path/to/codex --check-agent-responsibility
 ```
 
 이 명령은 실제 모델 tokens를 쓰는 tool-free 산술 probe다. native 앱 입력이나
@@ -324,7 +324,7 @@ source manifest 전후·두 arm 사이 일치, activations[]였다. NLC46.3초,
 Sky40.8초다. CLI telemetry 입력/캐시/출력은 NLC214245/194048/611,
 Sky159423/150016/620이다. 실제 serving model/비용은 관측하지 않았다.
 `calls`는 인식한 tool item event 수이며 고유 invocation 수가 아니다.
-NLC shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
+Tacto shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
 
 두 arm의 소유 Codex 주 프로세스는64회 observed/self-responsible였으며
 observer stopped/error 없음이다. sample_limit_reached=true라 전체 실행
@@ -341,7 +341,7 @@ foreground/pointer/typing 보존과 불가능하면 중단을 명시했다. prom
 이전 자유 활성화 cohort와 같은 정책으로 묶지 않는다.
 
 Muxa read-only 리뷰 req_18dd25dd65817ed8_60의 P2 두 건을 반영했다.
-NLC 전용 signed --helper 안내를 NLC ARM_CLAUSE로 옮겨 공통 제약은 계층
+Tacto 전용 signed --helper 안내를 Tacto ARM_CLAUSE로 옮겨 공통 제약은 계층
 중립으로 유지하고 새 runtime_policy=background-v2를 추가했다. auditor는
 policy version·제약 원문·positive integer timeout의 기록과 두 arm 일치를
 확인한다. 동일 버전의 다른 문구나 같은 문구의 다른 timeout도 제외한다.
@@ -428,7 +428,7 @@ Muxa 리뷰 req_18dd273aaa2acea0_68의 렌더링 범위·direct 검증 P2를 반
 후속 req_18dd27662a8b82f8_69는 P1/P2 없음이었다. 두 transport의 label 처리,
 changed/missing/disabled/nil close-control 거절을 회귀로 검증했다.
 
-`nlc eval --product-comparison --check-owned-document-lifecycle` 실기는
+`tacto eval --product-comparison --check-owned-document-lifecycle` 실기는
 소유 빈 문서 open/완전한 empty text→window-bound close→같은 process의 AX/CG
 closed 관측→artifact 제거에 성공했다. 기록은
 `../reviews/2026-10-10/signed-owned-document-lifecycle-closed.json`이다.
@@ -448,7 +448,7 @@ regular-file/nlink·예상 entry를 검사하며 recursive delete를 사용하�
 최종 rmdir 신원 확인은 같은 사용자의 rename과 atomic하지 않다. 소유 artifact
 변경/미확정은 보존하며 실패한 fixture를 다음 setup으로 덮어쓰지 않는다.
 
-실제 NLC model arm은66.1초에 본문 oracle PASS/exit0/source stable였다.
+실제 Tacto model arm은66.1초에 본문 oracle PASS/exit0/source stable였다.
 원시는 `../reviews/2026-10-10/product-comparison-20261010-202730.jsonl`이며
 initial-empty=true, agent 실행 중 activation0, top CLI 입력306674/캐시267648/
 출력1350 tokens다. 이 usage는 nested provider 전체 비용이 아니다.
@@ -508,7 +508,7 @@ receipt와 legacy Save/chain task 통합, Sky/다른 backbone 및 대표 앱 반
 ## G8/G9 모델 편집 pair의 cleanup 재검증
 
 installed signed doctor의 기존 권한·8개 앱·세션 준비를 확인하고
-textedit_edit_owned를 NLC/Sky 한 번씩, 양쪽120초 timeout,
+textedit_edit_owned를 Tacto/Sky 한 번씩, 양쪽120초 timeout,
 background-v2/signed-owned-document-exact-text-v2로 실행했다. 각각 독립적인
 private empty fixture를 열고 정확한 경로만 ask에 전달했다. 원시는
 `../reviews/2026-10-10/product-comparison-20261010-210206.jsonl`이다.
@@ -516,7 +516,7 @@ private empty fixture를 열고 정확한 경로만 ask에 전달했다. 원시�
 두 arm 모두 초기 empty/complete body, 정확한 기대 본문, process exit0,
 cleanup completed/closed_observed/artifact_removed=true를 확인했다.
 NLC64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/cleanup
-시간을 포함하지 않는다. NLC는 global_window_still_present 한 번, Sky는
+시간을 포함하지 않는다. Tacto는 global_window_still_present 한 번, Sky는
 세 번 뒤 closed로 읽혔다. 이 횟수는 창 해제 타이밍의 진단이며 계층 성능
 지표로 사용하지 않는다. close를 반복하지 않고 readonly poll만 했다.
 각 model witness의 초기 전경 Settings/activations[]이고 두 arm source manifest는

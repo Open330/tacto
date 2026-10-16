@@ -82,7 +82,7 @@ error/unknown을 보존하고 후속 처리를 진행한다. 영수증이 없으
 
 `tests/test_delivery_receipt.py`는 새/기존 요청·잘못된 수신인/계정/본문·queued·
 모델 JSON·이전 관측/다른 action·한 번 사용·권한/조회 실패·마감을 검사한다.
-`tests/test_delivery_receipt_integration.py`는 headless Chromium의 실제 NLC
+`tests/test_delivery_receipt_integration.py`는 headless Chromium의 실제 Tacto
 click→loopback HTTP POST→별도 인증 HTTP 수신함 조회를 실행한다. 시험용
 계정·본문·서버만 사용하며 native GUI와 사용자 메시지에는 접근하지 않는다.
 
@@ -93,7 +93,7 @@ click→loopback HTTP POST→별도 인증 HTTP 수신함 조회를 실행한다
 지속적인503의 미검증 종료, 수신 인증403의 즉시 거부도 검사한다. 복구 사례는
 단일 전송 POST와 새로운 수신 message identity·정확한 본문을 대조하며,
 장애 사례에서도 전송이 중복되지 않았는지 검사한다.
-이 결과는 실제 원격 서비스·native 메신저·첨부·다양한 백본 또는 NLC/Sky
+이 결과는 실제 원격 서비스·native 메신저·첨부·다양한 백본 또는 Tacto/Sky
 동일 조건 비교의 완료 증거가 아니다. 그 실기와 서비스별 bridge는 남아 있다.
 
 ## 리뷰 후 강화한 본문·실행 수명 계약

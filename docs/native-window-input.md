@@ -278,7 +278,7 @@ ReplayResult의 별도 bounded 목록에64건까지 보존하므로 후속 postc
 timeout이 원래 준비 응답의 진단을 덮어쓰지 않는다. 진단만 보존된 거절을
 dispatch event로 바꾸지 않으며 결과 판정에 사용하지 않는다.
 `nlc.preparation_diagnostic`은 닫힌 field set/phase/reason과 숫자 범위를 검사한다.
-외부 문자열·bool counter·추가 필드는 버린다. 비교 runner는 completed NLC
+외부 문자열·bool counter·추가 필드는 버린다. 비교 runner는 completed Tacto
 command output의 marker만 수집하고 전체 output/줄/건수 상한을 적용한다.
 reported_preparation_diagnostics는 tool 보고이며 native provenance 인증이 아니다.
 

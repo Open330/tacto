@@ -2,15 +2,15 @@
 
 > 개발 checkout의 검증 기록입니다. 기본 브랜치의 배포 기능을 의미하지 않으며, 원본 실행 기록은 공개 저장소에 포함하지 않습니다.
 
-`nlc batch template.json --helper --auto-repair codex`와
-`nlc run flow.json --helper --auto-repair codex`에 자동 개입을 연결했다.
+`tacto batch template.json --helper --auto-repair codex`와
+`tacto run flow.json --helper --auto-repair codex`에 자동 개입을 연결했다.
 성공 시 모델을 호출하지 않는다. 실행 전 선택자 실패에만 짧은 패킷을
 전달하고, 에이전트가 관찰 후보를 선택하면 호스트가 검증 후 남은 단계만
 자동 실행한다. batch의 후속 작업은 수리한 선택자를 메모리에서 재사용한다.
 원본 Flow 파일은 변경하지 않는다.
 
 ```sh
-nlc batch /absolute/template.json --helper --auto-repair codex \
+tacto batch /absolute/template.json --helper --auto-repair codex \
   --max-repairs 2 --repair-timeout 60 < /absolute/jobs.jsonl
 ```
 
