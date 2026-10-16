@@ -912,7 +912,7 @@ posix_spawn_file_actions_addclose(&actions, childEnd)
 
 // -I (isolated): without it `python -m` puts the CALLER's working directory
 // first on sys.path, so a fixed module would not be fixed code.
-let childArgs = [python.path, "-I", "-m", "nlc.cli"] + Array(CommandLine.arguments.dropFirst())
+let childArgs = [python.path, "-I", "-B", "-m", "nlc.cli"] + Array(CommandLine.arguments.dropFirst())
 var cArgs = childArgs.map { strdup($0) } + [nil]
 var cEnv = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
 var childPID: pid_t = 0
@@ -1007,7 +1007,7 @@ func askModel(_ prompt: String, _ wantJSON: Bool, _ provider: String,
               timeout: Double = 420, image: [String: Any]? = nil, model: String? = nil) throws -> [String: Any]? {
     let proc = Process()
     proc.executableURL = python
-    proc.arguments = ["-I", "-m", "nlc.ask_provider", "--result-envelope", "--timeout", String(timeout)]
+    proc.arguments = ["-I", "-B", "-m", "nlc.ask_provider", "--result-envelope", "--timeout", String(timeout)]
         + (wantJSON ? ["--json"] : [])
         + (provider == "auto" ? [] : ["--provider", provider])
     proc.currentDirectoryURL = root
@@ -1145,7 +1145,18 @@ if let app = helperRunning, !app.isTerminated {
     app.terminate()
     let deadline = ProcessInfo.processInfo.systemUptime + 2
     while !app.isTerminated && ProcessInfo.processInfo.systemUptime < deadline {
-        usleep(50_000)
+        // NSRunningApplication refreshes termination state through the main
+        // run loop. Sleeping here can leave a dead helper cached as alive for
+        // the entire deadline, adding two seconds to every helper command.
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        let tick = min(0.05, max(0, remaining))
+        let began = ProcessInfo.processInfo.systemUptime
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: tick))
+        // With no input sources, run() can return immediately. Avoid burning
+        // CPU while still honoring the original monotonic cleanup deadline.
+        let rest = min(tick - (ProcessInfo.processInfo.systemUptime - began),
+                       deadline - ProcessInfo.processInfo.systemUptime)
+        if !app.isTerminated && rest > 0 { usleep(useconds_t(rest * 1_000_000)) }
     }
     if !app.isTerminated { app.forceTerminate() }
 }

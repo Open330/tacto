@@ -121,7 +121,7 @@ class Indicator:
         if not (self.enabled and self.pid):
             return self
         try:
-            command = [sys.executable, "-m", "nlc.overlay", str(self.pid)]
+            command = [sys.executable, "-I", "-B", "-m", "nlc.overlay", str(self.pid)]
             if self.heartbeat is not None:
                 command += [self.heartbeat, str(self.ttl)]
             self._proc = subprocess.Popen(

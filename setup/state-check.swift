@@ -84,6 +84,11 @@ import Foundation
     try! fm.createSymbolicLink(at: link, withDestinationURL: root.appendingPathComponent(destination))
   }
   assert(status() == .current)
+  let canonicalRoot = URL(fileURLWithPath: root.path, isDirectory: true)
+  let canonicalHome = URL(fileURLWithPath: home.path, isDirectory: true)
+  let repeatedProfile = ["CODEX_HOME": home.appendingPathComponent(".codex").path + "/"]
+  assert(agentConnection(root: canonicalRoot, home: canonicalHome, environment: repeatedProfile) == .current)
+  assert(agentConnectionLinks(root: canonicalRoot, home: canonicalHome, environment: repeatedProfile).count == 4)
   assert(status(["TACTO_BIN_DIR":"", "NLC_BIN_DIR":""]) == .current)
   let codex = home.appendingPathComponent(".codex/skills/tacto")
   try! fm.removeItem(at: codex); assert(status() == .missing)
@@ -114,6 +119,6 @@ import Foundation
   let conflicts = agentConnectionReport(root: root, home: home, environment: [:]).filter { $0.1 == .conflict }
   assert(conflicts.count == 1 && conflicts[0].0 == command)
   assert(String(data: try! Data(contentsOf: command), encoding: .utf8) == "foreign command")
-  print("Agent connection: 11 isolated layouts PASS; reads never modify links or files")
+  print("Agent connection: 13 isolated checks PASS; canonical directory URLs and repeated profiles included")
  }
 }

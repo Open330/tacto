@@ -544,3 +544,46 @@ req_18dd29a2cfa63718_71은 P1/P2 없음이었다. Save/chain legacy gate 및 exp
 Save 인과 증거·추가 앱/backbone·같은 초기 상태/serving model/입력 보존·Sky 후손·
 설치 등 전체 G0~G10 완료 기준은 유지한다. 다음 단계는 Save receipt의 실제
 signed 실행과 정확한 receiving 증거를 연결하는 것이다.
+
+
+### 2026-10-17: signed-runtime latency, matched bytecode
+
+A paired local benchmark compares the 91a48a0 runtime with predicate-first
+verification and helper-cleanup improvements. Both arms use the same current
+standalone builder with checked-hash precompiled bytecode. Common `.pyc` paths
+and hashes must match; only the five declared changed NLC modules are exempt.
+The helper and Python CDHashes match; the changed launcher is explicit.
+
+| Measurement | Baseline | Candidate |
+|---|---:|---:|
+| 앱 목록 조회 (5회 중앙값) | 2.42 s | 0.45 s |
+| 화면 관찰 (5회 중앙값) | 2.70 s | 0.65 s |
+| 6단계 flow 10회 합계 | 88.36 s | 12.57 s |
+
+Ten positive task pairs use the same six-step Flow, alternating order and
+matching initial amount/factor/bonus/phase/control-version/active predicates.
+All 20 tasks passed the independent result/commit oracle. Four negative runs
+preserve zero commits after a failed Review check and one logical commit after
+a failed Finish check. No owned helper remains after each command. Logical
+commit counts do not prove exactly one physical input. Both app signatures are
+valid before and after, and the source/bytecode manifests remain unchanged.
+
+Total positive-task time falls by 85.8%. This is model-free replay in one owned
+fixture on one Mac with warmed filesystem caches. It does not measure agent
+authoring, token usage, whole-product superiority or general application behavior.
+Startup probes include the entire CLI/helper command and teardown; per-step
+verification timing is covered by virtual-clock regressions, not direct trace
+timestamps. Verification keeps ordinary settling for outcomes already true
+before non-idempotent input, in both Flow and general-walk paths.
+
+Reproduce with `examples/benchmark_runtime_latency.py --baseline /path/to/baseline/nlc
+--candidate /path/to/candidate/nlc --output /absolute/new/private-directory
+--pairs 10 --launcher-optimized`. Build the baseline from 91a48a0 with the same
+current standalone builder; unmatched common bytecode is refused. Source for the
+disposable native fixture is `tests/fixtures/NativeRepeatBenchmark.swift`.
+
+The packaging check also found generated `__pycache__` files invalidating the old
+app's resource seal. The new builder precompiles before signing and verifies
+two actual signed-launcher runs. Owned Python entrypoints use `-B`; both benchmark
+arms are precompiled so this fix is not credited as an isolated polling gain.
+Related publication regressions: 92 tests passed; independent review approved.

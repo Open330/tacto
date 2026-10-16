@@ -1185,7 +1185,7 @@ class Driver:
             pass
 
     def observe(self, target: str, mode: str = "tree_diff",
-                require_window: bool = True, *, document_token=None):
+                require_window: bool = True, *, document_token=None, _settle_after_action=True):
         selected_window = None
         if document_token is not None:
             from .native_document import DocumentSnapshotError
@@ -1200,9 +1200,9 @@ class Driver:
             return {"type": "error", "error": "not_implemented_p0",
                     "detail": f"mode {mode!r} (screenshot lands in P1)"}
         # D5: auto-wait — settle after the most recent action.
-        settle = self._last_action_at + AUTO_WAIT_BASE_S - time.time()
+        settle = self._last_action_at + AUTO_WAIT_BASE_S - time.monotonic()
         waited_ms = 0
-        if settle > 0:
+        if _settle_after_action and settle > 0:
             time.sleep(settle)
             waited_ms = int(settle * 1000)
 
@@ -1330,14 +1330,14 @@ class Driver:
         deadline = time.monotonic() + timeout_ms / 1000
         last = None
         while True:
-            obs = self.observe(target, "tree_full")
+            obs = self.observe(target, "tree_full", _settle_after_action=False)
             last = obs
             if obs["type"] == "observation" and predicate(obs["tree"]):
                 return obs
             if time.monotonic() >= deadline:
                 return {"type": "timeout", "target": target, "waited_ms": timeout_ms,
                         "last_obs": last}
-            time.sleep(poll_ms / 1000)
+            time.sleep(min(poll_ms / 1000, max(0, deadline - time.monotonic())))
 
     # ------------------------------------------------------------ act
 
@@ -1450,7 +1450,7 @@ class Driver:
                     "effect": ("not_started" if isinstance(e, NotStarted)
                                else "unknown"),
                     "detail": str(e)}
-        self._last_action_at = time.time()
+        self._last_action_at = time.monotonic()
         return {"type": "acted", "action": name, "obs_id": obs_id,
                 "note": "not verified — observe again and check the result (D7)",
                 **(result or {})}

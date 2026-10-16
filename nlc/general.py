@@ -1158,7 +1158,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             return res
         if visit.expect:
             try:
-                got = driver.wait_until(target, lambda t: visit.expect in t)
+                # Keep the old settling behavior if a non-idempotent batch
+                # could leave an already-true label visible before its effect.
+                got = driver.observe(target, "tree_full") if pre_satisfied and any(
+                    a.get("do") not in ("read", "set_value") for a in visit.actions) else None
+                if got is None or (got.get("type") == "observation" and visit.expect not in got["tree"]):
+                    got = driver.wait_until(target, lambda t: visit.expect in t)
             except Exception as exc:
                 got = {"type": "error", "error": "observation_failed", "detail": str(exc)}
             if stopped(visit):

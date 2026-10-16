@@ -97,6 +97,13 @@ def build(output, identity):
                         dirs_exist_ok=True,symlinks=True,ignore=ignored)
         if (site/'nlc').exists():shutil.rmtree(site/'nlc')
         shutil.copytree(ROOT/'nlc',site/'nlc',ignore=ignored)
+        # Ship deterministic checked-hash bytecode before sealing the bundle.
+        # -B at every owned runtime entry reads these caches but never creates
+        # new files inside the signed app on a user's first command.
+        run([str(runtime/'.venv/bin/python'),'-I','-B','-m','compileall','-q',
+             '--invalidation-mode','checked-hash','-s',str(runtime/'.venv'),
+             '-p','tacto-runtime',str(runtime/'.venv')])
+        report['precompiled_python_files']=sum(1 for _ in (runtime/'.venv').rglob('*.pyc'))
         # Only shipped skill/docs; never copy mutable local flows or reviews.
         shutil.copytree(ROOT/'skill',runtime/'skill',symlinks=False,ignore=ignored)
         shutil.copytree(ROOT/'docs',runtime/'docs',symlinks=False,ignore=ignored)
@@ -155,6 +162,12 @@ def build(output, identity):
     if not bundled_import_valid(report['relocated_import'],output/'Contents/Resources/runtime'):
         raise RuntimeError('runtime imported outside bundle')
     run([str(python),'-I','-B','-m','nlc.cli','--help'],cwd='/')
+    # Exercise the actual signed launcher, not only a Python -B probe. A
+    # missing -B here used to pass packaging then invalidate its own signature.
+    for _ in range(2):
+        run([str(output/'Contents/Resources/runtime/launcher/nlc'),'--help'],cwd='/')
+        run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(output)])
+    report['signature_preserved_after_launcher_runs']=True
     run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(output)])
     report['outer_permission_owner_requirement_verified']=True
     report['signature_verified_after_import']=True

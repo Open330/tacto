@@ -407,7 +407,7 @@ class HelperDriver:
         return self._send({"type": "list_targets"})
 
     def observe(self, target: str, mode: str = "tree_full",
-                require_window: bool = True, *, document_token=None):
+                require_window: bool = True, *, document_token=None, _settle_after_action=True):
         if document_token is not None and (target != 'com.apple.TextEdit'
                 or not isinstance(document_token, str) or not document_token or len(document_token) > 128):
             return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started'}
@@ -416,8 +416,8 @@ class HelperDriver:
                     'detail':'helper does not support scoped document observations'}
         # Same settle contract as the in-process driver: an action's effect may
         # land a moment after the call returns, so wait before capturing.
-        settle = self._last_action_at + 1.0 - time.time()
-        if settle > 0:
+        settle = self._last_action_at + 1.0 - time.monotonic()
+        if _settle_after_action and settle > 0:
             time.sleep(settle)
         # `require_window` travels on the wire because the two drivers have to
         # return the same tree for the same app: a recipe that starts from an
@@ -524,7 +524,7 @@ class HelperDriver:
             msg["expect"] = expect
         r = self._send(msg)
         if r.get("type") == "acted":
-            self._last_action_at = time.time()
+            self._last_action_at = time.monotonic()
         return r
 
     def probe(self, obs_id, target, element_index):
@@ -728,13 +728,15 @@ class HelperDriver:
         deadline = time.monotonic() + timeout_ms / 1000
         last = None
         while True:
-            obs = self.observe(target)
+            # A checked postcondition is the readiness witness. Read first;
+            # retain settling only for ordinary observations without a check.
+            obs = self.observe(target, _settle_after_action=False)
             last = obs
             if obs.get("type") == "observation" and predicate(obs["tree"]):
                 return obs
             if time.monotonic() >= deadline:
                 return {"type": "timeout", "last_obs": last}
-            time.sleep(poll_ms / 1000)
+            time.sleep(min(poll_ms / 1000, max(0, deadline - time.monotonic())))
 
 
 # The L2 surface is transport-independent: observe/act/wait_until only need a

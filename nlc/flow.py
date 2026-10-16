@@ -2331,7 +2331,12 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # D7: verify by polling to a monotonic deadline, not a blind sleep.
         post = step.postcondition
         if post is not None:
-            obs = driver.wait_until(flow.target, post.check)
+            # An outcome already true before a non-idempotent input can be a
+            # stale pre-action sample. Preserve ordinary settling in that case;
+            # immediate predicate polling is for a new outcome or a setter/read.
+            obs = driver.observe(flow.target, "tree_full") if pre_satisfied and not _may_rerun(step) else None
+            if obs is None or (obs.get("type") == "observation" and not post.check(obs["tree"])):
+                obs = driver.wait_until(flow.target, post.check)
             if obs["type"] != "observation":
                 seen = None
                 last = obs.get("last_obs") or {}

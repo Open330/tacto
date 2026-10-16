@@ -15,7 +15,11 @@ func agentConnectionLinks(root: URL, home: URL, environment: [String: String]) -
     }
     var links = [(URL(fileURLWithPath: bin).appendingPathComponent("tacto"), root.appendingPathComponent("launcher/nlc")),
                  (URL(fileURLWithPath: bin).appendingPathComponent("nlc"), root.appendingPathComponent("launcher/nlc"))]
-    links += Set(folders.map { $0.resolvingSymlinksInPath() }).map { ($0.appendingPathComponent("tacto"), root.appendingPathComponent("skill")) }
+    // URL equality includes the directory/trailing-slash flag. Installation
+    // identity is the canonical filesystem path, including repeated profiles.
+    links += Set(folders.map { $0.resolvingSymlinksInPath().path }).sorted().map {
+        (URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("tacto"), root.appendingPathComponent("skill"))
+    }
     return links
 }
 
@@ -33,7 +37,7 @@ func agentConnectionReport(root: URL, home: URL, environment: [String: String]) 
         let destination = try? fm.destinationOfSymbolicLink(atPath: link.path)
         if destination == nil && !fm.fileExists(atPath: link.path) { report.append((link, .missing)); continue }
         let resolved = link.resolvingSymlinksInPath()
-        if destination != nil && fm.fileExists(atPath: resolved.path) && resolved == expected.resolvingSymlinksInPath() { report.append((link, .current)); continue }
+        if destination != nil && fm.fileExists(atPath: resolved.path) && resolved.path == expected.resolvingSymlinksInPath().path { report.append((link, .current)); continue }
         var previous = resolved
         if expected.lastPathComponent == "nlc" {
             guard let destination else { report.append((link, .conflict)); continue }
