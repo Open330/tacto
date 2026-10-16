@@ -4,10 +4,14 @@ import AppKit
 final class HelperIcon: NSImageView, NSDraggingSource {
     var helperURL: URL?
     override func mouseDown(with event: NSEvent) {
-        guard let url = helperURL else { return }
+        guard let item = draggingItem() else { return }
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+    func draggingItem() -> NSDraggingItem? {
+        guard let url = helperURL else { return nil }
         let item = NSDraggingItem(pasteboardWriter: url as NSURL)
         item.setDraggingFrame(bounds, contents: image)
-        beginDraggingSession(with: [item], event: event, source: self)
+        return item
     }
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
@@ -54,7 +58,7 @@ final class PermissionRow: NSStackView {
         text.orientation = .vertical; text.alignment = .leading; text.spacing = 3
         action.bezelStyle = .rounded
         action.widthAnchor.constraint(equalToConstant: 118).isActive = true
-        action.setAccessibilityLabel("\(permission.title) 켜기")
+        action.setAccessibilityLabel("\(permission.title) 설정 열기")
         addArrangedSubview(status); addArrangedSubview(text); addArrangedSubview(action)
         widthAnchor.constraint(equalToConstant: 624).isActive = true
     }
@@ -72,26 +76,30 @@ final class PermissionRow: NSStackView {
             action.title = "설정 다시 열기"; action.isEnabled = true; border = .systemOrange
         case .current:
             status.image = symbol("circle", .systemOrange)
-            action.title = "켜기"; action.isEnabled = true; border = .systemOrange
+            action.title = "설정 열기"; action.isEnabled = true; border = .systemOrange
         case .needed:
             status.image = symbol("circle", .tertiaryLabelColor)
-            action.title = "켜기"; action.isEnabled = true; border = .separatorColor
+            action.title = "설정 열기"; action.isEnabled = true; border = .separatorColor
         case .unknown:
             status.image = symbol("questionmark.circle", .tertiaryLabelColor)
-            action.title = "켜기"; action.isEnabled = true; border = .separatorColor
+            action.title = "설정 열기"; action.isEnabled = true; border = .separatorColor
         }
         layer?.borderColor = border.cgColor
-        status.setAccessibilityLabel(look == .granted ? "켜짐" : "꺼짐")
+        status.setAccessibilityLabel(look == .granted ? "켜짐" : look == .unknown ? "확인되지 않음" : "꺼짐")
     }
 }
 
 /// The small window beside System Settings: drag this, flip that switch.
 final class AccessoryPanel: NSPanel {
-    let heading = label("", size: 13, weight: .semibold, width: 228)
-    let state = label("", size: 12, color: .secondaryLabelColor, width: 228)
+    let heading = label("", size: 15, weight: .semibold, width: 268)
+    let state = label("", size: 12, color: .secondaryLabelColor, width: 268)
     let icon = HelperIcon()
+    let helper: URL
+    var alternative: NSStackView!
+    var helpButton: NSButton!
     init(helper: URL) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 260, height: 300),
+        self.helper = helper
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 300, height: 480),
                    styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = "Tacto 권한 도우미"
@@ -100,28 +108,66 @@ final class AccessoryPanel: NSPanel {
         icon.helperURL = helper
         icon.image = NSWorkspace.shared.icon(forFile: helper.path)
         icon.imageScaling = .scaleProportionallyUpOrDown
-        icon.widthAnchor.constraint(equalToConstant: 72).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 72).isActive = true
-        icon.setAccessibilityLabel("NLC Helper — 권한 목록으로 끌어다 놓으세요")
-        let name = label("NLC Helper", size: 12, weight: .medium, width: 228); name.alignment = .center
-        let steps = label("1. 이 아이콘을 설정 창의 목록으로 끌어다 놓으세요.\n2. 'NLC Helper' 옆 스위치를 켜세요.",
-                          size: 12, width: 228)
-        let fallback = label("끌어다 놓기가 안 되면 목록 아래 + 버튼으로 같은 앱을 추가하세요.",
-                             size: 11, color: .tertiaryLabelColor, width: 228)
+        icon.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 80).isActive = true
+        icon.setAccessibilityLabel("Tacto 권한용 앱 NLC Helper. 이 아이콘을 설정 창의 앱 목록으로 끌어다 놓으세요.")
+        icon.toolTip = "이 아이콘을 누른 채 설정 창의 앱 목록으로 옮긴 뒤 놓으세요."
+        let name = label("NLC Helper", size: 13, weight: .semibold, width: 268); name.alignment = .center
+        let identity = label("설정 목록에는 Tacto 대신 위 이름으로 표시됩니다. Tacto의 권한용 앱이 맞습니다.",
+                             size: 12, color: .secondaryLabelColor, width: 268)
+        let steps = label("1. 위 아이콘을 누른 채 설정 창의 앱 목록으로 옮겨 놓으세요.\n2. 목록에서 ‘NLC Helper’를 찾아 옆 스위치를 켜세요.\n이미 목록에 있다면 다시 추가하지 않고 스위치만 켜면 됩니다.", size: 13, width: 268)
+        helpButton = NSButton(title: "드래그가 안 되나요? 다른 방법 보기", target: nil, action: nil)
+        helpButton.target = self; helpButton.action = #selector(toggleHelp)
+        helpButton.bezelStyle = .rounded
+        let reveal = NSButton(title: "Finder에서 권한용 앱 보기", target: nil, action: nil)
+        reveal.target = self; reveal.action = #selector(revealHelper)
+        reveal.bezelStyle = .rounded
+        let copy = NSButton(title: "앱 위치 복사", target: nil, action: nil)
+        copy.target = self; copy.action = #selector(copyHelperPath)
+        copy.bezelStyle = .rounded
+        let fallback = label("Finder에서 선택된 앱을 끌어다 놓아도 됩니다.\n+ 버튼을 쓸 때는 ‘앱 위치 복사’를 누르고, 파일 선택 창에서 Shift + Command + G를 누른 다음 Command + V → Return으로 이동해 ‘열기’를 누르세요.",
+                             size: 12, color: .secondaryLabelColor, width: 268)
+        let approval = label("암호나 Touch ID를 요청하면 Mac 로그인에 쓰는 방법으로 승인하세요. macOS가 앱 재시작을 요청하면 안내를 따라 주세요.", size: 11, color: .secondaryLabelColor, width: 268)
         heading.alignment = .center; state.alignment = .center
-        let stack = NSStackView(views: [heading, icon, name, steps, fallback, state])
+        alternative = NSStackView(views: [reveal, copy, fallback])
+        alternative.orientation = .vertical; alternative.alignment = .centerX; alternative.spacing = 8
+        alternative.isHidden = true
+        let stack = NSStackView(views: [heading, icon, name, identity, steps, helpButton, alternative, approval, state])
         stack.orientation = .vertical; stack.alignment = .centerX; stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         contentView = stack
+        stack.layoutSubtreeIfNeeded()
+        setContentSize(stack.fittingSize)
+    }
+    @objc func toggleHelp() {
+        alternative.isHidden.toggle()
+        helpButton.title = alternative.isHidden ? "드래그가 안 되나요? 다른 방법 보기" : "다른 방법 접기"
+        fitContent()
+    }
+    func fitContent() {
+        contentView?.layoutSubtreeIfNeeded()
+        if let view = contentView { setContentSize(view.fittingSize) }
+    }
+    @objc func revealHelper() {
+        NSWorkspace.shared.activateFileViewerSelecting([helper])
+    }
+    @objc func copyHelperPath() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(helper.path, forType: .string)
+        state.stringValue = "위치를 복사했어요. + 버튼의 파일 선택 창에서 사용하세요."
+        fitContent()
     }
     override var canBecomeKey: Bool { true }
     func show(for permission: Permission) {
-        heading.stringValue = "\(permission.title) 권한 켜기"
-        state.stringValue = "켜지면 자동으로 알려 드릴게요."
+        heading.stringValue = "\(permission == .control ? "1 / 2" : "2 / 2") · \(permission.title) 권한 켜기"
+        state.stringValue = "스위치가 켜지면 자동으로 확인합니다."
+        alternative.isHidden = true
+        helpButton.title = "드래그가 안 되나요? 다른 방법 보기"
+        fitContent()
         state.textColor = .secondaryLabelColor
     }
     func granted() {
-        state.stringValue = "✓ 켜졌어요. 이 창은 곧 닫힙니다."
+        state.stringValue = "켜졌어요. 이 창은 곧 닫힙니다."
         state.textColor = .systemGreen
     }
 }
@@ -131,6 +177,7 @@ final class Setup: NSObject, NSApplicationDelegate {
     var panel: AccessoryPanel!
     var rows: [PermissionRow] = []
     var state = SetupState()
+    var notice: String?
     var known = false                        // has a receipt ever been read?
     var root: URL!
     var helper: URL!
@@ -147,11 +194,30 @@ final class Setup: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let request = snapshotRequest() { renderSnapshot(request); return }
+        // A link into a mounted installer disappears when that image is ejected.
+        // Require a writable installed copy before permission or skill setup.
+        if (try? Bundle.main.bundleURL.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true {
+            let alert = NSAlert()
+            alert.messageText = "먼저 Tacto를 Applications로 옮겨 주세요"
+            alert.informativeText = "설치 이미지 안에서는 설정을 진행하지 않습니다. Tacto.app을 Applications 폴더로 끌어다 놓은 뒤, 옮긴 앱을 다시 열어 주세요."
+            alert.addButton(withTitle: "Applications 폴더 열기")
+            alert.addButton(withTitle: "닫기")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications", isDirectory: true))
+            }
+            NSApp.terminate(nil); return
+        }
         guard let config = Bundle.main.url(forResource: "runtime", withExtension: "json"),
               let data = try? Data(contentsOf: config),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String],
               let resources = Bundle.main.resourceURL,
-              let runtime = setupRuntimeRoot(object, resources: resources) else { NSApp.terminate(nil); return }
+              let runtime = setupRuntimeRoot(object, resources: resources) else {
+            let alert = NSAlert()
+            alert.messageText = "Tacto를 시작할 수 없어요"
+            alert.informativeText = "앱에 필요한 파일을 찾지 못했습니다. 설치 이미지에서 Tacto.app 전체를 Applications 폴더로 다시 옮긴 뒤 열어 주세요."
+            alert.addButton(withTitle: "닫기"); alert.runModal()
+            NSApp.terminate(nil); return
+        }
         root = runtime
         helper = root.appendingPathComponent("helper/NLC Helper.app")
         build()
@@ -165,7 +231,7 @@ final class Setup: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         // Back from System Settings: say what changed without being asked.
-        if known && !state.ready { check() }
+        if helper != nil && !state.ready { check() }
     }
 
     func build() {
@@ -177,7 +243,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         stack.edgeInsets = NSEdgeInsets(top: 28, left: 28, bottom: 24, right: 28)
         window.contentView = stack
         stack.addArrangedSubview(label("Tacto를 사용할 준비", size: 24, weight: .bold, width: 624))
-        stack.addArrangedSubview(label("에이전트가 여러분 대신 Mac 앱을 쓰려면 두 가지 권한이 필요해요. 한 번만 켜 두면 됩니다.",
+        stack.addArrangedSubview(label("에이전트가 여러분 대신 Mac 앱을 쓰려면 두 가지 권한이 필요해요. 아래 순서대로 켜면 됩니다. 설정 창 옆에서 드래그할 앱을 보여 드릴게요.",
                                        size: 13, color: .secondaryLabelColor, width: 624))
         for permission in Permission.allCases {
             let row = PermissionRow(permission, target: self, selector: #selector(turnOn(_:)))
@@ -192,7 +258,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         connectButton.bezelStyle = .rounded; connectButton.keyEquivalent = "\r"; connectButton.isEnabled = false
         stack.addArrangedSubview(connectButton)
         stack.addArrangedSubview(message)
-        let note = label("권한은 서명된 도우미 'NLC Helper' 하나에만 줍니다. 터미널이나 파이썬에는 주지 않아요. 요청하신 작업 중에만 조작하고, 언제든 Esc로 멈출 수 있어요.",
+        let note = label("설정 목록에서 찾을 이름은 ‘NLC Helper’입니다. Tacto의 권한용 앱이며, 이 앱에만 권한을 주세요. 터미널이나 파이썬에는 주지 않아요. 요청하신 작업 중에만 조작하고, 언제든 Esc로 멈출 수 있어요.",
                          size: 11, color: .tertiaryLabelColor, width: 624)
         stack.addArrangedSubview(note)
         render()
@@ -208,11 +274,12 @@ final class Setup: NSObject, NSApplicationDelegate {
             else { look = .needed }
             row.show(look)
         }
-        connectButton.isEnabled = state.ready
-        if state.ready { status.stringValue = "✓ 두 권한이 모두 켜졌어요." }
+        connectButton.isEnabled = known && state.ready
+        if let notice { status.stringValue = notice }
+        else if state.ready { status.stringValue = "✓ 두 권한이 모두 켜졌어요." }
         else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 넘어갑니다." }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
-        else { status.stringValue = "‘켜기’를 누르면 설정이 열리고, 옆에 작은 도우미 창이 함께 뜹니다." }
+        else { status.stringValue = "‘설정 열기’를 누르면 설정이 열리고, 옆에 작은 도우미 창이 함께 뜹니다." }
     }
 
     // MARK: turning a permission on
@@ -220,9 +287,10 @@ final class Setup: NSObject, NSApplicationDelegate {
     @objc func turnOn(_ sender: NSButton) {
         guard let row = rows.first(where: { $0.action === sender }) else { return }
         guard FileManager.default.fileExists(atPath: helper.path) else {
-            status.stringValue = "NLC Helper를 찾지 못했습니다. Tacto 설치 경로를 확인해주세요."; return
+            notice = "권한용 앱을 찾지 못했어요. Tacto.app 전체를 Applications 폴더로 다시 옮긴 뒤 열어 주세요."; render(); return
         }
         let permission = row.permission
+        notice = nil
         NSWorkspace.shared.open(permission.settingsURL)
         panel.show(for: permission)
         watch = PermissionWatch(permission: permission, started: Date())
@@ -276,7 +344,7 @@ final class Setup: NSObject, NSApplicationDelegate {
             }
         } else if let finished {
             placeTimer?.invalidate(); panel.orderOut(nil)
-            status.stringValue = "\(finished.permission.title) 권한이 아직 꺼져 있어요. 켠 뒤 이 창으로 돌아오면 다시 확인합니다."
+            notice = "\(finished.permission.title) 권한 확인 시간이 지났어요. ‘설정 열기’를 눌러 다시 진행하세요."
         }
         render()
         if granted, finished != nil, state.ready {
@@ -289,12 +357,21 @@ final class Setup: NSObject, NSApplicationDelegate {
     /// One read-only receipt from the helper's own LaunchServices launch.
     /// Never asks a shared interpreter, and never two checks at once.
     func check() {
-        guard !checkInFlight, FileManager.default.fileExists(atPath: helper.path) else { return }
+        guard !checkInFlight else { return }
+        guard FileManager.default.fileExists(atPath: helper.path) else {
+            known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            notice = "권한용 앱을 찾지 못했어요. Tacto.app 전체를 Applications 폴더로 다시 옮긴 뒤 열어 주세요."
+            render(); return
+        }
         checkInFlight = true
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("tacto-setup-" + UUID().uuidString)
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                      attributes: [.posixPermissions: 0o700]) }
-        catch { checkInFlight = false; return }
+        catch {
+            checkInFlight = false; known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            notice = "권한을 확인할 임시 파일을 만들지 못했어요. Mac의 저장 공간을 확인하고 Tacto를 다시 열어 주세요."
+            render(); return
+        }
         reportDirectory = directory
         let file = directory.appendingPathComponent("permission.json")
         let config = NSWorkspace.OpenConfiguration()
@@ -316,12 +393,8 @@ final class Setup: NSObject, NSApplicationDelegate {
         pollTimer?.invalidate(); pollTimer = nil
         try? FileManager.default.removeItem(at: directory); reportDirectory = nil
         checkInFlight = false
-        var next = state
-        if let data, next.receive(data, expected: "ai.callabo.nlc.helper") {
-            state = next; known = true
-        } else if !known {
-            status.stringValue = "권한 상태를 확인하지 못했어요. ‘켜기’로 진행하면 다시 확인합니다."
-        }
+        known = state.refresh(data, expected: "ai.callabo.nlc.helper")
+        notice = known ? nil : "권한 상태를 확인하지 못했어요. ‘설정 열기’를 눌러 다시 확인하세요. 계속 실패하면 Tacto를 닫고 다시 열어 주세요."
         if let watching = watch, state.granted(watching.permission) { endWatch(granted: true); return }
         render()
     }
@@ -329,7 +402,7 @@ final class Setup: NSObject, NSApplicationDelegate {
     // MARK: connecting the agent
 
     @objc func connect() {
-        guard state.ready else { return }
+        guard known && state.ready else { return }
         connectButton.isEnabled = false; message.stringValue = "명령과 스킬을 연결하고 있어요…"
         let script = root.appendingPathComponent("skill/install.sh")
         DispatchQueue.global().async {
@@ -339,9 +412,9 @@ final class Setup: NSObject, NSApplicationDelegate {
             var ok = false
             do { try process.run(); process.waitUntilExit(); ok = process.terminationStatus == 0 } catch {}
             DispatchQueue.main.async {
-                self.connectButton.isEnabled = true
+                self.connectButton.isEnabled = self.known && self.state.ready
                 self.message.stringValue = ok
-                    ? "✓ 연결했어요. 에이전트에서 Tacto 스킬을 새로 불러오면 바로 쓸 수 있어요."
+                    ? "✓ 연결했어요. Claude Code나 Codex에서 새 대화를 열고 ‘Tacto로 작업해 줘’라고 요청하세요."
                     : "연결을 끝내지 못했어요. 기존 설치 경로나 파일 충돌을 확인해주세요."
             }
         }
@@ -370,8 +443,18 @@ final class Setup: NSObject, NSApplicationDelegate {
         root = URL(fileURLWithPath: "/nonexistent")
         build()
         state = snapshotState; known = true
-        if let waiting { watch = PermissionWatch(permission: waiting, started: Date()); panel.show(for: waiting) }
+        panel.show(for: waiting ?? state.nextNeeded ?? .control)
+        if let waiting { watch = PermissionWatch(permission: waiting, started: Date()) }
+        if CommandLine.arguments.contains("--show-help") { panel.toggleHelp() }
+        if CommandLine.arguments.contains("--check-failed") {
+            known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            notice = "권한 상태를 확인하지 못했어요. ‘설정 열기’를 눌러 다시 확인하세요."
+        }
         render()
+        assert(connectButton.isEnabled == (known && state.ready))
+        assert(panel.icon.helperURL == helper)
+        assert((panel.icon.draggingItem()?.item as? NSURL) == helper as NSURL)
+        assert(panel.frame.height > 400)
         func save(_ view: NSView, _ name: String) {
             view.layoutSubtreeIfNeeded()
             let size = view.fittingSize

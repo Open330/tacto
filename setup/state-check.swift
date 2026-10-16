@@ -16,7 +16,13 @@ import Foundation
     assert(state.ready == (ax && screen))
    }
   }
-  print("Permission state: 10 cases PASS; both grants required for readiness")
+  assert(state.ready)
+  assert(!state.refresh(nil, expected: "ai.callabo.nlc.helper"))
+  assert(!state.ready && !state.accessibility && !state.screen)
+  state.accessibility = true; state.screen = true
+  assert(!state.refresh(json("{}"), expected: "ai.callabo.nlc.helper"))
+  assert(!state.ready)
+  print("Permission state: 12 cases PASS; both grants required for readiness")
 
   // Asked in order; nothing left to ask once both are on.
   var order = SetupState()

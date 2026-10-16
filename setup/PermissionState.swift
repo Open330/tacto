@@ -50,6 +50,12 @@ struct SetupState {
     }
     /// The next grant to ask for, in order; nil once both are on.
     var nextNeeded: Permission? { Permission.allCases.first { !granted($0) } }
+    /// A failed refresh invalidates old grants: never offer connection from a
+    /// stale successful receipt after helper launch, timeout or decoding failure.
+    mutating func refresh(_ data: Data?, expected: String) -> Bool {
+        guard let data else { accessibility = false; screen = false; return false }
+        return receive(data, expected: expected)
+    }
     mutating func receive(_ data: Data, expected: String) -> Bool {
         guard let receipt = try? JSONDecoder().decode(PermissionReceipt.self, from: data),
               receipt.valid(for: expected) else {

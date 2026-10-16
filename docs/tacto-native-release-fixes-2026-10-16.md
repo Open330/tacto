@@ -59,3 +59,30 @@ Notarization and a fresh Mac's Gatekeeper, permission-grant, panel placement and
 actual drag-install path have not been exercised. Existing rights on the build
 machine do not establish fresh-install success. No signing credentials or local
 preview binaries are committed to the repository.
+
+## Follow-up: novice onboarding
+
+Added numbered permission guidance, an explicit explanation of the system-list
+name, and a collapsed alternative path with Finder reveal and copy-location
+buttons. Password/restart guidance and next steps after connection are visible.
+Failed receipts now invalidate stale grants and preserve actionable errors.
+The helper identity is unchanged to preserve existing TCC grants.
+
+The updated Swift state check covers a lost/invalid receipt after a successful
+one. Five offscreen UI states cover no grants, one grant, ready, failed refresh
+and expanded alternatives, with assertions for the connection gate and actual
+file-URL drag payload. System Settings accepting a drop and fresh-user completion
+remain outside these offscreen checks.
+
+The permission-state check passed 12 receipt cases plus watch and placement
+checks; the 14 packaging/documentation tests passed. Peer review found that a
+failed initial check could prevent a refresh when returning from Settings;
+the activation condition was corrected, with a guard for an uninitialized helper.
+The expanded panel measures about 300 × 573 logical points in the rendered state.
+
+Launching from a read-only installer now stops before permission checks or agent
+connection and explains how to copy the app into Applications. A preview DMG was
+mounted read-only without opening the app: Foundation reported the mounted app
+as read-only and the copied app as writable. The image was then detached. No
+system grants were changed. This checks the volume condition, rather than
+claiming completion of the interactive install or first-permission flow.
