@@ -2542,10 +2542,10 @@ func indicatorRefusal(_ what: String = "") -> [String: Any] {
     let advice: String
     switch reason {
     case "menu_item_not_on_screen":
-        advice = "메뉴바의 'NLC' 표시가 화면에 보이지 않습니다(메뉴바가 가득 차 넘침 영역에 들어갔을 수 있습니다). "
+        advice = "메뉴바의 '● Tacto' 표시가 화면에 보이지 않습니다(메뉴바가 가득 차 넘침 영역에 들어갔을 수 있습니다). "
                + "다른 메뉴바 항목을 줄이거나 앱의 창을 하나 연 뒤 다시 시도해 주세요."
     case "menu_item_unavailable":
-        advice = "메뉴바에 'NLC' 표시를 만들지 못했습니다."
+        advice = "메뉴바에 '● Tacto' 표시를 만들지 못했습니다."
     default:
         advice = "화면 기록 표시를 시작하지 못했습니다. 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 "
                + "'NLC Helper' 가 켜져 있는지 확인해 주세요."
@@ -4541,7 +4541,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
     let app = NSApplication.shared
     let policySet = app.setActivationPolicy(.accessory)
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    item.button?.title = "●NLC"
+    item.button?.title = "● Tacto"
     // The audit session id, read here rather than in the interpolation: the
     // type checker gives up on a long one, and the session is the whole point.
     var auditToken = audit_token_t()
