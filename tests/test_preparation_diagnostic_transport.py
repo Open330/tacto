@@ -53,7 +53,7 @@ class PreparationDiagnosticTransportTests(unittest.TestCase):
                 'aggregated_output': diagnostic + '\nPRIVATE_SENTINEL'}
         events = [{'type':'item.started', 'item':item}, {'type':'item.completed', 'item':item}]
 
-        def run(argv, **kwargs):
+        def run(argv, prompt, timeout, diagnostics):
             Path(argv[argv.index('-o') + 1]).write_text('claimed success')
             return subprocess.CompletedProcess(argv, 0, '\n'.join(json.dumps(e) for e in events), '')
 
@@ -61,7 +61,8 @@ class PreparationDiagnosticTransportTests(unittest.TestCase):
         with patch.dict(sys.modules, {'focus_witness':types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', return_value=False), \
              patch.object(comparison, 'source_manifest', return_value={'sha256':'fixed','files':{}}), \
-             patch.object(comparison.subprocess, 'run', side_effect=run):
+             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
+             patch.object(comparison, '_run_agent', side_effect=run):
             result = comparison.run_one(task, 'nlc')
         self.assertEqual([self.detail()], result['reported_preparation_diagnostics'])
         self.assertEqual('failed', result['status'])

@@ -1,5 +1,8 @@
 # 설치 범위와 실행 경로
 
+현재는 개발자 미리보기 단계입니다. 일반 사용자 공개 전의 지원 범위와 통과
+조건, 최종 DMG 검사 방법은 [출시 기준](release-readiness.md)에 정리합니다.
+
 Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 필요한
 서명된 런처·도우미, Chromium 실행 파일, 평가 fixture는 포함하지 않습니다.
 `py3-none-any` wheel이라는 표시는 Python 패키지의 형식이며, 모든 운영체제의

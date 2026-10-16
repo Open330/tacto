@@ -156,7 +156,7 @@ class IndicatorLifetimeTests(unittest.TestCase):
             with Indicator(4321):
                 pass
         self.assertEqual(['4321'], [c for c in seen['command'] if c == '4321'])
-        self.assertEqual(4, len(seen['command']), 'python -m nlc.overlay <pid>')
+        self.assertEqual(['-I', '-B', '-m', 'nlc.overlay', '4321'], seen['command'][1:])
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent

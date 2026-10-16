@@ -257,6 +257,7 @@ python3 sites/tacto/serve.py
 - [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
 - [실제 앱·웹 일상 작업 10개](docs/tacto-everyday-examples-2026-10-15.md)
 - [초기 브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
+- [출시 범위·검증 조건과 최종 DMG 검사](docs/release-readiness.md)
 - [네이티브 서명·기본 빌드·설치 UX 수정 결과](docs/tacto-native-release-fixes-2026-10-16.md)
 - [전체 개선 peer 검토와 잔여 출시 제한](docs/tacto-peer-review-2026-10-16.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)

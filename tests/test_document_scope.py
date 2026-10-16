@@ -40,8 +40,17 @@ class DocumentScopeTests(unittest.TestCase):
 
     def test_cli_prints_only_that_window_and_refuses_bad_arguments(self):
         class D:
-            def observe(self, *a, **k):
-                return {'type': 'observation', 'tree': TREE}
+            capabilities = {'evidence.document_text.path_selector', 'observe.document_token'}
+            def document_text(self, target, *, document_path, max_utf16_units):
+                if document_path != PATH or max_utf16_units != 0:
+                    return {'type': 'error'}
+                return {'type': 'document_text', 'document_path': PATH,
+                        'document_token': 'owned', 'text': '', 'text_complete': False}
+            def observe(self, target, mode, *, document_token):
+                if document_token != 'owned':
+                    raise AssertionError('an unpinned app-wide read is forbidden')
+                return {'type': 'observation', 'document_token': document_token,
+                        'tree': document_window_view(TREE, PATH)}
         with patch('nlc.cli._make_driver', return_value=D()):
             out = io.StringIO()
             with redirect_stdout(out):

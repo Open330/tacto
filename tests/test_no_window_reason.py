@@ -58,7 +58,10 @@ class NoWindowReasonTests(unittest.TestCase):
 
     def test_the_skill_says_what_each_reason_asks_for(self):
         from pathlib import Path
-        skill = (Path(__file__).resolve().parents[1] / "skill" / "SKILL.md").read_text()
+        root = Path(__file__).resolve().parents[1] / "skill"
+        entry = (root / "SKILL.md").read_text()
+        self.assertIn('references/recovery.md', entry)
+        skill = (root / "references/recovery.md").read_text()
         for reason in ("screen_locked", "app_hidden", "minimized", "no_visible_window",
                        "window_offscreen"):
             self.assertIn(reason, skill)
