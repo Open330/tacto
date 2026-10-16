@@ -21,7 +21,21 @@ import os
 import subprocess
 import time
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _runtime_root(module_file, prefix):
+    """Locate either a source package or the fixed standalone .venv layout."""
+    from pathlib import Path
+    package_root = Path(module_file).resolve().parent.parent
+    environment = Path(prefix).resolve()
+    runtime = environment.parent
+    helper = runtime / "helper/NLC Helper.app/Contents/MacOS/NLCHelper"
+    if (environment.name == ".venv" and package_root.is_relative_to(environment)
+            and helper.is_file() and helper.resolve().is_relative_to(runtime)):
+        return str(runtime)
+    return str(package_root)
+
+
+import sys
+_ROOT = _runtime_root(__file__, sys.prefix)
 
 # Prefer the .app bundle: TCC identifies it by signature and lists it by name,
 # so the grant belongs to "NLC Helper" rather than to whatever the bare

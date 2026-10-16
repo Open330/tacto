@@ -35,8 +35,11 @@ def native_files(directory):
 def bundled_import_valid(data, runtime):
     try:
         root=runtime.resolve(strict=True)
-        return type(data) is dict and all(isinstance(data.get(key),str)
-            and Path(data[key]).resolve(strict=True).is_relative_to(root) for key in ('nlc','prefix'))
+        if type(data) is not dict or not all(isinstance(data.get(key),str)
+                and Path(data[key]).resolve(strict=True).is_relative_to(root) for key in ('nlc','prefix','helper')):
+            return False
+        helper = root/'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+        return helper.is_file() and Path(data['helper']).resolve(strict=True) == helper.resolve(strict=True)
     except (OSError,RuntimeError,ValueError):return False
 
 
@@ -129,7 +132,7 @@ def build(output, identity):
     # Relocation happened after signing. Run no GUI command and write no caches.
     python=output/'Contents/Resources/runtime/.venv/bin/python'
     report['relocated_import']=json.loads(run([str(python),'-I','-B','-c',
-        'import nlc,Foundation,Quartz,ApplicationServices,json,sys; print(json.dumps({"nlc":nlc.__file__,"prefix":sys.prefix}))'],cwd='/').stdout)
+        'import nlc,nlc.helper,Foundation,Quartz,ApplicationServices,json,sys; print(json.dumps({"nlc":nlc.__file__,"prefix":sys.prefix,"helper":nlc.helper.HELPER}))'],cwd='/').stdout)
     if not bundled_import_valid(report['relocated_import'],output/'Contents/Resources/runtime'):
         raise RuntimeError('runtime imported outside bundle')
     run([str(python),'-I','-B','-m','nlc.cli','--help'],cwd='/')

@@ -86,3 +86,43 @@ mounted read-only without opening the app: Foundation reported the mounted app
 as read-only and the copied app as writable. The image was then detached. No
 system grants were changed. This checks the volume condition, rather than
 claiming completion of the interactive install or first-permission flow.
+
+## Live self-test using Tacto
+
+Tacto's signed sessions operated the standalone GUI itself. The test clicked
+Settings, expanded help, copied the helper location, revealed the helper in
+Finder, and collapsed help. Independent Tacto observations confirmed the copy
+feedback, the selected bundled helper, and the disabled agent-connection button
+while screen capture remained unavailable. The bounded wait later ended and
+retained the retry instruction. Permissions were not changed and connections
+were not installed. One role-only close-button selector was refused before
+input; the owned test process was subsequently stopped as test teardown.
+
+Two findings were addressed:
+
+1. The standalone package's Python module lived in site-packages, so native
+   helper discovery looked below site-packages and doctor fell back to the
+   interpreter's permissions. Discovery now recognizes the fixed bundled .venv
+   layout, rejects a helper escaping that runtime and preserves source-checkout
+   discovery. The relocation build check now requires the actual bundled helper
+   path, in addition to Python/package imports.
+2. On the tested macOS 27 machine the screen-capture deep link opened Device
+   Control and Data Access. The GUI location text now names that observed
+   integrated pane on macOS 27, while retaining the older label on earlier OSes.
+
+The preview helper's own LaunchServices receipt reported Accessibility true
+and screen capture false. This is an incomplete grant, not a successful
+first-install test; GUI readiness was not relaxed. Dragging into the protected
+system list, granting access and connecting the agent remain untested. Existing
+checkout rights do not establish the copied helper's rights.
+
+Sixteen focused helper-discovery, packaging and documentation tests passed,
+plus the Swift permission-state/watch/placement checks. Private raw UI trees
+remain local because they include account names and filesystem paths.
+
+The rebuilt standalone app was retested: its doctor now recognizes the bundled
+helper and reports screen capture as incomplete, matching the GUI's blocked
+connection. The erroneous fallback to the interpreter's ready state is gone.
+Tacto observed the updated macOS 27 location label in the actual rebuilt GUI.
+The corrected standalone app and DMG passed signing, relocation/helper discovery
+and image-checksum verification. Peer review approved the bounded path fix.

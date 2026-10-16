@@ -20,12 +20,18 @@ class StandalonePreviewTests(unittest.TestCase):
     def test_import_origin_requires_existing_files_inside_bundle(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'runtime';root.mkdir();module=root/'module.py';module.write_text('')
-            self.assertTrue(builder.bundled_import_valid({'nlc':str(module),'prefix':str(root)},root))
+            helper=root/'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+            helper.parent.mkdir(parents=True);helper.write_text('native fixture')
+            def receipt(nlc=module, native=helper):
+                return {'nlc':str(nlc),'prefix':str(root),'helper':str(native)}
+            self.assertTrue(builder.bundled_import_valid(receipt(),root))
             outside=Path(folder)/'outside.py';outside.write_text('')
-            self.assertFalse(builder.bundled_import_valid({'nlc':str(outside),'prefix':str(root)},root))
-            module.unlink();module.symlink_to(outside)
+            self.assertFalse(builder.bundled_import_valid(receipt(outside),root))
+            self.assertFalse(builder.bundled_import_valid(receipt(native=outside),root))
             self.assertFalse(builder.bundled_import_valid({'nlc':str(module),'prefix':str(root)},root))
-            self.assertFalse(builder.bundled_import_valid({'nlc':str(root/'missing'),'prefix':str(root)},root))
+            module.unlink();module.symlink_to(outside)
+            self.assertFalse(builder.bundled_import_valid(receipt(),root))
+            self.assertFalse(builder.bundled_import_valid(receipt(root/'missing'),root))
 
     def test_existing_app_or_symlink_is_not_replaced(self):
         with tempfile.TemporaryDirectory() as folder:
