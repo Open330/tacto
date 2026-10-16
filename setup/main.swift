@@ -1,5 +1,7 @@
 import AppKit
 
+private let contentWidth: CGFloat = 656
+
 /// The helper's icon, draggable as its file URL into a System Settings list.
 final class HelperIcon: NSImageView, NSDraggingSource {
     var helperURL: URL?
@@ -42,7 +44,7 @@ final class PermissionRow: NSStackView {
     let action: NSButton
     init(_ permission: Permission, target: AnyObject, selector: Selector) {
         self.permission = permission
-        detail = label(permission.location, size: 11, color: .tertiaryLabelColor, width: 412)
+        detail = label("", size: 11, color: .secondaryLabelColor, width: 454)
         action = NSButton(title: "켜기", target: target, action: selector)
         super.init(frame: .zero)
         orientation = .horizontal; alignment = .top; spacing = 14
@@ -50,20 +52,22 @@ final class PermissionRow: NSStackView {
         wantsLayer = true
         layer?.cornerRadius = 12
         layer?.borderWidth = 1
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         status.widthAnchor.constraint(equalToConstant: 24).isActive = true
         let text = NSStackView(views: [
-            label(permission.title, size: 15, weight: .semibold, width: 412),
-            label(permission.reason, size: 13, color: .secondaryLabelColor, width: 412),
+            label(permission.title, size: 15, weight: .semibold, width: 454),
+            label(permission == .control ? "버튼을 누르고 글자를 입력합니다." : "작업에 필요한 앱 화면을 확인합니다.", size: 13, color: .secondaryLabelColor, width: 454),
             detail])
         text.orientation = .vertical; text.alignment = .leading; text.spacing = 3
         action.bezelStyle = .rounded
         action.widthAnchor.constraint(equalToConstant: 118).isActive = true
         action.setAccessibilityLabel("\(permission.title) 설정 열기")
         addArrangedSubview(status); addArrangedSubview(text); addArrangedSubview(action)
-        widthAnchor.constraint(equalToConstant: 624).isActive = true
+        widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
     }
     func showApp(_ app: URL) {
-        detail.stringValue = permission.location + "\n허용할 앱: " + app.lastPathComponent
+        detail.stringValue = "허용할 앱: " + app.lastPathComponent
+        detail.toolTip = permission.location
     }
     required init?(coder: NSCoder) { nil }
 
@@ -203,7 +207,7 @@ final class AccessoryPanel: NSPanel {
     }
 }
 
-final class Setup: NSObject, NSApplicationDelegate {
+final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var window: NSWindow!
     var panel: AccessoryPanel!
     var rows: [PermissionRow] = []
@@ -217,8 +221,11 @@ final class Setup: NSObject, NSApplicationDelegate {
     func appFor(_ permission: Permission) -> URL {
         permissionApp(permission, helper: helper, setupApp: setupApp, bundledRuntime: bundledRuntime)
     }
-    let status = label("", size: 12, color: .secondaryLabelColor, width: 624)
-    let message = label("", size: 12, color: .secondaryLabelColor, width: 624)
+    let status = label("", size: 12, color: .secondaryLabelColor, width: contentWidth)
+    let message = label("", size: 12, color: .secondaryLabelColor, width: contentWidth - 32)
+    let badge = label("확인 중", size: 12, weight: .semibold)
+    var statusItem: NSStatusItem?
+    var statusMenuTitle: NSMenuItem?
     var connectButton: NSButton!
     var watch: PermissionWatch?
     var watchTimer: Timer?
@@ -258,6 +265,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         bundledRuntime = object["bundledRoot"] == "runtime"
         helper = root.appendingPathComponent("helper/NLC Helper.app")
         build()
+        installMenus()
         window.center(); window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         // Reading the helper's receipt requests nothing and changes nothing;
@@ -268,40 +276,59 @@ final class Setup: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         // Back from System Settings: say what changed without being asked.
-        if helper != nil && !state.ready { check() }
+        if helper != nil { check() }
     }
 
     func build() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 600),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 640),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Tacto 시작하기"
+        window.title = "Tacto"
+        window.delegate = self
+        window.isReleasedWhenClosed = false
+        window.standardWindowButton(.closeButton)?.setAccessibilityIdentifier("tacto.close")
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = .windowBackgroundColor
         panel = AccessoryPanel(helper: helper)
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 14
-        stack.edgeInsets = NSEdgeInsets(top: 28, left: 28, bottom: 24, right: 28)
+        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
+        stack.wantsLayer = true
+        stack.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         window.contentView = stack
-        stack.addArrangedSubview(label("Tacto를 사용할 준비", size: 24, weight: .bold, width: 624))
-        stack.addArrangedSubview(label("에이전트가 여러분 대신 Mac 앱을 쓰려면 두 가지 권한이 필요해요. 아래 순서대로 켜면 됩니다. 설정 창 옆에서 드래그할 앱을 보여 드릴게요.",
-                                       size: 13, color: .secondaryLabelColor, width: 624))
+        let brand = label("Tacto", size: 28, weight: .bold)
+        let spacer = NSView()
+        let header = NSStackView(views: [brand, spacer, badge])
+        header.orientation = .horizontal; header.alignment = .centerY
+        header.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        stack.addArrangedSubview(header)
+        stack.addArrangedSubview(label("에이전트가 여러분 대신 Mac 앱을 사용할 수 있도록.",
+                                       size: 14, color: .secondaryLabelColor, width: contentWidth))
+        stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
+        stack.addArrangedSubview(label("Mac 권한", size: 13, weight: .semibold, width: contentWidth))
         for permission in Permission.allCases {
             let row = PermissionRow(permission, target: self, selector: #selector(turnOn(_:)))
             row.showApp(appFor(permission))
             rows.append(row); stack.addArrangedSubview(row)
         }
         stack.addArrangedSubview(status)
-        stack.setCustomSpacing(22, after: status)
-        stack.addArrangedSubview(label("에이전트에 연결", size: 15, weight: .semibold, width: 624))
-        stack.addArrangedSubview(label("Claude Code·Codex가 Tacto 명령과 스킬을 쓸 수 있게 연결합니다. 두 권한이 켜지면 누를 수 있어요.",
-                                       size: 13, color: .secondaryLabelColor, width: 624))
+        stack.setCustomSpacing(18, after: status)
         connectButton = NSButton(title: "에이전트에 연결", target: self, action: #selector(connect))
         connectButton.bezelStyle = .rounded; connectButton.keyEquivalent = "\r"; connectButton.isEnabled = false
-        stack.addArrangedSubview(connectButton)
-        stack.addArrangedSubview(message)
-        let permissionNote = bundledRuntime
-            ? "앱 조작은 ‘NLC Helper.app’, 화면 기록은 ‘Tacto.app’에 허용합니다. 각 단계에서 보여 드리는 앱을 추가하세요. 터미널이나 공유 파이썬에는 권한을 주지 않습니다."
-            : "두 권한 모두 ‘NLC Helper.app’에 허용합니다. 터미널이나 공유 파이썬에는 권한을 주지 않습니다."
-        let note = label(permissionNote, size: 11, color: .secondaryLabelColor, width: 624)
-        stack.addArrangedSubview(note)
+        let connectionHeader = NSStackView(views: [label("에이전트 연결", size: 15, weight: .semibold), NSView(), connectButton])
+        connectionHeader.orientation = .horizontal; connectionHeader.alignment = .centerY
+        connectionHeader.widthAnchor.constraint(equalToConstant: contentWidth - 32).isActive = true
+        let connection = NSStackView(views: [connectionHeader,
+            label("Claude Code · Codex에 명령과 스킬을 설치합니다.\n권한 완료와 에이전트 연결은 별개입니다.", size: 12, color: .secondaryLabelColor, width: contentWidth - 32), message])
+        connection.orientation = .vertical; connection.alignment = .leading; connection.spacing = 8
+        connection.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        connection.wantsLayer = true; connection.layer?.cornerRadius = 12
+        connection.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        stack.addArrangedSubview(connection)
+        stack.setCustomSpacing(18, after: connection)
+        stack.addArrangedSubview(label("도우미는 작업할 때 자동 실행됩니다", size: 13, weight: .semibold, width: contentWidth))
+        stack.addArrangedSubview(label("별도 helper를 만들거나 실행할 필요가 없습니다. 창을 닫으면 메뉴 막대에서 다시 열 수 있어요. Tacto를 종료해도 설치된 에이전트 명령은 도우미를 자동 실행합니다.", size: 12, color: .secondaryLabelColor, width: contentWidth))
         render()
+        stack.layoutSubtreeIfNeeded()
+        window.setContentSize(stack.fittingSize)
     }
 
     func render() {
@@ -315,8 +342,12 @@ final class Setup: NSObject, NSApplicationDelegate {
             row.show(look)
         }
         connectButton.isEnabled = known && state.ready
+        badge.stringValue = !known ? "권한 확인 중" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
+        badge.textColor = known && state.ready ? .systemGreen : .secondaryLabelColor
+        statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
+        statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
         if let notice { status.stringValue = notice }
-        else if state.ready { status.stringValue = "✓ 두 권한이 모두 켜졌어요." }
+        else if state.ready { status.stringValue = "두 권한이 모두 켜져 있습니다. 다시 설정할 필요가 없어요." }
         else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 넘어갑니다." }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
         else { status.stringValue = "‘설정 열기’를 누르면 설정이 열리고, 옆에 작은 도우미 창이 함께 뜹니다." }
@@ -389,7 +420,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         }
         render()
         if granted, finished != nil, state.ready {
-            status.stringValue = "✓ 두 권한이 모두 켜졌어요. 이제 에이전트에 연결하세요."
+            status.stringValue = "두 권한이 모두 켜졌어요. 이제 에이전트에 연결하세요."
         }
     }
 
@@ -455,13 +486,60 @@ final class Setup: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.connectButton.isEnabled = self.known && self.state.ready
                 self.message.stringValue = ok
-                    ? "✓ 연결했어요. Claude Code나 Codex에서 새 대화를 열고 ‘Tacto로 작업해 줘’라고 요청하세요."
+                    ? "연결했어요. Claude Code나 Codex에서 새 대화를 열고 ‘Tacto로 작업해 줘’라고 요청하세요."
                     : "연결을 끝내지 못했어요. 기존 설치 경로나 파일 충돌을 확인해주세요."
             }
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    // The GUI is a settings surface. Automation helpers belong to their CLI
+    // launcher, never to this window or this menu bar item's lifetime.
+    func installMenus() {
+        let main = NSMenu()
+        let appItem = NSMenuItem(); main.addItem(appItem)
+        let appMenu = NSMenu(); appItem.submenu = appMenu
+        let open = appMenu.addItem(withTitle: "Tacto 열기", action: #selector(reopen), keyEquivalent: "0")
+        open.target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let windowItem = NSMenuItem(); main.addItem(windowItem)
+        let windowMenu = NSMenu(title: "윈도우"); windowItem.submenu = windowMenu
+        let close = windowMenu.addItem(withTitle: "창 닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        close.target = window
+        NSApp.mainMenu = main
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Tacto 설정")
+        item.button?.image?.isTemplate = true
+        item.button?.setAccessibilityLabel("Tacto 설정")
+        let menu = NSMenu()
+        statusMenuTitle = menu.addItem(withTitle: "Tacto 설정 · " + badge.stringValue, action: nil, keyEquivalent: "")
+        menu.addItem(.separator())
+        let show = menu.addItem(withTitle: "Tacto 열기", action: #selector(reopen), keyEquivalent: "")
+        show.target = self
+        let refresh = menu.addItem(withTitle: "권한 다시 확인", action: #selector(refreshPermissions), keyEquivalent: "")
+        refresh.target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        item.menu = menu; statusItem = item
+        render()
+    }
+    @objc func reopen() {
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        check()
+    }
+    @objc func refreshPermissions() { check() }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        reopen(); return true
+    }
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        watchTimer?.invalidate(); watchTimer = nil; watch = nil
+        placeTimer?.invalidate(); placeTimer = nil
+        panel.orderOut(nil)
+        render()
+    }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
         if let directory = reportDirectory { try? FileManager.default.removeItem(at: directory) }
     }
@@ -496,6 +574,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         }
         render()
         assert(connectButton.isEnabled == (known && state.ready))
+        assert(!applicationShouldTerminateAfterLastWindowClosed(NSApp))
         assert(panel.icon.helperURL == appFor(permission))
         assert((panel.icon.draggingItem()?.item as? NSURL) == appFor(permission) as NSURL)
         assert(panel.frame.height > 400)

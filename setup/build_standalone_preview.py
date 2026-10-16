@@ -120,7 +120,7 @@ def build(output, identity):
         run(['swiftc',str(ROOT/'setup/main.swift'),str(ROOT/'setup/PermissionState.swift'),'-o',str(executable)])
         import plistlib
         (contents/'Info.plist').write_bytes(plistlib.dumps({
-            'CFBundleDisplayName':'Tacto 시작하기','CFBundleName':'Tacto 시작하기',
+            'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',
             'CFBundleExecutable':'NLCSetup','CFBundleIdentifier':'ai.callabo.nlc.setup.standalone.preview',
             'CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1',
             'LSMinimumSystemVersion':platform.mac_ver()[0]}))
