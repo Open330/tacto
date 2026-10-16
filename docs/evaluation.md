@@ -6,8 +6,8 @@
 
 ```bash
 .venv/bin/python examples/eval.py --offline --preview
-.venv/bin/python examples/eval.py --offline --report /tmp/nlc-offline.json
-./launcher/nlc eval background_menu_refusal --report /tmp/nlc-menu.json
+.venv/bin/python examples/eval.py --offline --report /tmp/tacto-offline.json
+./launcher/nlc eval background_menu_refusal --report /tmp/tacto-menu.json
 ```
 
 마지막 명령은 소유한 배경 테스트 앱에서 메뉴 동작과 거절을 확인한다.

@@ -110,7 +110,7 @@ manifest의 실제 digest·oracle·layer 준수·초기 전경을 확인한다. 
 ```sh
 PYTHONPATH=. .venv/bin/python examples/audit_product_pairs.py \
   reviews/2026-10-10/product-comparison-20261010-160542.jsonl \
-  --output /tmp/nlc-pair-audit.json
+  --output /tmp/tacto-pair-audit.json
 ```
 
 2026-10-10의 네 cohort를 감사한 결과는

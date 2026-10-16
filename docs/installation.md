@@ -17,16 +17,16 @@ Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 �
 
 ```sh
 uv build --wheel
-python3 -m venv /tmp/nlc-client
-/tmp/nlc-client/bin/python -m pip install ./dist/tacto_runtime-0.1.0-py3-none-any.whl
-/tmp/nlc-client/bin/tacto --help
+python3 -m venv /tmp/tacto-client
+/tmp/tacto-client/bin/python -m pip install ./dist/tacto_runtime-0.1.0-py3-none-any.whl
+/tmp/tacto-client/bin/tacto --help
 ```
 
 브라우저가 필요한 환경에서는 같은 wheel에 `web` extra를 설치합니다.
 
 ```sh
-/tmp/nlc-client/bin/python -m pip install './dist/tacto_runtime-0.1.0-py3-none-any.whl[web]'
-/tmp/nlc-client/bin/python -m playwright install chromium
+/tmp/tacto-client/bin/python -m pip install './dist/tacto_runtime-0.1.0-py3-none-any.whl[web]'
+/tmp/tacto-client/bin/python -m playwright install chromium
 ```
 
 Linux에는 Chromium이 요구하는 시스템 라이브러리가 추가로 필요할 수 있습니다.
@@ -200,8 +200,8 @@ DMG 체크섬 검증은 통과했지만, **공증과 새 Mac에서의 Gatekeeper
 GUI를 열지 않고 권한 상태의 오류·준비 완료 조건, 감지 시간 제한, 도우미 창 배치를 검사할 수 있습니다.
 
 ```sh
-swiftc setup/PermissionState.swift setup/state-check.swift -o /tmp/nlc-setup-state-check
-/tmp/nlc-setup-state-check
+swiftc setup/PermissionState.swift setup/state-check.swift -o /tmp/tacto-setup-state-check
+/tmp/tacto-setup-state-check
 ```
 
 Tacto 설치는 `tacto`와 이전 `nlc` 명령을 같은 서명된 런처에 연결합니다.
@@ -217,3 +217,9 @@ Tacto 설치는 `tacto`와 이전 `nlc` 명령을 같은 서명된 런처에 연
 선택할 수 있습니다. + 버튼을 사용하려면 **앱 위치 복사**를 누르고, 파일 선택
 창에서 Shift + Command + G → Command + V → Return으로 이동한 뒤 ‘열기’를
 누릅니다. 권한이 확인되면 완료로 표시되고 ‘에이전트에 연결’이 활성화됩니다.
+
+설치 이미지(DMG) 안에서 앱을 바로 열면 설정을 시작하지 않고, Tacto.app을
+Applications로 옮긴 뒤 다시 열라고 안내하고 종료합니다. 이미지를 꺼내면 연결된
+명령이 끊기기 때문입니다. 권한 확인이 실패하면(도우미 실행 실패·시간 초과 등)
+이전의 완료 표시를 지우고 ‘에이전트에 연결’을 다시 잠급니다. 이 창으로 돌아오면
+켜지지 않은 권한을 자동으로 다시 확인합니다.
