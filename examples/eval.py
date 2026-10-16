@@ -1283,16 +1283,38 @@ def scenario_save_chooses_its_folder():
 
 
 def scenario_learning_is_reachable():
-    """The one path that handles a task nobody wrote a recipe for.
-
-    `--learn` read its own flag out of a list it had already stripped it from,
-    so the condition could never be true: every unknown task was reported
-    unconditionally and authoring had never once run from the CLI."""
+    """Exercise --learn routing without opening an app or calling a model."""
+    import contextlib
+    import io
+    from types import SimpleNamespace
+    from unittest.mock import patch
     import nlc.cli as cli
-    src = __import__("inspect").getsource(cli._dispatch)
-    # The flag must be read before the list it lives in is filtered.
-    return ("learning = \"--learn\" in rest" in src
-            and src.index("learning = ") < src.index("if r != \"--learn\""))
+
+    class ProbeAgent:
+        def __init__(self, driver, author=None, **kwargs):
+            self.driver, self.author = driver, author
+
+        def handle(self, intent, **kwargs):
+            if self.author is not None:
+                self.author(intent, self.driver)
+            return SimpleNamespace(status="done", say="probe", flow=None)
+
+    # Journaling introduced a dispatch wrapper. Test the real command parser,
+    # not the source spelling or the wrapper's former position in the module.
+    dispatch = getattr(cli, "_dispatch_command", cli._dispatch)
+    with patch("nlc.onboard.run", return_value=True), \
+            patch("nlc.session.preflight", return_value={"verdict": "ready"}), \
+            patch.object(cli, "_make_driver", return_value=object()), \
+            patch.object(cli, "Agent", ProbeAgent), \
+            patch.object(cli, "_indicator_for", return_value=contextlib.nullcontext()), \
+            patch("nlc.authoring.author") as author, \
+            contextlib.redirect_stdout(io.StringIO()):
+        args = ["new independent task", "--strict", "--think", "0"]
+        ordinary = dispatch("do", args[:])
+        not_called = author.call_count == 0
+        learned = dispatch("do", [*args, "--learn"])
+        return (ordinary == learned == 0 and not_called and author.call_count == 1
+                and author.call_args.args[0] == "new independent task")
 
 
 def scenario_authoring_produces_a_runnable_flow():
@@ -1776,11 +1798,10 @@ class _Deaf:
         return {"type": "acted", "action": action.get("name")}
 
     def wait_until(self, target, pred, timeout_ms=8000):
-        if pred(self.tree):
-            return {"type": "observation", "obs_id": f"o{self.n}",
-                    "tree": self.tree}
-        return {"type": "error", "error": "postcondition_timeout",
-                "last_obs": {"tree": self.tree}}
+        observed = self.observe(target)
+        if pred(observed["tree"]):
+            return observed
+        return {"type": "timeout", "last_obs": observed}
 
 
 def _unclear_outcome(action_name):

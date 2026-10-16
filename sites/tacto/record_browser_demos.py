@@ -82,12 +82,34 @@ def scenario(name):
         title='Full Moon over Noah’s Ark: An Odyssey to Mount Ararat and Beyond'
         steps=[{'action':'click','selector':field('Travel','link'),'postcondition':{'field':field('Travel','heading'),'attribute':'Title','equals':'Travel'}},
             {'action':'click','selector':field(title,'link'),'postcondition':{'field':field(title,'heading'),'attribute':'Title','equals':title}},
-            {'action':'read','selector':field(title,'heading'),'postcondition':{'contains':'£49.43','all_of':[{'contains':'In stock (15 available)'}]},'safety':{'effects':['read']},'answers':True}]
+            {'action':'read','selector':field(title,'heading'),'postcondition':{'contains':'£49.43'},'safety':{'effects':['read']},'answers':True}]
         return 'https://books.toscrape.com/',steps
     steps=[fill('Text input','Tacto Demo'),fill('Date picker','10/20/2026'),fill('Textarea','Please confirm the weekend workshop details.'),
         {'action':'select_option','selector':field('Dropdown (select)','combobox'),'params':{'option_label':'Two','value':'2'},'postcondition':{'field':field('Dropdown (select)','combobox'),'attribute':'Value','equals':'Two'}},
-        {'action':'read','selector':field('Text input'),'postcondition':{'all_of':[value('Text input','Tacto Demo'),value('Date picker','10/20/2026'),value('Textarea','Please confirm the weekend workshop details.'),{'field':field('Dropdown (select)','combobox'),'attribute':'Value','equals':'Two'}]},'safety':{'effects':['read']},'answers':True}]
+        {'action':'read','selector':field('Text input'),'postcondition':value('Text input','Tacto Demo'),'safety':{'effects':['read']},'answers':True}]
     return 'https://www.selenium.dev/selenium/web/web-form.html',steps
+
+
+def recording_flow(name, steps):
+    """Emit explicit schema-2 contracts for published and development runtimes.
+
+    Older schema-2 parsers silently ignore top-level authoring defaults. Expand
+    them here so a portable recording never starts with missing action meaning.
+    Final URL/DOM checks remain in the independent verifier.
+    """
+    from copy import deepcopy
+    expanded = deepcopy(steps)
+    defaults = {'effects':['write_ephemeral'], 'reversibility':'reversible',
+                'resource':{'object_type':'owned disposable browser context','scope':'entry'}}
+    for step in expanded:
+        local = step.get('safety', {})
+        contract = {**deepcopy(defaults), **local}
+        for key in ('resource', 'destination'):
+            if key in defaults or key in local:
+                contract[key] = {**defaults.get(key, {}), **local.get(key, {})}
+        step['safety'] = contract
+    return Flow.from_json(json.dumps({'schema':2,'name':'browser-demo-'+name,
+                                     'target':'page','steps':expanded}))
 
 
 def run(name, output, assets, *, definition=None, verify=None, approve=False, inspect_unverified_transmit=False):
@@ -106,10 +128,7 @@ def run(name, output, assets, *, definition=None, verify=None, approve=False, in
         url,steps=definition if definition is not None else scenario(name);inner.goto(url);observed=inner.observe()
         assert observed['type']=='observation'
         (directory/'initial-observation.json').write_text(json.dumps(observed,ensure_ascii=False,indent=2))
-        flow_data={'schema':2,'name':'browser-demo-'+name,'target':'page',
-            'safety_defaults':{'effects':['write_ephemeral'],'reversibility':'reversible',
-                'resource':{'object_type':'owned disposable browser context','scope':'entry'}},'steps':steps}
-        flow=Flow.from_json(json.dumps(flow_data));driver=RecordingDriver(inner,started)
+        flow=recording_flow(name,steps);driver=RecordingDriver(inner,started)
         (directory/'flow.json').write_text(flow.to_json())
         page.wait_for_timeout(900)
         approvals={}
@@ -149,7 +168,7 @@ def run(name, output, assets, *, definition=None, verify=None, approve=False, in
         page.evaluate('()=>window.__tactoHide?.()');page.screenshot(path=str(assets/f'browser-{name}-original.png'));page.evaluate('()=>window.__tactoUnhide?.()')
         page.wait_for_timeout(1300)
         report={'name':name,'recorded_on':'2026-10-15','entry_url':url,'final':verified,'flow_steps':len(steps),'flow_replay_ok':result.ok,
-            'actions':driver.actions,'passed':True,'model_calls_during_replay':0,'observed_page_non_get_requests':[r for r in requests if r['method'] not in ('GET','HEAD')],
+            'actions':driver.actions,'passed':result.ok,'result_verified':True,'model_calls_during_replay':0,'observed_page_non_get_requests':[r for r in requests if r['method'] not in ('GET','HEAD')],
             'scope':'Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.'}
         context.close();context=None
     finally:
@@ -161,7 +180,7 @@ def run(name, output, assets, *, definition=None, verify=None, approve=False, in
         'seconds':round(float(subprocess.check_output(['ffprobe','-v','quiet','-show_entries','format=duration','-of','csv=p=0',str(movie)],text=True)),3)}
     assert movie.stat().st_size<4*1024*1024
     (directory/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')
-    print(json.dumps({'scenario':name,'passed':True,'seconds':report['video']['seconds'],'bytes':report['video']['bytes'],'result':verified},ensure_ascii=False),flush=True)
+    print(json.dumps({'scenario':name,'replay_ok':result.ok,'result_verified':True,'seconds':report['video']['seconds'],'bytes':report['video']['bytes'],'result':verified},ensure_ascii=False),flush=True)
     return report
 
 

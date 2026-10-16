@@ -265,7 +265,7 @@ NLC_LAUNCHER, NLC_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부�
 실행 코드 신원·TCC 판정은 이 진단으로 확정하지 않는다. 경로에는 로컬 홈이
 포함될 수 있으므로 외부 공유 시 홈 접두어를 치환해야 한다.
 
-[실제 기록](../reviews/2026-10-10/live-codex-process-observation.json)은
+실제 기록(비공개 로컬 기록: `reviews/2026-10-10/live-codex-process-observation.json`; 공개 원본 미포함)은
 Codex CLI의 도구 없는 산술 요청이 성공하고 독립 정답 검사가 통과한 결과다.
 주 프로세스의 실행 경로와 책임 경로는 Codex CLI였으며31회 관측했고
 observer 종료·오류 없음·sample 한도 미도달을 확인했다. 경과6.241초,

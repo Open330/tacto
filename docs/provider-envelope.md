@@ -8,7 +8,7 @@
 
 timeout 후 채널은 닫힌 상태로 유지된다. 구조화된 timeout이 도착했다면 typed API에 그 ID/metadata를 보존한다. 응답 없이 외부 watchdog이 만료됐다면 관측하지 못한 원격 ID나 사용량을 채울 수 없다. 기존 text API는 timeout 예외를 계속 던진다. 원격 작업 취소는 보장하지 않는다.
 
-[실제 검증](../reviews/2026-09-19/signed-provider-claude-1789847025788032000.json): signed 단일 호출에서 모델명과 입력462/출력17 token, CLI list estimate 0.003706 USD가 보존됐다. 이 수치를 이전 computer-use 실험의 비용으로 소급하지 않는다. general planner와 witness의 논리 요청은 아래 collector로 자동 수집한다.
+실제 검증(비공개 로컬 기록: `reviews/2026-09-19/signed-provider-claude-1789847025788032000.json`; 공개 원본 미포함): signed 단일 호출에서 모델명과 입력462/출력17 token, CLI list estimate 0.003706 USD가 보존됐다. 이 수치를 이전 computer-use 실험의 비용으로 소급하지 않는다. general planner와 witness의 논리 요청은 아래 collector로 자동 수집한다.
 
 
 ## 작업별 수집
@@ -27,7 +27,7 @@ JSON 검증 실패는 텍스트·구조화 경로 모두 `invalid_response`로 �
 
 로컬 route invocation에는 실행 파일 부재나 답변 없음도 포함되므로 원격 backend 호출 수가 아니다. `summarize_provider_calls(records)`는 관측 시도만 합산하고 마지막 성공 envelope를 다시 더하지 않는다. 비용은 currency와 cost_basis별로 분리하고, 토큰·비용 미관측 기록 수 및 시도 상세가 없는 논리 요청 수를 함께 반환한다. `observed_sum`은 모든 시도의 청구액을 뜻하지 않는다. 비용 basis가 없으면 비용 합계에 포함하지 않고 미관측으로 센다. 미관측 항목은 null이다. Claude input_tokens는 CLI의 uncached input 원시 값으로 유지한다. 아래 필드로 전체 입력량과 구분한다.
 
-[실제 general 수집](../reviews/2026-09-19/native-coordinate-model-20260920-telemetry-a/report.json): 클릭0→1과 새값읽기에 성공했고 판단3회/서로 다른 요청ID3개를 수집했다. 추가 계측용 모델 호출은 없다. 과거 실험의 null metadata를 소급해 채우지 않는다.
+실제 general 수집(비공개 로컬 기록: `reviews/2026-09-19/native-coordinate-model-20260920-telemetry-a/report.json`; 공개 원본 미포함): 클릭0→1과 새값읽기에 성공했고 판단3회/서로 다른 요청ID3개를 수집했다. 추가 계측용 모델 호출은 없다. 과거 실험의 null metadata를 소급해 채우지 않는다.
 
 
 ## 입력 토큰 의미
@@ -39,7 +39,7 @@ JSON 검증 실패는 텍스트·구조화 경로 모두 `invalid_response`로 �
 
 Claude 계산은 [공식 prompt caching 문서](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)의 정의를 따른다. Codex의 원시 usage 필드는 [공식 SDK](https://github.com/openai/codex/blob/main/sdk/typescript/src/events.ts)에 정의돼 있다. 이 합계는 관측된 논리 요청의 입력량이며 청구 비용 계산식이나 fallback 전체 사용량을 대신하지 않는다.
 
-[실제 signed 검증](../reviews/2026-09-19/signed-provider-claude-1789847596144085000.json): 462+0+0=462, 출력17. 과거 cache-creation 누락 기록의 total을 소급 계산하지 않는다.
+실제 signed 검증(비공개 로컬 기록: `reviews/2026-09-19/signed-provider-claude-1789847596144085000.json`; 공개 원본 미포함): 462+0+0=462, 출력17. 과거 cache-creation 누락 기록의 total을 소급 계산하지 않는다.
 
 ## 로컬 취소 범위
 
@@ -124,7 +124,7 @@ NLC_LAUNCHER, NLC_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부�
 실행 코드 신원·TCC 판정은 이 진단으로 확정하지 않는다. 경로에는 로컬 홈이
 포함될 수 있으므로 외부 공유 시 홈 접두어를 치환해야 한다.
 
-[실제 기록](../reviews/2026-10-10/live-codex-process-observation.json)은
+실제 기록(비공개 로컬 기록: `reviews/2026-10-10/live-codex-process-observation.json`; 공개 원본 미포함)은
 Codex CLI의 도구 없는 산술 요청이 성공하고 독립 정답 검사가 통과한 결과다.
 주 프로세스의 실행 경로와 책임 경로는 Codex CLI였으며31회 관측했고
 observer 종료·오류 없음·sample 한도 미도달을 확인했다. 경과6.241초,

@@ -9,7 +9,7 @@ Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 �
 | --- | --- | --- |
 | Python wheel | flow IR, 계약·결과 검증, 후보 paging, 모델 adapter, trace 등 Python 코어 | Python 3.11 이상 |
 | wheel + `web` extra | Playwright 기반 별도 Chromium 페이지의 BrowserDriver | Playwright가 설치하는 Chromium과 운영체제 실행 의존성 |
-| macOS source checkout | 서명된 런처를 통한 macOS 접근성 조작 | Xcode Command Line Tools, 코드 서명 identity, 손쉬운 사용 권한 |
+| macOS source checkout | 서명된 런처를 통한 macOS 접근성 조작 | Xcode Command Line Tools, 프로젝트 팀 코드 서명 인증서, 손쉬운 사용 권한 |
 
 ## Python 코어와 브라우저
 
@@ -45,17 +45,26 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 
 ## macOS 네이티브 설치
 
+현재 네이티브 개발 빌드는 **프로젝트에 고정된 서명 팀의 인증서가 필요합니다**.
+[signing.sh](../signing.sh)의 팀 조건을 launcher와 helper가 서로 검증하므로,
+다른 팀의 인증서를 `NLC_SIGN_IDENTITY`로 지정하는 것만으로는 빌드·실행할 수 없습니다.
+아래 명령은 이 서명 조건을 충족한 개발 환경용입니다. 일반 사용자용 서명 배포나
+다른 팀을 위한 지원된 빌드 설정은 아직 제공하지 않습니다. Python 코어·별도
+Chromium 경로는 위의 wheel 설치 범위에서 따로 사용할 수 있습니다.
+서명 검사를 제거하거나 아무 인증서나 허용하는 방식으로 우회하지 않습니다.
+
 서명된 실행 경계는 소스 설치를 사용합니다. 저장소 루트에서 다음 순서로
 설치합니다. `./build.sh`는 로컬 서명 identity로 런처와 도우미를 빌드하므로
 wheel 설치 과정에서 자동 실행하지 않습니다.
 
 ```sh
 uv sync
-# 필요한 경우 사용할 코드 서명 identity를 명시합니다.
+# 필요한 경우 프로젝트 서명 팀의 인증서를 명시합니다.
 # export NLC_SIGN_IDENTITY='사용할 코드 서명 identity'
 ./build.sh
-./launcher/tacto doctor
-./launcher/tacto do '계산기로 12 곱하기 34' --helper
+./skill/install.sh
+~/.local/bin/tacto doctor
+~/.local/bin/tacto do '계산기로 12 곱하기 34' --helper
 ```
 
 런처는 자신의 위치를 기준으로 저장소 루트의 `.venv/bin/python`, `helper/`

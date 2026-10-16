@@ -12,4 +12,4 @@ signed 경로는 양수·유한값·420초 이하인 `timeout_seconds`를 검증
 
 검증: 관련15개 테스트는 예산 감소, 1초 미만 fallback, witness timeout 후 UI0회, 실제 가짜 지연 프로세스 종료, 막힌 socket write/read, 늦은 응답 뒤 채널 폐기, 실제 소스에서 추출한 Swift의 stdin/stdout/프로세스 종료 경계를 검사합니다. 실제 provider 호출이나 UI 동작은 사용하지 않았습니다. 전체 기본 unittest449개(381 PASS/68 SKIP), offline54/54 PASS. Swift 타입 검사·런처 재빌드·strict 서명검사·signed help 실행을 확인했습니다. 전체 웹 suite와 실제 provider의 signed timeout은 이번 변경 후 재실행하지 않았습니다.
 
-후속 정상 경로 확인: Claude+signed launcher+helper의 실제 AppKit 선택 시험1회가25.2초에 성공했습니다. 이는 새 IPC 필드를 포함한 정상 호출의 통합 검사이며 실제 provider timeout/원격 취소 검증은 아닙니다. 원시 기록은 [선택 검증 보고서](../reviews/2026-09-19/native-select-preservation.md)에 있습니다.
+후속 정상 경로 확인: Claude+signed launcher+helper의 실제 AppKit 선택 시험1회가25.2초에 성공했습니다. 이는 새 IPC 필드를 포함한 정상 호출의 통합 검사이며 실제 provider timeout/원격 취소 검증은 아닙니다. 원시 기록은 선택 검증 보고서(비공개 로컬 기록: `reviews/2026-09-19/native-select-preservation.md`; 공개 원본 미포함)에 있습니다.

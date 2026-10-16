@@ -79,7 +79,8 @@
           "file": "browser-wikipedia-original.png",
           "sha256": "76f82a8bc0b2a8671dee3c2b8c45401ba680ef3be26cbeb90c9ce8fb176e0194"
         }
-      ]
+      ],
+      "result_verified": true
     },
     {
       "name": "shopping",
@@ -149,7 +150,8 @@
           "file": "browser-shopping-original.png",
           "sha256": "c338d7d2a2ebd32203a592c37b5d97038430bc1da4c42d6a2c593a0d6a324104"
         }
-      ]
+      ],
+      "result_verified": true
     },
     {
       "name": "form",
@@ -245,7 +247,8 @@
           "file": "browser-form-original.png",
           "sha256": "670b41bf3e82474e7b776f211ef2d0bf8979a93a3d9f8b4f833bf8b44ddc650c"
         }
-      ]
+      ],
+      "result_verified": true
     },
     {
       "name": "translate",
@@ -273,7 +276,7 @@
           "outcome": "acted"
         }
       ],
-      "passed": true,
+      "passed": false,
       "model_calls_during_replay": 0,
       "scope": "Dedicated headless Chromium viewport, no user profile. Tacto BrowserDriver + Flow replay. Guided pointer is a decorative recording overlay. Pauses inserted for legibility; not a performance measurement.",
       "video": {
@@ -291,7 +294,10 @@
           "file": "browser-translate-original.png",
           "sha256": "31691335f9fcc689ef6df90df34d0194738140a10b8a663bfee215a6cd949341"
         }
-      ]
+      ],
+      "result_verified": true,
+      "completion": "output_verified_after_unverified_transmission",
+      "verification_scope": "Displayed Korean output independently checked; not delivery certification or completed replay."
     },
     {
       "name": "github",
@@ -360,7 +366,8 @@
           "file": "browser-github-original.png",
           "sha256": "6883fef5cb364e734f29bb07b54c4329724eeb9bfec3351df9d56b066e98ec73"
         }
-      ]
+      ],
+      "result_verified": true
     },
     {
       "name": "units",
@@ -429,7 +436,8 @@
           "file": "browser-units-original.png",
           "sha256": "f2da5d14f4c6e027ecf84f447f3d125abc79d6b665f1151ac6ffbbbfed95311b"
         }
-      ]
+      ],
+      "result_verified": true
     },
     {
       "name": "markdown",
@@ -488,16 +496,24 @@
           "file": "browser-markdown-original.png",
           "sha256": "27803503c39f03e3b5a23e0407cb6ed0b770a41f1cc8e8f7906c703d9e743670"
         }
-      ]
+      ],
+      "result_verified": true,
+      "verification_scope": "Opening portion of existing sample edited and rendered; remaining sample retained. Complete replacement and export were not requested or verified."
     }
   ],
   "browser_path": "Tacto BrowserDriver Python API, dedicated headless Chromium context; no existing Chrome/Safari profile connection.",
   "annotation": "Decorative pointer/highlight recording overlay uses observed element bounds. Click rings follow actual browser pointerdown events. It is not the system mouse.",
   "pacing": "450ms pointer preview and 650ms after-action pause added for legibility. Continuous viewport recordings; not execution-time or token benchmarks.",
-  "network_note": "These are live public websites and may issue their own telemetry requests. The recording host made no credential entry, purchase, or form submission. The landing page serves only local recordings.",
+  "network_note": "These are live public websites and may issue their own telemetry requests. The recording host made no credential entry, purchase, or form submission. The landing page serves only local recordings. Google Translate received the synthetic sentence Hello. Thank you.; output verification is not delivery certification.",
   "limits": [
     "No natural-language agent authoring is filmed; these are authored Flow replays.",
     "Books to Scrape and Selenium are public test sites, not real shopping/registration services.",
-    "TodoMVC was not included: Enter-only item creation is unsupported by the current BrowserDriver key policy. No navigation-key policy was weakened."
-  ]
+    "TodoMVC was not included: Enter-only item creation is unsupported by the current BrowserDriver key policy. No navigation-key policy was weakened.",
+    "Google Translate transmission replay stopped commit_unverified (passed=false, flow_replay_ok=false). Only the displayed Korean output was independently verified (result_verified=true).",
+    "Markdown demonstrates an opening-section edit; remaining sample content stays. No whole-document replacement, save or export is claimed."
+  ],
+  "result_fields": {
+    "passed": "Flow replay completed; false when a transmission remained unverified.",
+    "result_verified": "An independent checker verified the explicitly described result scope; does not imply successful replay or delivery certification."
+  }
 }

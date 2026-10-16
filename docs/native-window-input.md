@@ -3,7 +3,7 @@
 2026-10-01 현재 일반 클릭·문자·스크롤 경로는 AX 입력을 사용한다.
 Python driver와 signed helper는 관측한 입력 요소와 배경 창에 결합한 탐색 키를 지원한다.
 signed Swift helper와 Python driver는 추가로 배경 `prepare_window`에
-PID-addressed 이벤트 경로를 제공한다. 과거 [창별 이벤트 실측](../reviews/2026-09-19/window-dispatch-progress.md)은
+PID-addressed 이벤트 경로를 제공한다. 과거 창별 이벤트 실측(비공개 로컬 기록: `reviews/2026-09-19/window-dispatch-progress.md`; 공개 원본 미포함)은
 해당 당시 구현의 증거이며 현재 backend의 지원 보장이 아니다.
 
 ## 클릭과 좌표
@@ -69,7 +69,7 @@ launcher와 helper는 boolean·비유한 값·비양수와 지원되지 않는 a
 `action.click.deadline_uptime` capability가 없는 구형 helper는 연결을 거절한다.
 
 값은 같은 Mac의 단조 시계 기준 절대 초다. 현재 환경의 monotonic과 Swift
-systemUptime은 [실측](../reviews/2026-09-19/click-deadline-clock.json)에서 같은
+systemUptime은 실측(비공개 로컬 기록: `reviews/2026-09-19/click-deadline-clock.json`; 공개 원본 미포함)에서 같은
 시간축을 확인했다. 다른 호스트에 그대로 전달할 수 없다. 이는 새 입력의
 시작 기한이며 진행 중인 AX 호출이나 OS 작업의 강제 취소를 보장하지 않는다.
 general 루프는 driver.act 호출에도 남은 작업 기한을 전달한다.
@@ -179,7 +179,7 @@ AX 조회 자체의 오류도 구분한다. AttributeUnsupported/NoValue만 미�
 
 [Apple timeout 계약](https://developer.apple.com/documentation/applicationservices/1459345-axuielementsetmessagingtimeout)에 따라 동등한 AX 객체라도 timeout 설정은 공유된다고 가정하지 않는다. SDK의 AXUIElement.h에서 GetAttributeValueCount/CopyAttributeValues의 범위 복사 계약도 확인했다. 개수 조회의 대상 앱 내부 구현 비용이나 OS 장애까지 제한하는 보장은 아니다.
 
-[응답 정지 실측](../reviews/2026-09-19/menu-unresponsive-direct-20260920-a/report.json): 소유 AppKit 자식 프로세스만 SIGSTOP한 상태에서 Python direct 메뉴 조회가1.008초에 `menu_read_failed`로 반환되고, SIGCONT 후 정상 조회로 복구됐다. 비상8초 복구 타이머는 사용되지 않았다. exact child 정리와 독립 입력 감사를 포함한다. 이 검사는 signed helper의 응답 정지 실측으로 합산하지 않는다.
+응답 정지 실측(비공개 로컬 기록: `reviews/2026-09-19/menu-unresponsive-direct-20260920-a/report.json`; 공개 원본 미포함): 소유 AppKit 자식 프로세스만 SIGSTOP한 상태에서 Python direct 메뉴 조회가1.008초에 `menu_read_failed`로 반환되고, SIGCONT 후 정상 조회로 복구됐다. 비상8초 복구 타이머는 사용되지 않았다. exact child 정리와 독립 입력 감사를 포함한다. 이 검사는 signed helper의 응답 정지 실측으로 합산하지 않는다.
 
 
 ## General의 명시적 창 준비

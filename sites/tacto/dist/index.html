@@ -1336,7 +1336,7 @@
           <h2>시작은 한 번.<br />다음은 반복.</h2>
           <p>
             현재 macOS 네이티브 버전은 소스 빌드로 제공합니다. Python 3.11+, uv,
-            Xcode Command Line Tools, 로컬 코드 서명 identity가 필요합니다.
+            Xcode Command Line Tools, 프로젝트 서명 팀의 인증서가 필요합니다.
           </p>
         </div>
         <div
@@ -1384,7 +1384,10 @@
             <span class="step-number">01</span>
             <div>
               <h3>런타임과 스킬 설치</h3>
-              <p>저장소를 빌드하고 에이전트에 스킬을 연결합니다.</p>
+              <p>
+                프로젝트 서명 팀의 인증서가 있는 개발 환경에서 빌드하고 스킬을
+                연결합니다. 일반 사용자용 서명 배포는 아직 제공하지 않습니다.
+              </p>
               <div class="install-command">
                 <button
                   type="button"
@@ -1549,9 +1552,9 @@ uv sync
               </svg>
             </summary>
             <p>
-              아직 아닙니다. 현재 네이티브 버전은 소스 빌드·로컬 코드 서명·macOS
-              권한 설정이 필요합니다. Python wheel만 설치해서 서명된 macOS
-              helper를 사용할 수는 없습니다. 현재 상태는 working
+              아직 아닙니다. 현재 네이티브 버전은 소스 빌드·프로젝트 팀 코드
+              서명·macOS 권한 설정이 필요합니다. Python wheel만 설치해서 서명된
+              macOS helper를 사용할 수는 없습니다. 현재 상태는 working
               prototype입니다.
             </p>
           </details>

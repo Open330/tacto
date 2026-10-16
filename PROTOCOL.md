@@ -40,7 +40,7 @@ SkyComputerUseService.app         ← 화면기록·손쉬운사용 권한 보�
   SkyLight의 "focus-without-raise" 하나로 설명한 것은 부정확했다(§3.20).
   2026-09-20 로컬 바이너리에서 synthetic focus·focus suppression·virtual cursor
   구성의 이름을 확인했으나 내부 호출 계약은 미확정이다. NLC의 동등한 입력 격리는
-  아직 구현·검증 중이다([G0 추적](reviews/2026-09-19/background-input.md)).
+  아직 구현·검증 중이다(G0 추적(비공개 로컬 기록: `reviews/2026-09-19/background-input.md`; 공개 원본 미포함)).
 - 실측 제약: 화면 잠금 시(`CGSSessionScreenIsLocked=true`) 창 캡처 불가
   (`cgWindowNotFound` -10005). 앱이 실행 중이어도 마찬가지.
 

@@ -40,7 +40,7 @@ class DocsFollowCodeTests(unittest.TestCase):
         readme = read("README.md")
         for cmd in commands:
             with self.subTest(cmd=cmd):
-                self.assertRegex(readme, rf"nlc {cmd}\b")
+                self.assertRegex(readme, rf"(?:tacto|nlc) {cmd}\b")
 
     def test_every_replay_and_agent_argument_is_in_the_api_doc(self):
         from nlc.agent import Agent

@@ -126,7 +126,9 @@ Tacto는 실행할 때 대상을 새 관찰에서 찾고 결과 조건을 검사
 ## 첫 작업 시작하기
 
 현재는 **macOS 소스 빌드 방식의 프로토타입**입니다. NLC가 Tacto로 이름을 바꿨습니다.
-Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools, 로컬 코드 서명 identity가 필요합니다.
+Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools, 프로젝트에 고정된 서명 팀의 인증서가 필요합니다.
+다른 팀의 로컬 인증서만으로는 네이티브 설치가 되지 않으며 일반 사용자용 서명 배포는 아직 없습니다.
+[현재 설치 범위와 제한](docs/installation.md)을 먼저 확인하세요.
 
 ```sh
 git clone https://github.com/Open330/tacto.git
@@ -221,20 +223,27 @@ python3 sites/tacto/serve.py
 <details>
 <summary><strong>CLI 명령 찾아보기 · 이전 nlc 명령 호환</strong></summary>
 
+기본 브랜치에서 제공하는 명령입니다.
+
 | 목적 | 명령 |
 | :--- | :--- |
-| 설치·환경 확인 | `nlc doctor` |
-| 앱·화면 관찰 | `nlc apps`, `nlc observe`, `nlc menu-state`, `nlc document-attachments` |
-| 자연어·Flow 실행 | `nlc do`, `nlc run`, `nlc replay` |
-| 반복·세션·수리 | `nlc batch`, `nlc session`, `nlc repair` |
-| Flow 작성·매개변수화 | `nlc compile`, `nlc parameterize` |
-| 저장 Flow·후보 관리 | `nlc list`, `nlc show`, `nlc candidates`, `nlc promote` |
-| 평가 | `nlc eval` |
-| 전용 작업 경로 | `nlc web-upload`, `nlc vroid-focus`, `nlc vroid-drag` |
+| 설치·환경 확인 | `tacto doctor` |
+| 앱·화면 관찰 | `tacto apps`, `tacto observe`, `tacto menu-state` |
+| 자연어·Flow 실행 | `tacto do`, `tacto run`, `tacto replay` |
+| Flow 작성·매개변수화 | `tacto compile`, `tacto parameterize` |
+| 저장 Flow·후보 관리 | `tacto list`, `tacto show`, `tacto candidates`, `tacto promote` |
+| 평가 | `tacto eval` |
 
-batch·session·repair 등 개발 중인 명령은 기본 브랜치에 아직 포함되지 않을 수 있습니다.
-`tacto --help`와 해당 명령의 `--help`로 현재 checkout의 사용법을 확인하세요.
-아래 `nlc` 명령은 동일한 `tacto` 명령으로 사용할 수 있습니다.
+다음은 **개발 checkout 전용이며 기본 브랜치에는 없는 명령**입니다.
+
+| 목적 | 개발본 전용 명령 |
+| :--- | :--- |
+| 반복·세션·수리 | `tacto batch`, `tacto session`, `tacto repair` |
+| 문서 첨부 관찰 | `tacto document-attachments` |
+| 브라우저 파일 등록 | `tacto web-upload` |
+| VRoid 전용 실험 | `tacto vroid-focus`, `tacto vroid-drag` — 전경 점유·포인터 이동을 허용하는 별도 진단 경로, 일반 배경 조작과 구분 |
+
+`tacto --help`로 현재 checkout의 명령을 확인하세요. 기존 `nlc` 별칭도 사용할 수 있습니다.
 네이티브 작업은 서명된 런처를 사용하고 필요한 명령에 `--helper`를 지정합니다.
 
 </details>
@@ -247,6 +256,7 @@ batch·session·repair 등 개발 중인 명령은 기본 브랜치에 아직 �
 - [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
 - [실제 앱·웹 일상 작업 10개](docs/tacto-everyday-examples-2026-10-15.md)
 - [초기 브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
+- [전체 개선 peer 검토와 잔여 출시 제한](docs/tacto-peer-review-2026-10-16.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)
