@@ -24,6 +24,14 @@ import Foundation
   assert(!state.ready)
   print("Permission state: 12 cases PASS; both grants required for readiness")
 
+  let helper = URL(fileURLWithPath: "/checkout/helper/NLC Helper.app")
+  let setup = URL(fileURLWithPath: "/Applications/Tacto.app")
+  assert(permissionApp(.control, helper: helper, setupApp: setup, bundledRuntime: true) == helper)
+  assert(permissionApp(.screen, helper: helper, setupApp: setup, bundledRuntime: true) == setup)
+  assert(permissionApp(.control, helper: helper, setupApp: setup, bundledRuntime: false) == helper)
+  assert(permissionApp(.screen, helper: helper, setupApp: setup, bundledRuntime: false) == helper)
+  print("Permission owner: standalone screen uses outer app; AX and checkout use helper PASS")
+
   // Asked in order; nothing left to ask once both are on.
   var order = SetupState()
   assert(order.nextNeeded == .control)

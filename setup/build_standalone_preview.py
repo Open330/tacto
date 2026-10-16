@@ -125,9 +125,10 @@ def build(output, identity):
             'CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1',
             'LSMinimumSystemVersion':platform.mac_ver()[0]}))
         (resources/'runtime.json').write_text(json.dumps({'bundledRoot':'runtime'}))
-        sign(executable,identity,'ai.callabo.nlc.setup.standalone.preview')
-        sign(app,identity,'ai.callabo.nlc.setup.standalone.preview')
-        run(['codesign','--verify','--deep','--strict',str(app)])
+        owner_requirement=requirement('ai.callabo.nlc.setup.standalone.preview')
+        sign(executable,identity,'ai.callabo.nlc.setup.standalone.preview',owner_requirement)
+        sign(app,identity,'ai.callabo.nlc.setup.standalone.preview',owner_requirement)
+        run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(app)])
         shutil.copytree(app,output,dirs_exist_ok=True,symlinks=True)
     # Relocation happened after signing. Run no GUI command and write no caches.
     python=output/'Contents/Resources/runtime/.venv/bin/python'
@@ -136,7 +137,8 @@ def build(output, identity):
     if not bundled_import_valid(report['relocated_import'],output/'Contents/Resources/runtime'):
         raise RuntimeError('runtime imported outside bundle')
     run([str(python),'-I','-B','-m','nlc.cli','--help'],cwd='/')
-    run(['codesign','--verify','--deep','--strict',str(output)])
+    run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(output)])
+    report['outer_permission_owner_requirement_verified']=True
     report['signature_verified_after_import']=True
     report['source_before']=before;report['source_after']=sources()
     report['source_stable']=before==report['source_after'];report['elapsed_seconds']=time.monotonic()-began

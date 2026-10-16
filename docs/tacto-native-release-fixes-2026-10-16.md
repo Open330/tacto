@@ -137,3 +137,26 @@ system audio, rather than audio only). macOS displayed a Touch ID/password
 sheet before the file picker. No password was supplied and no permission was
 granted by automation. Continuation requires the person's system authentication.
 This observation also corrected the earlier transient-pane interpretation.
+
+## Permission ownership and drop destination correction
+
+After the person added NLC Helper and the Settings toggle showed on, a fresh
+standalone receipt still reported screen capture unavailable. A read-only TCC
+log correlated the exact preflight request IDs with services and subjects:
+standalone ScreenCapture used `ai.callabo.nlc.setup.standalone.preview`, while
+Accessibility used `ai.callabo.nlc.helper`. The external source helper used
+`ai.callabo.nlc.helper` for both services. This establishes why telling the
+person to add only the embedded helper could not complete the screen grant.
+
+The standalone GUI now gives the person Tacto.app for screen capture and the
+helper for Accessibility. Checkout previews retain the external helper for both.
+The displayed app name, dragged file URL, Finder reveal and copied path all use
+the same per-permission target. Rows name the app to allow. A colored callout
+and arrow point toward the actual Settings window and specify the app-name/
+switch list; screen capture names the upper screen-and-system-audio list.
+
+The outer app now has an explicit stable identifier/Apple-anchor/team designated
+requirement and is verified against it before and after relocation. Documentation
+states that standalone screen capture is an app-bundle grant, rather than
+claiming helper-only ownership. No permission values or readiness criteria were
+weakened. External-helper installation remains a possible packaging improvement.

@@ -62,6 +62,9 @@ final class PermissionRow: NSStackView {
         addArrangedSubview(status); addArrangedSubview(text); addArrangedSubview(action)
         widthAnchor.constraint(equalToConstant: 624).isActive = true
     }
+    func showApp(_ app: URL) {
+        detail.stringValue = permission.location + "\n허용할 앱: " + app.lastPathComponent
+    }
     required init?(coder: NSCoder) { nil }
 
     enum Look { case needed, current, waiting, granted, unknown }
@@ -94,11 +97,16 @@ final class AccessoryPanel: NSPanel {
     let heading = label("", size: 15, weight: .semibold, width: 268)
     let state = label("", size: 12, color: .secondaryLabelColor, width: 268)
     let icon = HelperIcon()
-    let helper: URL
+    private(set) var app: URL
+    let name = label("", size: 14, weight: .semibold, width: 268)
+    let identity = label("", size: 12, color: .secondaryLabelColor, width: 268)
+    let steps = label("", size: 13, width: 268)
+    let dropArrow = NSImageView()
+    let dropWhere = label("", size: 12, width: 232)
     var alternative: NSStackView!
     var helpButton: NSButton!
     init(helper: URL) {
-        self.helper = helper
+        self.app = helper
         super.init(contentRect: NSRect(x: 0, y: 0, width: 300, height: 480),
                    styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
                    backing: .buffered, defer: false)
@@ -112,27 +120,35 @@ final class AccessoryPanel: NSPanel {
         icon.heightAnchor.constraint(equalToConstant: 80).isActive = true
         icon.setAccessibilityLabel("Tacto 권한용 앱 NLC Helper. 이 아이콘을 설정 창의 앱 목록으로 끌어다 놓으세요.")
         icon.toolTip = "이 아이콘을 누른 채 설정 창의 앱 목록으로 옮긴 뒤 놓으세요."
-        let name = label("NLC Helper", size: 13, weight: .semibold, width: 268); name.alignment = .center
-        let identity = label("설정 목록에는 Tacto 대신 위 이름으로 표시됩니다. Tacto의 권한용 앱이 맞습니다.",
-                             size: 12, color: .secondaryLabelColor, width: 268)
-        let steps = label("1. 위 아이콘을 누른 채 설정 창의 앱 목록으로 옮겨 놓으세요.\n2. 목록에서 ‘NLC Helper’를 찾아 옆 스위치를 켜세요.\n이미 목록에 있다면 다시 추가하지 않고 스위치만 켜면 됩니다.", size: 13, width: 268)
+        name.alignment = .center
+        let source = label("1. 이 앱 아이콘을 끌어오세요", size: 13, weight: .semibold, width: 268)
+        source.alignment = .center
+        dropArrow.image = symbol("arrow.left", .controlAccentColor, size: 24)
+        dropArrow.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        dropArrow.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        let dropBox = NSStackView(views: [dropArrow, dropWhere])
+        dropBox.orientation = .horizontal; dropBox.alignment = .centerY; dropBox.spacing = 8
+        dropBox.edgeInsets = NSEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
+        dropBox.wantsLayer = true
+        dropBox.layer?.cornerRadius = 10
+        dropBox.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
         helpButton = NSButton(title: "드래그가 안 되나요? 다른 방법 보기", target: nil, action: nil)
         helpButton.target = self; helpButton.action = #selector(toggleHelp)
         helpButton.bezelStyle = .rounded
-        let reveal = NSButton(title: "Finder에서 권한용 앱 보기", target: nil, action: nil)
+        let reveal = NSButton(title: "Finder에서 이 앱 보기", target: nil, action: nil)
         reveal.target = self; reveal.action = #selector(revealHelper)
         reveal.bezelStyle = .rounded
-        let copy = NSButton(title: "앱 위치 복사", target: nil, action: nil)
+        let copy = NSButton(title: "이 앱 위치 복사", target: nil, action: nil)
         copy.target = self; copy.action = #selector(copyHelperPath)
         copy.bezelStyle = .rounded
-        let fallback = label("Finder에서 선택된 앱을 끌어다 놓아도 됩니다.\n+ 버튼을 쓸 때는 ‘앱 위치 복사’를 누르고, 파일 선택 창에서 Shift + Command + G를 누른 다음 Command + V → Return으로 이동해 ‘열기’를 누르세요.",
+        let fallback = label("Finder에서 선택된 앱을 끌어다 놓아도 됩니다.\n+ 버튼을 쓸 때는 ‘이 앱 위치 복사’를 누르고, 파일 선택 창에서 Shift + Command + G를 누른 다음 Command + V → Return으로 이동해 ‘열기’를 누르세요.",
                              size: 12, color: .secondaryLabelColor, width: 268)
         let approval = label("암호나 Touch ID를 요청하면 Mac 로그인에 쓰는 방법으로 승인하세요. macOS가 앱 재시작을 요청하면 안내를 따라 주세요.", size: 11, color: .secondaryLabelColor, width: 268)
         heading.alignment = .center; state.alignment = .center
         alternative = NSStackView(views: [reveal, copy, fallback])
         alternative.orientation = .vertical; alternative.alignment = .centerX; alternative.spacing = 8
         alternative.isHidden = true
-        let stack = NSStackView(views: [heading, icon, name, identity, steps, helpButton, alternative, approval, state])
+        let stack = NSStackView(views: [heading, source, icon, name, identity, dropBox, steps, helpButton, alternative, approval, state])
         stack.orientation = .vertical; stack.alignment = .centerX; stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         contentView = stack
@@ -149,16 +165,31 @@ final class AccessoryPanel: NSPanel {
         if let view = contentView { setContentSize(view.fittingSize) }
     }
     @objc func revealHelper() {
-        NSWorkspace.shared.activateFileViewerSelecting([helper])
+        NSWorkspace.shared.activateFileViewerSelecting([app])
     }
     @objc func copyHelperPath() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(helper.path, forType: .string)
+        NSPasteboard.general.setString(app.path, forType: .string)
         state.stringValue = "위치를 복사했어요. + 버튼의 파일 선택 창에서 사용하세요."
         fitContent()
     }
     override var canBecomeKey: Bool { true }
-    func show(for permission: Permission) {
+    func pointTowardSettings(_ frame: CGRect) {
+        let direction = frame.midX < self.frame.midX ? "arrow.left" : "arrow.right"
+        dropArrow.image = symbol(direction, .controlAccentColor, size: 24)
+        dropArrow.setAccessibilityLabel("옆의 시스템 설정 창에 있는 앱 목록으로 옮기세요")
+    }
+    func show(for permission: Permission, app: URL) {
+        self.app = app
+        icon.helperURL = app
+        icon.image = NSWorkspace.shared.icon(forFile: app.path)
+        icon.setAccessibilityLabel("\(app.lastPathComponent). 이 아이콘을 옆 시스템 설정 창의 앱 목록으로 끌어다 놓으세요.")
+        name.stringValue = app.lastPathComponent
+        identity.stringValue = "이 단계에서 허용할 앱입니다. 목록에 같은 앱이 있으면 스위치만 켜세요."
+        dropWhere.stringValue = permission == .screen
+            ? "2. 옆의 ‘시스템 설정’ 창\n위쪽 ‘화면 및 시스템 오디오 기록’의 앱 목록 안에 놓으세요."
+            : "2. 옆의 ‘시스템 설정’ 창\n‘손쉬운 사용 / Device Control and Data Access’의 앱 목록 안에 놓으세요."
+        steps.stringValue = "앱 이름과 스위치가 줄지어 있는 목록의 빈 곳이나 행 사이에 놓으세요.\n3. ‘\(app.deletingPathExtension().lastPathComponent)’ 옆 스위치를 켜세요."
         heading.stringValue = "\(permission == .control ? "1 / 2" : "2 / 2") · \(permission.title) 권한 켜기"
         state.stringValue = "스위치가 켜지면 자동으로 확인합니다."
         alternative.isHidden = true
@@ -181,6 +212,11 @@ final class Setup: NSObject, NSApplicationDelegate {
     var known = false                        // has a receipt ever been read?
     var root: URL!
     var helper: URL!
+    var bundledRuntime = false
+    var setupApp = Bundle.main.bundleURL
+    func appFor(_ permission: Permission) -> URL {
+        permissionApp(permission, helper: helper, setupApp: setupApp, bundledRuntime: bundledRuntime)
+    }
     let status = label("", size: 12, color: .secondaryLabelColor, width: 624)
     let message = label("", size: 12, color: .secondaryLabelColor, width: 624)
     var connectButton: NSButton!
@@ -219,6 +255,7 @@ final class Setup: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil); return
         }
         root = runtime
+        bundledRuntime = object["bundledRoot"] == "runtime"
         helper = root.appendingPathComponent("helper/NLC Helper.app")
         build()
         window.center(); window.makeKeyAndOrderFront(nil)
@@ -247,6 +284,7 @@ final class Setup: NSObject, NSApplicationDelegate {
                                        size: 13, color: .secondaryLabelColor, width: 624))
         for permission in Permission.allCases {
             let row = PermissionRow(permission, target: self, selector: #selector(turnOn(_:)))
+            row.showApp(appFor(permission))
             rows.append(row); stack.addArrangedSubview(row)
         }
         stack.addArrangedSubview(status)
@@ -258,8 +296,10 @@ final class Setup: NSObject, NSApplicationDelegate {
         connectButton.bezelStyle = .rounded; connectButton.keyEquivalent = "\r"; connectButton.isEnabled = false
         stack.addArrangedSubview(connectButton)
         stack.addArrangedSubview(message)
-        let note = label("설정 목록에서 찾을 이름은 ‘NLC Helper’입니다. Tacto의 권한용 앱이며, 이 앱에만 권한을 주세요. 터미널이나 파이썬에는 주지 않아요. 요청하신 작업 중에만 조작하고, 언제든 Esc로 멈출 수 있어요.",
-                         size: 11, color: .tertiaryLabelColor, width: 624)
+        let permissionNote = bundledRuntime
+            ? "앱 조작은 ‘NLC Helper.app’, 화면 기록은 ‘Tacto.app’에 허용합니다. 각 단계에서 보여 드리는 앱을 추가하세요. 터미널이나 공유 파이썬에는 권한을 주지 않습니다."
+            : "두 권한 모두 ‘NLC Helper.app’에 허용합니다. 터미널이나 공유 파이썬에는 권한을 주지 않습니다."
+        let note = label(permissionNote, size: 11, color: .secondaryLabelColor, width: 624)
         stack.addArrangedSubview(note)
         render()
     }
@@ -292,7 +332,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         let permission = row.permission
         notice = nil
         NSWorkspace.shared.open(permission.settingsURL)
-        panel.show(for: permission)
+        panel.show(for: permission, app: appFor(permission))
         watch = PermissionWatch(permission: permission, started: Date())
         render()
         placeTimer?.invalidate(); placeAccessory()
@@ -314,6 +354,7 @@ final class Setup: NSObject, NSApplicationDelegate {
         let screen = NSScreen.screens.first(where: { $0.frame.intersects(settings) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame ?? settings
         panel.setFrameOrigin(accessoryOrigin(settings: settings, panel: panel.frame.size, screen: screen))
+        panel.pointTowardSettings(settings)
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
@@ -439,11 +480,14 @@ final class Setup: NSObject, NSApplicationDelegate {
 
     func renderSnapshot(_ request: (URL, SetupState, Permission?)) {
         let (directory, snapshotState, waiting) = request
-        helper = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")   // icon only
+        helper = URL(fileURLWithPath: "/Applications/NLC Helper.app")   // offscreen fixture only
+        bundledRuntime = CommandLine.arguments.contains("--standalone")
+        setupApp = URL(fileURLWithPath: "/Applications/Tacto.app")
         root = URL(fileURLWithPath: "/nonexistent")
         build()
         state = snapshotState; known = true
-        panel.show(for: waiting ?? state.nextNeeded ?? .control)
+        let permission = waiting ?? state.nextNeeded ?? .control
+        panel.show(for: permission, app: appFor(permission))
         if let waiting { watch = PermissionWatch(permission: waiting, started: Date()) }
         if CommandLine.arguments.contains("--show-help") { panel.toggleHelp() }
         if CommandLine.arguments.contains("--check-failed") {
@@ -452,8 +496,8 @@ final class Setup: NSObject, NSApplicationDelegate {
         }
         render()
         assert(connectButton.isEnabled == (known && state.ready))
-        assert(panel.icon.helperURL == helper)
-        assert((panel.icon.draggingItem()?.item as? NSURL) == helper as NSURL)
+        assert(panel.icon.helperURL == appFor(permission))
+        assert((panel.icon.draggingItem()?.item as? NSURL) == appFor(permission) as NSURL)
         assert(panel.frame.height > 400)
         func save(_ view: NSView, _ name: String) {
             view.layoutSubtreeIfNeeded()

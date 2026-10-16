@@ -122,3 +122,10 @@ func setupRuntimeRoot(_ config: [String:String], resources: URL) -> URL? {
           FileManager.default.fileExists(atPath: root.path, isDirectory: &directory), directory.boolValue else { return nil }
     return root
 }
+
+/// macOS attributes the embedded helper's screen capture to its enclosing app.
+/// Accessibility stays with the helper. A checkout preview has no enclosing
+/// runtime app, so both permissions continue to belong to the external helper.
+func permissionApp(_ permission: Permission, helper: URL, setupApp: URL, bundledRuntime: Bool) -> URL {
+    permission == .screen && bundledRuntime ? setupApp : helper
+}
