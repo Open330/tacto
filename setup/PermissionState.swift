@@ -30,11 +30,7 @@ enum Permission: CaseIterable {
     var location: String {
         switch self {
         case .control: return "개인정보 보호 및 보안 › 손쉬운 사용 (macOS 27: Device Control and Data Access)"
-        case .screen:
-            if ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 {
-                return "개인정보 보호 및 보안 › Device Control and Data Access (macOS 27 통합 권한 화면)"
-            }
-            return "개인정보 보호 및 보안 › 화면 기록 (Screen & System Audio Recording)"
+        case .screen: return "개인정보 보호 및 보안 › 화면 기록 (Screen & System Audio Recording)"
         }
     }
     var settingsURL: URL {

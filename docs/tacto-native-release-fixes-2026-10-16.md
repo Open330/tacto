@@ -106,9 +106,10 @@ Two findings were addressed:
    layout, rejects a helper escaping that runtime and preserves source-checkout
    discovery. The relocation build check now requires the actual bundled helper
    path, in addition to Python/package imports.
-2. On the tested macOS 27 machine the screen-capture deep link opened Device
-   Control and Data Access. The GUI location text now names that observed
-   integrated pane on macOS 27, while retaining the older label on earlier OSes.
+2. An initial Settings observation caught the previous Device Control and Data
+   Access pane before navigation settled. It was incorrectly treated as an OS
+   pane rename. A later live observation confirmed the separate Screen & System
+   Audio Recording pane on macOS 27; the interim label change was reverted.
 
 The preview helper's own LaunchServices receipt reported Accessibility true
 and screen capture false. This is an incomplete grant, not a successful
@@ -123,6 +124,16 @@ remain local because they include account names and filesystem paths.
 The rebuilt standalone app was retested: its doctor now recognizes the bundled
 helper and reports screen capture as incomplete, matching the GUI's blocked
 connection. The erroneous fallback to the interpreter's ready state is gone.
-Tacto observed the updated macOS 27 location label in the actual rebuilt GUI.
+The interim macOS 27 label was observed in the GUI, then corrected after a
+later live test established the actual destination pane.
 The corrected standalone app and DMG passed signing, relocation/helper discovery
 and image-checksum verification. Peer review approved the bounded path fix.
+
+## Protected permission-list test
+
+The user then explicitly requested the actual add/grant step. Tacto opened
+Screen & System Audio Recording and pressed the first Add button (screen and
+system audio, rather than audio only). macOS displayed a Touch ID/password
+sheet before the file picker. No password was supplied and no permission was
+granted by automation. Continuation requires the person's system authentication.
+This observation also corrected the earlier transient-pane interpretation.
