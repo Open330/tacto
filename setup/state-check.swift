@@ -64,5 +64,56 @@ import Foundation
   let flipped = cocoaRect(fromWindowList: CGRect(x: 10, y: 100, width: 700, height: 600), primaryHeight: 900)
   assert(flipped == CGRect(x: 10, y: 200, width: 700, height: 600))
   print("Accessory placement: right, left, inside, clamped, flipped PASS")
+
+  // Real isolated filesystem layouts: readiness must follow the installed
+  // links, including another version, partial installs and foreign files.
+  let fm = FileManager.default
+  let temp = fm.temporaryDirectory.appendingPathComponent("tacto-connection-check-" + UUID().uuidString)
+  defer { try? fm.removeItem(at: temp) }
+  let root = temp.appendingPathComponent("runtime"), home = temp.appendingPathComponent("home")
+  func directory(_ path: URL) { try! fm.createDirectory(at: path, withIntermediateDirectories: true) }
+  directory(root.appendingPathComponent("launcher")); directory(root.appendingPathComponent("skill"))
+  try! Data("fixture".utf8).write(to: root.appendingPathComponent("launcher/nlc"))
+  try! Data("---\nname: tacto\n---\n".utf8).write(to: root.appendingPathComponent("skill/SKILL.md"))
+  func status(_ environment: [String:String] = [:]) -> AgentConnection { agentConnection(root: root, home: home, environment: environment) }
+  assert(status() == .missing)
+  let targets = [(".local/bin/tacto", "launcher/nlc"), (".local/bin/nlc", "launcher/nlc"),
+                 (".claude/skills/tacto", "skill"), (".codex/skills/tacto", "skill")]
+  for (name, destination) in targets {
+    let link = home.appendingPathComponent(name); directory(link.deletingLastPathComponent())
+    try! fm.createSymbolicLink(at: link, withDestinationURL: root.appendingPathComponent(destination))
+  }
+  assert(status() == .current)
+  assert(status(["TACTO_BIN_DIR":"", "NLC_BIN_DIR":""]) == .current)
+  let codex = home.appendingPathComponent(".codex/skills/tacto")
+  try! fm.removeItem(at: codex); assert(status() == .missing)
+  let previous = temp.appendingPathComponent("previous/skill"); directory(previous)
+  try! Data("---\nname: tacto\n---\n".utf8).write(to: previous.appendingPathComponent("SKILL.md"))
+  try! fm.createSymbolicLink(at: codex, withDestinationURL: previous); assert(status() == .other)
+  try! fm.removeItem(at: codex); directory(codex)
+  try! Data("foreign skill".utf8).write(to: codex.appendingPathComponent("SKILL.md")); assert(status() == .conflict)
+  try! fm.removeItem(at: codex); try! fm.createSymbolicLink(at: codex, withDestinationURL: root.appendingPathComponent("skill"))
+  assert(status(["CODEX_HOME":temp.appendingPathComponent("profile").path]) == .missing)
+  let timings = (0..<50).map { _ -> Double in
+    let began = ProcessInfo.processInfo.systemUptime
+    assert(status() == .current)
+    return (ProcessInfo.processInfo.systemUptime - began) * 1000
+  }.sorted()
+  print(String(format: "Connection readback: 50 local samples, median %.3f ms, max %.3f ms; no process launch", timings[25], timings[49]))
+  let command = home.appendingPathComponent(".local/bin/tacto")
+  let previousRoot = previous.deletingLastPathComponent()
+  directory(previousRoot.appendingPathComponent(".venv/bin"))
+  for name in ["nlc", "tacto"] {
+    let entry = previousRoot.appendingPathComponent(".venv/bin/" + name)
+    try! Data("fixture".utf8).write(to: entry)
+    try! fm.removeItem(at: command); try! fm.createSymbolicLink(at: command, withDestinationURL: entry)
+    assert(status() == .other)
+  }
+  try! fm.removeItem(at: command); try! Data("foreign command".utf8).write(to: command)
+  assert(status() == .conflict)
+  let conflicts = agentConnectionReport(root: root, home: home, environment: [:]).filter { $0.1 == .conflict }
+  assert(conflicts.count == 1 && conflicts[0].0 == command)
+  assert(String(data: try! Data(contentsOf: command), encoding: .utf8) == "foreign command")
+  print("Agent connection: 11 isolated layouts PASS; reads never modify links or files")
  }
 }

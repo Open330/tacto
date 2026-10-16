@@ -13,6 +13,8 @@ STAGE=$(mktemp -d "./.tacto-helper-bundle.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 APP="$STAGE/NLC Helper.app"
 mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/Resources"
+cp ../docs/assets/tacto-app.icns "$APP/Contents/Resources/tacto-app.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -22,6 +24,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleName</key>            <string>NLC Helper</string>
   <key>CFBundleDisplayName</key>     <string>NLC Helper</string>
+  <key>CFBundleIconFile</key>        <string>tacto-app.icns</string>
   <key>CFBundleIdentifier</key>      <string>ai.callabo.nlc.helper</string>
   <key>CFBundleExecutable</key>      <string>NLCHelper</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>

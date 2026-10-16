@@ -69,7 +69,9 @@ def build(output, identity):
     began=time.monotonic()
     def sources():
         paths=[ROOT/name for name in ('setup/build_standalone_preview.py','setup/main.swift',
-            'setup/PermissionState.swift','launcher/nlc.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
+            'setup/PermissionState.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
+            'docs/assets/tacto-menu-template.svg','helper/bundle.sh',
+            'launcher/nlc.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
             'helper/NLC Helper.app/Contents/MacOS/NLCHelper','helper/NLC Helper.app/Contents/Info.plist')]
         paths+=sorted((ROOT/'nlc').glob('*.py'))
         return {str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
@@ -117,10 +119,26 @@ def build(output, identity):
         for path in sorted(native,key=lambda p:(p.parent.name=='bin',str(p))):sign(path,identity)
         report['native_runtime_files_signed']=len(native)
         executable=contents/'MacOS/NLCSetup'
+        for name in ('tacto-app.icns','tacto-logo.svg','tacto-menu-template.svg'):
+            shutil.copy2(ROOT/'docs/assets'/name,resources/name)
+        # The embedded permission holder keeps its identity and requirement,
+        # but receives the same product icon instead of a generic application.
+        import plistlib
+        helper_app=runtime/'helper/NLC Helper.app'
+        helper_resources=helper_app/'Contents/Resources'
+        helper_resources.mkdir(exist_ok=True)
+        shutil.copy2(ROOT/'docs/assets/tacto-app.icns',helper_resources/'tacto-app.icns')
+        helper_plist=helper_app/'Contents/Info.plist'
+        helper_info=plistlib.loads(helper_plist.read_bytes())
+        helper_info['CFBundleIconFile']='tacto-app.icns'
+        helper_plist.write_bytes(plistlib.dumps(helper_info))
+        sign(helper_app,identity,'ai.callabo.nlc.helper',requirement('ai.callabo.nlc.helper'))
+        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(helper_app)])
         run(['swiftc',str(ROOT/'setup/main.swift'),str(ROOT/'setup/PermissionState.swift'),'-o',str(executable)])
         import plistlib
         (contents/'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',
+            'CFBundleIconFile':'tacto-app.icns',
             'CFBundleExecutable':'NLCSetup','CFBundleIdentifier':'ai.callabo.nlc.setup.standalone.preview',
             'CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1',
             'LSMinimumSystemVersion':platform.mac_ver()[0]}))

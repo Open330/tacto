@@ -32,11 +32,14 @@ def build(output: Path):
         contents = app / "Contents"
         (contents / "MacOS").mkdir(parents=True)
         (contents / "Resources").mkdir()
+        for name in ("tacto-app.icns", "tacto-logo.svg", "tacto-menu-template.svg"):
+            shutil.copy2(root / "docs/assets" / name, contents / "Resources" / name)
         executable = contents / "MacOS/NLCSetup"
         subprocess.run(["swiftc", str(source / "main.swift"), str(source / "PermissionState.swift"),
                         "-o", str(executable)], check=True)
         (contents / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleDisplayName": "Tacto", "CFBundleName": "Tacto",
+            "CFBundleIconFile": "tacto-app.icns",
             "CFBundleExecutable": "NLCSetup", "CFBundleIdentifier": "ai.callabo.nlc.setup.preview",
             "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.0",
             "LSMinimumSystemVersion": "13.0",

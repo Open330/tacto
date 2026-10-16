@@ -2,6 +2,24 @@ import AppKit
 
 private let contentWidth: CGFloat = 656
 
+private func adaptive(_ light: NSColor, _ dark: NSColor) -> NSColor {
+    NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light }
+}
+private let coral = NSColor(srgbRed: 250/255, green: 107/255, blue: 59/255, alpha: 1)
+private let canvas = adaptive(NSColor(srgbRed: 246/255, green: 244/255, blue: 237/255, alpha: 1),
+                              NSColor(srgbRed: 0.09, green: 0.11, blue: 0.095, alpha: 1))
+
+class SurfaceStack: NSStackView {
+    var fill: NSColor = .controlBackgroundColor { didSet { needsDisplay = true } }
+    var outline: NSColor = .separatorColor { didSet { needsDisplay = true } }
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = fill.cgColor
+        layer?.borderColor = outline.cgColor
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
+}
+
 /// The helper's icon, draggable as its file URL into a System Settings list.
 final class HelperIcon: NSImageView, NSDraggingSource {
     var helperURL: URL?
@@ -37,7 +55,7 @@ func symbol(_ name: String, _ color: NSColor, size: CGFloat = 20) -> NSImage? {
 }
 
 /// One permission: what it is, why, where — and its live state.
-final class PermissionRow: NSStackView {
+final class PermissionRow: SurfaceStack {
     let permission: Permission
     let status = NSImageView()
     let detail: NSTextField
@@ -91,7 +109,7 @@ final class PermissionRow: NSStackView {
             status.image = symbol("questionmark.circle", .tertiaryLabelColor)
             action.title = "설정 열기"; action.isEnabled = true; border = .separatorColor
         }
-        layer?.borderColor = border.cgColor
+        outline = border
         status.setAccessibilityLabel(look == .granted ? "켜짐" : look == .unknown ? "확인되지 않음" : "꺼짐")
     }
 }
@@ -127,7 +145,7 @@ final class AccessoryPanel: NSPanel {
         name.alignment = .center
         let source = label("1. 이 앱 아이콘을 끌어오세요", size: 13, weight: .semibold, width: 268)
         source.alignment = .center
-        dropArrow.image = symbol("arrow.left", .controlAccentColor, size: 24)
+        dropArrow.image = symbol("arrow.left", coral, size: 24)
         dropArrow.widthAnchor.constraint(equalToConstant: 24).isActive = true
         dropArrow.heightAnchor.constraint(equalToConstant: 30).isActive = true
         let dropBox = NSStackView(views: [dropArrow, dropWhere])
@@ -135,7 +153,7 @@ final class AccessoryPanel: NSPanel {
         dropBox.edgeInsets = NSEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
         dropBox.wantsLayer = true
         dropBox.layer?.cornerRadius = 10
-        dropBox.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor
+        dropBox.layer?.backgroundColor = coral.withAlphaComponent(0.10).cgColor
         helpButton = NSButton(title: "드래그가 안 되나요? 다른 방법 보기", target: nil, action: nil)
         helpButton.target = self; helpButton.action = #selector(toggleHelp)
         helpButton.bezelStyle = .rounded
@@ -180,7 +198,7 @@ final class AccessoryPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     func pointTowardSettings(_ frame: CGRect) {
         let direction = frame.midX < self.frame.midX ? "arrow.left" : "arrow.right"
-        dropArrow.image = symbol(direction, .controlAccentColor, size: 24)
+        dropArrow.image = symbol(direction, coral, size: 24)
         dropArrow.setAccessibilityLabel("옆의 시스템 설정 창에 있는 앱 목록으로 옮기세요")
     }
     func show(for permission: Permission, app: URL) {
@@ -189,7 +207,9 @@ final class AccessoryPanel: NSPanel {
         icon.image = NSWorkspace.shared.icon(forFile: app.path)
         icon.setAccessibilityLabel("\(app.lastPathComponent). 이 아이콘을 옆 시스템 설정 창의 앱 목록으로 끌어다 놓으세요.")
         name.stringValue = app.lastPathComponent
-        identity.stringValue = "이 단계에서 허용할 앱입니다. 목록에 같은 앱이 있으면 스위치만 켜세요."
+        identity.stringValue = permission == .control
+            ? "Tacto의 앱 조작 도우미입니다. 설정에는 NLC Helper로 표시됩니다."
+            : "이 Tacto 앱에 화면 기록을 허용합니다. 같은 앱이 있으면 스위치만 켜세요."
         dropWhere.stringValue = permission == .screen
             ? "2. 옆의 ‘시스템 설정’ 창\n위쪽 ‘화면 및 시스템 오디오 기록’의 앱 목록 안에 놓으세요."
             : "2. 옆의 ‘시스템 설정’ 창\n‘손쉬운 사용 / Device Control and Data Access’의 앱 목록 안에 놓으세요."
@@ -218,12 +238,20 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var helper: URL!
     var bundledRuntime = false
     var setupApp = Bundle.main.bundleURL
+    var snapshotAssets: URL?
     func appFor(_ permission: Permission) -> URL {
         permissionApp(permission, helper: helper, setupApp: setupApp, bundledRuntime: bundledRuntime)
     }
     let status = label("", size: 12, color: .secondaryLabelColor, width: contentWidth)
     let message = label("", size: 12, color: .secondaryLabelColor, width: contentWidth - 32)
     let badge = label("확인 중", size: 12, weight: .semibold)
+    let badgeIcon = NSImageView()
+    let connectionInfo = label("", size: 12, color: .secondaryLabelColor, width: contentWidth - 32)
+    var connection: AgentConnection = .missing
+    var installing = false
+    var refreshButton: NSButton!
+    var exampleButton: NSButton!
+    let firstRequest = "Tacto로 Finder에서 다운로드 폴더를 열어 줘."
     var statusItem: NSStatusItem?
     var statusMenuTitle: NSMenuItem?
     var connectButton: NSButton!
@@ -264,6 +292,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         root = runtime
         bundledRuntime = object["bundledRoot"] == "runtime"
         helper = root.appendingPathComponent("helper/NLC Helper.app")
+        refreshConnection()
         build()
         installMenus()
         window.center(); window.makeKeyAndOrderFront(nil)
@@ -276,7 +305,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         // Back from System Settings: say what changed without being asked.
-        if helper != nil { check() }
+        if helper != nil { refreshConnection(); check() }
     }
 
     func build() {
@@ -287,23 +316,44 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.standardWindowButton(.closeButton)?.setAccessibilityIdentifier("tacto.close")
         window.titlebarAppearsTransparent = true
-        window.backgroundColor = .windowBackgroundColor
+        window.backgroundColor = canvas
         panel = AccessoryPanel(helper: helper)
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
+        let stack = SurfaceStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
         stack.wantsLayer = true
-        stack.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        stack.fill = canvas
         window.contentView = stack
+        let logo = NSImageView()
+        let assets = snapshotAssets ?? root.appendingPathComponent("docs/assets")
+        let asset = Bundle.main.url(forResource: "tacto-app", withExtension: "icns")
+            ?? (FileManager.default.fileExists(atPath: assets.appendingPathComponent("tacto-app.icns").path)
+                ? assets.appendingPathComponent("tacto-app.icns") : assets.appendingPathComponent("tacto-logo.svg"))
+        logo.image = NSImage(contentsOf: asset)
+        logo.imageScaling = .scaleProportionallyUpOrDown
+        logo.widthAnchor.constraint(equalToConstant: 38).isActive = true
+        logo.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        logo.setAccessibilityLabel("Tacto 로고")
         let brand = label("Tacto", size: 28, weight: .bold)
         let spacer = NSView()
-        let header = NSStackView(views: [brand, spacer, badge])
+        let chip = SurfaceStack(views: [badgeIcon, badge])
+        chip.orientation = .horizontal; chip.alignment = .centerY; chip.spacing = 5
+        chip.edgeInsets = NSEdgeInsets(top: 7, left: 10, bottom: 7, right: 10)
+        chip.wantsLayer = true; chip.layer?.cornerRadius = 13
+        chip.fill = adaptive(.white, .controlBackgroundColor)
+        let header = NSStackView(views: [logo, brand, spacer, chip])
+        header.spacing = 10
         header.orientation = .horizontal; header.alignment = .centerY
         header.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(header)
         stack.addArrangedSubview(label("에이전트가 여러분 대신 Mac 앱을 사용할 수 있도록.",
                                        size: 14, color: .secondaryLabelColor, width: contentWidth))
         stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
-        stack.addArrangedSubview(label("Mac 권한", size: 13, weight: .semibold, width: contentWidth))
+        refreshButton = NSButton(title: "상태 새로고침", target: self, action: #selector(refreshAll))
+        refreshButton.bezelStyle = .rounded; refreshButton.controlSize = .small
+        let permissionHeader = NSStackView(views: [label("1. Mac 권한", size: 13, weight: .semibold), NSView(), refreshButton])
+        permissionHeader.orientation = .horizontal; permissionHeader.alignment = .centerY
+        permissionHeader.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        stack.addArrangedSubview(permissionHeader)
         for permission in Permission.allCases {
             let row = PermissionRow(permission, target: self, selector: #selector(turnOn(_:)))
             row.showApp(appFor(permission))
@@ -313,19 +363,30 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stack.setCustomSpacing(18, after: status)
         connectButton = NSButton(title: "에이전트에 연결", target: self, action: #selector(connect))
         connectButton.bezelStyle = .rounded; connectButton.keyEquivalent = "\r"; connectButton.isEnabled = false
-        let connectionHeader = NSStackView(views: [label("에이전트 연결", size: 15, weight: .semibold), NSView(), connectButton])
+        connectButton.bezelColor = coral
+        let connectionHeader = NSStackView(views: [label("2. 에이전트 연결", size: 15, weight: .semibold), NSView(), connectButton])
         connectionHeader.orientation = .horizontal; connectionHeader.alignment = .centerY
         connectionHeader.widthAnchor.constraint(equalToConstant: contentWidth - 32).isActive = true
-        let connection = NSStackView(views: [connectionHeader,
-            label("Claude Code · Codex에 명령과 스킬을 설치합니다.\n권한 완료와 에이전트 연결은 별개입니다.", size: 12, color: .secondaryLabelColor, width: contentWidth - 32), message])
+        let scope = ProcessInfo.processInfo.environment
+        let custom = ["TACTO_BIN_DIR", "NLC_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
+        let scopeNote = custom ? "앱에 전달된 설치 위치 기준입니다. 셸에서 사용하는 위치와 다를 수 있어요."
+            : "기본 설치 위치 기준입니다. 셸에서 별도 경로에 설치했다면 기존 연결을 계속 쓸 수 있어요."
+        let connection = SurfaceStack(views: [connectionHeader, connectionInfo,
+            label(scopeNote, size: 11, color: .secondaryLabelColor, width: contentWidth - 32), message])
         connection.orientation = .vertical; connection.alignment = .leading; connection.spacing = 8
         connection.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         connection.wantsLayer = true; connection.layer?.cornerRadius = 12
         connection.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         stack.addArrangedSubview(connection)
         stack.setCustomSpacing(18, after: connection)
-        stack.addArrangedSubview(label("도우미는 작업할 때 자동 실행됩니다", size: 13, weight: .semibold, width: contentWidth))
-        stack.addArrangedSubview(label("별도 helper를 만들거나 실행할 필요가 없습니다. 창을 닫으면 메뉴 막대에서 다시 열 수 있어요. Tacto를 종료해도 설치된 에이전트 명령은 도우미를 자동 실행합니다.", size: 12, color: .secondaryLabelColor, width: contentWidth))
+        exampleButton = NSButton(title: "첫 요청 복사", target: self, action: #selector(copyFirstRequest))
+        exampleButton.bezelStyle = .rounded
+        let example = NSStackView(views: [label("3. 새 대화에서 시작하세요", size: 13, weight: .semibold), NSView(), exampleButton])
+        example.orientation = .horizontal; example.alignment = .centerY
+        example.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        stack.addArrangedSubview(example)
+        stack.addArrangedSubview(label("Claude Code나 Codex에서 ‘\(firstRequest)’라고 요청하세요.", size: 12, color: .secondaryLabelColor, width: contentWidth))
+        stack.addArrangedSubview(label("작업할 때 도우미가 자동 실행됩니다. 창을 닫아도 메뉴 막대의 ‘Tacto 설정’에서 다시 열 수 있어요.", size: 11, color: .secondaryLabelColor, width: contentWidth))
         render()
         stack.layoutSubtreeIfNeeded()
         window.setContentSize(stack.fittingSize)
@@ -341,9 +402,27 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             else { look = .needed }
             row.show(look)
         }
-        connectButton.isEnabled = known && state.ready
-        badge.stringValue = !known ? "권한 확인 중" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
+        connectButton.isEnabled = !checkInFlight && !installing && (connection == .conflict || (known && state.ready && connection != .current))
+        refreshButton.isEnabled = !checkInFlight && !installing
+        badge.stringValue = !known || checkInFlight ? "권한 확인 중" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
+        badgeIcon.image = symbol(known && state.ready ? "checkmark.circle.fill" : "circle", known && state.ready ? .systemGreen : .secondaryLabelColor, size: 13)
         badge.textColor = known && state.ready ? .systemGreen : .secondaryLabelColor
+        if !installing {
+            switch connection {
+            case .current:
+                connectButton.title = "연결 완료"
+                connectionInfo.stringValue = "이 Tacto의 명령과 Claude Code · Codex 스킬이 연결되어 있어요."
+            case .other:
+                connectButton.title = "이 버전으로 연결"
+                connectionInfo.stringValue = "다른 경로의 Tacto 명령·스킬이 연결되어 있어요. 이 앱의 연결로 바꿀 수 있습니다."
+            case .missing:
+                connectButton.title = "에이전트에 연결"
+                connectionInfo.stringValue = "Claude Code · Codex에서 쓸 명령과 스킬을 연결하세요."
+            case .conflict:
+                connectButton.title = "충돌 위치 보기"
+                connectionInfo.stringValue = "명령 또는 스킬 위치에 다른 파일이 있어요. 기존 파일을 보호하고 있습니다."
+            }
+        }
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
         if let notice { status.stringValue = notice }
@@ -354,6 +433,19 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     // MARK: turning a permission on
+
+    func refreshConnection() {
+        guard !installing else { return }
+        connection = agentConnection(root: root, home: FileManager.default.homeDirectoryForCurrentUser,
+                                     environment: ProcessInfo.processInfo.environment)
+    }
+    @objc func refreshAll() { refreshConnection(); check() }
+    @objc func copyFirstRequest() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(firstRequest, forType: .string)
+        exampleButton.title = "복사했어요"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.exampleButton.title = "첫 요청 복사" }
+    }
 
     @objc func turnOn(_ sender: NSButton) {
         guard let row = rows.first(where: { $0.action === sender }) else { return }
@@ -436,6 +528,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             render(); return
         }
         checkInFlight = true
+        render()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("tacto-setup-" + UUID().uuidString)
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                      attributes: [.posixPermissions: 0o700]) }
@@ -474,7 +567,18 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: connecting the agent
 
     @objc func connect() {
-        guard known && state.ready else { return }
+        if connection == .conflict {
+            let paths = agentConnectionReport(root: root, home: FileManager.default.homeDirectoryForCurrentUser,
+                                             environment: ProcessInfo.processInfo.environment).filter { $0.1 == .conflict }.map { $0.0.path }.joined(separator: "\n")
+            let alert = NSAlert()
+            alert.messageText = "기존 파일을 보호하고 있어요"
+            alert.informativeText = "연결과 겹치는 파일이 있는 위치입니다. 정상 연결은 이 목록에 표시하지 않습니다. 파일의 용도를 확인하고, 보관이 필요한 파일은 먼저 직접 백업하세요. 정리를 마치면 ‘상태 새로고침’을 누르세요.\n\n" + paths
+            alert.addButton(withTitle: "닫기")
+            alert.beginSheetModal(for: window)
+            return
+        }
+        guard known && state.ready && !checkInFlight && !installing else { return }
+        installing = true; connectButton.title = "연결 중…"
         connectButton.isEnabled = false; message.stringValue = "명령과 스킬을 연결하고 있어요…"
         let script = root.appendingPathComponent("skill/install.sh")
         DispatchQueue.global().async {
@@ -484,10 +588,11 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             var ok = false
             do { try process.run(); process.waitUntilExit(); ok = process.terminationStatus == 0 } catch {}
             DispatchQueue.main.async {
-                self.connectButton.isEnabled = self.known && self.state.ready
-                self.message.stringValue = ok
+                self.installing = false; self.refreshConnection()
+                self.message.stringValue = ok && self.connection == .current
                     ? "연결했어요. Claude Code나 Codex에서 새 대화를 열고 ‘Tacto로 작업해 줘’라고 요청하세요."
                     : "연결을 끝내지 못했어요. 기존 설치 경로나 파일 충돌을 확인해주세요."
+                self.render()
             }
         }
     }
@@ -508,7 +613,10 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         close.target = window
         NSApp.mainMenu = main
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Tacto 설정")
+        let template = Bundle.main.url(forResource: "tacto-menu-template", withExtension: "svg")
+        item.button?.image = template.flatMap { NSImage(contentsOf: $0) }
+            ?? NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: "Tacto 설정")
+        item.button?.image?.size = NSSize(width: 18, height: 18)
         item.button?.image?.isTemplate = true
         item.button?.setAccessibilityLabel("Tacto 설정")
         let menu = NSMenu()
@@ -526,9 +634,9 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func reopen() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        check()
+        refreshAll()
     }
-    @objc func refreshPermissions() { check() }
+    @objc func refreshPermissions() { refreshAll() }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         reopen(); return true
     }
@@ -562,6 +670,12 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         bundledRuntime = CommandLine.arguments.contains("--standalone")
         setupApp = URL(fileURLWithPath: "/Applications/Tacto.app")
         root = URL(fileURLWithPath: "/nonexistent")
+        if let i = CommandLine.arguments.firstIndex(of: "--brand-assets"), i + 1 < CommandLine.arguments.count {
+            snapshotAssets = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+        }
+        if CommandLine.arguments.contains("--connected") { connection = .current }
+        if CommandLine.arguments.contains("--other-install") { connection = .other }
+        if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
         build()
         state = snapshotState; known = true
         let permission = waiting ?? state.nextNeeded ?? .control
@@ -573,7 +687,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             notice = "권한 상태를 확인하지 못했어요. ‘설정 열기’를 눌러 다시 확인하세요."
         }
         render()
-        assert(connectButton.isEnabled == (known && state.ready))
+        assert(connectButton.isEnabled == (known && state.ready && connection != .current))
         assert(!applicationShouldTerminateAfterLastWindowClosed(NSApp))
         assert(panel.icon.helperURL == appFor(permission))
         assert((panel.icon.draggingItem()?.item as? NSURL) == appFor(permission) as NSURL)

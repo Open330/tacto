@@ -1,6 +1,61 @@
 import Foundation
 import CoreGraphics
 
+enum AgentConnection { case missing, current, other, conflict }
+
+/// Inspect the command/skill links the installer owns; never run or change them.
+func agentConnectionLinks(root: URL, home: URL, environment: [String: String]) -> [(URL, URL)] {
+    func value(_ key: String) -> String? { environment[key].flatMap { $0.isEmpty ? nil : $0 } }
+    let bin = value("TACTO_BIN_DIR") ?? value("NLC_BIN_DIR") ?? home.appendingPathComponent(".local/bin").path
+    var folders = [home.appendingPathComponent(".claude/skills"), home.appendingPathComponent(".codex/skills")]
+    for key in ["CLAUDE_CONFIG_DIR", "CODEX_HOME"] {
+        if let value = environment[key], !value.isEmpty {
+            folders.append(URL(fileURLWithPath: value).appendingPathComponent("skills"))
+        }
+    }
+    var links = [(URL(fileURLWithPath: bin).appendingPathComponent("tacto"), root.appendingPathComponent("launcher/nlc")),
+                 (URL(fileURLWithPath: bin).appendingPathComponent("nlc"), root.appendingPathComponent("launcher/nlc"))]
+    links += Set(folders.map { $0.resolvingSymlinksInPath() }).map { ($0.appendingPathComponent("tacto"), root.appendingPathComponent("skill")) }
+    return links
+}
+
+func agentConnectionReport(root: URL, home: URL, environment: [String: String]) -> [(URL, AgentConnection)] {
+    let fm = FileManager.default
+    let links = agentConnectionLinks(root: root, home: home, environment: environment)
+    var report: [(URL, AgentConnection)] = []
+    func ownedSkill(_ folder: URL) -> Bool {
+        guard let file = try? FileHandle(forReadingFrom: folder.appendingPathComponent("SKILL.md")) else { return false }
+        defer { try? file.close() }
+        guard let data = try? file.read(upToCount: 4096), let text = String(data: data, encoding: .utf8) else { return false }
+        return text.split(separator: "\n").contains { $0 == "name: tacto" || $0 == "name: nlc" }
+    }
+    for (link, expected) in links {
+        let destination = try? fm.destinationOfSymbolicLink(atPath: link.path)
+        if destination == nil && !fm.fileExists(atPath: link.path) { report.append((link, .missing)); continue }
+        let resolved = link.resolvingSymlinksInPath()
+        if destination != nil && fm.fileExists(atPath: resolved.path) && resolved == expected.resolvingSymlinksInPath() { report.append((link, .current)); continue }
+        var previous = resolved
+        if expected.lastPathComponent == "nlc" {
+            guard let destination else { report.append((link, .conflict)); continue }
+            let written = URL(fileURLWithPath: destination, relativeTo: link.deletingLastPathComponent()).standardizedFileURL
+            if written.path.hasSuffix("/launcher/nlc") {
+                previous = written.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("skill")
+            } else if written.path.hasSuffix("/.venv/bin/nlc") || written.path.hasSuffix("/.venv/bin/tacto") {
+                previous = written.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("skill")
+            } else { report.append((link, .conflict)); continue }
+        }
+        report.append((link, ownedSkill(previous) ? .other : .conflict))
+    }
+    return report
+}
+
+func agentConnection(root: URL, home: URL, environment: [String: String]) -> AgentConnection {
+    let states = agentConnectionReport(root: root, home: home, environment: environment).map { $0.1 }
+    if states.contains(.conflict) { return .conflict }
+    if states.contains(.other) { return .other }
+    return states.contains(.missing) ? .missing : .current
+}
+
 struct PermissionReceipt: Decodable {
     let accessibility_trusted: Bool
     let screen_capture_preflight: Bool
