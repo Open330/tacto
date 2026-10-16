@@ -9,7 +9,7 @@ Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 �
 | --- | --- | --- |
 | Python wheel | flow IR, 계약·결과 검증, 후보 paging, 모델 adapter, trace 등 Python 코어 | Python 3.11 이상 |
 | wheel + `web` extra | Playwright 기반 별도 Chromium 페이지의 BrowserDriver | Playwright가 설치하는 Chromium과 운영체제 실행 의존성 |
-| macOS source checkout | 서명된 런처를 통한 macOS 접근성 조작 | Xcode Command Line Tools, 프로젝트 팀 코드 서명 인증서, 손쉬운 사용 권한 |
+| macOS source checkout | 서명된 런처를 통한 macOS 접근성 조작 | Xcode Command Line Tools, Apple 발급 코드 서명 인증서, 손쉬운 사용 권한 |
 
 ## Python 코어와 브라우저
 
@@ -45,13 +45,13 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 
 ## macOS 네이티브 설치
 
-현재 네이티브 개발 빌드는 **프로젝트에 고정된 서명 팀의 인증서가 필요합니다**.
-[signing.sh](../signing.sh)의 팀 조건을 launcher와 helper가 서로 검증하므로,
-다른 팀의 인증서를 `NLC_SIGN_IDENTITY`로 지정하는 것만으로는 빌드·실행할 수 없습니다.
-아래 명령은 이 서명 조건을 충족한 개발 환경용입니다. 일반 사용자용 서명 배포나
-다른 팀을 위한 지원된 빌드 설정은 아직 제공하지 않습니다. Python 코어·별도
-Chromium 경로는 위의 wheel 설치 범위에서 따로 사용할 수 있습니다.
-서명 검사를 제거하거나 아무 인증서나 허용하는 방식으로 우회하지 않습니다.
+네이티브 소스 빌드는 **Apple이 발급한 코드 서명 인증서**가 필요합니다.
+특정 프로젝트 팀에 고정하지 않습니다. 빌드 도구가 선택한 인증서의 실제 팀으로
+런처·도우미를 서명하고, 실행 시 양쪽이 자신의 유효한 서명에서 읽은 팀과 상대의
+팀·프로그램 식별자를 비교합니다. 다른 팀·서명 없는 프로그램·ad-hoc 서명은 거부합니다.
+`NLC_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
+인증서 없이 설치하는 일반 사용자용 Developer ID 서명·공증 배포는 별도 준비가
+필요합니다. Python 코어·별도 Chromium은 위 wheel 설치 범위에서 사용할 수 있습니다.
 
 서명된 실행 경계는 소스 설치를 사용합니다. 저장소 루트에서 다음 순서로
 설치합니다. `./build.sh`는 로컬 서명 identity로 런처와 도우미를 빌드하므로
@@ -59,7 +59,7 @@ wheel 설치 과정에서 자동 실행하지 않습니다.
 
 ```sh
 uv sync
-# 필요한 경우 프로젝트 서명 팀의 인증서를 명시합니다.
+# 필요한 경우 사용할 Apple 코드 서명 인증서를 명시합니다.
 # export NLC_SIGN_IDENTITY='사용할 코드 서명 identity'
 ./build.sh
 ./skill/install.sh
@@ -144,23 +144,60 @@ backend flag, launcher가 사용하는 `.venv`의 실제 `nlc.cli` import 경로
 ```
 
 빌드는 컴파일과 로컬 서명 검증만 수행하며 앱을 실행하거나 권한을 요청하지
-않습니다. 사용자가 앱을 열면 도우미 아이콘, 권한 설정·Finder 열기,
-권한 다시 확인, 명령·스킬 연결 버튼이 표시됩니다. 드래그를 지원하지 않는
-권한 목록에서는 설정의 `+` 버튼으로 같은 도우미를 선택합니다.
-권한은 사용자가 직접 켭니다. 앱을 열기만 해서는 도우미 실행, 설정 열기,
-스킬 설치가 시작되지 않습니다.
+않습니다.
+
+앱을 열면 두 권한이 한 줄씩 표시됩니다. 각 줄에는 그 권한이 필요한 이유, 시스템
+설정에서의 위치, 현재 상태가 나옵니다. 흐름은 ChatGPT 컴퓨터 사용 앱과 같은
+방식입니다(조사 기록: [권한 받기 UX](permission-onboarding.md)).
+
+1. 앱을 열면 helper의 권한 상태를 한 번 읽습니다. 이미 켜진 권한은 처음부터
+   완료로 표시됩니다. 이 확인은 helper를 LaunchServices로 잠깐 실행해 결과만
+   받는 읽기 전용 확인이며, 권한 요청·설정 열기·설치는 하지 않습니다.
+2. **켜기**를 누르면 해당 설정 화면이 열리고, 시스템 설정 창 옆에 작은 도우미
+   창이 붙습니다. 그 창의 NLC Helper 아이콘을 설정 창의 목록으로 끌어다 놓고
+   스위치를 켜면 됩니다. 드래그를 지원하지 않는 목록에서는 `+` 버튼으로 같은
+   도우미를 선택합니다.
+3. 권한이 켜지면 자동으로 감지해 그 줄을 완료로 바꾸고 도우미 창을 닫습니다.
+   **다시 확인**을 누를 필요가 없습니다. 이 감지는 사용자가 **켜기**를 누른
+   뒤에만 1.5초 간격으로 최대 3분 동안 실행됩니다. 설정에서 돌아와 앱이 다시
+   앞으로 오면 한 번 더 확인합니다.
+4. 두 권한이 모두 켜지면 **에이전트에 연결**이 활성화됩니다. 다음 권한의 설정을
+   자동으로 열지는 않으며, 각 단계는 사용자의 클릭으로 시작합니다.
 
 현재 helper는 손쉬운 사용과 화면 기록 권한이 모두 있어야 일반 창 조작을
 준비 완료로 표시합니다. 화면 기록은 조작 중임을 알리는 시스템 표시에도
 사용됩니다. 시작 앱은 helper가 발행한 상태를 확인하고, 두 권한이 확인된
 경우에만 명령·스킬 연결 버튼을 활성화합니다.
 
-이 앱은 **checkout에 연결된 개발용 미리보기**입니다. checkout의 절대 경로를
-기억하므로 앱만 다른 컴퓨터로 복사하면 설치되지 않습니다. 독립 런타임 묶음,
-배포 서명·공증, 새 Mac에서의 권한·Gatekeeper 검증과 실제 화면 배치·드래그
-검증은 별도로 필요합니다. macOS와 빌드된 네이티브 checkout이 필요합니다.
+GUI를 띄우지 않고 각 상태의 화면을 PNG로 그려 디자인을 검토할 수 있습니다.
+이 모드는 helper 실행, 설정 열기, 설치를 하지 않습니다.
 
-GUI를 열지 않고 권한 상태의 오류·준비 완료 조건을 검사할 수 있습니다.
+```sh
+swiftc setup/main.swift setup/PermissionState.swift -o /tmp/tacto-setup
+/tmp/tacto-setup --snapshot /tmp/shots --granted control --waiting screen   # setup.png, panel.png
+```
+
+`setup/build_preview.py`가 만드는 시작 앱은 **checkout에 연결된 개발용 미리보기**입니다.
+앱만 다른 컴퓨터로 복사해서 사용할 수는 없습니다.
+
+Python과 네이티브 런타임을 포함하는 독립 실행 개발용 앱과 드래그 설치 이미지는
+다음 명령으로 만들 수 있습니다. 빌드된 native checkout과 Apple 발급 서명 인증서가
+필요합니다. `NLC_SIGN_IDENTITY`에는 `security find-identity -v -p codesigning`에서 확인한
+인증서 식별자를 지정합니다. 출력 경로는 아직 존재하지 않는 경로를 지정하세요.
+
+```sh
+tacto_preview_dir="$(mktemp -d /private/tmp/tacto-preview.XXXXXX)"
+uv run python setup/build_standalone_preview.py --identity "$NLC_SIGN_IDENTITY" --output "$tacto_preview_dir/Tacto.app" --report "$tacto_preview_dir/standalone-report.json"
+uv run python setup/build_drag_preview.py --app "$tacto_preview_dir/Tacto.app" --output "$tacto_preview_dir/Tacto-preview.dmg" --report "$tacto_preview_dir/drag-report.json"
+```
+
+두 빌더는 앱을 실행하거나 설치하거나 권한을 변경하지 않습니다. DMG는 앱과
+Applications 링크를 포함합니다. 실제 독립 앱 빌드·서명·이동 후 import 검사와
+DMG 체크섬 검증은 통과했지만, **공증과 새 Mac에서의 Gatekeeper·권한 설정·드래그
+설치는 아직 검증하지 않았습니다**. 일반 사용자 배포 완료를 의미하지 않습니다.
+[수정·검증 결과](tacto-native-release-fixes-2026-10-16.md)를 참고하세요.
+
+GUI를 열지 않고 권한 상태의 오류·준비 완료 조건, 감지 시간 제한, 도우미 창 배치를 검사할 수 있습니다.
 
 ```sh
 swiftc setup/PermissionState.swift setup/state-check.swift -o /tmp/nlc-setup-state-check

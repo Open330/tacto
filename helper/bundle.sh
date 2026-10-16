@@ -9,8 +9,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 . ../signing.sh
-APP="NLC Helper.app"
-rm -rf "$APP"
+STAGE=$(mktemp -d "./.tacto-helper-bundle.XXXXXX")
+trap 'rm -rf "$STAGE"' EXIT
+APP="$STAGE/NLC Helper.app"
 mkdir -p "$APP/Contents/MacOS"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -37,21 +38,17 @@ PLIST
 
 cp nlc-helper "$APP/Contents/MacOS/NLCHelper"
 
-IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
-  | grep -v CSSMERR | head -1 | sed -E 's/.*"(.*)"/\1/')}
-[ -n "$IDENTITY" ] || { echo "no signing identity"; exit 1; }
-# Sign inner code first, then the bundle — Apple's guidance; --deep is for
-# verification, not a signing strategy. Hardened runtime stays on: a process
-# holding an accessibility grant should not accept library injection.
-# -r pins the team, not the signer's certificate CN, so the TCC grant this
-# bundle earns outlives the certificate that signed it (see ../signing.sh).
-REQ="designated => $(nlc_requirement "$NLC_HELPER_ID")"
-codesign --force --sign "$IDENTITY" --identifier "$NLC_HELPER_ID" -r="$REQ" \
-         --options runtime --timestamp=none "$APP/Contents/MacOS/NLCHelper"
-codesign --force --sign "$IDENTITY" --identifier "$NLC_HELPER_ID" -r="$REQ" \
-         --options runtime --timestamp=none "$APP"
-codesign --verify --deep --strict "$APP" && echo "verified: hardened runtime, inner-first"
-codesign --verify -R="$(nlc_requirement "$NLC_HELPER_ID")" "$APP" \
-  && echo "verified: satisfies its own designated requirement"
-codesign -dv "$APP" 2>&1 | grep -E 'Identifier|TeamIdentifier'
-echo "bundled: $(pwd)/$APP"
+nlc_select_identity
+# Inner code first, then bundle; preserve the same team/identifier requirement.
+nlc_sign "$APP/Contents/MacOS/NLCHelper" "$NLC_HELPER_ID"
+nlc_sign "$APP" "$NLC_HELPER_ID"
+codesign --verify --deep --strict "$APP"
+DEST="NLC Helper.app"
+nlc_warn_team_change "$DEST" "$APP"
+[ ! -L "$DEST" ] || { echo 'Refusing symlink bundle destination.' >&2; exit 1; }
+if [ -e "$DEST" ]; then mv "$DEST" "$STAGE/previous.app"; fi
+if ! mv "$APP" "$DEST"; then
+  [ ! -e "$STAGE/previous.app" ] || mv "$STAGE/previous.app" "$DEST"
+  exit 1
+fi
+echo "bundled and verified: $(pwd)/$DEST"

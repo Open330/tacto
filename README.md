@@ -126,8 +126,8 @@ Tacto는 실행할 때 대상을 새 관찰에서 찾고 결과 조건을 검사
 ## 첫 작업 시작하기
 
 현재는 **macOS 소스 빌드 방식의 프로토타입**입니다. NLC가 Tacto로 이름을 바꿨습니다.
-Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools, 프로젝트에 고정된 서명 팀의 인증서가 필요합니다.
-다른 팀의 로컬 인증서만으로는 네이티브 설치가 되지 않으며 일반 사용자용 서명 배포는 아직 없습니다.
+Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools, Apple 발급 코드 서명 인증서가 필요합니다.
+특정 팀 제한은 없으며 런처·도우미를 같은 팀으로 서명합니다. 일반 사용자용 공증 배포는 아직 별도입니다.
 [현재 설치 범위와 제한](docs/installation.md)을 먼저 확인하세요.
 
 ```sh
@@ -241,7 +241,7 @@ python3 sites/tacto/serve.py
 | 반복·세션·수리 | `tacto batch`, `tacto session`, `tacto repair` |
 | 문서 첨부 관찰 | `tacto document-attachments` |
 | 브라우저 파일 등록 | `tacto web-upload` |
-| VRoid 전용 실험 | `tacto vroid-focus`, `tacto vroid-drag` — 전경 점유·포인터 이동을 허용하는 별도 진단 경로, 일반 배경 조작과 구분 |
+| VRoid 전용 실험 | `tacto vroid-focus`, `tacto vroid-drag` — `TACTO_ENABLE_EXPERIMENTAL_FOREGROUND=1`로 별도 빌드한 개발용 진단 경로. 기본 빌드 제외 |
 
 `tacto --help`로 현재 checkout의 명령을 확인하세요. 기존 `nlc` 별칭도 사용할 수 있습니다.
 네이티브 작업은 서명된 런처를 사용하고 필요한 명령에 `--helper`를 지정합니다.
@@ -256,6 +256,7 @@ python3 sites/tacto/serve.py
 - [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
 - [실제 앱·웹 일상 작업 10개](docs/tacto-everyday-examples-2026-10-15.md)
 - [초기 브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
+- [네이티브 서명·기본 빌드·설치 UX 수정 결과](docs/tacto-native-release-fixes-2026-10-16.md)
 - [전체 개선 peer 검토와 잔여 출시 제한](docs/tacto-peer-review-2026-10-16.md)
 - [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
 - [Python API](docs/api.md)
@@ -268,6 +269,7 @@ python3 sites/tacto/serve.py
 - [요청과 수신함을 결합한 전송 영수증](docs/delivery-evidence.md)
 - [평가 실행과 결과 읽기](docs/evaluation.md)
 - [배경 입력의 포커스·캐럿 관측](docs/input-observation.md)
+- [권한 받기 UX와 시작 앱 개선](docs/permission-onboarding.md)
 - [설치 범위와 실행 경로](docs/installation.md)
 - [읽기 전용 메뉴 발견](docs/menu-discovery.md)
 - [모델 호출의 시간 예산](docs/model-deadlines.md)

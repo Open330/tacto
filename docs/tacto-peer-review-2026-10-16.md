@@ -1,5 +1,8 @@
 # Tacto peer review — 2026-10-16
 
+> 후속 수정: 같은 날 기본 빌드의 VRoid 전경 경로 분리와 서명 팀 이식성을 수정했습니다.
+> 아래 내용은 수정 전 리뷰 기록입니다. [수정·검증 결과](tacto-native-release-fixes-2026-10-16.md)를 참고하세요.
+
 ## Decision and scope
 
 An independent Claude peer reviewed the publication checkout at `a858f66`

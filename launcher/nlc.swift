@@ -599,9 +599,7 @@ func vetted(_ msg: [String: Any]) -> String? {
     return addr
 }
 
-let helperRequirement =
-    "identifier \"ai.callabo.nlc.helper\" and anchor apple generic and " +
-    "certificate leaf[subject.OU] = \"48H4RZNB97\""
+let helperRequirement = TactoSigning.peerRequirement(identifier: "ai.callabo.nlc.helper")
 
 /// Authenticate the SERVER we just connected to.
 ///

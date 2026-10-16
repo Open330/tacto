@@ -4822,10 +4822,9 @@ guard connectPath != nil else {
 /// though a PID can in principle be reused, so it is made once at startup and
 /// the parent is pinned thereafter.
 ///
-/// The requirement is COMPILED IN, never taken from the environment. An
-/// environment override would have let a caller replace the check with one that
-/// passes — the boundary would have been advisory (advisor finding). Override
-/// at build time with -DNLC_DEV_REQUIREMENT for a different signing identity.
+/// The peer identifier is fixed; its required team is derived from this
+/// executable's verified Apple-issued signature, never from the environment.
+/// A caller cannot replace the trust requirement through configuration.
 ///
 /// `anchor apple generic` alone only means "an Apple-issued identity", not
 /// "ours", so the team is checked explicitly.
@@ -4833,9 +4832,7 @@ guard connectPath != nil else {
 // and feed it well-formed JSON, so authenticating it proved nothing (advisor
 // finding). The relay now lives inside the launcher, which hands its child an
 // inherited socket nothing else can obtain.
-let clientRequirement =
-    "identifier \"ai.callabo.nlc\" and anchor apple generic and " +
-    "certificate leaf[subject.OU] = \"48H4RZNB97\""
+let clientRequirement = TactoSigning.peerRequirement(identifier: "ai.callabo.nlc")
 
 /// The PID of `pid`'s parent, via sysctl.
 func parentOf(_ pid: pid_t) -> pid_t? {

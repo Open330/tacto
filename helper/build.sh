@@ -19,19 +19,22 @@ cp FrontmostProcess.swift "$STAGE/FrontmostProcess.swift"
 cp SavePanelObservation.swift "$STAGE/SavePanelObservation.swift"
 cp WindowDispatch.swift "$STAGE/WindowDispatch.swift"
 
-"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" -o nlc-helper
+SWIFT_ARGS=(-O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" "../SigningPolicy.swift" -o "$STAGE/nlc-helper")
+case "${TACTO_ENABLE_EXPERIMENTAL_FOREGROUND:-0}" in
+  0) ;;
+  1)
+    [ -f experimental/VroidDrag.swift ] || { echo 'Experimental foreground sources are unavailable in this checkout.' >&2; exit 2; }
+    cp experimental/VroidDrag.swift "$STAGE/VroidDrag.swift"
+    SWIFT_ARGS+=(-D TACTO_EXPERIMENTAL_FOREGROUND "$STAGE/VroidDrag.swift")
+    echo 'EXPERIMENTAL BUILD: VRoid foreground activation and global pointer input enabled.' >&2
+    ;;
+  *) echo 'TACTO_ENABLE_EXPERIMENTAL_FOREGROUND must be 0 or 1.' >&2; exit 2 ;;
+esac
 
-IDENTITY=${NLC_SIGN_IDENTITY:-$(security find-identity -p codesigning -v \
-  | grep -v CSSMERR | head -1 | sed -E 's/.*"(.*)"/\1/')}
-if [ -n "$IDENTITY" ]; then
-  # Same identifier and requirement as the bundled copy: the launcher
-  # authenticates whichever one answers, and a name only it uses would fail.
-  codesign --force --sign "$IDENTITY" --identifier "$NLC_HELPER_ID" \
-           -r="designated => $(nlc_requirement "$NLC_HELPER_ID")" \
-           --options runtime --timestamp=none nlc-helper
-  codesign --verify -R="$(nlc_requirement "$NLC_HELPER_ID")" nlc-helper
-  echo "signed with: $IDENTITY"
-else
-  echo "no signing identity found — built unsigned (grant will not survive rebuilds)"
-fi
-echo "built: $(pwd)/nlc-helper"
+"$SWIFTC" "${SWIFT_ARGS[@]}"
+
+nlc_select_identity
+nlc_sign "$STAGE/nlc-helper" "$NLC_HELPER_ID"
+nlc_warn_team_change nlc-helper "$STAGE/nlc-helper"
+mv "$STAGE/nlc-helper" nlc-helper
+echo "built and verified: $(pwd)/nlc-helper"
