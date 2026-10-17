@@ -280,7 +280,7 @@ final class AccessoryPanel: NSPanel {
         icon.setAccessibilityLabel("\(permissionAppName(app)). 이 아이콘을 옆 시스템 설정 창의 앱 목록으로 끌어다 놓으세요.")
         name.stringValue = permissionAppName(app)
         identity.stringValue = permission == .control
-            ? "Tacto의 앱 조작 도우미입니다. 이전 설치는 설정에 NLC Helper로 남아 있을 수 있어요."
+            ? "Tacto의 앱 조작 도우미입니다. 아래 앱 이름을 설정 목록에서 찾아 허용하세요."
             : "이 Tacto 앱에 화면 기록을 허용합니다. 같은 앱이 있으면 스위치만 켜세요."
         dropWhere.stringValue = permission == .screen
             ? "2. 옆의 ‘시스템 설정’ 창\n위쪽 ‘화면 및 시스템 오디오 기록’의 앱 목록 안에 놓으세요."
@@ -422,6 +422,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ?? (FileManager.default.fileExists(atPath: assets.appendingPathComponent("tacto-app.icns").path)
                 ? assets.appendingPathComponent("tacto-app.icns") : assets.appendingPathComponent("tacto-logo.svg"))
         logo.image = NSImage(contentsOf: asset)
+        if let image = logo.image { NSApp.applicationIconImage = image }
         logo.imageScaling = .scaleProportionallyUpOrDown
         logo.widthAnchor.constraint(equalToConstant: 38).isActive = true
         logo.heightAnchor.constraint(equalToConstant: 38).isActive = true
