@@ -247,6 +247,7 @@ def run_helper_onboarding(narrate=print, *, interactive=True) -> bool:
         narrate(f"✓ '{name}' 에 권한이 있어요. 파이썬에는 권한이 필요 없습니다.")
         return True
     narrate(f"✕ '{name}' 에 앱 조작 권한이 필요해요.")
+    narrate("   이전 버전에서 허용했더라도, 지금 표시된 앱의 권한을 다시 확인해 주세요.")
     narrate("   시스템 설정 > 개인정보 보호 및 보안 > 손쉬운 사용 에서 켜주세요.")
     narrate("   (macOS 27 에서는 같은 자리가 'Device Control and Data Access' 입니다.)")
     if st.get("why"):

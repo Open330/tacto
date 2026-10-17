@@ -15,6 +15,50 @@ private let coral = NSColor(srgbRed: 250/255, green: 107/255, blue: 59/255, alph
 private let canvas = adaptive(NSColor(srgbRed: 246/255, green: 244/255, blue: 237/255, alpha: 1),
                               NSColor(srgbRed: 0.09, green: 0.11, blue: 0.095, alpha: 1))
 
+private let ink = NSColor(srgbRed: 27/255, green: 33/255, blue: 28/255, alpha: 1)
+
+/// The coral primary button, drawn by Tacto rather than by AppKit's bezel.
+/// AppKit paints white text on a custom bezel colour (about 2.9:1 on coral) and
+/// drops the colour entirely while the window is inactive, e.g. while System
+/// Settings is in front. Ink on coral is 5.65:1 in every window state and theme.
+final class CoralButton: NSButton {
+    private var styling = false
+    override var title: String { didSet { styleTitle() } }
+    override var isEnabled: Bool { didSet { styleTitle(); needsDisplay = true } }
+    override var isHighlighted: Bool { didSet { needsDisplay = true } }
+    override var wantsUpdateLayer: Bool { true }
+    convenience init(title: String, target: AnyObject?, action: Selector?) {
+        self.init(frame: .zero)
+        self.title = title; self.target = target; self.action = action
+        isBordered = false; wantsLayer = true
+        layer?.cornerRadius = 6
+        font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+        styleTitle()
+    }
+    override var intrinsicContentSize: NSSize {
+        let text = attributedTitle.size()
+        return NSSize(width: ceil(text.width) + 28, height: max(28, ceil(text.height) + 10))
+    }
+    override func updateLayer() {
+        // Pressed lightens rather than darkens, so ink stays above 4.5:1 (6.55:1).
+        let fill = isHighlighted ? coral.blended(withFraction: 0.15, of: .white) ?? coral : coral
+        layer?.backgroundColor = (isEnabled ? fill : fill.withAlphaComponent(0.35)).cgColor
+    }
+    func styleTitle() {
+        guard !styling else { return }
+        styling = true; defer { styling = false }
+        let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
+        let styled = NSAttributedString(string: title, attributes: [
+            .foregroundColor: isEnabled ? ink : ink.withAlphaComponent(0.45),
+            .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .paragraphStyle: paragraph])
+        attributedTitle = styled
+        attributedAlternateTitle = styled
+        setAccessibilityLabel(title)        // follows "이 버전으로 연결", "연결 중…" etc.
+        invalidateIntrinsicContentSize()
+    }
+}
+
 class SurfaceStack: NSStackView {
     var fill: NSColor = .controlBackgroundColor { didSet { needsDisplay = true } }
     var outline: NSColor = .separatorColor { didSet { needsDisplay = true } }
@@ -455,9 +499,9 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         stack.addArrangedSubview(status)
         stack.setCustomSpacing(18, after: status)
-        connectButton = NSButton(title: "에이전트에 연결", target: self, action: #selector(connect))
-        connectButton.bezelStyle = .rounded; connectButton.keyEquivalent = "\r"; connectButton.isEnabled = false
-        connectButton.bezelColor = coral
+        let connect = CoralButton(title: "에이전트에 연결", target: self, action: #selector(connect))
+        connect.keyEquivalent = "\r"; connect.isEnabled = false
+        connectButton = connect
         let connectionHeader = NSStackView(views: [label("2. 에이전트 연결", size: 15, weight: .semibold), NSView(), connectButton])
         connectionHeader.orientation = .horizontal; connectionHeader.alignment = .centerY
         connectionHeader.widthAnchor.constraint(equalToConstant: contentWidth - 32).isActive = true
@@ -534,6 +578,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         else if state.ready { status.stringValue = "두 권한이 모두 켜져 있습니다. 다시 설정할 필요가 없어요." }
         else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 넘어갑니다." }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
+        else if connection == .other && !state.accessibility { status.stringValue = "이전 설치에서 허용했더라도 이 버전의 권한을 다시 확인하세요. ‘설정 열기’에서 표시된 앱을 추가하거나 켜 주세요." }
         else { status.stringValue = "‘설정 열기’를 누르면 설정이 열리고, 옆에 작은 도우미 창이 함께 뜹니다." }
         // State changes can wrap labels or hide actions. Keep the document size
         // current without resizing the user's window or losing their scroll position.
@@ -781,6 +826,11 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func renderSnapshot(_ request: (URL, SetupState, Permission?)) {
         let (directory, snapshotState, waiting) = request
+        do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
+        catch {
+            FileHandle.standardError.write(Data("Snapshot directory unavailable: \(error)\n".utf8))
+            exit(1)
+        }
         helper = URL(fileURLWithPath: "/Applications/Tacto Helper.app")   // offscreen fixture only
         if let i = CommandLine.arguments.firstIndex(of: "--helper-fixture"), i + 1 < CommandLine.arguments.count {
             helper = URL(fileURLWithPath: CommandLine.arguments[i + 1])
@@ -808,6 +858,8 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             notice = "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요."
         }
         render()
+        // Design review of the pressed fill; offscreen rendering never presses.
+        if CommandLine.arguments.contains("--pressed") { connectButton.isHighlighted = true }
         if CommandLine.arguments.contains("--compact") { window.setContentSize(NSSize(width: mainWidth, height: 520)) }
         assert(connectButton.isEnabled == (known && state.ready && connection != .current))
         assert(!applicationShouldTerminateAfterLastWindowClosed(NSApp))
