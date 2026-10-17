@@ -126,10 +126,21 @@ GUI의 상시 메뉴 막대 아이콘은 **Tacto 설정**입니다. 설정 창�
 
 ## 첫 작업 시작하기
 
-현재는 **macOS 소스 빌드 방식의 프로토타입**입니다. NLC가 Tacto로 이름을 바꿨습니다.
-Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools, Apple 발급 코드 서명 인증서가 필요합니다.
-특정 팀 제한은 없으며 런처·도우미를 같은 팀으로 서명합니다. 일반 사용자용 공증 배포는 아직 별도입니다.
-[현재 설치 범위와 제한](docs/installation.md)을 먼저 확인하세요.
+**macOS 개발자 미리보기**입니다. NLC가 Tacto로 이름을 바꿨습니다.
+
+Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
+[Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
+현재 저장소는 비공개이고 첫 Release는 검토용 초안으로 준비하므로 일반 공개 다운로드는 아직 제공하지 않습니다.
+DMG를 제공받았다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
+이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
+
+새 배포 서명으로의 실제 권한·GUI 작업, 새 Mac 설치와 베타 검증은 남아 있습니다.
+기존 개발용 서명에서의 실제 앱 검증은 Finder·Safari 40회 성공, TextEdit 저장은 사용자가 앱을 앞으로 가져온 뒤 재시도 20/20 성공입니다.
+최초 저장 실패 20회도 유지하며, 이 결과를 새 DMG의 무인 실행 성공으로 간주하지 않습니다.
+[출시 검증 현황](docs/release-readiness.md) · [설치 범위와 제한](docs/installation.md)
+
+**소스에서 빌드하려면** Python 3.11+, [uv](https://docs.astral.sh/uv/), Xcode Command Line Tools,
+Apple 발급 코드 서명 인증서가 필요합니다. 런처·도우미를 같은 팀으로 서명합니다.
 
 ```sh
 git clone https://github.com/Open330/tacto.git

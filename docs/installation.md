@@ -10,6 +10,7 @@ Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 �
 
 | 설치 방식 | 사용할 수 있는 범위 | 별도로 필요한 것 |
 | --- | --- | --- |
+| macOS 공증 DMG 미리보기 | Tacto.app의 설치·권한 안내와 번들 런타임 | Apple Silicon Mac, macOS 권한 허용; 새 Mac 검증 대기 |
 | Python wheel | flow IR, 계약·결과 검증, 후보 paging, 모델 adapter, trace 등 Python 코어 | Python 3.11 이상 |
 | wheel + `web` extra | Playwright 기반 별도 Chromium 페이지의 BrowserDriver | Playwright가 설치하는 Chromium과 운영체제 실행 의존성 |
 | macOS source checkout | 서명된 런처를 통한 macOS 접근성 조작 | Xcode Command Line Tools, Apple 발급 코드 서명 인증서, 손쉬운 사용 권한 |
@@ -53,10 +54,16 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 런처·도우미를 서명하고, 실행 시 양쪽이 자신의 유효한 서명에서 읽은 팀과 상대의
 팀·프로그램 식별자를 비교합니다. 다른 팀·서명 없는 프로그램·ad-hoc 서명은 거부합니다.
 `NLC_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
-인증서 없이 설치하는 일반 사용자용 Developer ID 서명·공증 배포는 별도 준비가
-필요합니다. Python 코어·별도 Chromium은 위 wheel 설치 범위에서 사용할 수 있습니다.
+별도로 준비한 Apple Silicon용 DMG는 Developer ID 서명·Apple 공증·Gatekeeper
+검사를 통과했습니다. [Release 페이지](https://github.com/Open330/tacto/releases)의
+첫 배포는 검토용 초안이며 현재 저장소도 비공개입니다. DMG를 제공받은 사용자는
+`Tacto.app`을 `Applications`로 드래그하고 앱을 열어 권한·명령·스킬 연결 안내를
+따릅니다. 사용자 자신의 개발용 인증서는 필요하지 않습니다. 새 서명 팀의 실제
+권한·GUI 작업과 새 Mac 설치는 아직 검증하지 않았으므로 일반 공개 출시로
+간주하지 않습니다. 자세한 근거는 [출시 기준](release-readiness.md)을 확인하세요.
+Python 코어·별도 Chromium은 위 wheel 설치 범위에서 사용할 수 있습니다.
 
-서명된 실행 경계는 소스 설치를 사용합니다. 저장소 루트에서 다음 순서로
+아래는 소스 설치 경로입니다. 저장소 루트에서 다음 순서로
 설치합니다. `./build.sh`는 로컬 서명 identity로 런처와 도우미를 빌드하므로
 wheel 설치 과정에서 자동 실행하지 않습니다.
 
