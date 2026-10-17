@@ -28,6 +28,14 @@
 | `no_window_content` | no accessible window was observed; inspect the reported `reason` and follow the window diagnostics below. This alone does not prove screen lock or require a user handoff |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
+### When a menu needs the app in front
+
+`needs_foreground` means the app disabled that menu in the background. Ask the
+person to bring that app forward; after they act, re-observe the exact document
+and resume the bound operation. Do not activate it automatically. A TextEdit
+edit returning `commit_unverified` still needs the bound `textedit_save` receipt
+and matching file bytes before reporting that it was saved.
+
 ### When the expected window is missing
 
 Use the installed signed backend consistently. Check `tacto apps --helper` and
