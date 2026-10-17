@@ -232,13 +232,25 @@ def _document_observation(driver, target, path):
             or normalize(os.path.realpath(path))!=normalize(path)):
         return refuse()
     try:
-        pin=driver.document_text(target,document_path=path,max_utf16_units=0)
+        pin=driver.document_text(target,document_path=path,max_utf16_units=1_000_000)
+        if isinstance(pin, dict) and pin.get('type') == 'error':
+            out = refuse()
+            # Closed diagnostics only; never echo arbitrary document/backend text.
+            known = {'initial document selection is ambiguous or absent': 'document_not_unique',
+                     'document body is absent or ambiguous': 'document_body_not_unique',
+                     'AX text exceeds the UTF-16 budget': 'document_over_budget',
+                     'AXDocument unavailable': 'document_path_unreadable',
+                     'invalid document file URL': 'document_url_invalid',
+                     'document path is not canonical absolute': 'document_path_not_canonical',
+                     'AXValue and AXStringForRange disagree': 'document_text_inconsistent'}
+            out['reason'] = known.get(pin.get('detail'), 'document_pin_unavailable')
+            return out
         if (not isinstance(pin,dict) or pin.get('type')!='document_text'
                 or not isinstance(pin.get('document_path'),str)
                 or normalize(pin['document_path'])!=normalize(path)
                 or not isinstance(pin.get('document_token'),str)
                 or not 0<len(pin['document_token'])<=128 or not pin['document_token'].strip()
-                or pin.get('text')!='' or type(pin.get('text_complete')) is not bool):
+                or not isinstance(pin.get('text'), str) or pin.get('text_complete') is not True):
             return refuse()
         result=driver.observe(target,'tree_full',document_token=pin['document_token'])
         if (not isinstance(result,dict) or result.get('type')!='observation'

@@ -52,6 +52,9 @@ func readSavePanel(_ request:[String:Any], operationDeadline:Double?=nil) -> [St
         "commit_control":["obs_id":mode == "obs" ? "other" : "obs", "enabled":mode != "disabled",
                           "action":["name":"click","element_index":mode == "wrong" ? 0 : 1]]]
 }
+// Finder-only selection must never be consulted by a Save-panel click.
+func str(_ element: AXUIElement, _ key: String) -> String? { fatalError("unexpected Finder read") }
+func attr(_ element: AXUIElement, _ key: String) -> Any? { fatalError("unexpected Finder read") }
 var advertisePress = true, pointerCalls = 0
 func AXUIElementCopyActionNames(_ el:AXUIElement, _ names:UnsafeMutablePointer<CFArray?>) -> AXError {
     names.pointee = (advertisePress ? ["AXPress"] : ["AXShowMenu"]) as CFArray; return .success

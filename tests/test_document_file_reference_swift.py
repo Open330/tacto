@@ -38,6 +38,14 @@ precondition(second == renamed.path)
 try manager.removeItem(at: renamed)
 do { _ = try documentURLPath(raw); fatalError("deleted reference accepted") }
 catch { }
+let package = root.appendingPathComponent("owned.rtfd")
+try manager.createDirectory(at: package, withIntermediateDirectories: false)
+let packagePath = try documentURLPath(package.absoluteString + "/")
+precondition(packagePath == package.path)
+for invalidSuffix in [renamed.absoluteString + "/", package.absoluteString + "//", root.appendingPathComponent("absent.rtfd").absoluteString + "/"] {
+    do { _ = try documentURLPath(invalidSuffix); fatalError("noncanonical suffix accepted") }
+    catch { }
+}
 let missing = root.appendingPathComponent("missing.rtf")
 let missingPath = try documentURLPath(missing.absoluteString)
 precondition(missingPath == missing.path)

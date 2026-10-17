@@ -453,7 +453,7 @@ class Observation:
             doc = _attr(el, "AXDocument")
             path = _document_path(doc) if isinstance(doc, str) else None
             if path:
-                label = (label + ", " if label else "") + f"Document: {path}"
+                label = (label + ", " if label else "") + f"Document: {_one_line(path)}"
         if role in AX_INTERACTABLE_ROLES or label:
             idx = len(self.elements)
             self.elements.append(el)

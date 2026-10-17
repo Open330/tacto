@@ -88,6 +88,17 @@ let labelAttrs = ["AXTitle", "AXDescription", "AXValue", "AXHelp",
 let labelNames = ["Title", "Description", "Value", "Help",
                   "Identifier", "Placeholder", "Subrole"]
 
+// Match the Python observer's one-line transport. A multiline AXValue must
+// neither hide later identity attributes nor manufacture another tree node.
+func oneLineLabel(_ text: String) -> String {
+    text.replacingOccurrences(of: "\r\n", with: "\n").unicodeScalars.map {
+        switch $0.value {
+        case 10, 13, 11, 12, 28, 29, 30, 133, 8232, 8233: return "\\n"
+        default: return String($0)
+        }
+    }.joined()
+}
+
 /// The element's label attributes in ONE round trip. Some apps compute these
 /// lazily per element — a Mail row costs 20ms read one at a time and 3ms read
 /// together — and a mailbox has thousands of rows.
@@ -101,7 +112,7 @@ let labelNames = ["Title", "Description", "Value", "Help",
             if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
             // An attribute the element lacks comes back as an AXValue holding
             // an error, not as nil, so only real strings and numbers count.
-            if let s = v as? String, !s.isEmpty { parts.append("\(labelNames[i]): \(s)") }
+            if let s = v as? String, !s.isEmpty { parts.append("\(labelNames[i]): \(oneLineLabel(s))") }
             else if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
                 parts.append("\(labelNames[i]): \(n.stringValue)")
             }
@@ -110,7 +121,7 @@ let labelNames = ["Title", "Description", "Value", "Help",
     }
     for (i, key) in labelAttrs.enumerated() {
         if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
-        if let v = str(el, key) { parts.append("\(labelNames[i]): \(v)") }
+        if let v = str(el, key) { parts.append("\(labelNames[i]): \(oneLineLabel(v))") }
     }
     return parts.joined(separator: ", ")
 }
@@ -148,7 +159,7 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     // file:// only, decoded and composed; anything else is not shown.
     if role == kAXWindowRole as String, let doc = str(el, "AXDocument"),
        let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/") {
-        text += (text.isEmpty ? "" : ", ") + "Document: \(path.precomposedStringWithCanonicalMapping)"
+        text += (text.isEmpty ? "" : ", ") + "Document: \(oneLineLabel(path.precomposedStringWithCanonicalMapping))"
     }
     if interactableRoles.contains(role) || !text.isEmpty {
         let idx = elements.count
@@ -1382,6 +1393,34 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         let listed = AXUIElementCopyActionNames(el, &advertised)
         if listed == .success, let names = advertised as? [String],
            !names.contains(kAXPressAction as String) {
+            // Finder list rows expose selection as an AX attribute, not a
+            // press. A background pointer dispatch can report delivery without
+            // selecting anything. Set only an observed row in Finder's file
+            // list; sidebar rows and Save panels keep their existing route.
+            if target == "com.apple.finder", savePanelToken == nil,
+               str(el, kAXRoleAttribute as String) == kAXRowRole,
+               let parent = attr(el, kAXParentAttribute as String),
+               CFGetTypeID(parent as CFTypeRef) == AXUIElementGetTypeID(),
+               str(parent as! AXUIElement, kAXRoleAttribute as String) == kAXOutlineRole,
+               str(parent as! AXUIElement, kAXIdentifierAttribute as String) == "ListView" {
+                var settable = DarwinBoolean(false)
+                if AXUIElementIsAttributeSettable(parent as! AXUIElement, kAXSelectedRowsAttribute as CFString,
+                                                  &settable) == .success, settable.boolValue {
+                    guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline else {
+                        return ["type":"error", "error":"input_cancelled_or_expired", "effect":"not_started"]
+                    }
+                    let selected = AXUIElementSetAttributeValue(parent as! AXUIElement, kAXSelectedRowsAttribute as CFString,
+                                                               [el] as CFArray)
+                    guard selected == .success,
+                          let rows = attr(parent as! AXUIElement, kAXSelectedRowsAttribute as String) as? [AXUIElement],
+                          rows.count == 1, CFEqual(rows[0], el) else {
+                        return ["type":"error", "error":"action_failed", "effect":"unknown",
+                                "detail":"Finder row selection could not be verified"]
+                    }
+                    return ["type":"acted", "action":name, "obs_id":obsID,
+                            "input_route":"ax_selection", "note":"not verified — observe again"]
+                }
+            }
             return pointerClick()
         }
         if let token = savePanelToken,
@@ -3353,7 +3392,7 @@ func documentURLPath(_ text: String, resolvingReference: Bool = false) throws ->
     }
     // Percent escapes decoded by hand, so a malformed escape or a byte string
     // that is not UTF-8 is a refusal rather than a replacement character.
-    guard let path = documentDecodePercent(parts.percentEncodedPath) else {
+    guard var path = documentDecodePercent(parts.percentEncodedPath) else {
         throw DocumentError.fail("invalid document file URL")
     }
     guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\\"),
@@ -3366,6 +3405,14 @@ func documentURLPath(_ text: String, resolvingReference: Bool = false) throws ->
             throw DocumentError.fail("document file reference is unreachable")
         }
         return try documentURLPath(resolved.absoluteString, resolvingReference: true)
+    }
+    // AppKit supplies a trailing slash for package documents such as RTFD.
+    // Accept one directory marker only on an existing canonical directory.
+    if path.count > 1, path.hasSuffix("/"), !path.hasSuffix("//") {
+        let plain = String(path.dropLast())
+        var isDirectory = ObjCBool(false)
+        if FileManager.default.fileExists(atPath: plain, isDirectory: &isDirectory), isDirectory.boolValue,
+           documentIsCanonical(plain) { path = plain }
     }
     guard documentIsCanonical(path) else {
         throw DocumentError.fail("document path is not canonical absolute")

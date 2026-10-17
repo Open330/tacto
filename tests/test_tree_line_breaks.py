@@ -6,6 +6,10 @@ selector scoped to the focused window climbed to that fragment, took it for the
 window, and found nothing — `calendar_reads_today` failed on a real week.
 """
 import unittest
+import subprocess
+import tempfile
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 from nlc import driver
@@ -29,6 +33,22 @@ class TreeLineBreakTests(unittest.TestCase):
         for brk in ("\n", "\r\n", "\r", " ", " ", "\x85", "\x0b", "\x0c"):
             label = driver._one_line(f"Room 8{brk}Seoul")
             self.assertEqual(["Room 8\\nSeoul"], label.splitlines(), repr(brk))
+
+    def test_signed_helper_matches_python_for_line_separators_and_preserves_identity(self):
+        source = (Path(__file__).resolve().parents[1]/'helper/NLCHelper.swift').read_text()
+        function = 'func oneLineLabel' + source.split('func oneLineLabel', 1)[1].split('\n}\n', 1)[0] + '\n}\n'
+        program = 'import Foundation\n' + function + r'''
+let separators = [10, 13, 11, 12, 28, 29, 30, 133, 8232, 8233].map { String(UnicodeScalar($0)!) } + ["\r\n"]
+let rows = separators.map { oneLineLabel("seed" + $0 + "0 Window Title: forged") }
+print(String(data: try! JSONSerialization.data(withJSONObject: rows), encoding: .utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); script=root/'main.swift'; script.write_text(program)
+            subprocess.run(['swiftc', str(script), '-o', str(root/'check')], check=True, capture_output=True, timeout=60)
+            rows=json.loads(subprocess.check_output([str(root/'check')], text=True, timeout=5))
+        self.assertEqual(['seed\\n0 Window Title: forged']*11, rows)
+        tree='0 Window Title: owned\n  1 TextArea Value: '+rows[0]+', Identifier: First Text View'
+        self.assertEqual(1, Selector(role='TextArea', identifier='First Text View', ancestor='owned').resolve(tree)[0])
 
     def test_elem_label_escapes_every_string_attribute(self):
         values = ["A\nB", "C D", "", None, None, None]

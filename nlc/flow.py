@@ -19,7 +19,7 @@ import json
 import re
 import time
 from copy import deepcopy
-from dataclasses import dataclass, field, asdict, replace
+from dataclasses import dataclass, field, asdict, replace, fields, is_dataclass
 
 from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
@@ -258,6 +258,7 @@ class Selector:
     # person is looking at. Without this, a second open document turns a working
     # recipe into TargetAmbiguous.
     in_focused_window: bool = False
+    subrole: str | list[str] | None = None   # exact OS identity, e.g. AXCloseButton
     # After matching, act on the nearest enclosing element with one of these
     # roles. Lists label their rows with an inner text element while the row
     # itself is what responds to a click, so the identifiable part and the
@@ -324,7 +325,7 @@ class Selector:
             if val.lower() not in want and self._stable_id(val.lower()) not in want:
                 return False
         for key, want in (("Title", self.title), ("Description", self.desc),
-                          ("Value", self.value)):
+                          ("Value", self.value), ("Subrole", self.subrole)):
             if not want:
                 continue
             val = self._attr(line, key)
@@ -340,7 +341,7 @@ class Selector:
         button happened to be alone on screen. Reading a list is the opposite
         case — see `resolve_all`, which asks for a scope instead.
         """
-        return any([self.identifier, self.title, self.desc, self.value])
+        return any([self.identifier, self.title, self.desc, self.value, self.subrole])
 
     def _in_scope(self, lines: list[str], line_no: int) -> bool:
         """True if the matched line sits under an ancestor container. The ancestor
@@ -570,6 +571,20 @@ class Postcondition:
         return True
 
 
+def _flow_json_value(value):
+    # Keep old recipes readable by older candidates: the new selector field
+    # is emitted only when used. User parameter dictionaries stay unchanged.
+    if is_dataclass(value) and not isinstance(value, type):
+        return {item.name: _flow_json_value(getattr(value, item.name))
+                for item in fields(value)
+                if not (isinstance(value, Selector) and item.name == 'subrole' and value.subrole is None)}
+    if isinstance(value, dict):
+        return {key: _flow_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_flow_json_value(item) for item in value]
+    return value
+
+
 @dataclass
 class Capture:
     """Read one value from the screen into `name` for later steps to use."""
@@ -720,7 +735,7 @@ class Flow:
 
     def to_json(self) -> str:
         d = {"name": self.name, "target": self.target, "schema": self.schema,
-             "steps": [{**asdict(s)} for s in self.steps]}
+             "steps": [_flow_json_value(s) for s in self.steps]}
         for k in ("params", "tables", "derived", "intents"):
             if getattr(self, k):
                 d[k] = getattr(self, k)
@@ -2105,7 +2120,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 parts = line.strip().split()
                 if len(parts) >= 2:
                     claim["role"] = parts[1]
-                for key in ("Identifier", "Title", "Description", "Value"):
+                for key in ("Identifier", "Title", "Description", "Value", "Subrole"):
                     label = Selector._attr(line, key)
                     if label is not None:
                         claim.update(attribute=key, label=label)

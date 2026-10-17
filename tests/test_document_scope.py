@@ -22,6 +22,21 @@ TREE = '\n'.join([
 
 
 class DocumentScopeTests(unittest.TestCase):
+    def test_close_button_requires_its_exact_subrole_and_document(self):
+        from nlc.flow import Flow
+        tree='0 Window Title: one, Document: /owned/one.txt\n  1 Button Subrole: AXCloseButton\n  2 Button Subrole: AXMinimizeButton\n3 Window Title: two, Document: /owned/two.txt\n  4 Button Subrole: AXCloseButton'
+        selector=Selector(role='Button', subrole='AXCloseButton', ancestor='/owned/one.txt')
+        self.assertEqual(1,selector.resolve(tree)[0])
+        with self.assertRaises(Exception): Selector(role='Button', subrole='AXCloseButton').resolve(tree)
+        flow=Flow.from_json('{"schema":2,"name":"close-owned","target":"com.apple.TextEdit","steps":[{"action":"click","selector":{"role":"Button","subrole":"AXCloseButton","ancestor":"/owned/one.txt"}}]}')
+        self.assertEqual('AXCloseButton', Flow.from_json(flow.to_json()).steps[0].selector.subrole)
+        import json
+        old=Flow.from_json('{"schema":2,"name":"old","target":"owned","steps":[{"action":"read","selector":{"role":"Window","title":"owned"}}]}')
+        encoded=json.loads(old.to_json())
+        self.assertNotIn('subrole',encoded['steps'][0]['selector'])
+        from nlc.flow import _flow_json_value
+        self.assertEqual({'subrole':None},_flow_json_value({'subrole':None}))
+
     def test_view_is_the_one_window_showing_that_file(self):
         view = document_window_view(TREE, PATH)
         self.assertIn('2 TextArea', view)
@@ -38,14 +53,25 @@ class DocumentScopeTests(unittest.TestCase):
         with self.assertRaises(Exception):
             same_title.resolve(TREE)          # two windows share the title
 
+    def test_package_document_directory_marker_keeps_canonical_identity(self):
+        import tempfile
+        from pathlib import Path
+        from nlc.native_document import _document_path, DocumentSnapshotError
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder).resolve(); package=root/'owned.rtfd'; package.mkdir()
+            self.assertEqual(str(package), _document_path((0, package.as_uri()+'/')))
+            plain=root/'owned.txt'; plain.write_text('owned')
+            for value in (plain.as_uri()+'/', package.as_uri()+'//', (root/'missing.rtfd').as_uri()+'/'):
+                with self.assertRaises(DocumentSnapshotError): _document_path((0,value))
+
     def test_cli_prints_only_that_window_and_refuses_bad_arguments(self):
         class D:
             capabilities = {'evidence.document_text.path_selector', 'observe.document_token'}
             def document_text(self, target, *, document_path, max_utf16_units):
-                if document_path != PATH or max_utf16_units != 0:
+                if document_path != PATH or max_utf16_units != 1_000_000:
                     return {'type': 'error'}
                 return {'type': 'document_text', 'document_path': PATH,
-                        'document_token': 'owned', 'text': '', 'text_complete': False}
+                        'document_token': 'owned', 'text': 'owned', 'text_complete': True}
             def observe(self, target, mode, *, document_token):
                 if document_token != 'owned':
                     raise AssertionError('an unpinned app-wide read is forbidden')
