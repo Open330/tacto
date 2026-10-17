@@ -56,7 +56,7 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 `NLC_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
 별도로 준비한 Apple Silicon용 DMG는 Developer ID 서명·Apple 공증·Gatekeeper
 검사를 통과했습니다. [Release 페이지](https://github.com/Open330/tacto/releases)의
-첫 배포는 검토용 초안이며 현재 저장소도 비공개입니다. DMG를 제공받은 사용자는
+첫 배포는 개발자 미리보기입니다. [Preview 1](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1)의 DMG를 다운로드한 사용자는
 `Tacto.app`을 `Applications`로 드래그하고 앱을 열어 권한·명령·스킬 연결 안내를
 따릅니다. 사용자 자신의 개발용 인증서는 필요하지 않습니다. 새 서명 팀의 실제
 권한·GUI 작업과 새 Mac 설치는 아직 검증하지 않았으므로 일반 공개 출시로
