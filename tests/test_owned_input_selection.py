@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC unavailable')
 class OwnedInputSelectionTests(unittest.TestCase):
     def test_missing_selection_blocks_fixture_start_and_provider_work(self):
-        from nlc.input_audit_process import InputAuditProcessError
-        from nlc.native_window_payload import WINDOW_INPUT_CAPABILITIES
+        from tacto.input_audit_process import InputAuditProcessError
+        from tacto.native_window_payload import WINDOW_INPUT_CAPABILITIES
         for name in ('native-navigation.py', 'native-opaque-input.py'):
             probe = runpy.run_path(str(ROOT / 'examples/probes' / name))['main']
             driver = Mock(capabilities=WINDOW_INPUT_CAPABILITIES)
@@ -24,12 +24,12 @@ class OwnedInputSelectionTests(unittest.TestCase):
             audit.__exit__ = Mock(return_value=False)
             audit.report.return_value = {'status': 'INCONCLUSIVE', 'require_selection': True}
             with tempfile.TemporaryDirectory() as work, \
-                    patch('nlc.driver.Driver', return_value=driver), \
-                    patch('nlc.input_audit_process.ProcessInputAudit', return_value=audit) as factory, \
+                    patch('tacto.driver.Driver', return_value=driver), \
+                    patch('tacto.input_audit_process.ProcessInputAudit', return_value=audit) as factory, \
                     patch('subprocess.run') as compile_only, \
                     patch('subprocess.Popen') as launch, \
-                    patch('nlc.ask.ask_here_paged') as model, \
-                    patch('nlc.visual.plan_native_input') as vision:
+                    patch('tacto.ask.ask_here_paged') as model, \
+                    patch('tacto.visual.plan_native_input') as vision:
                 output = Path(work) / 'report.json'
                 if name == 'native-navigation.py':
                     report = probe(driver, output, model_provider='claude', require_selection=True)
@@ -51,7 +51,7 @@ class OwnedInputSelectionTests(unittest.TestCase):
     def test_nonboolean_requirement_rejected_before_driver_creation(self):
         for name in ('native-navigation.py', 'native-opaque-input.py'):
             probe = runpy.run_path(str(ROOT / 'examples/probes' / name))['main']
-            with patch('nlc.driver.Driver') as create:
+            with patch('tacto.driver.Driver') as create:
                 with self.assertRaisesRegex(ValueError, 'boolean'):
                     if name == 'native-navigation.py':
                         probe(Mock(), 'unused', require_selection=1)
@@ -60,7 +60,7 @@ class OwnedInputSelectionTests(unittest.TestCase):
                 create.assert_not_called()
 
     def test_foreign_process_with_same_bundle_id_never_reaches_observe_or_input(self):
-        from nlc.native_window_payload import WINDOW_INPUT_CAPABILITIES
+        from tacto.native_window_payload import WINDOW_INPUT_CAPABILITIES
         probe = runpy.run_path(str(ROOT / 'examples/probes/native-opaque-input.py'))['main']
         driver = Mock(capabilities=WINDOW_INPUT_CAPABILITIES)
         driver._resolve.side_effect = [None, 777]
@@ -72,11 +72,11 @@ class OwnedInputSelectionTests(unittest.TestCase):
         child.poll.return_value = None
         child.wait.side_effect = lambda **kwargs: setattr(child.poll, 'return_value', 0)
         with tempfile.TemporaryDirectory() as work, \
-                patch('nlc.driver.Driver', return_value=driver), \
-                patch('nlc.input_audit_process.ProcessInputAudit', return_value=audit), \
+                patch('tacto.driver.Driver', return_value=driver), \
+                patch('tacto.input_audit_process.ProcessInputAudit', return_value=audit), \
                 patch('subprocess.run'), patch('subprocess.Popen', return_value=child), \
                 patch('time.monotonic', side_effect=[0, 11]), \
-                patch('nlc.visual.plan_native_input') as vision:
+                patch('tacto.visual.plan_native_input') as vision:
             report = probe(Path(work)/'report.json', public_driver=driver,
                            visual_flow=True, vision_provider='claude', require_selection=True)
         self.assertFalse(report['passed'])

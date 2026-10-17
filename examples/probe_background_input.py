@@ -3,7 +3,7 @@
 Requires an already running, background Calculator at 0 in Basic mode. It never
 launches/activates apps. Changes Calculator to 7 then 0 and Scientific then Basic.
 A failed step stops immediately; no hidden cleanup or foreground restoration.
-Run the signed path with: ./launcher/nlc eval background_input_preserves_focus
+Run the signed path with: ./launcher/tacto eval background_input_preserves_focus
 """
 from pathlib import Path
 import argparse
@@ -19,9 +19,9 @@ TARGET = 'com.apple.calculator'
 
 
 def run_probe(driver, *, transport, require_selection=False):
-    from nlc.driver import Driver, _attr, AXUIElementCreateApplication
-    from nlc.flow import Selector, Postcondition
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.driver import Driver, _attr, AXUIElementCreateApplication
+    from tacto.flow import Selector, Postcondition
+    from tacto.input_audit_process import ProcessInputAudit
 
     if type(require_selection) is not bool:
         raise ValueError('require_selection must be bool')
@@ -29,8 +29,8 @@ def run_probe(driver, *, transport, require_selection=False):
                   selection_observation_required=require_selection,
                   measurement='sampled preservation AND independent target readback',
                   proves_no_intermediate_change=False)
-    paths = ['examples/probe_background_input.py', 'nlc/driver.py', 'helper/TactoHelper.swift', 'helper/nlc-helper',
-             'nlc/input_audit.py', 'nlc/input_audit_process.py']
+    paths = ['examples/probe_background_input.py', 'tacto/driver.py', 'helper/TactoHelper.swift', 'helper/tacto-helper',
+             'tacto/input_audit.py', 'tacto/input_audit_process.py']
     report['source_hashes'] = {p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest()
                                for p in paths if (ROOT/p).is_file()}
     try:
@@ -43,7 +43,7 @@ def run_probe(driver, *, transport, require_selection=False):
             # The window server, not the app's own AXFrontmost: a background
             # Calculator answered AXFrontmost=True with isActive=False
             # (2026-10-07), as TextEdit once did for six hours.
-            from nlc.native_frontmost import FrontmostUnavailable, frontmost_pid
+            from tacto.native_frontmost import FrontmostUnavailable, frontmost_pid
             try:
                 if frontmost_pid() == pid:
                     raise RuntimeError('target_not_observably_background')
@@ -125,7 +125,7 @@ def main():
     parser.add_argument('--require-selection',action='store_true',
                         help='Require observable foreground caret/selection; unavailable evidence prevents actions.')
     args=parser.parse_args()
-    from nlc.driver import Driver
+    from tacto.driver import Driver
     result=run_and_save(Driver(),transport='in-process',output=args.output,
                         require_selection=args.require_selection)
     print(json.dumps({'passed':result['passed'],'error':result.get('error'),

@@ -4,7 +4,7 @@ import threading
 import unittest
 from unittest.mock import Mock
 
-from nlc.input_audit import NO_FOCUS, InputAudit, InputSnapshot, MacInputReader
+from tacto.input_audit import NO_FOCUS, InputAudit, InputSnapshot, MacInputReader
 
 BASE = InputSnapshot(10, (100, 200), 'focus-a')
 
@@ -245,7 +245,7 @@ class MacReaderContract(unittest.TestCase):
         appkit.NSWorkspace.sharedWorkspace.assert_not_called()
 
     def test_unavailable_fresh_read_cannot_use_cached_pid(self):
-        from nlc.native_frontmost import FrontmostUnavailable
+        from tacto.native_frontmost import FrontmostUnavailable
         reader, appkit, quartz, ax = self.reader()
         reader._foreground_pid.side_effect = FrontmostUnavailable('unavailable')
         snapshot = reader()

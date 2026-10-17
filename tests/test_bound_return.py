@@ -4,10 +4,10 @@ selected row, send the message in its field). The helper is told the host
 vouched (submit_authorized); everything else stays as for a bound key."""
 from dataclasses import replace
 import unittest
-from nlc.contract import Envelope, ContextBinding
-from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
-from nlc.helper import HelperDriver
-from nlc.protocol import window_key_reobservation
+from tacto.contract import Envelope, ContextBinding
+from tacto.flow import Flow, Step, Selector, Postcondition, replay, pin_params
+from tacto.helper import HelperDriver
+from tacto.protocol import window_key_reobservation
 
 CAPS = {'action.press_key', 'press_key.element_bound', 'press_key.no_escape', 'press_key.return_bound'}
 SENT = {'type': 'acted', 'input_route': 'window_bound_submit_key', 'posted_events': 1,

@@ -51,8 +51,8 @@ def verify_app(app):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     runtime=app/'Contents/Resources/runtime'
     for target,identifier in ((app,'ai.callabo.nlc.setup.standalone.preview'),
-            (runtime/'helper/NLC Helper.app','ai.callabo.nlc.helper'),
-            (runtime/'launcher/nlc','ai.callabo.nlc')):
+            (runtime/'helper/Tacto Helper.app','ai.callabo.nlc.helper'),
+            (runtime/'launcher/tacto','ai.callabo.nlc')):
         run(['codesign','--verify','--deep','--strict','-R='+module.requirement(identifier,signed_reference=app),str(target)])
     if not (runtime/'.venv/bin/python').is_file():raise ValueError('standalone_python_missing')
 
@@ -66,7 +66,7 @@ def build(app,output):
     with os.fdopen(fd,'wb') as sink:
         if platform.system()!='Darwin':raise RuntimeError('macOS_required')
         began=time.monotonic();before=app_manifest(app);verify_app(app)
-        with tempfile.TemporaryDirectory(prefix='nlc-drag-preview-',dir=output.parent) as folder:
+        with tempfile.TemporaryDirectory(prefix='tacto-drag-preview-',dir=output.parent) as folder:
             base=Path(folder);stage=base/'volume';stage.mkdir(mode=0o700)
             copied=stage/'Tacto.app';shutil.copytree(app,copied,symlinks=True)
             # The output artifact stays private; the app root has normal drag

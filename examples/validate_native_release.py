@@ -14,7 +14,7 @@ import subprocess
 import time
 import uuid
 
-from nlc.flow import Selector, pin_params, _element_block
+from tacto.flow import Selector, pin_params, _element_block
 from release_identity import identity
 
 

@@ -2,7 +2,7 @@
 from dataclasses import FrozenInstanceError
 import unittest
 
-from nlc.native_text_snapshot import read_complete_text, TextSnapshotError
+from tacto.native_text_snapshot import read_complete_text, TextSnapshotError
 
 
 class AXReads:

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from nlc.visual import VisualCapture, VisualError, plan_visual, query_visual
+from tacto.visual import VisualCapture, VisualError, plan_visual, query_visual
 
 
 class VisualPlanner(unittest.TestCase):
@@ -10,7 +10,7 @@ class VisualPlanner(unittest.TestCase):
                                      {'width': 100, 'height': 60}, 1, b'png')
 
     def test_proposal_preserves_css_coordinates_and_provider(self):
-        with patch('nlc.visual.query_visual', return_value={'answer':
+        with patch('tacto.visual.query_visual', return_value={'answer':
                 '{"action":"click","x":42.5,"y":30}'}) as query:
             proposal = plan_visual(self.capture, 'Choose blue', provider='codex',
                                    model='test-model', timeout=12)
@@ -29,19 +29,19 @@ class VisualPlanner(unittest.TestCase):
                '{"action":"type_text","text":"injected"}',
                '```json\n{"action":"done"}\n```']
         for answer in bad:
-            with self.subTest(answer=answer), patch('nlc.visual.query_visual',
+            with self.subTest(answer=answer), patch('tacto.visual.query_visual',
                     return_value={'answer': answer}):
                 with self.assertRaisesRegex(VisualError, 'invalid_visual_proposal'):
                     plan_visual(self.capture, 'Choose blue')
 
     def test_done_and_stop_remain_proposals(self):
         for action in ('done', 'stop'):
-            with patch('nlc.visual.query_visual',
+            with patch('tacto.visual.query_visual',
                        return_value={'answer': '{"action":"' + action + '"}'}):
                 self.assertEqual({'action': action}, plan_visual(self.capture, 'Choose blue'))
 
     def test_invalid_timeouts_never_launch_provider(self):
-        with patch('nlc.visual._run_visual') as run:
+        with patch('tacto.visual._run_visual') as run:
             for value in (True, 0, -1, float('nan'), float('inf'), '60'):
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     query_visual(self.capture, 'Read', timeout=value)

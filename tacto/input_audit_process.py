@@ -131,7 +131,7 @@ class ProcessInputAudit:
         self._stop = context.Event()
         self._process = context.Process(target=_collect,
             args=(sender, self._stop, self.reader, self.strategy, self.interval,
-                  self.ready_samples, self.max_samples, self.require_selection), name='nlc-input-audit-process', daemon=True)
+                  self.ready_samples, self.max_samples, self.require_selection), name='tacto-input-audit-process', daemon=True)
         try:
             self._process.start()
         except Exception as exc:

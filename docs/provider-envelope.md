@@ -109,8 +109,8 @@ code에도 보존한다. 앞선 접근 제한으로 나중 route의 다른 실�
 
 ## 실제 Codex 호출의 선택적 프로세스 관측
 
-공통 `_provider_env()`는 Claude 세션 여부와 관계없이 NLC_HELPER_FD,
-NLC_LAUNCHER, NLC_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
+공통 `_provider_env()`는 Claude 세션 여부와 관계없이 TACTO_HELPER_FD,
+TACTO_LAUNCHER, TACTO_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
 사용자 profile·credential은 유지한다. 이는 채널 표지 제거이며 TCC 책임 분리를
 증명하지 않는다.
 

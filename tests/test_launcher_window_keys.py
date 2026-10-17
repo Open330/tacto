@@ -30,7 +30,7 @@ for action:[String:Any] in [
 var r=root;r["type"]="observe";requests.append(r)
 print(String(data:try! JSONSerialization.data(withJSONObject:requests.map { vetted($0) == nil }),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-save-guard-validator-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-save-guard-validator-') as directory:
             script=Path(directory)/'main.swift'
             script.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)
@@ -58,7 +58,7 @@ for action:[String:Any] in [
 ] {var r=root;r["action"]=action;requests.append(r)}
 print(String(data:try! JSONSerialization.data(withJSONObject:requests.map { vetted($0) == nil }),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-point-validator-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-point-validator-') as directory:
             script=Path(directory)/'main.swift'
             script.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)
@@ -82,7 +82,7 @@ let requests:[[String:Any]] = [
 ]
 print(String(data:try! JSONSerialization.data(withJSONObject:requests.map { vetted($0) == nil }),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-document-validator-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-document-validator-') as directory:
             script=Path(directory)/'main.swift'
             script.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)
@@ -115,7 +115,7 @@ for deadline: Any in [true, 0, -1, Double.infinity, Double.nan] {
 }
 print(String(data:try! JSONSerialization.data(withJSONObject:cases.map { vetted($0) == nil }),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-key-validator-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-key-validator-') as directory:
             script=Path(directory)/'main.swift'
             script.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)

@@ -6,7 +6,7 @@ from unittest.mock import patch
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC unavailable')
 class SelectionReadErrors(unittest.TestCase):
     def test_failed_subtree_does_not_hide_duplicate_identifier(self):
-        from nlc import driver as module
+        from tacto import driver as module
         original, candidate, branch, hidden, root = (object() for _ in range(5))
         values = {root: {'AXRole':'AXApplication','AXChildren':[candidate,branch]},
                   candidate: {'AXRole':'AXPopUpButton','AXIdentifier':'choice','AXValue':'Beta','AXChildren':[]},
@@ -25,7 +25,7 @@ class SelectionReadErrors(unittest.TestCase):
 
     def test_native_nsarray_children_preserve_live_control_readback(self):
         from Foundation import NSArray
-        from nlc import driver as module
+        from tacto import driver as module
         root, original = 'root', 'original'
         values = {root: {'AXRole':'AXApplication', 'AXChildren':NSArray.arrayWithArray_([original])},
                   original: {'AXRole':'AXPopUpButton', 'AXValue':'Beta'}}

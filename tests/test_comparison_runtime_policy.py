@@ -29,9 +29,9 @@ class RuntimePolicy(unittest.TestCase):
         with patch.dict(sys.modules, {'focus_witness':types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, 'source_manifest', return_value=manifest), \
              patch.object(comparison, '_locked', return_value=False), \
-             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
+             patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison, '_run_agent', side_effect=run):
-            for arm in ('nlc','sky'):
+            for arm in ('tacto','sky'):
                 result = comparison.run_one(task, arm, timeout=27)
                 self.assertEqual(27, result['timeout_seconds'])
                 self.assertEqual('background-v2', result['runtime_policy'])
@@ -54,7 +54,7 @@ class RuntimePolicy(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, \
              patch.object(comparison,'ROOT',Path(folder)), \
              patch.object(sys,'argv',['comparison','--only','appearance_mode','--timeout','23']), \
-             patch('nlc.helper.InheritedHelperDriver.available',return_value=True), \
+             patch('tacto.helper.InheritedHelperDriver.available',return_value=True), \
              patch.object(comparison,'_locked',return_value=False), \
              patch.object(comparison,'run_one',side_effect=outcome) as run, \
              redirect_stdout(StringIO()):
@@ -63,7 +63,7 @@ class RuntimePolicy(unittest.TestCase):
             self.assertEqual(1,len(records))
             self.assertEqual(2,len(records[0].read_text().splitlines()))
             self.assertEqual(0o600, records[0].stat().st_mode & 0o777)
-            self.assertEqual({'nlc','sky'},{json.loads(s)['arm'] for s in records[0].read_text().splitlines()})
+            self.assertEqual({'tacto','sky'},{json.loads(s)['arm'] for s in records[0].read_text().splitlines()})
         self.assertEqual(2,run.call_count)
 
     def test_invalid_timeout_never_starts_model_or_fixture(self):

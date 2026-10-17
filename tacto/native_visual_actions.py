@@ -28,7 +28,7 @@ def capture_window(driver, obs_id, target, *, window_index, timeout_seconds=5):
     if (not isinstance(obs_id, str) or not obs_id or not isinstance(target, str) or not target
             or type(window_index) is not int or window_index < 0):
         raise ValueError('an explicit observed window index and target are required')
-    with tempfile.TemporaryDirectory(prefix='nlc-native-image-') as directory:
+    with tempfile.TemporaryDirectory(prefix='tacto-native-image-') as directory:
         path = Path(directory) / 'window.png'
         reply = driver.capture(target, obs_id=obs_id, window_index=window_index,
                                path=path, timeout_seconds=timeout_seconds)

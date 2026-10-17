@@ -30,7 +30,7 @@ FORBIDDEN_CALLS = {
 
 class InputRoutingSourceTests(unittest.TestCase):
     def test_python_builds_or_sends_no_input_and_never_activates(self):
-        tree = ast.parse((ROOT / 'nlc/driver.py').read_text())
+        tree = ast.parse((ROOT / 'tacto/driver.py').read_text())
         calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
         offenders = [f'{n.func.attr}:{n.lineno}' for n in calls
                      if isinstance(n.func, ast.Attribute) and n.func.attr in FORBIDDEN_CALLS]
@@ -45,7 +45,7 @@ class InputRoutingSourceTests(unittest.TestCase):
         self.assertEqual([], front_writes, 'native runtime must not write AXFrontmost')
 
     def test_python_window_dispatch_has_one_pid_boundary_and_no_global_input(self):
-        source = (ROOT / 'nlc/native_window_dispatch.py').read_text()
+        source = (ROOT / 'tacto/native_window_dispatch.py').read_text()
         tree = ast.parse(source)
         calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
         attributes = [n.func.attr for n in calls if isinstance(n.func, ast.Attribute)]
@@ -91,7 +91,7 @@ class InputRoutingSourceTests(unittest.TestCase):
 @unittest.skipUnless(NATIVE_AVAILABLE, 'PyObjC unavailable; source routing regression still runs')
 class NativeInputDispatchTests(unittest.TestCase):
     def setUp(self):
-        from nlc import driver
+        from tacto import driver
         self.module = driver
         self.driver = object.__new__(driver.Driver)
         self.obs = SimpleNamespace(pid=4321, elements=[object()], obs_id='test')

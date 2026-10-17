@@ -1,11 +1,11 @@
-"""An explicit backbone must reach every model boundary of nlc do."""
+"""An explicit backbone must reach every model boundary of tacto do."""
 import contextlib
 import io
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from nlc import cli
+from tacto import cli
 
 
 class CLIProvider(unittest.TestCase):
@@ -48,20 +48,20 @@ class CLIProvider(unittest.TestCase):
             candidates = [{'label':'name','role':'TextField','can':['read']}]
             here(goal,candidates,[])
             kwargs['ask_where']('recipient',candidates)
-        modules = {'nlc.onboard':SimpleNamespace(run=lambda **kw:True),
-                   'nlc.session':SimpleNamespace(preflight=lambda:{'verdict':'ready'}, sandboxed=lambda:False, SANDBOXED='',
+        modules = {'tacto.onboard':SimpleNamespace(run=lambda **kw:True),
+                   'tacto.session':SimpleNamespace(preflight=lambda:{'verdict':'ready'}, sandboxed=lambda:False, SANDBOXED='',
                                                  KeepAwake=contextlib.nullcontext)}
         # Relative `from . import onboard` can use the parent package's cached
         # attribute, so isolate both import surfaces regardless of test order.
         with patch.dict('sys.modules',modules), \
-             patch('nlc.onboard',modules['nlc.onboard'],create=True), \
+             patch('tacto.onboard',modules['tacto.onboard'],create=True), \
              patch.object(cli,'Agent',Host), \
              patch.object(cli,'_make_driver',return_value=driver), \
              patch.object(cli,'_indicator_for',return_value=contextlib.nullcontext()), \
-             patch('nlc.ask.ask',return_value=None) as ask, \
-             patch('nlc.authoring.author') as author, \
-             patch('nlc.general.run',side_effect=run), \
-             patch('nlc.judge.model_judge',return_value=Mock()) as judge, \
+             patch('tacto.ask.ask',return_value=None) as ask, \
+             patch('tacto.authoring.author') as author, \
+             patch('tacto.general.run',side_effect=run), \
+             patch('tacto.judge.model_judge',return_value=Mock()) as judge, \
              contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(0,cli.main(['do','read this','--provider','codex','--learn','--think','1']))
         self.assertEqual('read this',captured['intent'])

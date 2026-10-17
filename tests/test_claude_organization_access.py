@@ -4,9 +4,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from nlc.claude_result import (claude_result, _observed_organization_access_disabled)
-from nlc.provider_observation import provider_failure_reason
-from nlc.provider_result import ProviderError, ProviderResult, parse_provider_result
+from tacto.claude_result import (claude_result, _observed_organization_access_disabled)
+from tacto.provider_observation import provider_failure_reason
+from tacto.provider_result import ProviderError, ProviderResult, parse_provider_result
 from tests.test_claude_result import events, stream
 
 MESSAGE = ('Your organization has disabled Claude subscription access for Claude Code'
@@ -61,7 +61,7 @@ class ClaudeOrganizationAccessTests(unittest.TestCase):
             def run(argv, payload, timeout, cwd):
                 session = argv[argv.index('--session-id')+1]
                 return code, stream(denial(session)), ''
-            with self.subTest(exit=code), patch('nlc.claude_result._run_claude', side_effect=run):
+            with self.subTest(exit=code), patch('tacto.claude_result._run_claude', side_effect=run):
                 result = claude_result('owned test', timeout=2)
             self.assertEqual('error', result.status)
             self.assertEqual('organization_access_disabled', result.error.code)
@@ -79,17 +79,17 @@ class ClaudeOrganizationAccessTests(unittest.TestCase):
             data[2]['message']['content'][0]['text'] = MESSAGE
             data[-1]['result'] = MESSAGE
             return 0, stream(data), ''
-        with patch('nlc.claude_result._run_claude', side_effect=run):
+        with patch('tacto.claude_result._run_claude', side_effect=run):
             result = claude_result('explain access policy', timeout=2)
         self.assertEqual('ok', result.status)
         self.assertEqual(MESSAGE, result.text)
 
     def test_common_route_retains_closed_attempt_and_friendly_reason(self):
-        from nlc.authoring import ask_model_result
+        from tacto.authoring import ask_model_result
         def run(argv, payload, timeout, cwd):
             session = argv[argv.index('--session-id')+1]
             return 1, stream(denial(session)), ''
-        with patch('nlc.claude_result._run_claude', side_effect=run):
+        with patch('tacto.claude_result._run_claude', side_effect=run):
             result = ask_model_result('owned test', 'claude', timeout=2)
         self.assertEqual('error', result.status)
         self.assertEqual('organization_access_disabled', result.error.code)
@@ -99,11 +99,11 @@ class ClaudeOrganizationAccessTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_SENTINEL', json.dumps(result.to_dict()))
 
     def test_known_unavailable_reasons_are_primary_codes_without_attempts(self):
-        from nlc.authoring import ask_model_result
+        from tacto.authoring import ask_model_result
         for code in ('not_logged_in', 'usage_limit', 'organization_access_disabled'):
             failure = ProviderResult('owned', 'claude', 'claude', 'cli-json',
                                      'error', None, ProviderError(code, 'PRIVATE_SENTINEL'), .1)
-            with self.subTest(code=code), patch('nlc.authoring._try_cli', return_value=failure):
+            with self.subTest(code=code), patch('tacto.authoring._try_cli', return_value=failure):
                 result = ask_model_result('owned test', 'claude', timeout=2)
             self.assertEqual(code, result.error.code)
             metadata = result.to_dict(); metadata['attempts'] = []
@@ -111,24 +111,24 @@ class ClaudeOrganizationAccessTests(unittest.TestCase):
             self.assertNotIn('PRIVATE_SENTINEL', json.dumps(metadata))
 
     def test_later_route_failure_does_not_inherit_prior_access_denial(self):
-        from nlc.authoring import ask_model_result
+        from tacto.authoring import ask_model_result
         def route(provider, prompt, timeout):
             code = 'organization_access_disabled' if provider == 'claude' else 'DifferentFailure'
             return ProviderResult('owned', provider, provider, 'cli-json',
                                   'error', None, ProviderError(code, 'PRIVATE_SENTINEL'), .1)
-        with patch('nlc.authoring.PROVIDER_ORDER', ('claude', 'codex')), \
-             patch('nlc.authoring._try_muxa', return_value=None), \
-             patch('nlc.authoring._try_cli', side_effect=route):
+        with patch('tacto.authoring.PROVIDER_ORDER', ('claude', 'codex')), \
+             patch('tacto.authoring._try_muxa', return_value=None), \
+             patch('tacto.authoring._try_cli', side_effect=route):
             result = ask_model_result('owned test', 'auto', timeout=2)
         self.assertEqual('RuntimeError', result.error.code)
         self.assertIsNone(provider_failure_reason([result.to_dict()]))
         self.assertNotIn('PRIVATE_SENTINEL', json.dumps(result.to_dict()))
 
     def test_timeout_keeps_timeout_code_instead_of_prior_access_failure(self):
-        from nlc.authoring import ask_model_result
+        from tacto.authoring import ask_model_result
         timeout = ProviderResult('owned', 'claude', 'claude', 'cli-json',
                                  'timeout', None, ProviderError('organization_access_disabled', 'PRIVATE'), .1)
-        with patch('nlc.authoring._try_cli', return_value=timeout):
+        with patch('tacto.authoring._try_cli', return_value=timeout):
             result = ask_model_result('owned test', 'claude', timeout=2)
         self.assertEqual('timeout', result.status)
         self.assertEqual('TimeoutError', result.error.code)

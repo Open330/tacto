@@ -164,7 +164,7 @@ class TakingTheScreenIsOptIn(unittest.TestCase):
         # focus reads the same one. That also means a test which turns it on
         # leaves it on for the next, so it is restored here rather than left
         # for the next test to discover.
-        from nlc import evaluation
+        from tacto import evaluation
         was = evaluation.foreground_allowed()
         self.addCleanup(evaluation.allow_foreground, was)
         evaluation.allow_foreground(False)
@@ -279,7 +279,7 @@ class EverySwitchIsTheSameSwitch(unittest.TestCase):
     """
 
     def setUp(self):
-        from nlc import evaluation
+        from tacto import evaluation
         was = evaluation.foreground_allowed()
         self.addCleanup(evaluation.allow_foreground, was)
         evaluation.allow_foreground(False)
@@ -299,7 +299,7 @@ class EverySwitchIsTheSameSwitch(unittest.TestCase):
         flag, which is how the two drifted apart.
         """
         import re
-        roots = [ROOT / "examples", ROOT / "tests", ROOT / "nlc", ROOT / "helper"]
+        roots = [ROOT / "examples", ROOT / "tests", ROOT / "tacto", ROOT / "helper"]
         offenders = []
         for root in roots:
             for path in root.rglob("*.py"):

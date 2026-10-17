@@ -43,6 +43,10 @@ Things it already knows how to do (tacto do "…"):
   “보고서.rtf” 로 저장해줘          이름을 정해 저장 — 확인을 묻습니다
 """
 
+import tacto as _runtime
+if getattr(_runtime, "__tacto_runtime__", None) is not True:
+    raise ImportError("tacto-runtime namespace conflict: use an isolated environment; another tacto package is installed")
+
 import json
 import re
 import sys
@@ -288,7 +292,7 @@ def document_window_view(tree: str, path: str) -> str | None:
 def focused_window_view(tree: str) -> str:
     """The window being worked on, and only the titles of the others.
 
-    An agent reads this on every step. Printing every window cost NLC twice
+    An agent reads this on every step. Printing every window cost Tacto twice
     Sky's tokens on the same TextEdit task — 182 lines across 4 windows per
     look, three of them unrelated documents (2026-10-07). Element indices are
     unchanged, so nothing that refers to them breaks; `--all-windows` prints
@@ -460,7 +464,7 @@ def _run_flow(flow, argv, walked: bool = False):
     return 0 if result.ok else 1
 
 
-def main(argv=None):
+def _main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("--help", "-h", "help"):
         print(__doc__)
@@ -487,7 +491,7 @@ def main(argv=None):
             print(SANDBOXED)
             return 3
         # Hold the display awake for as long as this command runs. Only `do`
-        # did, but an agent drives NLC one command at a time — observe, run,
+        # did, but an agent drives Tacto one command at a time — observe, run,
         # replay — and with this Mac's 3-minute screensaver lock the screen
         # locked in the middle of its work (2026-09-28). Release the assertion
         # when this invocation ends, even when main is called in a long-lived
@@ -1005,7 +1009,7 @@ def _dispatch(cmd, rest):
             if hit and _S().has(hit.name):
                 guess = _S().load(hit.name).target
             elif hit and hit.name in builders():
-                # A recipe that ships with NLC but has not been saved yet still
+                # A recipe that ships with Tacto but has not been saved yet still
                 # deserves the outline — otherwise the very first run of a task
                 # is the one run nobody can see or stop.
                 guess = builders()[hit.name]().target
@@ -1022,6 +1026,14 @@ def _dispatch(cmd, rest):
 
     print(f"unknown command {cmd!r}\n{__doc__}")
     return 2
+
+
+def main(argv=None):
+    try:
+        return _main(argv)
+    except FlowStore.MigrationRequired as error:
+        print(f"migration_required: {error}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

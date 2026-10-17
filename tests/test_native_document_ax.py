@@ -8,7 +8,7 @@ from types import SimpleNamespace
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC unavailable')
 class AXDocumentAdapterTests(unittest.TestCase):
     def setUp(self):
-        from nlc import native_document_ax as module
+        from tacto import native_document_ax as module
         self.module = module
         self.adapter = module.AXDocumentAdapter(lambda target, **kw: 123)
         self.window = {'AXSubrole': 'AXStandardWindow', 'AXRole': 'AXWindow'}
@@ -96,13 +96,13 @@ class AXDocumentAdapterTests(unittest.TestCase):
             self.assertEqual(configure.call_count, 2)
 
     def test_late_native_read_is_rejected_and_remaining_budget_sets_timeout(self):
-        from nlc.model_budget import model_deadline
+        from tacto.model_budget import model_deadline
         clock = [10.0]
         element = object()
         def read():
             clock[0] = 10.3
             return (0, 'late')
-        with patch('nlc.model_budget.time.monotonic', side_effect=lambda: clock[0]), \
+        with patch('tacto.model_budget.time.monotonic', side_effect=lambda: clock[0]), \
                 model_deadline(10.25), \
                 patch.object(self.module, 'AXUIElementSetMessagingTimeout', return_value=0) as configure:
             with self.assertRaises(TimeoutError):

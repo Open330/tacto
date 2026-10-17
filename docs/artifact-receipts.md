@@ -25,8 +25,8 @@ host가 별도로 전용 디렉터리를 준비하고 사용자 요청·신뢰�
 
 ```python
 from pathlib import Path
-from nlc.artifact_receipt import FreshFileReceipt
-from nlc.flow import replay
+from tacto.artifact_receipt import FreshFileReceipt
+from tacto.flow import replay
 
 receipt = FreshFileReceipt(
     Path(private_directory).resolve(),

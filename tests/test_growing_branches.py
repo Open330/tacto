@@ -10,8 +10,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from nlc.contract import Resource, SafetyContract
-from nlc.flow import Capture, Flow, Selector, Step, replay
+from tacto.contract import Resource, SafetyContract
+from tacto.flow import Capture, Flow, Selector, Step, replay
 
 PAD = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
                      resource=Resource(object_type="입력", scope="entry"))
@@ -94,7 +94,7 @@ class BranchReplayTests(unittest.TestCase):
 
 class LearnBranchTests(unittest.TestCase):
     def agent(self, template):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         saved = []
         store = type("S", (), {"save": lambda s, f: saved.append(f)})()
         return Agent(driver=object(), store=store), saved
@@ -112,7 +112,7 @@ class LearnBranchTests(unittest.TestCase):
         self.assertIn("홀수", saved[0].steps[0].params["branches"])
 
     def test_a_walked_branch_needing_consent_is_not_kept(self):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         send = SafetyContract(effects=["transmit"], reversibility="irreversible",
                               resource=Resource(object_type="메시지", scope="entry"))
         result = type("R", (), {"ok": True, "verified": True, "said": ["x"], "why": "",
@@ -120,8 +120,8 @@ class LearnBranchTests(unittest.TestCase):
         flow = Flow("b", "c", steps=[Step("click", Selector(role="Button", desc="Send"),
                                           intent_text="보내기", safety=send)])
         agent = Agent(driver=object(), general=lambda *a: result)
-        with patch("nlc.promote.candidate_from", return_value=object()), \
-             patch("nlc.promote.deployable", return_value=(flow, [])):
+        with patch("tacto.promote.candidate_from", return_value=object()), \
+             patch("tacto.promote.deployable", return_value=(flow, [])):
             out = agent._walk_branch("c", "g", "q", "짝수", None)
         self.assertEqual((True, None), (out["ok"], out["steps"]))
 
@@ -131,8 +131,8 @@ class PromoteBranchTests(unittest.TestCase):
              "container": "", "label": "Edit field", "value": "7"}]
 
     def walk(self):
-        from nlc.contract import Envelope
-        from nlc.promote import Candidate
+        from tacto.contract import Envelope
+        from tacto.promote import Candidate
         def key(label):
             return {"do": "click", "role": "Button", "label": label, "match": label,
                     "attr": "Description", "container": "", "line": f"  1 Button  Description: {label}",
@@ -142,7 +142,7 @@ class PromoteBranchTests(unittest.TestCase):
                          envelope=Envelope.minimal(), actions=[key("Add"), key("1"), key("Equals")])
 
     def test_rest_scope_makes_a_branch_point_that_reproduces_the_walk(self):
-        from nlc.promote import checked_decisions, replays_the_walk, to_flow, with_decisions
+        from tacto.promote import checked_decisions, replays_the_walk, to_flow, with_decisions
         c = self.walk()
         ok, why = checked_decisions(c, [{"step": 0, "scope": "rest", "depends_on": "Edit field",
                                          "question": "짝수?", "choices": ["짝수", "홀수"],
@@ -156,15 +156,15 @@ class PromoteBranchTests(unittest.TestCase):
         Flow.from_json(decided.to_json())
 
     def test_a_branch_the_decider_would_file_elsewhere_is_refused(self):
-        from nlc import cli
+        from tacto import cli
         c = self.walk()
         rec = {"candidate": {**c.__dict__, "envelope": None}, "request": c.goal}
-        from nlc.promote import to_flow
+        from tacto.promote import to_flow
         flow = to_flow(c, "p")
         proposal = {"decisions": [{"step": 0, "scope": "rest", "depends_on": "Edit field",
                                    "question": "짝수?", "choices": ["짝수", "홀수"], "taken": "홀수"}]}
-        with patch("nlc.authoring.reach_model", return_value=json.dumps(proposal)), \
-             patch("nlc.judge.model_decider", return_value=lambda *a: "짝수"):
+        with patch("tacto.authoring.reach_model", return_value=json.dumps(proposal)), \
+             patch("tacto.judge.model_decider", return_value=lambda *a: "짝수"):
             from contextlib import redirect_stdout
             from io import StringIO
             with redirect_stdout(StringIO()):

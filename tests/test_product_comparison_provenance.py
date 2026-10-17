@@ -10,7 +10,7 @@ from unittest.mock import patch
 from shutil import rmtree as _real_rmtree
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('nlc_product_provenance', ROOT / 'examples/product_comparison.py')
+spec = importlib.util.spec_from_file_location('tacto_product_provenance', ROOT / 'examples/product_comparison.py')
 comparison = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = comparison
 spec.loader.exec_module(comparison)
@@ -35,7 +35,7 @@ class SessionAvailabilityTests(unittest.TestCase):
                 self.assertIsNone(comparison._locked())
 
     def test_missing_lock_key_with_logged_in_console_is_not_a_false_block(self):
-        from nlc.session import lock_state
+        from tacto.session import lock_state
         with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
                 'kCGSSessionOnConsoleKey': True, 'kCGSessionLoginDoneKey': True}):
             self.assertIs(False, comparison._locked())
@@ -43,7 +43,7 @@ class SessionAvailabilityTests(unittest.TestCase):
                              'source':'CGSessionCopyCurrentDictionary'}, lock_state())
 
     def test_malformed_flags_are_unknown_and_reader_details_are_not_exposed(self):
-        from nlc.session import lock_state
+        from tacto.session import lock_state
         for value in (None, 0, 'false', [], {}):
             with self.subTest(value=value), \
                  patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
@@ -65,9 +65,9 @@ class SessionAvailabilityTests(unittest.TestCase):
         with patch('Quartz.CGSessionCopyCurrentDictionary', return_value={
                 'kCGSSessionOnConsoleKey': True}), \
              patch.object(comparison, 'source_manifest', return_value=manifest), \
-             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
+             patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison.subprocess, 'run') as run:
-            result = comparison.run_one(task, 'nlc')
+            result = comparison.run_one(task, 'tacto')
         self.assertEqual('not_run', result['status'])
         self.assertEqual('session_unobservable', result['observed'])
         self.assertFalse(result['comparison_eligible'])
@@ -95,7 +95,7 @@ class Provenance(unittest.TestCase):
 
     def test_rebuild_and_missing_artifact_are_part_of_identity(self):
         old = comparison.source_manifest()
-        key = 'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+        key = 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
         self.assertIsNone(old['files'][key])
         self.write(key, 'signed-v1')
         built = comparison.source_manifest()
@@ -105,13 +105,13 @@ class Provenance(unittest.TestCase):
 
     def test_helper_source_and_relative_paths_change_identity(self):
         self.write('helper/WindowDispatch.swift', 'guard')
-        self.write('nlc/a.py', 'same')
+        self.write('tacto/a.py', 'same')
         before = comparison.source_manifest()
         self.write('helper/WindowDispatch.swift', 'new-guard')
         self.assertNotEqual(before['sha256'], comparison.source_manifest()['sha256'])
-        self.assertIn('nlc/a.py', before['files'])
+        self.assertIn('tacto/a.py', before['files'])
 
-    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="nlc", launch_error=False):
+    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="tacto", launch_error=False):
         class Witness:
             def __enter__(self): return self
             def __exit__(self, *args): pass
@@ -122,12 +122,12 @@ class Provenance(unittest.TestCase):
                 raise FileNotFoundError('PRIVATE executable details')
             pathlib.Path(argv[argv.index('-o') + 1]).write_text('claimed success')
             if change:
-                self.write('helper/nlc-helper', 'rebuilt-during-run')
+                self.write('helper/tacto-helper', 'rebuilt-during-run')
             return subprocess.CompletedProcess(argv, exit_code, '', '')
         task = comparison.Task('owned-test', 'owned goal', lambda answer: (True, 'oracle satisfied'), setup=setup, cleanup=cleanup)
         with patch.dict(sys.modules, {'focus_witness': types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', return_value=False), \
-             patch('nlc.helper.InheritedHelperDriver.available', return_value=True), \
+             patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison, '_run_agent', side_effect=fake_run):
             return comparison.run_one(task, arm)
 
@@ -143,7 +143,7 @@ class Provenance(unittest.TestCase):
         unchanged = self.execute()
         self.assertEqual('passed', unchanged['status'])
         self.assertEqual('com.example.foreground-sentinel', unchanged['initial_frontmost_bundle'])
-        result = self.execute(setup=lambda: self.write('nlc/setup.py', 'changed'))
+        result = self.execute(setup=lambda: self.write('tacto/setup.py', 'changed'))
         self.assertTrue(result['source_changed'])
         self.assertEqual('invalid', result['status'])
 
@@ -161,7 +161,7 @@ class Provenance(unittest.TestCase):
         self.assertEqual('failed', result['cleanup_status'])
         self.assertEqual('RuntimeError', result['cleanup_error'])
         self.assertNotIn('private error', str(result))
-        changed = self.execute(cleanup=lambda: self.write('helper/nlc-helper', 'new-binary'))
+        changed = self.execute(cleanup=lambda: self.write('helper/tacto-helper', 'new-binary'))
         self.assertEqual('completed', changed['cleanup_status'])
         self.assertEqual('invalid', changed['status'])
 
@@ -231,7 +231,7 @@ class OwnedDocumentTests(unittest.TestCase):
         paths = {mine: self.P._owned_path()}
         for press, label in ((-25200, 'close_failed_left_as_is'), (0, 'still_open_left_as_is')):
             with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed while open')), \
-                 patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
+                 patch('tacto.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
                  patch('ApplicationServices.AXUIElementPerformAction', return_value=press), \
                  patch.object(self.P, '_observed_windows', return_value=(('pid', 1), [mine])), \
                  patch.object(self.P.time, 'sleep'):
@@ -249,7 +249,7 @@ class OwnedDocumentTests(unittest.TestCase):
                 self.P.owned_setup()
         directory = self.P._OWNED['directory']
         self.assertEqual(0o700, os.stat(directory).st_mode & 0o777)
-        self.assertTrue(os.path.basename(directory).startswith('nlc-compare-owned-'))
+        self.assertTrue(os.path.basename(directory).startswith('tacto-compare-owned-'))
         import shutil; shutil.rmtree(directory)
 
     def test_only_local_file_urls_are_paths(self):
@@ -257,7 +257,7 @@ class OwnedDocumentTests(unittest.TestCase):
         for url, ok in (('file:///tmp/a.txt', True), ('file://localhost/tmp/a.txt', True),
                         ('file://evil.example/tmp/a.txt', False), ('file:///tmp/a.txt?x=1', False),
                         ('https://x/tmp/a.txt', False)):
-            with patch('nlc.driver._attr', return_value=url):
+            with patch('tacto.driver._attr', return_value=url):
                 self.assertEqual(ok, P._window_path(object()) is not None, url)
 
     def test_korean_names_compare_composed(self):
@@ -272,7 +272,7 @@ class OwnedDocumentTests(unittest.TestCase):
         for seen in (None, (('pid', 2), [])):          # read failed / restarted
             with patch('shutil.rmtree', side_effect=lambda *a: self.fail('removed after unknown close')), \
                  patch.object(self.P, '_observed_windows', return_value=seen), \
-                 patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
+                 patch('tacto.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
                  patch('ApplicationServices.AXUIElementPerformAction', return_value=0), \
                  patch.object(self.P.time, 'sleep'):
                 windows = iter([[mine], [mine]] + [[]] * 40)
@@ -290,7 +290,7 @@ class OwnedDocumentTests(unittest.TestCase):
              patch.object(self.P, '_observed_windows', return_value=seen), \
              patch.object(self.P, '_document_read', side_effect=read), \
              patch.object(self.P, '_owned_file_is_ours', return_value=False), \
-             patch('nlc.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
+             patch('tacto.driver._attr', side_effect=lambda el, k: 'close' if k == 'AXCloseButton' else []), \
              patch('ApplicationServices.AXUIElementPerformAction', return_value=0), \
              patch.object(self.P.time, 'sleep'):
             windows = iter([[mine], [mine]] + [[]] * 40)
@@ -411,7 +411,7 @@ class FinderFolderTaskTests(unittest.TestCase):
                 self.P.finder_setup()
 
     def test_a_failed_read_is_not_an_empty_finder(self):
-        self.P._FOLDER['path'] = '/tmp/nlc-compare-folder-x'
+        self.P._FOLDER['path'] = '/tmp/tacto-compare-folder-x'
         for failing in ('AXTitle', 'AXChildren', 'AXIdentifier'):
             def ax(el, name, failing=failing):
                 if name == failing:
@@ -432,14 +432,14 @@ class FinderFolderTaskTests(unittest.TestCase):
     def test_answer_and_finder_showing_the_count_pass(self):
         with patch.object(self.P, 'finder_state', return_value=self.state(shown=['w'])), \
                 patch.object(self.P, '_find_identified', return_value='bar'), \
-                patch('nlc.driver._attr', return_value='7 items, 286 GB available'):
+                patch('tacto.driver._attr', return_value='7 items, 286 GB available'):
             passed, _ = self.P.finder_oracle('7 items')
         self.assertTrue(passed)
 
     def test_wrong_count_on_screen_fails(self):
         with patch.object(self.P, 'finder_state', return_value=self.state(shown=['w'])), \
                 patch.object(self.P, '_find_identified', return_value='bar'), \
-                patch('nlc.driver._attr', return_value='17 items'):
+                patch('tacto.driver._attr', return_value='17 items'):
             passed, _ = self.P.finder_oracle('7 items')
         self.assertFalse(passed)
 

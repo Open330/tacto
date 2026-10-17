@@ -2,10 +2,10 @@ from dataclasses import replace
 from unittest.mock import Mock, patch
 import unittest
 
-from nlc.contract import Envelope
-from nlc.flow import Selector
-from nlc.general import run
-from nlc.general_visual import NativeVisualScope
+from tacto.contract import Envelope
+from tacto.flow import Selector
+from tacto.general import run
+from tacto.general_visual import NativeVisualScope
 from tests.test_native_visual_actions import shot
 
 
@@ -32,8 +32,8 @@ class GeneralVisual(unittest.TestCase):
     def image(self,*args,**kwargs):
         self.counter+=1;return shot('general'+str(id(self))+str(self.counter))
     def execute(self,scope=None,**kwargs):
-        with patch('nlc.general_visual.capture_window',side_effect=self.image), \
-             patch('nlc.native_visual_actions.capture_window',side_effect=self.image):
+        with patch('tacto.general_visual.capture_window',side_effect=self.image), \
+             patch('tacto.native_visual_actions.capture_window',side_effect=self.image):
             return run(self.app,'owned','green once',lambda *args:self.fail('AX planner used'),
                 visual_scope=scope or self.scope,**kwargs)
 
@@ -46,7 +46,7 @@ class GeneralVisual(unittest.TestCase):
         self.assertTrue(result.events[0]['visual_host_verified'])
         self.assertIs(True,self.app.calls[0][1]['approved'])
         self.assertTrue(result.visual_used);self.assertEqual(1,len(result.visual_history))
-        from nlc.promote import candidate_from
+        from tacto.promote import candidate_from
         self.assertIsNone(candidate_from(result,'owned','green once'))
 
     def test_envelope_and_host_region_denials_send_no_input(self):
@@ -88,8 +88,8 @@ class GeneralVisual(unittest.TestCase):
 
     def test_pending_receipt_cannot_be_bypassed_by_switching_back_to_ax(self):
         scope=replace(self.scope,when=lambda *args:not self.app.calls,verify=lambda *args:False)
-        with patch('nlc.general_visual.capture_window',side_effect=self.image), \
-             patch('nlc.native_visual_actions.capture_window',side_effect=self.image):
+        with patch('tacto.general_visual.capture_window',side_effect=self.image), \
+             patch('tacto.native_visual_actions.capture_window',side_effect=self.image):
             result=run(self.app,'owned','green',lambda *args:self.fail('pending input bypassed'),visual_scope=scope)
         self.assertFalse(result.ok);self.assertEqual(1,len(self.app.calls))
         self.assertEqual('unknown',result.certainty)
@@ -111,8 +111,8 @@ class GeneralVisual(unittest.TestCase):
             if len(self.app.calls)==1:
                 return {'actions':[{'do':'read','candidate':candidates[0]}]}
             return {'done':True}
-        with patch('nlc.general_visual.capture_window',side_effect=self.image), \
-             patch('nlc.native_visual_actions.capture_window',side_effect=self.image):
+        with patch('tacto.general_visual.capture_window',side_effect=self.image), \
+             patch('tacto.native_visual_actions.capture_window',side_effect=self.image):
             result=run(self.app,'owned','green then read status',ax,visual_scope=scope)
         self.assertTrue(result.ok,result.why);self.assertTrue(result.verified)
         self.assertEqual(['click_point','read'],[action['name'] for action,_ in self.app.calls])
@@ -135,8 +135,8 @@ class GeneralVisual(unittest.TestCase):
             count[0]+=1
             capture=self.image()
             return replace(capture,window_id=18) if count[0]==3 else capture
-        with patch('nlc.general_visual.capture_window',side_effect=image), \
-             patch('nlc.native_visual_actions.capture_window',side_effect=image):
+        with patch('tacto.general_visual.capture_window',side_effect=image), \
+             patch('tacto.native_visual_actions.capture_window',side_effect=image):
             result=run(self.app,'owned','green',None,visual_scope=self.scope)
         self.assertFalse(result.ok);self.assertTrue(result.identity_changed)
         self.assertEqual(1,len(self.app.calls));self.assertEqual('unknown',result.certainty)

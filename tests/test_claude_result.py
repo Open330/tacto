@@ -8,7 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from nlc.claude_result import (ClaudeProtocolError, claude_result,
+from tacto.claude_result import (ClaudeProtocolError, claude_result,
                                input_message, parse_claude_events, _run_claude)
 
 
@@ -42,7 +42,7 @@ class ClaudeResultTests(unittest.TestCase):
                     'original_model': 'observed-model', 'content': 'PRIVATE'})
                 data[-1].update(is_error=True, num_turns=2)
                 return exit_code, stream(data), 'PRIVATE'
-            with self.subTest(exit_code=exit_code), patch('nlc.claude_result._run_claude', side_effect=launch) as call:
+            with self.subTest(exit_code=exit_code), patch('tacto.claude_result._run_claude', side_effect=launch) as call:
                 result = claude_result('owned fixture')
             self.assertEqual('error', result.status)
             self.assertEqual('ClaudeProtocolError_model_refusal', result.error.code)
@@ -53,7 +53,7 @@ class ClaudeResultTests(unittest.TestCase):
             call.assert_called_once()
 
     def test_refusal_diagnostic_rejects_incomplete_foreign_or_tool_enabled_stream(self):
-        from nlc.claude_result import _observed_refusal_no_fallback
+        from tacto.claude_result import _observed_refusal_no_fallback
         data = events()
         data.insert(-1, {'type': 'system', 'subtype': 'model_refusal_no_fallback',
             'session_id': 'session-1', 'uuid': '12345678-1234-1234-1234-123456789abc',
@@ -135,7 +135,7 @@ class ClaudeResultTests(unittest.TestCase):
                 'original_model':'original-model','fallback_model':'fallback-model'})
             data[-1]['num_turns'] = 2
             return 0, stream(data), 'private stderr'
-        with patch('nlc.claude_result._run_claude', side_effect=launch):
+        with patch('tacto.claude_result._run_claude', side_effect=launch):
             result = claude_result('owned fixture')
         self.assertEqual(result.status, 'error')
         self.assertIsNone(result.text)
@@ -157,11 +157,11 @@ class ClaudeResultTests(unittest.TestCase):
                 data = [{**item, 'session_id': sid if item['session_id'] == 'session-1'
                          else item['session_id']} for item in variant]
                 return 0, stream(data), 'private provider stderr'
-            with self.subTest(code=code), patch('nlc.claude_result._run_claude', side_effect=launch):
+            with self.subTest(code=code), patch('tacto.claude_result._run_claude', side_effect=launch):
                 result = claude_result('owned fixture prompt')
             self.assertEqual('ClaudeProtocolError_' + code, result.error.code)
             self.assertNotIn('private provider stderr', json.dumps(result.to_dict()))
-        with patch('nlc.claude_result._run_claude',
+        with patch('tacto.claude_result._run_claude',
                    side_effect=ClaudeProtocolError('private unknown diagnostic')):
             result = claude_result('q')
         self.assertEqual('ClaudeProtocolError', result.error.code)
@@ -248,7 +248,7 @@ class ClaudeResultTests(unittest.TestCase):
             self.assertEqual('private prompt',json.loads(payload)['message']['content'][0]['text'])
             sid=argv[argv.index('--session-id')+1]
             return 0,stream(events(sid)),''
-        with patch('nlc.claude_result._run_claude',side_effect=launch):
+        with patch('tacto.claude_result._run_claude',side_effect=launch):
             result=claude_result('private prompt',model='requested-alias')
         self.assertEqual('ok',result.status)
         self.assertEqual('observed-model',result.model)
@@ -258,14 +258,14 @@ class ClaudeResultTests(unittest.TestCase):
         self.assertFalse(directories[0].exists())
 
     def test_timeout_nonzero_and_invalid_deadline_are_structured(self):
-        with patch('nlc.claude_result._run_claude',side_effect=subprocess.TimeoutExpired('SECRET',1)):
+        with patch('tacto.claude_result._run_claude',side_effect=subprocess.TimeoutExpired('SECRET',1)):
             result=claude_result('q')
         self.assertEqual('timeout',result.status)
         self.assertNotIn('SECRET',json.dumps(result.to_dict()))
-        with patch('nlc.claude_result._run_claude',return_value=(1,'','')):
+        with patch('tacto.claude_result._run_claude',return_value=(1,'','')):
             self.assertEqual('error',claude_result('q').status)
         for timeout in (0,-1,True,float('nan'),float('inf')):
-            with patch('nlc.claude_result._run_claude') as launch:
+            with patch('tacto.claude_result._run_claude') as launch:
                 self.assertEqual('error',claude_result('q',timeout=timeout).status)
                 launch.assert_not_called()
 
@@ -289,7 +289,7 @@ class ClaudeResultTests(unittest.TestCase):
         for stdout, stderr, reason in (
                 ('Not logged in · Please run /login SECRET', '', 'not_logged_in'),
                 ('', 'Claude AI usage limit reached SECRET', 'usage_limit')):
-            with patch('nlc.claude_result._run_claude', return_value=(1, stdout, stderr)):
+            with patch('tacto.claude_result._run_claude', return_value=(1, stdout, stderr)):
                 result = claude_result('q')
             self.assertEqual(('error', reason), (result.status, result.error.code))
             self.assertNotIn('SECRET', json.dumps(result.to_dict()))
@@ -301,7 +301,7 @@ class ClaudeResultTests(unittest.TestCase):
             items[2]['message']['content'][0]['text'] = 'your usage limit and quota'
             items[3]['result'] = 'your usage limit and quota'
             return 0, stream(items), ''
-        with patch('nlc.claude_result._run_claude', side_effect=launch):
+        with patch('tacto.claude_result._run_claude', side_effect=launch):
             result = claude_result('q')
         self.assertEqual('ok', result.status)
 
@@ -329,7 +329,7 @@ if __name__=='__main__':
 
 class PreInitDiagnosticTests(unittest.TestCase):
     def test_protocol_stays_strict_and_only_closed_event_family_is_retained(self):
-        from nlc.claude_result import ClaudeProtocolError, parse_claude_events
+        from tacto.claude_result import ClaudeProtocolError, parse_claude_events
         for kind,subtype,expected in [('system','commands_changed','system_commands_changed'),
                 ('system','private-content','system_other'),('assistant',None,'assistant'),
                 ('rate_limit_event',None,'rate_limit_event'),('private-content',None,'unknown')]:
@@ -342,11 +342,11 @@ class PreInitDiagnosticTests(unittest.TestCase):
         self.assertIsNone(ClaudeProtocolError('event before initialization',diagnostic='private-content').diagnostic)
 
     def test_provider_error_keeps_safe_diagnostic_without_raw_stream_content(self):
-        from nlc.claude_result import claude_result
+        from tacto.claude_result import claude_result
         def failed(argv,payload,timeout,cwd):
             session=argv[argv.index('--session-id')+1]
             return 0,json.dumps({'type':'assistant','session_id':session,'secret':'private-value'}),''
-        with patch('nlc.claude_result._run_claude',side_effect=failed):
+        with patch('tacto.claude_result._run_claude',side_effect=failed):
             result=claude_result('owned test prompt')
         self.assertEqual('error',result.status)
         self.assertEqual('ClaudeProtocolError_before_init',result.error.code)

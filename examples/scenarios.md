@@ -2,8 +2,8 @@
 
 > 컴퓨터 사용이 불편한 유저(고령층·디지털 저활용층·접근성 니즈)를 위한 Tacto
 > 제품의 "플로우" 후보 30개. 각 시나리오는 한 번 모델로 authoring하면
-> `nlc/flow.py`의 `Flow`/`Step`/`Selector`로 저장되어 이후 **모델 토큰 0**으로
-> 재생된다. 어휘는 `PROTOCOL.md` §3.5, §1.5와 `nlc/flow.py`를 그대로 따른다.
+> `tacto/flow.py`의 `Flow`/`Step`/`Selector`로 저장되어 이후 **모델 토큰 0**으로
+> 재생된다. 어휘는 `PROTOCOL.md` §3.5, §1.5와 `tacto/flow.py`를 그대로 따른다.
 
 **어휘 레퍼런스**
 - `Selector(role, identifier, title, desc, ancestor, allow_nth)` — role+identifier
@@ -15,11 +15,11 @@
 - `risk_class` ∈ {`none`, `preapproved`, `confirm`, `handoff`} (PROTOCOL.md
   §1.5 4단계 그대로): 읽기=`none`, 본인 데이터 생성/저장(내용 명시)=`preapproved`,
   삭제·제3자 커뮤니케이션·시스템 설정 변경=`confirm`, 비밀번호/보안 우회=`handoff`.
-- **runnable-now**: `yes` = 오늘 macOS 내장 앱 + `nlc/driver.py`(AX)로 구현 가능,
+- **runnable-now**: `yes` = 오늘 macOS 내장 앱 + `tacto/driver.py`(AX)로 구현 가능,
   `partial` = 메커니즘은 있으나 실제 AX identifier/제스처 매핑이 기기에서
   미검증(계산기의 `Multiply`/`Equals`가 title이 아니라 identifier에 있었던
   것처럼, authoring 1회로 확정 필요), `needs-web` = 브라우저가 필요 — **이제
-  `nlc/browser.py`(Playwright + CDP accessibility tree)로 구현 가능**하다. 동일
+  `tacto/browser.py`(Playwright + CDP accessibility tree)로 구현 가능**하다. 동일
   L2 프로토콜·Flow·Selector 어휘를 쓰되 web는 별도 obs_id/인덱스 공간이며, 입력값
   검증은 whole-tree `contains`(값이 input 노드 하위에 안 들어감), 셀렉터는
   role+title(name)+ancestor를 쓴다.
@@ -207,7 +207,7 @@
   5. `click` — `Selector(role="Button", identifier="Equals", ancestor="CalculatorKeypadView")` — intent: "계산"
 - **Postcondition**: `Postcondition(field=Selector(role="ScrollArea", identifier="StandardInputView"), equals="56")`.
 - **Risk**: `none` — 계산은 데이터 변경/전송이 전혀 없음.
-- **Runnable-now**: yes — 동일 패턴(12×34)으로 실기기 E2E PASS 이미 완료(`nlc/flow.py::calculator_12x34`).
+- **Runnable-now**: yes — 동일 패턴(12×34)으로 실기기 E2E PASS 이미 완료(`tacto/flow.py::calculator_12x34`).
 
 ### 15. 오늘 날씨
 - **Target**: Weather (`com.apple.weather`)
@@ -302,7 +302,7 @@
   4. `click` — `Selector(role="Button", title="Join", ancestor="WiFiPasswordSheet")` — intent: "연결합니다" (handoff resume 이후에만 실행)
 - **Postcondition**: `Postcondition(contains="Connected")` — Wi-Fi 상태 행이 "home_5G / Connected"로 표시.
 - **Risk**: `handoff` — 비밀번호 입력은 §1.5·본 요청 예시 모두에서 Hand-off로 명시. 봇은 절대 비밀번호 필드를 대신 채우지 않음.
-- **Runnable-now**: partial — handoff 메커니즘 자체는 `nlc/session.py`에 구현되어 있으나, 이 구체 플로우(Join 시트 identifier, resume 이후 재관찰)는 기기에서 authoring/검증되지 않음.
+- **Runnable-now**: partial — handoff 메커니즘 자체는 `tacto/session.py`에 구현되어 있으나, 이 구체 플로우(Join 시트 identifier, resume 이후 재관찰)는 기기에서 authoring/검증되지 않음.
 
 ---
 
@@ -323,7 +323,7 @@
   3. `press_key` — `params={"key":"Return"}` — intent: "검색합니다"
 - **Postcondition**: `Postcondition(field=Selector(role="StaticText", identifier="TabTitle"), contains="뉴스")`.
 - **Risk**: `none` — 검색 자체는 비파괴 열람.
-- **Runnable-now**: needs-web — PROTOCOL.md §4 로드맵상 브라우저 자동화는 Playwright MCP 재사용 예정이며 `nlc/driver.py`(macOS AX)에는 아직 통합되지 않음.
+- **Runnable-now**: needs-web — PROTOCOL.md §4 로드맵상 브라우저 자동화는 Playwright MCP 재사용 예정이며 `tacto/driver.py`(macOS AX)에는 아직 통합되지 않음.
 
 ### 25. 페이지 읽어주기
 - **Target**: Safari (`com.apple.Safari`)
@@ -340,7 +340,7 @@
   2. `set_value` — `Selector(role="TextField", identifier="phone-input", ancestor="FormContainer")`, `params={"value":"010-1234-5678"}` — intent: "전화번호를 입력합니다"
   3. `click` — `Selector(role="Button", identifier="submit-button", ancestor="FormContainer")`, `is_submit=true, into_sensitive_field=true` — intent: "제출합니다"
 - **Postcondition**: `Postcondition(contains="제출이 완료되었습니다")`.
-- **Risk**: `confirm` — 개인정보(이름·전화번호)를 제3자 서비스로 전송하는 제출 액션. 데이터·목적지가 발화에 명시되어 있어도, 실제 전송(발송과 동급)은 §1.5 Always Confirm 취지에 맞춰 확인. `is_submit=true`가 `nlc/safety.py`의 안전 분류기를 실행 시점에 강제로 상향(escalate)시키는 지점.
+- **Risk**: `confirm` — 개인정보(이름·전화번호)를 제3자 서비스로 전송하는 제출 액션. 데이터·목적지가 발화에 명시되어 있어도, 실제 전송(발송과 동급)은 §1.5 Always Confirm 취지에 맞춰 확인. `is_submit=true`가 `tacto/safety.py`의 안전 분류기를 실행 시점에 강제로 상향(escalate)시키는 지점.
 - **Runnable-now**: needs-web.
 
 ### 27. 배송 조회
@@ -400,7 +400,7 @@
 승인 마찰 없이 자율 실행 가능) × runnable-now(`yes`만) 를 기준으로 우선순위를
 매겼다.
 
-1. **#14 계산기 (7×8, `none`)** — 이미 `nlc/flow.py::calculator_12x34`로
+1. **#14 계산기 (7×8, `none`)** — 이미 `tacto/flow.py::calculator_12x34`로
    실기기 E2E PASS된 패턴을 그대로 재사용/변형만 하면 됨. 회귀 테스트 겸
    "이 제품이 실제로 동작한다"는 첫 데모로 가장 안전하고 빠른 승리.
 2. **#15 오늘 날씨 (`none`)** — 하루 1회 이상 나오는 초고빈도 요청, 스텝 1개,
@@ -418,7 +418,7 @@
 
 **선정 원칙**: 처음 5개는 전부 `runnable-now: yes`이고 리스크가 `none` 또는
 `preapproved`까지만 — `confirm`/`handoff` 게이트(발신, Wi-Fi, 비밀번호 등)는
-안전 정책(`nlc/safety.py`)과 확인 대화 UX가 먼저 검증된 뒤 다음 배치로 넘긴다.
+안전 정책(`tacto/safety.py`)과 확인 대화 UX가 먼저 검증된 뒤 다음 배치로 넘긴다.
 읽기 3개(계산기·날씨·일정)로 관찰·resolver·postcondition 경로를 굳히고, 쓰기
 2개(메모·일정 추가)로 `set_value`/`type_text` + preapproved 승인-없이-진행
 경로를 검증하는 구성이다.

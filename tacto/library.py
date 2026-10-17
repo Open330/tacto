@@ -385,7 +385,7 @@ def textedit_save() -> Flow:
     the press, and the signed helper checks right before pressing that the
     focused and main windows show exactly that file (focused_document — a
     title alone matched two note.txt in different folders); the host receipt
-    (nlc/existing_file_receipt.py) reads that document by path before and
+    (tacto/existing_file_receipt.py) reads that document by path before and
     after and accepts only a .txt file that holds exactly the document's
     text. It certifies that saved state, not which writer wrote it (macOS
     autosave). Recognised only in this exact form.
@@ -570,7 +570,7 @@ def _calculator():
 
 
 def builders() -> dict:
-    """Name -> zero-argument builder, for every recipe that ships with NLC."""
+    """Name -> zero-argument builder, for every recipe that ships with Tacto."""
     return {**_calculator(),
             "calc_arith": calc_arith,
             "finder_open_folder": finder_open_folder,

@@ -12,10 +12,10 @@ over unrelated work — around a window that was not even on that screen (user
 report, 2026-09-21).
 
 A menu-bar item hides nothing and follows nobody. It is also only half of what
-is shown: when NLC actually captures the screen, macOS lights its own recording
+is shown: when Tacto actually captures the screen, macOS lights its own recording
 indicator, which we do not draw, cannot fake and cannot suppress. The two
-signals separate exactly as the access does — the menu bar for "NLC is acting",
-the system indicator for "NLC is looking".
+signals separate exactly as the access does — the menu bar for "Tacto is acting",
+the system indicator for "Tacto is looking".
 
 Run-loop note: an NSStatusItem needs the main thread's run loop, while a flow
 runs synchronously in ours. Rather than restructure the driver around an event
@@ -121,7 +121,7 @@ class Indicator:
         if not (self.enabled and self.pid):
             return self
         try:
-            command = [sys.executable, "-I", "-B", "-m", "nlc.overlay", str(self.pid)]
+            command = [sys.executable, "-I", "-B", "-m", "tacto.overlay", str(self.pid)]
             if self.heartbeat is not None:
                 command += [self.heartbeat, str(self.ttl)]
             self._proc = subprocess.Popen(

@@ -81,7 +81,7 @@ setup·모델·cleanup을 실행하지 않는다. setup 뒤 환경이 달라져�
 이미 시도한 작업의 `failed`/`timeout`/`passed` 상태는 유지한다. 환경의 전후
 관측은 실패 원인이나 실행 중 잠금이 없었다는 증거가 아니다.
 
-현재 비교 실행기는 `nlc.session.lock_state`의 잠금·on-console·login-done
+현재 비교 실행기는 `tacto.session.lock_state`의 잠금·on-console·login-done
 지표를 사용한다. 이 플랫폼에서는 로그인한 콘솔의 잠금 key가 생략될 수 있어,
 key 부재에 console=true와 login_done=true가 함께 있을 때만 unlocked로
 해석한다. 이 해석은 best-effort platform inference이며 앱별 입력 승인이나
@@ -209,7 +209,7 @@ Calculator setup의 menu/clear가 error·unknown·미지원이면 후속 입력�
 signed window/document binding을 구현할 때까지 setup 전에 not_run으로 남긴다.
 사용자 문서나 출처가 불명인 창을 닫는 대체 경로를 쓰지 않는다.
 
-모델 자식에서는 NLC_HELPER_FD·NLC_LAUNCHER·NLC_HELPER_TOKEN을 제거한다.
+모델 자식에서는 TACTO_HELPER_FD·TACTO_LAUNCHER·TACTO_HELPER_TOKEN을 제거한다.
 이 환경 정리가 macOS TCC responsible identity를 분리하는 것은 아니다.
 현재 signed host에서 spawn된 Codex/Sky의 responsible process는 관측하지
 않았으므로 결과의 `agent_responsible_process_observed`는 null이다. task
@@ -220,7 +220,7 @@ oracle 결과는 보존하지만 `comparison_eligible=false`와
 
 ### 책임 프로세스의 읽기 전용 관측
 
-`nlc.process_responsibility.observe_responsibility(pid)`는 현재 플랫폼의 private
+`tacto.process_responsibility.observe_responsibility(pid)`는 현재 플랫폼의 private
 libSystem responsibility SPI와 libproc의 실행 경로를 두 번 읽는다. PID·경로가
 달라지거나 API/경로가 없으면 닫힌 unavailable/null 결과를 반환한다.
 PPID를 대신 쓰거나 관리자 권한을 요청하지 않으며 argv·환경·문서 내용은
@@ -250,8 +250,8 @@ owned_child_cleanup_timeout과 exit2이며 일반 실패의 예외 본문은 숨
 
 ## 실제 Codex 호출의 선택적 프로세스 관측
 
-공통 `_provider_env()`는 Claude 세션 여부와 관계없이 NLC_HELPER_FD,
-NLC_LAUNCHER, NLC_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
+공통 `_provider_env()`는 Claude 세션 여부와 관계없이 TACTO_HELPER_FD,
+TACTO_LAUNCHER, TACTO_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
 사용자 profile·credential은 유지한다. 이는 채널 표지 제거이며 TCC 책임 분리를
 증명하지 않는다.
 
@@ -576,8 +576,8 @@ verification timing is covered by virtual-clock regressions, not direct trace
 timestamps. Verification keeps ordinary settling for outcomes already true
 before non-idempotent input, in both Flow and general-walk paths.
 
-Reproduce with `examples/benchmark_runtime_latency.py --baseline /path/to/baseline/nlc
---candidate /path/to/candidate/nlc --output /absolute/new/private-directory
+Reproduce with `examples/benchmark_runtime_latency.py --baseline /path/to/baseline/tacto
+--candidate /path/to/candidate/tacto --output /absolute/new/private-directory
 --pairs 10 --launcher-optimized`. Build the baseline from 91a48a0 with the same
 current standalone builder; unmatched common bytecode is refused. Source for the
 disposable native fixture is `tests/fixtures/NativeRepeatBenchmark.swift`.

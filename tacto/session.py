@@ -8,7 +8,7 @@ learn.chatgpt.com/docs/computer-use#locked-use):
   authorization plug-in (/Library/Security/SecurityAgentPlugins/…) that briefly
   unlocks for a trusted turn, blanks displays, blocks local input, and re-locks
   on any local activity. That is a separate login/unlock product, not a flag a
-  normal app can set. So NLC models it as a capability that is off by default.
+  normal app can set. So Tacto models it as a capability that is off by default.
 
 Pragmatic path (option A): don't fight the lock — prevent an *idle* lock during a
 task with `caffeinate`, and when the screen is genuinely locked, surface it as a
@@ -75,7 +75,7 @@ class KeepAwake:
     Wraps `caffeinate -di`. Best-effort: does not stop a manual lock or policy.
     Use as a context manager around a flow run.
     """
-    reason: str = "nlc automation"
+    reason: str = "tacto automation"
     _proc: object = None
 
     def __enter__(self):
@@ -133,8 +133,8 @@ def sandboxed() -> bool:
 
     A coding agent's sandbox — Codex's `workspace-write`, for one — blocks the
     GUI session and the accessibility API, and from inside it every symptom
-    looks like a missing permission: `nlc apps` said
-    accessibility_permission_missing and `nlc doctor` told the agent to grant
+    looks like a missing permission: `tacto apps` said
+    accessibility_permission_missing and `tacto doctor` told the agent to grant
     Accessibility, which was already granted (2026-09-28). Asked of the system
     rather than inferred from an agent's environment variables, so it holds
     for any agent that sandboxes this way.

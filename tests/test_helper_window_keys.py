@@ -85,7 +85,7 @@ precondition(checked(["name":"press_key","element_index":0,"key":"Escape"])["eff
 precondition(calls==7)
 print(String(data:try! JSONSerialization.data(withJSONObject:responses),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-helper-key-shape-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-helper-key-shape-') as directory:
             script=Path(directory)/'main.swift'
             script.write_text('import Foundation\nimport AppKit\nimport ApplicationServices\n'+keys+harness)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)

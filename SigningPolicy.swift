@@ -28,7 +28,7 @@ enum TactoSigning {
 
     static func peerRequirement(identifier: String) -> String {
         guard let team = ownTeam(), let value = requirement(identifier: identifier, team: team) else {
-            FileHandle.standardError.write(Data("Tacto requires a valid Apple-issued team signature. Rebuild with NLC_SIGN_IDENTITY.\n".utf8))
+            FileHandle.standardError.write(Data("Tacto requires a valid Apple-issued team signature. Rebuild with TACTO_SIGN_IDENTITY.\n".utf8))
             exit(78)
         }
         return value

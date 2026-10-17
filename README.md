@@ -125,7 +125,9 @@ Replay a saved Flow:
 <details>
 <summary>Installation notes and development-only commands</summary>
 
-If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; internal imports remain `nlc`. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported; new builds display **Tacto Helper**, while Preview 1 and older installs may display **NLC Helper**. The signed identity and legacy internal paths remain compatible.
+If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`; `nlc` is a compatibility alias. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported; new builds display **Tacto Helper**, while Preview 1 and older installs may display **NLC Helper**. New builds moved the helper bundle and executable to `helper/Tacto Helper.app/Contents/MacOS/TactoHelper` and the launcher to `launcher/tacto`. Bundle identifiers and signing requirements (`ai.callabo.nlc.*`) are unchanged, but whether macOS carries a Preview 1 grant over to the renamed bundle has not yet been verified on a real upgrade; re-check permissions after upgrading.
+
+> **Python namespace conflict.** The top-level import `tacto` is also used by an unrelated PyPI package (a tactile-sensor simulator). Install this project's distribution, `tacto-runtime`, in its own environment, and never `pip install tacto` for Tacto. Installing both into one environment overwrites each other's files; `import nlc` then refuses with an error naming `tacto-runtime`.
 
 These commands belong to the development checkout, not the main-branch release:
 

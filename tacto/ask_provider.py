@@ -62,7 +62,7 @@ def main() -> int:
         except Exception:
             # Unexpected transport/serialization failures carry no raw prompt,
             # provider stderr or exception text across this boundary.
-            sys.stderr.write("nlc.ask_provider: model envelope unavailable\n")
+            sys.stderr.write("tacto.ask_provider: model envelope unavailable\n")
             return 1
         sys.stdout.write(encoded)
         return 0  # Structured error/timeout belongs to the envelope, not exit status.
@@ -72,10 +72,10 @@ def main() -> int:
     try:
         text = _ask_model(prompt, args.provider, timeout=args.timeout, expect_json=args.json)
     except TimeoutError:
-        sys.stderr.write("nlc.ask_provider: model deadline exceeded\n")
+        sys.stderr.write("tacto.ask_provider: model deadline exceeded\n")
         return 124
     except Exception as e:
-        sys.stderr.write(f"nlc.ask_provider: {e}\n")
+        sys.stderr.write(f"tacto.ask_provider: {e}\n")
         return 1
     if not text:
         return 1

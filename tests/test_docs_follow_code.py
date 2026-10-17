@@ -36,15 +36,15 @@ def skill_stage_text():
 
 class DocsFollowCodeTests(unittest.TestCase):
     def test_every_cli_command_is_in_the_readme(self):
-        commands = re.findall(r'if cmd == "(\w+)"', read("nlc/cli.py"))
+        commands = re.findall(r'if cmd == "(\w+)"', read("tacto/cli.py"))
         readme = read("README.md")
         for cmd in commands:
             with self.subTest(cmd=cmd):
-                self.assertRegex(readme, rf"(?:tacto|nlc) {cmd}\b")
+                self.assertRegex(readme, rf"(?:tacto|tacto) {cmd}\b")
 
     def test_every_replay_and_agent_argument_is_in_the_api_doc(self):
-        from nlc.agent import Agent
-        from nlc.flow import replay
+        from tacto.agent import Agent
+        from tacto.flow import replay
         api = read("docs/api.md")
         for fn in (replay, Agent.__init__):
             for name in inspect.signature(fn).parameters:
@@ -54,7 +54,7 @@ class DocsFollowCodeTests(unittest.TestCase):
                     self.assertIn(name, api)
 
     def test_every_decision_parameter_is_explained_where_recipes_are_written(self):
-        from nlc.flow import FLOW_ACTIONS
+        from tacto.flow import FLOW_ACTIONS
         for doc in ("docs/recipes.md", "skill/SKILL.md", "docs/api.md"):
             text = skill_stage_text() if doc == "skill/SKILL.md" else read(doc)
             for name in FLOW_ACTIONS["decide"]:
@@ -62,7 +62,7 @@ class DocsFollowCodeTests(unittest.TestCase):
                     self.assertIn(name, text)
 
     def test_every_replay_error_is_explained(self):
-        codes = set(re.findall(r'error="([a-z_]+)"', read("nlc/flow.py")))
+        codes = set(re.findall(r'error="([a-z_]+)"', read("tacto/flow.py")))
         text = skill_stage_text() + read("docs/recipes.md")
         for code in sorted(codes):
             with self.subTest(code=code):
@@ -75,7 +75,7 @@ class DocsFollowCodeTests(unittest.TestCase):
                 self.assertIn(f"docs/{doc.name}", readme)
 
     def test_the_readme_describes_the_indicator_that_exists(self):
-        from nlc.overlay import LABEL
+        from tacto.overlay import LABEL
         readme = read("README.md")
         self.assertIn(LABEL, readme)
         self.assertNotIn("테두리가", readme)     # the outline was removed 2026-09-21

@@ -11,17 +11,17 @@ TARGET = 'ai.callabo.nlc.save-settings-fixture'
 
 
 def main(driver, output, *, guarded_commit=False):
-    from nlc.driver import Driver
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.driver import Driver
+    from tacto.input_audit_process import ProcessInputAudit
     root = Path(__file__).resolve().parents[2]
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
     report = {'passed': False, 'transport': type(driver).__name__,
               'scope': ('owned NSSavePanel callback; guarded AXPress; no file writer'
                         if guarded_commit else 'owned NSSavePanel; read only; never Save'), 'steps': []}
     process = None
-    sources = ('helper/TactoHelper.swift', 'helper/SavePanelObservation.swift', 'nlc/helper.py',
+    sources = ('helper/TactoHelper.swift', 'helper/SavePanelObservation.swift', 'tacto/helper.py',
                'launcher/tacto.swift', 'examples/probes/signed-save-panel.py',
-               'tests/fixtures/NativeSaveSettingsFixture.swift', 'nlc/input_audit_process.py')
+               'tests/fixtures/NativeSaveSettingsFixture.swift', 'tacto/input_audit_process.py')
     def hashes():
         return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in sources}
     report['source_sha256'] = hashes()
@@ -29,7 +29,7 @@ def main(driver, output, *, guarded_commit=False):
     changed = destination.with_name(destination.name + '-changed')
     try:
         assert Driver()._resolve(TARGET, launch=False) is None, 'fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-signed-save-panel-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-signed-save-panel-') as work:
             app = Path(work) / 'NLC Owned Save Directory.app'
             binary = app / 'Contents/MacOS/NativeSaveSettingsFixture'
             binary.parent.mkdir(parents=True)

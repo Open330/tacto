@@ -5,8 +5,8 @@ tree, so "which appearance is set?" could not be answered (NLC 0/2)."""
 import pathlib
 import unittest
 
-from nlc.driver import _line_attr
-from nlc.flow import Selector
+from tacto.driver import _line_attr
+from tacto.flow import Selector
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LINE = "136 Button  Description: Light, Help: Use a light appearance. [selected]"
@@ -29,7 +29,7 @@ class SelectedMarkerTests(unittest.TestCase):
         swift = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn('(attr(el, kAXSelectedAttribute as String) as? Bool) == true', swift)
         self.assertIn('(selected ? " [selected]" : "")', swift)
-        driver = (ROOT / "nlc/driver.py").read_text()
+        driver = (ROOT / "tacto/driver.py").read_text()
         self.assertIn('" [selected]" if _attr(el, "AXSelected") is True else ""', driver)
 
 

@@ -4,17 +4,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nlc.helper import helper_display_name
-from nlc.onboard import Check, _screen_recording_for
+from tacto.helper import helper_display_name
+from tacto.onboard import Check, _screen_recording_for
 
 
 class PermissionDisplayNameTests(unittest.TestCase):
     def test_current_and_legacy_bundles_are_not_confused(self):
         with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / 'NLC Helper.app/Contents/MacOS/NLCHelper'
+            binary = Path(directory) / 'Tacto Helper.app/Contents/MacOS/TactoHelper'
             binary.parent.mkdir(parents=True)
             for name in ['Tacto Helper', 'NLC Helper']:
                 with self.subTest(name=name):
+                    binary = Path(directory) / (name + '.app/Contents/MacOS/' + ('NLCHelper' if name == 'NLC Helper' else 'TactoHelper'))
+                    binary.parent.mkdir(parents=True, exist_ok=True)
                     (binary.parent.parent / 'Info.plist').write_bytes(plistlib.dumps({
                         'CFBundleDisplayName': name, 'CFBundleIdentifier': 'ai.callabo.nlc.helper'}))
                     actual = helper_display_name(binary)
@@ -27,10 +29,10 @@ class PermissionDisplayNameTests(unittest.TestCase):
 
     def test_localized_product_name_and_outer_screen_holder(self):
         with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / 'NLC Helper.app/Contents/MacOS/NLCHelper'
+            binary = Path(directory) / 'Tacto Helper.app/Contents/MacOS/TactoHelper'
             binary.parent.mkdir(parents=True)
             contents = binary.parent.parent
-            (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleDisplayName':'NLC Helper'}))
+            (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleDisplayName':'Tacto Helper'}))
             localized = contents / 'Resources/en.lproj'
             localized.mkdir(parents=True)
             (localized / 'InfoPlist.strings').write_bytes(plistlib.dumps({'CFBundleDisplayName':'Tacto Helper'}))
@@ -43,18 +45,18 @@ class PermissionDisplayNameTests(unittest.TestCase):
 
     def test_doctor_resolves_source_and_standalone_capture_holders(self):
         from unittest.mock import patch
-        from nlc.onboard import helper_status
+        from tacto.onboard import helper_status
         for standalone in (False, True):
             with self.subTest(standalone=standalone), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 runtime = root / 'Tacto.app/Contents/Resources/runtime' if standalone else root
-                binary = runtime / 'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+                binary = runtime / 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
                 binary.parent.mkdir(parents=True)
                 (binary.parent.parent / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleDisplayName':'Tacto Helper'}))
                 if standalone:
                     (root / 'Tacto.app/Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleDisplayName':'Tacto'}))
                 # No binary is created, so resolving names cannot launch a helper.
-                with patch('nlc.helper.HELPER', str(binary)):
+                with patch('tacto.helper.HELPER', str(binary)):
                     status = helper_status()
                 self.assertFalse(status['built'])
                 self.assertEqual('Tacto Helper', status['name'])
@@ -62,9 +64,10 @@ class PermissionDisplayNameTests(unittest.TestCase):
 
     def test_bare_or_invalid_bundle_metadata_has_a_product_name(self):
         with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / 'NLC Helper.app/Contents/MacOS/NLCHelper'
+            binary = Path(directory) / 'Tacto Helper.app/Contents/MacOS/TactoHelper'
             binary.parent.mkdir(parents=True)
             for content in [b'not a plist', plistlib.dumps([]), plistlib.dumps({'CFBundleDisplayName': 42})]:
                 (binary.parent.parent / 'Info.plist').write_bytes(content)
                 self.assertEqual('Tacto Helper', helper_display_name(binary))
-            self.assertEqual('Tacto Helper', helper_display_name(Path(directory) / 'nlc-helper'))
+            for name in ['tacto-helper', 'nlc-helper']:
+                self.assertEqual('Tacto Helper', helper_display_name(Path(directory) / name))

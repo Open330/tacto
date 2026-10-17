@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from nlc.general import run
+from tacto.general import run
 
 
 class FakeClock:
@@ -56,7 +56,7 @@ class GeneralBudgetTests(unittest.TestCase):
         self.clock = FakeClock()
         self.app = App()
         self.cancelled = False
-        self.patch = patch("nlc.general.time.monotonic", self.clock)
+        self.patch = patch("tacto.general.time.monotonic", self.clock)
         self.patch.start()
         self.addCleanup(self.patch.stop)
 

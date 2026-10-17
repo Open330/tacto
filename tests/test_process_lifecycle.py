@@ -9,9 +9,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc import cli
-from nlc.helper import HelperDriver, HelperUnavailable, InheritedHelperDriver
-from nlc.session import KeepAwake
+from tacto import cli
+from tacto.helper import HelperDriver, HelperUnavailable, InheritedHelperDriver
+from tacto.session import KeepAwake
 
 
 class CommandLifetimeTests(unittest.TestCase):
@@ -19,9 +19,9 @@ class CommandLifetimeTests(unittest.TestCase):
         for command in ("doctor", "apps", "observe", "run", "replay", "do", "eval"):
             for failure in (None, SystemExit(2), KeyboardInterrupt()):
                 with self.subTest(command=command, failure=failure), \
-                     patch("nlc.session.sandboxed", return_value=False), \
-                     patch("nlc.session.KeepAwake") as awake, \
-                     patch("nlc.cli._dispatch", return_value=7, side_effect=failure):
+                     patch("tacto.session.sandboxed", return_value=False), \
+                     patch("tacto.session.KeepAwake") as awake, \
+                     patch("tacto.cli._dispatch", return_value=7, side_effect=failure):
                     if failure is None:
                         self.assertEqual(cli.main([command]), 7)
                     else:
@@ -31,9 +31,9 @@ class CommandLifetimeTests(unittest.TestCase):
                     awake.return_value.__exit__.assert_called_once()
 
     def test_no_assertion_for_offscreen_or_sandboxed_command(self):
-        with patch("nlc.session.KeepAwake") as awake, \
-             patch("nlc.session.sandboxed", return_value=True), \
-             patch("nlc.cli._dispatch", return_value=0), patch("builtins.print"):
+        with patch("tacto.session.KeepAwake") as awake, \
+             patch("tacto.session.sandboxed", return_value=True), \
+             patch("tacto.cli._dispatch", return_value=0), patch("builtins.print"):
             self.assertEqual(cli.main(["list"]), 0)
             self.assertEqual(cli.main(["observe"]), 3)
             awake.assert_not_called()
@@ -63,7 +63,7 @@ class HelperLifetimeTests(unittest.TestCase):
             self.addCleanup(self.cleanup_process, proc)
             return proc
 
-        with patch("nlc.helper.subprocess.Popen", side_effect=record):
+        with patch("tacto.helper.subprocess.Popen", side_effect=record):
             with self.assertRaises(error):
                 HelperDriver(str(path))
         self.assertEqual(len(spawned), 1)
@@ -109,7 +109,7 @@ class InheritedChannelLifetimeTests(unittest.TestCase):
                     data = response if isinstance(response, str) else json.dumps(response)
                     peer.sendall((data + '\n').encode())
                     with patch.object(InheritedHelperDriver, '_shared', None), \
-                         patch.dict(os.environ, {'NLC_HELPER_FD': str(descriptor)}):
+                         patch.dict(os.environ, {'TACTO_HELPER_FD': str(descriptor)}):
                         with self.assertRaises(error):
                             InheritedHelperDriver()
                         self.assertIsNone(InheritedHelperDriver._shared)
@@ -130,7 +130,7 @@ class InheritedChannelLifetimeTests(unittest.TestCase):
         descriptor = child.detach()
         try:
             with patch.object(InheritedHelperDriver, '_shared', None), \
-                 patch.dict(os.environ, {'NLC_HELPER_FD': str(descriptor)}), \
+                 patch.dict(os.environ, {'TACTO_HELPER_FD': str(descriptor)}), \
                  patch.object(InheritedHelperDriver, '_send', side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     InheritedHelperDriver()

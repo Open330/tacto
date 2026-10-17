@@ -1,7 +1,7 @@
 """Post-boundary effects with no Mac imports or actual UI input."""
 from types import SimpleNamespace
 import unittest
-from nlc.native_window_dispatch import UserInputState, WindowDispatchFailure, dispatch_preparation, WindowReadScope
+from tacto.native_window_dispatch import UserInputState, WindowDispatchFailure, dispatch_preparation, WindowReadScope
 
 
 class WindowDispatchContractTests(unittest.TestCase):

@@ -12,8 +12,8 @@ import time
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
-from nlc.driver import Driver
-from nlc.input_audit_process import ProcessInputAudit
+from tacto.driver import Driver
+from tacto.input_audit_process import ProcessInputAudit
 
 
 def publish(path, value):
@@ -61,7 +61,7 @@ def signed_measure(output, proc, report):
     timer=None
     try:
         with (output/'signed-client.log').open('w') as log:
-            child=subprocess.Popen([str(ROOT/'launcher/nlc'),'eval','native_coordinate_fixture',
+            child=subprocess.Popen([str(ROOT/'launcher/tacto'),'eval','native_coordinate_fixture',
                 '--coordinate-control='+str(output),'--menu-unresponsive'],cwd=ROOT,stdout=log,stderr=subprocess.STDOUT)
             report.update(await_file(output/'signed-ready.json',child=child))
             report['watchdog_resumed']=False
@@ -99,7 +99,7 @@ def main():
     audit=None
     timer=None
     try:
-        with tempfile.TemporaryDirectory(prefix='nlc-menu-timeout-') as tmp:
+        with tempfile.TemporaryDirectory(prefix='tacto-menu-timeout-') as tmp:
             app=Path(tmp)/'Timeout Fixture.app'
             exe=app/'Contents/MacOS/Fixture'
             exe.parent.mkdir(parents=True)

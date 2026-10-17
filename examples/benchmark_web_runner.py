@@ -48,12 +48,12 @@ ORACLES = {
 
 
 def execute(task_id, provider='codex', timeout=45, planner=None):
-    from nlc.ask import ask, what_to_do_here
-    from nlc.browser import BrowserDriver
-    from nlc.general import run
-    from nlc.contract import Envelope
-    from nlc.outcome import spec_for, verify
-    from nlc.commit_evidence import ArtifactEvidence, CommitEvidence
+    from tacto.ask import ask, what_to_do_here
+    from tacto.browser import BrowserDriver
+    from tacto.general import run
+    from tacto.contract import Envelope
+    from tacto.outcome import spec_for, verify
+    from tacto.commit_evidence import ArtifactEvidence, CommitEvidence
     started = time.monotonic()
     calls = 0
     plans = []
@@ -74,7 +74,7 @@ def execute(task_id, provider='codex', timeout=45, planner=None):
                               validation_retries=1))
         except Exception:
             return record(None)
-    with tempfile.TemporaryDirectory(prefix='nlc-benchmark-') as folder:
+    with tempfile.TemporaryDirectory(prefix='tacto-benchmark-') as folder:
         driver = BrowserDriver()
         writes = []
         active_commit = None

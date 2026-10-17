@@ -36,7 +36,7 @@ def source_snapshot(manifest, manifest_path=None):
     can supply an in-memory manifest. Endpoints detect changes between snapshots,
     not a change-and-revert during execution; this is provenance, not attestation.
     """
-    paths = list((ROOT / 'nlc').glob('*.py'))
+    paths = list((ROOT / 'tacto').glob('*.py'))
     paths += [ROOT / 'examples' / name for name in (
         'task_benchmark.py', 'benchmark_web_runner.py', 'probe_browser_task.py')]
     manifest_file = Path(manifest_path) if manifest_path is not None else DEFAULT_MANIFEST
@@ -211,7 +211,7 @@ def summarize(manifest, results):
 
 def attach_provider_metadata(result, event):
     """Use observed route identities; a requested provider is not a measurement."""
-    from nlc.provider_observation import summarize_provider_calls
+    from tacto.provider_observation import summarize_provider_calls
     records = event.get('provider_calls', [])
     if type(records) is not list or any(type(r) is not dict or 'text' in r for r in records):
         raise ValueError('invalid benchmark provider metadata')
@@ -285,7 +285,7 @@ def _run_bounded(argv, timeout):
             raise
 
 
-def run_task(manifest, task_id, system='nlc', provider='codex', *, manifest_path=None):
+def run_task(manifest, task_id, system='tacto', provider='codex', *, manifest_path=None):
     validate_manifest(manifest)
     task = next((t for t in manifest['tasks'] if t['id'] == task_id), None)
     if task is None or system not in manifest['systems']:
@@ -294,10 +294,10 @@ def run_task(manifest, task_id, system='nlc', provider='codex', *, manifest_path
     environment = environment_versions()
     result = dict(task_id=task_id, condition_id=condition_id(task), system=system,
                   provider=None,
-                  requested_provider=provider if system == 'nlc' else None, model=None,
+                  requested_provider=provider if system == 'tacto' else None, model=None,
                   run_id=str(uuid.uuid4()), elapsed_seconds=0.0, status='unavailable',
                   reason=None, evidence=[])
-    if system != 'nlc':
+    if system != 'tacto':
         result['reason'] = 'No Codex computer-use baseline adapter is available; not executed.'
     elif task.get('runner') == 'benchmark_web_runner':
         spec = importlib.util.spec_from_file_location('benchmark_web_runner', ROOT / 'examples/benchmark_web_runner.py')
@@ -400,7 +400,7 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     run = commands.add_parser('run')
     run.add_argument('--task', default='input-next-read')
-    run.add_argument('--system', choices=['nlc', 'codex-computer-use'], default='nlc')
+    run.add_argument('--system', choices=['tacto', 'codex-computer-use'], default='tacto')
     run.add_argument('--provider', default='codex')
     external = commands.add_parser('import-baseline')
     external.add_argument('record', type=Path)

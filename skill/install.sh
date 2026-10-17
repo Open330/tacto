@@ -23,7 +23,8 @@ our_command_link() {
   local old old_repo
   old=$(readlink "$1" 2>/dev/null) || return 1
   case "$old" in
-    "$repo/launcher/nlc"|"$repo/.venv/bin/nlc"|"$repo/.venv/bin/tacto") return 0 ;;
+    "$repo/launcher/tacto"|"$repo/launcher/nlc"|"$repo/.venv/bin/nlc"|"$repo/.venv/bin/tacto") return 0 ;;
+    /*/launcher/tacto) old_repo=${old%/launcher/tacto} ;;
     /*/launcher/nlc) old_repo=${old%/launcher/nlc} ;;
     /*/.venv/bin/nlc) old_repo=${old%/.venv/bin/nlc} ;;
     /*/.venv/bin/tacto) old_repo=${old%/.venv/bin/tacto} ;;
@@ -41,9 +42,9 @@ echo "Tacto — $repo"
 if ! marker "$skill"; then
   say 'missing or invalid: skill/SKILL.md — restore the Tacto skill before installing'; exit 1
 fi
-entry="$repo/launcher/nlc"
+entry="$repo/launcher/tacto"
 if [ ! -x "$entry" ]; then
-  say 'missing: launcher/nlc — build the native checkout first: uv sync && ./build.sh'; exit 1
+  say 'missing: launcher/tacto — build the native checkout first: uv sync && ./build.sh'; exit 1
 fi
 # Preflight both names before modifying either. Never replace another program.
 for command_name in tacto nlc; do

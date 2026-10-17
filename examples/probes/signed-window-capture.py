@@ -23,7 +23,7 @@ TARGET = 'ai.callabo.nlc.menu-fixture'
 
 
 def main(driver, output: Path) -> dict:
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.input_audit_process import ProcessInputAudit
 
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
     try:
@@ -40,7 +40,7 @@ def main(driver, output: Path) -> dict:
 
 
 def _capture_owned_window(driver, output: Path) -> dict:
-    from nlc.driver import Driver
+    from tacto.driver import Driver
 
     root = Path(__file__).resolve().parents[2]
     source = (root / 'tests/fixtures/NativeMenuFixture.swift').read_bytes()

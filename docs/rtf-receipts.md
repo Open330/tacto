@@ -9,7 +9,7 @@ Choose the canonical absolute destination and exact text before execution.
 Use a single nonempty `.rtf` basename, including user-chosen names such as
 `보고서.rtf`. Path separators, NUL, dot/dotdot names and other extensions are
 rejected. Existing destinations are never overwritten. For repeatable evals,
-`nlc-eval-<uuid.uuid4().hex>.rtf` remains a useful collision-avoidance convention;
+`tacto-eval-<uuid.uuid4().hex>.rtf` remains a useful collision-avoidance convention;
 a UUID is not a security guarantee and is not required for normal use. Construct the adapter before entering a cleanup
 block that could remove that destination: construction rejects an existing
 file, and preparation checks absence again. The callback must independently

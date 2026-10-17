@@ -8,10 +8,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from nlc.commit_evidence import ArtifactEvidence, CommitEvidence, SavePanelCommitPreparation
-from nlc.contract import Envelope
-from nlc.general import run
-from nlc.outcome import DONE, spec_for, verify
+from tacto.commit_evidence import ArtifactEvidence, CommitEvidence, SavePanelCommitPreparation
+from tacto.contract import Envelope
+from tacto.general import run
+from tacto.outcome import DONE, spec_for, verify
 
 
 class FileMenuApp:

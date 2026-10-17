@@ -21,7 +21,7 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HELPER = (ROOT / "helper/TactoHelper.swift").read_text()
 LAUNCHER = (ROOT / "launcher/tacto.swift").read_text()
-DRIVER = (ROOT / "nlc/driver.py").read_text()
+DRIVER = (ROOT / "tacto/driver.py").read_text()
 
 
 class NothingIsSynthesised(unittest.TestCase):
@@ -177,19 +177,19 @@ class TheTreeStaysParseable(unittest.TestCase):
     """
 
     def test_the_key_terminates_the_value_before_it(self):
-        from nlc.flow import Selector
+        from tacto.flow import Selector
         line = "  12 TextArea  Description: First Text View, Secondary Actions: ShowMenu"
         self.assertEqual(Selector._attr(line, "Description"), "First Text View")
         self.assertEqual(Selector._attr(line, "Secondary Actions"), "ShowMenu")
 
     def test_an_ordinary_line_is_unaffected(self):
-        from nlc.flow import Selector
+        from tacto.flow import Selector
         line = "  5 Button  Description: 7, Identifier: Seven"
         self.assertEqual(Selector._attr(line, "Description"), "7")
         self.assertEqual(Selector._attr(line, "Identifier"), "Seven")
 
     def test_a_selector_still_matches_past_the_actions(self):
-        from nlc.flow import Selector
+        from tacto.flow import Selector
         line = "  12 TextArea  Description: First Text View, Secondary Actions: ShowMenu"
         self.assertTrue(Selector(role="TextArea", desc="First Text View").matches(line))
         # And a wrong one still does not: terminating the value must not have
@@ -197,7 +197,7 @@ class TheTreeStaysParseable(unittest.TestCase):
         self.assertFalse(Selector(role="TextArea", desc="First Text").matches(line))
 
     def test_the_marker_keys_still_terminate_too(self):
-        from nlc.flow import Selector
+        from tacto.flow import Selector
         line = ("  3 Button  Description: Mode, Secondary Actions: ShowMenu, "
                 "Increment [disabled]")
         self.assertEqual(Selector._attr(line, "Description"), "Mode")

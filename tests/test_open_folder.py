@@ -3,8 +3,8 @@ import json
 import pathlib
 import unittest
 
-from nlc.flow import Flow
-from nlc.protocol import ACTION_PARAMS
+from tacto.flow import Flow
+from tacto.protocol import ACTION_PARAMS
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -37,7 +37,7 @@ class OpenFolderTests(unittest.TestCase):
             def wait_until(self, target, predicate, **k):
                 r = self.observe(target)
                 return r if predicate(r['tree']) else {'type': 'timeout', 'last_obs': r}
-        from nlc.flow import replay
+        from tacto.flow import replay
         flow = Flow.from_json(json.dumps({"schema": 2, "name": "f", "target": "com.apple.finder",
             "steps": [{"action": "open_folder", "params": {"path": "/tmp/x"},
                        "postcondition": {"field": {"role": "Window", "title": "x"},

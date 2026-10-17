@@ -14,11 +14,11 @@ except ImportError:
 @unittest.skipUnless(WEB, 'optional playwright dependency not installed')
 class ArtifactBrowser(unittest.TestCase):
     def test_save_actual_bytes_noop_and_corruption_have_distinct_outcomes(self):
-        from nlc.artifact_receipt import FreshFileReceipt
-        from nlc.browser import BrowserDriver
-        from nlc.contract import Resource, SafetyContract, ContextBinding, issue_approval
-        from nlc.flow import Flow, Selector, Step, replay
-        from nlc.trace import TracingDriver
+        from tacto.artifact_receipt import FreshFileReceipt
+        from tacto.browser import BrowserDriver
+        from tacto.contract import Resource, SafetyContract, ContextBinding, issue_approval
+        from tacto.flow import Flow, Selector, Step, replay
+        from tacto.trace import TracingDriver
 
         driver = BrowserDriver()
         self.addCleanup(driver.close)
@@ -30,7 +30,7 @@ class ArtifactBrowser(unittest.TestCase):
         driver._page.expose_function('saveFixture', save)
         html = '<button onclick="saveFixture()">Save</button>'
         for mode in ('normal', 'noop', 'corrupt'):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='nlc-file-proof-') as folder:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='tacto-file-proof-') as folder:
                 directory = Path(folder).resolve()
                 current.update(mode=mode, calls=0, path=directory / 'note.txt')
                 receipt = FreshFileReceipt(directory, 'note.txt', 'hello', timeout_seconds=0.2)

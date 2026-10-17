@@ -17,9 +17,9 @@ import subprocess
 from unittest.mock import patch
 
 import tiktoken
-from nlc.ask import ask_here_paged
-from nlc.browser import BrowserDriver
-from nlc.general import candidates
+from tacto.ask import ask_here_paged
+from tacto.browser import BrowserDriver
+from tacto.general import candidates
 
 
 def private_json(path, data):
@@ -31,7 +31,7 @@ def private_json(path, data):
 
 def source_hashes():
     root = Path(__file__).resolve().parents[2]
-    paths = list((root / 'nlc').glob('*.py')) + [Path(__file__).resolve()]
+    paths = list((root / 'tacto').glob('*.py')) + [Path(__file__).resolve()]
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(paths)}
 
@@ -79,10 +79,10 @@ def main():
                 print(json.dumps({'case': case, 'request': len(calls),
                                   'task_prompt_tokens': measured}), flush=True)
                 if args.provider == 'codex':
-                    from nlc.codex_result import codex_result
+                    from tacto.codex_result import codex_result
                     response = codex_result(prompt, timeout=kwargs['timeout_seconds'])
                 else:
-                    from nlc.claude_result import claude_result
+                    from tacto.claude_result import claude_result
                     response = claude_result(prompt, timeout=kwargs['timeout_seconds'])
                 record['provider_result'] = response.to_dict()
                 if response.status != 'ok':
@@ -91,7 +91,7 @@ def main():
 
             result, action_result, error = None, None, None
             try:
-                with patch('nlc.ask.reach_model', side_effect=live_request):
+                with patch('tacto.ask.reach_model', side_effect=live_request):
                     result = ask_here_paged('Set only ' + names[wanted] + ' to Priority. '
                         'Return exactly one select_option action for that control.', rows,
                         provider=args.provider, budget=args.budget, token_counter=counter,

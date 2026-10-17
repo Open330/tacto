@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.artifact_receipt import ArtifactReceiptError, FreshFileReceipt
-from nlc.commit_evidence import evidence_error, make_event
+from tacto.artifact_receipt import ArtifactReceiptError, FreshFileReceipt
+from tacto.commit_evidence import evidence_error, make_event
 
 
 class Clock:
@@ -130,8 +130,8 @@ class ArtifactReceiptTests(unittest.TestCase):
             self.assertIsNone(adapter.after_commit(self.event, {'type': 'acted'}, context))
 
     def test_replay_confirms_one_real_filesystem_write_with_adapter(self):
-        from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-        from nlc.flow import Flow, Selector, Step, replay
+        from tacto.contract import ContextBinding, Resource, SafetyContract, issue_approval
+        from tacto.flow import Flow, Selector, Step, replay
         adapter = self.adapter()
         path = self.path
         writes = []

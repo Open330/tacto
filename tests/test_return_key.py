@@ -8,9 +8,9 @@ import subprocess
 import tempfile
 import unittest
 
-from nlc.contract import Envelope, ContextBinding
-from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
-from nlc.protocol import RETURN_CAPABILITY, window_key_reobservation
+from tacto.contract import Envelope, ContextBinding
+from tacto.flow import Flow, Step, Selector, Postcondition, replay, pin_params
+from tacto.protocol import RETURN_CAPABILITY, window_key_reobservation
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 GOOD = {'type': 'acted', 'input_route': 'window_submit_key', 'posted_events': 1,
@@ -135,7 +135,7 @@ class ReturnProtocolTests(unittest.TestCase):
         self.assertFalse(window_key_reobservation(ret, pair, Finder.capabilities))
 
     def test_return_is_not_navigation(self):
-        from nlc.protocol import NAVIGATION_KEYS
+        from tacto.protocol import NAVIGATION_KEYS
         self.assertNotIn('Return', NAVIGATION_KEYS)
 
 
@@ -249,7 +249,7 @@ for (name, tree) in cases { out[name] = run(tree) }
 out["deadline spent"] = returnTargetRefusal(el(1), read: boundedAXRead(until: 0)) ?? "ALLOWED"
 print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-return-judge-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-return-judge-') as directory:
             script = pathlib.Path(directory) / 'main.swift'
             script.write_text(harness)
             result = subprocess.run(['swift', str(script)], capture_output=True, text=True, timeout=120)

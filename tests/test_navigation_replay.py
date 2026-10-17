@@ -1,8 +1,8 @@
 from dataclasses import replace
 import unittest
-from nlc.contract import Envelope, ContextBinding
-from nlc.flow import Flow, Step, Selector, Postcondition, Capture, replay, pin_params
-from nlc.protocol import window_key_reobservation
+from tacto.contract import Envelope, ContextBinding
+from tacto.flow import Flow, Step, Selector, Postcondition, Capture, replay, pin_params
+from tacto.protocol import window_key_reobservation
 
 
 class App:

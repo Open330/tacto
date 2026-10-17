@@ -14,9 +14,9 @@ from tests.test_product_comparison_provenance import comparison
 
 class ProductReadinessTests(unittest.TestCase):
     def setUp(self):
-        channel=patch('nlc.helper.InheritedHelperDriver.available',return_value=True)
+        channel=patch('tacto.helper.InheritedHelperDriver.available',return_value=True)
         channel.start();self.addCleanup(channel.stop)
-        spawn=patch('nlc.codex_result.subprocess.Popen',side_effect=AssertionError('readiness unit tests must not spawn an external process'))
+        spawn=patch('tacto.codex_result.subprocess.Popen',side_effect=AssertionError('readiness unit tests must not spawn an external process'))
         spawn.start();self.addCleanup(spawn.stop)
 
     def execute(self, locks, exit_code=0):
@@ -36,7 +36,7 @@ class ProductReadinessTests(unittest.TestCase):
              patch.object(comparison, '_locked', side_effect=locks), \
              patch.object(comparison, 'source_manifest', return_value={'sha256':'fixed', 'files':{}}), \
              patch.object(comparison, '_run_agent', side_effect=agent) as model:
-            result = comparison.run_one(task, 'nlc')
+            result = comparison.run_one(task, 'tacto')
         return result, setup, cleanup, oracle, model
 
     def test_no_setup_model_or_cleanup_when_initial_session_unavailable(self):
@@ -93,7 +93,7 @@ class ProductReadinessTests(unittest.TestCase):
                  patch.object(comparison, 'ROOT', Path(tmp)), \
                  patch.object(comparison, '_locked', return_value=False), \
                  patch.object(comparison, 'run_one', return_value=result), \
-                 patch.object(sys, 'argv', ['comparison', '--only', 'appearance_mode', '--arms', 'nlc']), \
+                 patch.object(sys, 'argv', ['comparison', '--only', 'appearance_mode', '--arms', 'tacto']), \
                  contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(expected, comparison.main())
 

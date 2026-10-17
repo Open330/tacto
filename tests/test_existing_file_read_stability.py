@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.artifact_receipt import ArtifactReceiptError
-from nlc.commit_evidence import make_event
-from nlc.existing_file_receipt import ExistingTextFileReceipt, SAVE_PATH, _file_state
+from tacto.artifact_receipt import ArtifactReceiptError
+from tacto.commit_evidence import make_event
+from tacto.existing_file_receipt import ExistingTextFileReceipt, SAVE_PATH, _file_state
 
 
 class ReadbackStabilityTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class ReadbackStabilityTests(unittest.TestCase):
                 changed = True
                 change()
             return data
-        return patch('nlc.existing_file_receipt.os.read', side_effect=boundary)
+        return patch('tacto.existing_file_receipt.os.read', side_effect=boundary)
 
     def test_unchanged_file_has_exact_bytes_and_current_identity(self):
         result = _file_state(str(self.path))

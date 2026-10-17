@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.artifact_receipt import ArtifactReceiptError
-from nlc.commit_evidence import CommitEvidence, make_event
-from nlc.existing_file_receipt import ExistingTextFileReceipt, SAVE_PATH
+from tacto.artifact_receipt import ArtifactReceiptError
+from tacto.commit_evidence import CommitEvidence, make_event
+from tacto.existing_file_receipt import ExistingTextFileReceipt, SAVE_PATH
 
 
 class Clock:
@@ -74,7 +74,7 @@ class ExistingFileReadPollingTests(unittest.TestCase):
                 changed = True
                 change()
             return data
-        return patch('nlc.existing_file_receipt.os.read', side_effect=boundary)
+        return patch('tacto.existing_file_receipt.os.read', side_effect=boundary)
 
     def test_one_safe_save_replacement_then_stable_exact_file_is_accepted(self):
         with self.eof(self.replace):
@@ -123,7 +123,7 @@ class ExistingFileReadPollingTests(unittest.TestCase):
                 self.replace()
             return opener(path, flags, *args, **kwargs)
 
-        with patch('nlc.existing_file_receipt.os.open', side_effect=opening):
+        with patch('tacto.existing_file_receipt.os.open', side_effect=opening):
             self.assertIs(type(self.after()), CommitEvidence)
         self.assertEqual([.01], self.clock.sleeps)
 
@@ -138,7 +138,7 @@ class ExistingFileReadPollingTests(unittest.TestCase):
                 raise FileNotFoundError(errno.ENOENT, 'PRIVATE_SENTINEL')
             return opener(path, flags, *args, **kwargs)
 
-        with patch('nlc.existing_file_receipt.os.open', side_effect=opening):
+        with patch('tacto.existing_file_receipt.os.open', side_effect=opening):
             self.assertIs(type(self.after()), CommitEvidence)
         self.assertEqual([.01], self.clock.sleeps)
 
@@ -150,7 +150,7 @@ class ExistingFileReadPollingTests(unittest.TestCase):
                     self.doc, document_path=str(self.path), timeout_seconds=.03,
                     poll_interval=.01, clock=self.clock, sleep=self.clock.sleep)
                 self.context = self.receipt.prepare_commit(self.event)
-                with patch('nlc.existing_file_receipt.os.open',
+                with patch('tacto.existing_file_receipt.os.open',
                            side_effect=OSError(error, 'PRIVATE_SENTINEL')) as opener:
                     with self.assertRaises(ArtifactReceiptError) as failure:
                         self.after()
@@ -180,7 +180,7 @@ class ExistingFileReadPollingTests(unittest.TestCase):
     def test_public_error_text_alone_does_not_authorize_polling(self):
         error = ArtifactReceiptError('file_changed_during_read')
         error.public_code = 'file_changed_during_read'
-        with patch('nlc.existing_file_receipt._file_state', side_effect=error) as reader:
+        with patch('tacto.existing_file_receipt._file_state', side_effect=error) as reader:
             with self.assertRaises(ArtifactReceiptError):
                 self.after()
         self.assertEqual(1, reader.call_count)

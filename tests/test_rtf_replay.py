@@ -5,9 +5,9 @@ import tempfile
 import unittest
 import uuid
 
-from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-from nlc.flow import Flow, Selector, Step, replay
-from nlc.rtf_receipt import FreshRTFReceipt
+from tacto.contract import ContextBinding, Resource, SafetyContract, issue_approval
+from tacto.flow import Flow, Selector, Step, replay
+from tacto.rtf_receipt import FreshRTFReceipt
 
 
 class FileWritingUI:
@@ -41,7 +41,7 @@ class RTFReplayTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         directory = Path(temporary.name).resolve()
-        path = directory / ('nlc-replay-' + uuid.uuid4().hex + '.rtf')
+        path = directory / ('tacto-replay-' + uuid.uuid4().hex + '.rtf')
         driver = FileWritingUI(path, raw, wrong_document)
         adapter = FreshRTFReceipt(directory, path.name, text,
                                   document_path=lambda: driver.document,

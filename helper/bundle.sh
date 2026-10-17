@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 . ../signing.sh
 STAGE=$(mktemp -d "./.tacto-helper-bundle.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
-APP="$STAGE/NLC Helper.app"
+APP="$STAGE/Tacto Helper.app"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 cp ../docs/assets/tacto-app.icns "$APP/Contents/Resources/tacto-app.icns"
@@ -22,13 +22,13 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>            <string>NLC Helper</string>
-  <key>CFBundleDisplayName</key>     <string>NLC Helper</string>
+  <key>CFBundleName</key>            <string>Tacto Helper</string>
+  <key>CFBundleDisplayName</key>     <string>Tacto Helper</string>
   <key>CFBundleDevelopmentRegion</key> <string>en</string>
   <key>LSHasLocalizedDisplayName</key> <true/>
   <key>CFBundleIconFile</key>        <string>tacto-app.icns</string>
   <key>CFBundleIdentifier</key>      <string>ai.callabo.nlc.helper</string>
-  <key>CFBundleExecutable</key>      <string>NLCHelper</string>
+  <key>CFBundleExecutable</key>      <string>TactoHelper</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleShortVersionString</key> <string>0.1.0</string>
   <key>CFBundleVersion</key>         <string>1</string>
@@ -55,15 +55,15 @@ for language in en ko; do
 NAMES
 done
 
-cp nlc-helper "$APP/Contents/MacOS/NLCHelper"
+cp tacto-helper "$APP/Contents/MacOS/TactoHelper"
 
-nlc_select_identity
+tacto_select_identity
 # Inner code first, then bundle; preserve the same team/identifier requirement.
-nlc_sign "$APP/Contents/MacOS/NLCHelper" "$NLC_HELPER_ID"
-nlc_sign "$APP" "$NLC_HELPER_ID"
+tacto_sign "$APP/Contents/MacOS/TactoHelper" "$TACTO_HELPER_ID"
+tacto_sign "$APP" "$TACTO_HELPER_ID"
 codesign --verify --deep --strict "$APP"
-DEST="NLC Helper.app"
-nlc_warn_team_change "$DEST" "$APP"
+DEST="Tacto Helper.app"
+tacto_warn_team_change "$DEST" "$APP"
 [ ! -L "$DEST" ] || { echo 'Refusing symlink bundle destination.' >&2; exit 1; }
 if [ -e "$DEST" ]; then mv "$DEST" "$STAGE/previous.app"; fi
 if ! mv "$APP" "$DEST"; then

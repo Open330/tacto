@@ -42,7 +42,7 @@ class ProbeTests(unittest.TestCase):
         native=types.SimpleNamespace(Driver=lambda:target,_attr=lambda *args:False,
                                      AXUIElementCreateApplication=lambda pid:pid)
         process=types.SimpleNamespace(ProcessInputAudit=audit)
-        with patch.dict(sys.modules,{'nlc.driver':native,'nlc.input_audit_process':process}), \
+        with patch.dict(sys.modules,{'tacto.driver':native,'tacto.input_audit_process':process}), \
              patch.object(probe.time,'sleep'):
             return probe.run_probe(target,transport='fixture-only',**kwargs)
     def test_readback_and_sampling_required_for_each_of_four_steps(self):

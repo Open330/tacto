@@ -2,7 +2,7 @@
 
 When the agent meets an intent it has no recipe for, it observes the target app
 and asks a model to translate "what the user wants" + "the current accessibility
-tree" into a concrete NLC Flow (selectors + steps + postcondition). The Flow is
+tree" into a concrete Tacto Flow (selectors + steps + postcondition). The Flow is
 then saved, so every future run of that intent replays with zero tokens.
 
 Claude uses a tools-disabled structured CLI adapter. Other providers retain
@@ -10,6 +10,7 @@ the muxa-first transport without an inference-only guarantee.
 """
 
 from __future__ import annotations
+from .environment import value as _environment_value
 
 import json
 import re
@@ -221,7 +222,8 @@ def _provider_env() -> dict:
     env = dict(os.environ)
     # A fresh model CLI does not own the launcher's inherited socket. Keeping
     # its markers makes grandchildren mistake a closed/reused fd for authority.
-    for key in ('NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+    for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN',
+                'NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
         env.pop(key, None)
     if not env.get("CLAUDECODE"):
         return env                      # no Claude session markers to remove
@@ -843,7 +845,7 @@ def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
     reply = reach_model(prompt, provider, expect_json=True)
     # A rejected recipe is unreadable without the reply that produced it, and
     # the reply is gone by the time the error surfaces.
-    debug = os.environ.get("NLC_AUTHOR_DEBUG")
+    debug = _environment_value('AUTHOR_DEBUG')
     if debug:
         from .storage import write_private
         write_private(debug, f"# prompt ({len(prompt)} chars)\n{prompt}\n\n# reply\n{reply}\n")

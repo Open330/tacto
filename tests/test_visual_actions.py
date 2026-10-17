@@ -2,8 +2,8 @@
 import unittest
 from unittest.mock import patch
 
-from nlc.visual import capture_browser
-from nlc.visual_actions import VisualClickExecutor, run_visual
+from tacto.visual import capture_browser
+from tacto.visual_actions import VisualClickExecutor, run_visual
 
 try:
     import playwright.sync_api
@@ -15,7 +15,7 @@ except ImportError:
 @unittest.skipUnless(WEB, 'optional playwright dependency not installed')
 class VisualActions(unittest.TestCase):
     def setUp(self):
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
         self.driver = BrowserDriver()
         self.addCleanup(self.driver.close)
         self.driver.goto("""data:text/html,<style>body{margin:0}</style><canvas id='c' width='200' height='100'></canvas><script>

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False, model_provider=None, prepare_window=False, general_prepare=False):
-    from nlc.driver import Driver
+    from tacto.driver import Driver
     control = Path(control_dir if control_dir is not None else sys.argv[1]).resolve()
     target = 'ai.callabo.nlc.menu-fixture'
     driver = driver if driver is not None else Driver()
@@ -85,47 +85,47 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
             if obs.get('type') != 'observation': raise RuntimeError(str(obs))
             result = {'before': obs}
             if path == 'general_menu':
-                from nlc.general import run
-                from nlc.flow import Selector
+                from tacto.general import run
+                from tacto.flow import Selector
                 plans=[]
                 stages=[('inspect_menu','메뉴 목록 조회'),('inspect_menu','Probe'),('menu','Direct Command'),('read',None)]
                 def planner(goal,candidates,history):
                     if model_provider:
-                        from nlc.ask import ask_here_paged
+                        from tacto.ask import ask_here_paged
                         answer=ask_here_paged(goal,candidates,history,provider=model_provider,max_pages=3)
                     elif len(plans)>=len(stages):answer={'done':True}
                     else:
                         do,label=stages[len(plans)]
                         chosen=next(c for c in candidates if do in c['can'] and
-                            (c['label']==label if label else 'nlc-fixture-direct-count' in c['line']))
+                            (c['label']==label if label else 'tacto-fixture-direct-count' in c['line']))
                         answer={'actions':[{'do':do,'candidate':chosen}]}
                     plans.append({'answer':answer,'candidates':candidates})
                     return answer
-                general=run(driver,target,'Probe 메뉴의 Direct Command를 정확히 한 번 실행하고 nlc-fixture-direct-count 값을 읽으세요.',
+                general=run(driver,target,'Probe 메뉴의 Direct Command를 정확히 한 번 실행하고 tacto-fixture-direct-count 값을 읽으세요.',
                             planner,max_screens=8,timeout_seconds=65)
                 result['general']={'ok':general.ok,'why':general.why,'said':general.said,'events':general.events,
                                    'certainty':general.certainty,'plans':plans,'provider_calls':general.provider_calls}
                 direct_reads = [a for v in general.visits for a in v.actions if a.get('do')=='read'
-                                and 'nlc-fixture-direct-count' in a.get('line','')
+                                and 'tacto-fixture-direct-count' in a.get('line','')
                                 and Selector._attr(a['line'],'Value')=='1']
                 menu_events = [e for e in general.events if e.get('action',{}).get('name')=='menu']
                 if (not general.ok or not direct_reads or len(menu_events)!=1
                         or menu_events[0]['action'].get('path')!=['Probe','Direct Command']):
                     raise RuntimeError('general_menu_readback_failed')
                 result['after_general']=driver.observe(target,'tree_full')
-                index,_=Selector(identifier='nlc-fixture-direct-count').resolve(result['after_general']['tree'])
+                index,_=Selector(identifier='tacto-fixture-direct-count').resolve(result['after_general']['tree'])
                 line=next(l for l in result['after_general']['tree'].splitlines() if l.strip().split(maxsplit=1)[0]==str(index))
                 if Selector._attr(line,'Value')!='1':raise RuntimeError('general_menu_counter_mismatch')
                 if '--menu-promotion' in sys.argv:
-                    from nlc.promote import candidate_from, deployable
-                    from nlc.flow import Postcondition, replay
+                    from tacto.promote import candidate_from, deployable
+                    from tacto.flow import Postcondition, replay
                     candidate=candidate_from(general,target,'increment direct counter once and read')
                     if candidate is None:raise RuntimeError('menu_candidate_unavailable')
                     menu_indices=[i for i,a in enumerate(candidate.actions) if a['do']=='menu']
                     if len(menu_indices)!=1:raise RuntimeError('unexpected_menu_candidate_actions')
                     flow,reasons=deployable(candidate,'owned-menu-replay',candidate.goal,
                         menu_postconditions={menu_indices[0]:Postcondition(
-                            field=Selector(identifier='nlc-fixture-direct-count'),equals='2',attribute='Value')})
+                            field=Selector(identifier='tacto-fixture-direct-count'),equals='2',attribute='Value')})
                     if flow is None:raise RuntimeError('menu_flow_refused:'+str(reasons))
                     replayed=replay(driver,flow)
                     result['promotion']={'ok':replayed.ok,'events':replayed.events,
@@ -133,16 +133,16 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                         'menu_path':flow.steps[menu_indices[0]].params['path']}
                     if not replayed.ok:raise RuntimeError('menu_replay_failed')
                     replay_after=driver.observe(target,'tree_full')
-                    index,_=Selector(identifier='nlc-fixture-direct-count').resolve(replay_after['tree'])
+                    index,_=Selector(identifier='tacto-fixture-direct-count').resolve(replay_after['tree'])
                     line=next(l for l in replay_after['tree'].splitlines() if l.strip().split(maxsplit=1)[0]==str(index))
                     if Selector._attr(line,'Value')!='2':raise RuntimeError('menu_replay_counter_mismatch')
                     result['promotion']['after']=replay_after
 
             elif path == 'driver_prepare_window':
-                from nlc.flow import Selector
+                from tacto.flow import Selector
                 index,_ = Selector(role='Window',title='NLC Native Menu Fixture').resolve(obs['tree'])
                 if general_prepare:
-                    from nlc.general import run
+                    from tacto.general import run
                     replies=[]
                     class RecordingDriver:
                         def __getattr__(self,name):return getattr(driver,name)
@@ -151,7 +151,7 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     plans=[]
                     def planner(goal,cands,history):
                         if model_provider:
-                            from nlc.ask import ask_here_paged
+                            from tacto.ask import ask_here_paged
                             answer=ask_here_paged(goal,cands,history,provider=model_provider,max_pages=2)
                             plans.append({'candidates':cands,'answer':answer})
                             return answer
@@ -160,11 +160,11 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                             chosen=next(c for c in cands if c['role']=='Window')
                             return {'actions':[{'do':'prepare_window','candidate':chosen}]}
                         if len(plans)==2:
-                            chosen=next(c for c in cands if 'nlc-fixture-state' in c['line'])
+                            chosen=next(c for c in cands if 'tacto-fixture-state' in c['line'])
                             return {'actions':[{'do':'read','candidate':chosen}]}
                         return {'done':True}
                     general=run(RecordingDriver(),target,
-                        'NLC Native Menu Fixture 창을 prepare_window로 준비하고, 새 관측에서 nlc-fixture-state의 실제 상태를 읽어주세요. 다른 버튼은 누르지 마세요.',
+                        'NLC Native Menu Fixture 창을 prepare_window로 준비하고, 새 관측에서 tacto-fixture-state의 실제 상태를 읽어주세요. 다른 버튼은 누르지 마세요.',
                         planner,max_screens=5,timeout_seconds=65)
                     result['general']={'ok':general.ok,'why':general.why,'said':general.said,
                         'events':general.events,'certainty':general.certainty,'plans':plans,
@@ -183,9 +183,9 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     raise RuntimeError('responder_menu_not_enabled_after_preparation')
                 if '--replay-prepared-window' in sys.argv:
                     if not general_prepare:raise RuntimeError('general preparation required')
-                    from nlc.promote import candidate_from, deployable
-                    from nlc.flow import Postcondition, replay
-                    state_index,_=Selector(identifier='nlc-fixture-state').resolve(result['after_prepare']['tree'])
+                    from tacto.promote import candidate_from, deployable
+                    from tacto.flow import Postcondition, replay
+                    state_index,_=Selector(identifier='tacto-fixture-state').resolve(result['after_prepare']['tree'])
                     state_line=next(l for l in result['after_prepare']['tree'].splitlines() if l.strip().split(maxsplit=1)[0]==str(state_index))
                     ready_state=Selector._attr(state_line,'Value')
                     if not ready_state or 'isKeyWindow=true' not in ready_state:
@@ -193,7 +193,7 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     candidate=candidate_from(general,target,'prepare window and read state')
                     if candidate is None:raise RuntimeError('prepare_candidate_unavailable')
                     flow,reasons=deployable(candidate,'owned-prepare-replay',candidate.goal,
-                        preparation_postconditions={0:Postcondition(field=Selector(identifier='nlc-fixture-state'),
+                        preparation_postconditions={0:Postcondition(field=Selector(identifier='tacto-fixture-state'),
                                                                    equals=ready_state,attribute='Value')})
                     if flow is None:raise RuntimeError('prepare_flow_refused:'+str(reasons))
                     repeated=replay(driver,flow)
@@ -202,9 +202,9 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     if not repeated.ok:raise RuntimeError('prepare_replay_failed')
 
             elif path == 'model_coordinate':
-                from nlc.ask import ask_here_paged
-                from nlc.general import run
-                from nlc.flow import Selector
+                from tacto.ask import ask_here_paged
+                from tacto.general import run
+                from tacto.flow import Selector
                 result['plans'] = []
                 def planner(goal, candidates, done):
                     live()
@@ -220,10 +220,10 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     'said':loop.said, 'events':loop.events, 'asked':loop.asked,
                     'provider_calls':loop.provider_calls}
             elif path == 'coordinate_metadata':
-                from nlc.flow import Selector
-                from nlc.native_window_binding import capture_binding, validate_binding
+                from tacto.flow import Selector
+                from tacto.native_window_binding import capture_binding, validate_binding
                 from ApplicationServices import AXUIElementCopyActionNames
-                index, _ = Selector(identifier='nlc-coordinate-button').resolve(obs['tree'])
+                index, _ = Selector(identifier='tacto-coordinate-button').resolve(obs['tree'])
                 snapshot = driver._latest[target.lower()]
                 element = snapshot.elements[index]
                 error, names = AXUIElementCopyActionNames(element, None)
@@ -235,8 +235,8 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                 result['binding'] = {'pid':binding.pid,'window_id':binding.window_id,
                                      'bounds':binding.window_bounds,'point':binding.point}
             elif path == 'driver_coordinate_click':
-                from nlc.flow import Selector
-                index, _ = Selector(identifier='nlc-coordinate-button').resolve(obs['tree'])
+                from tacto.flow import Selector
+                index, _ = Selector(identifier='tacto-coordinate-button').resolve(obs['tree'])
                 if coordinate_only:
                     result['refusals'] = []
                     for token, expectation in [('invalid-owned-observation', {'role':'Button'}),
@@ -301,15 +301,15 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                 point = (bounds['X'] + 30, bounds['Y'] + 16)
                 local = (30, bounds['Height'] - 16)
                 if '--content-click' in sys.argv[2:]:
-                    from nlc.flow import Selector
-                    from nlc.driver import _elem_frame, _attr
+                    from tacto.flow import Selector
+                    from tacto.driver import _elem_frame, _attr
                     from ApplicationServices import AXUIElementGetPid
-                    index, _ = Selector(identifier='nlc-fixture-make-key').resolve(obs['tree'])
+                    index, _ = Selector(identifier='tacto-fixture-make-key').resolve(obs['tree'])
                     element = driver._latest[target].elements[index]
                     error, pid = AXUIElementGetPid(element, None)
                     frame = _elem_frame(element)
                     if (error != 0 or pid != session['fixture_pid'] or frame is None
-                            or _attr(element, 'AXIdentifier') != 'nlc-fixture-make-key'):
+                            or _attr(element, 'AXIdentifier') != 'tacto-fixture-make-key'):
                         raise RuntimeError('owned_button_geometry_unavailable')
                     x, y, width, height = frame
                     point = (x + width / 2, y + height / 2)
@@ -373,14 +373,14 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     'post_return_is_not_effect_verification':True}
                 time.sleep(.2)
             elif path == 'experimental_make_key':
-                from nlc.flow import Selector
-                index, _ = Selector(identifier='nlc-fixture-make-key').resolve(obs['tree'])
+                from tacto.flow import Selector
+                index, _ = Selector(identifier='tacto-fixture-make-key').resolve(obs['tree'])
                 result['make_key'] = driver.act(obs['obs_id'], target,
                     {'name':'click','element_index':index})
                 time.sleep(.2)
             elif path == 'experimental_window_focus':
                 from ApplicationServices import AXUIElementSetAttributeValue, AXUIElementGetPid
-                from nlc.driver import _attr
+                from tacto.driver import _attr
                 element = driver._latest[target].elements[0]
                 error, pid = AXUIElementGetPid(element, None)
                 if (error != 0 or pid != session['fixture_pid']
@@ -424,21 +424,21 @@ def main(driver=None, control_dir=None, coordinate_only=False, test_abort=False,
                     result['action'] = driver.act(obs['obs_id'], target, {'name':'menu','path':path})
             result['after'] = driver.observe(target, 'tree_full')
             if hardening or discovery:
-                from nlc.flow import Selector
+                from tacto.flow import Selector
                 def direct_count(observation):
-                    index,_=Selector(identifier='nlc-fixture-direct-count').resolve(observation['tree'])
+                    index,_=Selector(identifier='tacto-fixture-direct-count').resolve(observation['tree'])
                     line=next(l for l in observation['tree'].splitlines() if l.strip().split(maxsplit=1)[0]==str(index))
                     return Selector._attr(line,'Value')
                 if direct_count(obs) != '0' or direct_count(result['after']) != ('1' if hardening and expected_enabled else '0'):
                     raise RuntimeError('menu_counter_mismatch')
             if prepare_window and isinstance(path,list):
-                from nlc.flow import Selector
-                index,_=Selector(identifier='nlc-fixture-responder-count').resolve(result['after']['tree'])
+                from tacto.flow import Selector
+                index,_=Selector(identifier='tacto-fixture-responder-count').resolve(result['after']['tree'])
                 line=next(l for l in result['after']['tree'].splitlines() if l.strip().split(maxsplit=1)[0]==str(index))
                 if Selector._attr(line,'Value')!='1':raise RuntimeError('responder_command_not_verified')
             if coordinate_only:
                 def count(observation):
-                    index, _ = Selector(identifier='nlc-coordinate-count').resolve(observation['tree'])
+                    index, _ = Selector(identifier='tacto-coordinate-count').resolve(observation['tree'])
                     line = next(line for line in observation['tree'].splitlines()
                                 if line.strip().split(maxsplit=1)[0] == str(index))
                     return Selector._attr(line, 'Value')

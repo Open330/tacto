@@ -1,7 +1,7 @@
 from dataclasses import replace
 import unittest
-from nlc.contract import Envelope, ContextBinding
-from nlc.flow import Flow, Step, Selector, Postcondition, Capture, replay, pin_params
+from tacto.contract import Envelope, ContextBinding
+from tacto.flow import Flow, Step, Selector, Postcondition, Capture, replay, pin_params
 
 class App:
     capabilities={'action.prepare_window'}
@@ -41,7 +41,7 @@ class PrepareWindowReplayTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertEqual(len(app.calls),1)
     def test_promoted_prepare_requires_host_result_contract(self):
-        from nlc.promote import Candidate, deployable
+        from tacto.promote import Candidate, deployable
         c=Candidate(goal='prepare',target='fixture',verified=True,actions=[{
             'do':'prepare_window','role':'Window','attr':'Title','match':'Fixture','label':'Fixture',
             'line':'0 Window Title: Fixture'}])

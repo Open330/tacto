@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch
-from nlc.general import run
+from tacto.general import run
 
 
 class App:
@@ -62,8 +62,8 @@ class GeneralWindowObservationTests(unittest.TestCase):
 
     def test_remaining_run_deadline_reaches_actual_helper_message(self):
         from unittest.mock import patch
-        from nlc.helper import InheritedHelperDriver
-        from nlc.model_budget import model_deadline, remaining_model_seconds
+        from tacto.helper import InheritedHelperDriver
+        from tacto.model_budget import model_deadline, remaining_model_seconds
         for outer, expected in [(None, 101.0), (100.5, 100.5)]:
             with self.subTest(outer=outer):
                 now = [100.0]
@@ -87,8 +87,8 @@ class GeneralWindowObservationTests(unittest.TestCase):
                 self.assertEqual(expected, app.messages[0]['click_deadline_uptime'])
 
     def test_prepare_window_is_capability_gated_and_reobserved(self):
-        from nlc.general import candidates
-        from nlc.promote import candidate_from
+        from tacto.general import candidates
+        from tacto.promote import candidate_from
         self.assertFalse(any(c['role']=='Window' for c in candidates(App().tree())))
         class PrepareApp(App):
             capabilities={'action.prepare_window'}
@@ -118,14 +118,14 @@ class GeneralWindowObservationTests(unittest.TestCase):
         self.assertEqual(result.events[0]['state'],'dispatched')
         self.assertEqual(result.certainty,'unknown')
         result.verified=True
-        from nlc.promote import deployable
+        from tacto.promote import deployable
         candidate=candidate_from(result,'fixture','prepare and read state')
         self.assertIsNotNone(candidate)
         self.assertIsNone(deployable(candidate,'prepare','prepare and read state')[0])
 
     def test_prepare_question_requires_capability_and_last_action(self):
-        from nlc.ask import what_to_do_here
-        from nlc.general import candidates
+        from tacto.ask import what_to_do_here
+        from tacto.general import candidates
         cs=candidates(App().tree(),capabilities={'action.prepare_window'})
         pick=next(i for i,c in enumerate(cs) if c['role']=='Window')
         q=what_to_do_here('prepare',cs)
@@ -147,7 +147,7 @@ class GeneralWindowObservationTests(unittest.TestCase):
         self.assertEqual(result.said,['x'*180+' END'])
 
     def test_window_preparation_precedes_large_button_list(self):
-        from nlc.general import candidates
+        from tacto.general import candidates
         tree='0 AXWindow Title: Test\n'+'\n'.join(f'  {i+1} Button Title: Button {i}' for i in range(200))
         cs=candidates(tree,capabilities={'action.prepare_window'})
         self.assertEqual(cs[0]['can'],['prepare_window'])
@@ -193,8 +193,8 @@ class ForegroundRefusalTests(unittest.TestCase):
         self.assertIn('실행 실패', result.why)
 
     def test_agent_reports_a_handoff_rather_than_a_failure(self):
-        from nlc.agent import Agent
-        from nlc.general import GeneralResult
+        from tacto.agent import Agent
+        from tacto.general import GeneralResult
         for reason, expected in (('needs_foreground', 'needs_handoff'),
                                  ('needs_pointer', 'needs_handoff'),
                                  ('screen_limit', 'failed'), ('', 'failed')):
@@ -203,7 +203,7 @@ class ForegroundRefusalTests(unittest.TestCase):
                                         stop_reason=reason)
                 agent = Agent(driver=App(), store=None,
                               general=lambda *a, **k: outcome)
-                with patch('nlc.authoring.guess_target', return_value='fixture'):
+                with patch('tacto.authoring.guess_target', return_value='fixture'):
                     turn = agent._work_it_out('버튼 눌러줘', {'target': 'fixture'},
                                               ask=lambda _: True)
                 self.assertEqual(expected, turn.status)

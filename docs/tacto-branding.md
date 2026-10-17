@@ -8,25 +8,34 @@ Flow를 재사용하는 실행 계층입니다. 문서·웹·CLI·에이전트 �
 | 제품·메뉴 막대 | Tacto / ● Tacto | 재빌드한 실행기에 반영 |
 | 명령 | tacto | nlc도 같은 signed launcher를 실행 |
 | 에이전트 스킬 | tacto | 설치기가 소유를 확인한 예전 NLC 스킬을 발견 경로 밖에 백업 |
-| Python 배포 | tacto-runtime | import nlc 유지; PyPI의 다른 tacto 패키지와 구분 |
+| Python 배포 | tacto-runtime | 기본 import `tacto`, `import nlc` 호환. PyPI의 `tacto`(촉각 시뮬레이터)와 import 이름이 겹치므로 별도 환경에 설치하고 `pip install tacto`는 쓰지 않음 |
 | 웹페이지 | sites/tacto/dist | 예전 사이트 README는 새 경로 안내 |
 
-기존 Python namespace, Flow schema·데이터 경로, NLC_* 환경 변수,
-`ai.callabo.nlc.*` 서명 식별자와 `helper/NLC Helper.app` 경로는 유지합니다.
-이름 변경만으로 기존 권한을 잃거나 저장 Flow를 다른 저장소로 이동시키지 않습니다.
-새 빌드는 `InfoPlist.strings`의 지역화된 앱 이름을 **Tacto Helper**로
-표시합니다. Finder가 지역화 이름을 쓰도록 기본 plist 이름은 내부 폴더 이름과
-일치시킵니다. 서명 bundle ID·요구조건·실행 파일·번들 경로는 유지합니다.
-GUI와 `doctor`는 설치된 번들의 실제 표시 이름을 읽습니다. 따라서 Preview 1이나
-이전 설치가 **NLC Helper**이면 그 이름을 그대로 안내하며, 아직 교체하지 않은
-배포물을 Tacto Helper로 바꿨다고 주장하지 않습니다. macOS 설정 목록은 이름을 캐시할 수 있어 이전 이름으로 남을 수 있습니다.
-LaunchServices 캐시를 자동으로 지우지 않습니다. 표시 이름 변경 뒤 기존
-권한이 유지되는지는 실제 업그레이드에서 별도로 검증합니다.
+기본 Python namespace는 `tacto`, 서명된 실행기는 `launcher/tacto`, helper는
+`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`입니다. GUI 실행 파일도
+`TactoSetup`을 사용합니다. 새 환경 변수는 `TACTO_*`가 우선입니다.
 
-`./skill/install.sh`는 tacto와 nlc 명령을 서명된 `launcher/nlc`에 연결하고
-Claude·Codex의 tacto 스킬을 설치합니다. 다른 프로그램·스킬은 덮어쓰지 않습니다.
-소유를 확인한 예전 NLC 스킬은 skills 폴더 밖 `.tacto-skill-backup.*`에 보관해
-중복 발견을 피합니다. `--check`는 읽기 전용입니다.
+기존 `import nlc.*`와 `nlc` CLI는 작은 호환 계층을 통해 같은 구현을 사용합니다.
+서명 식별자 `ai.callabo.nlc.*`는 macOS 권한의 보안 식별자이므로 유지합니다.
+이 식별자를 표시 이름과 혼동하지 않습니다. 기존 helper 경로·런타임 환경 변수는
+호환 경계에서만 읽으며, 팀·서명 요구조건은 환경변수로 바꿀 수 없습니다.
+
+기존 설치의 `nlc/flows`만 존재하면 그대로 읽고, 새 설치는 `tacto/flows`를 사용합니다.
+두 저장소가 모두 데이터를 포함하면 기본 경로를 조용히 골라 데이터를 숨기지 않고
+명시적 `FlowStore(path=...)` 선택을 요청합니다. import·doctor는 사용자 파일을
+이동하거나 덮어쓰지 않습니다.
+
+Preview 1과 이전 설치는 **NLC Helper**라는 이름을 사용합니다. GUI와 doctor는
+실제 설치된 앱 이름을 읽습니다. 새 빌드는 **Tacto Helper**를 사용하되 macOS 설정
+목록은 이전 이름을 캐시할 수 있습니다. 권한 유지 여부는 실제 업그레이드에서
+별도 검증해야 하며 LaunchServices 캐시는 자동으로 지우지 않습니다.
+helper 번들 경로(`NLC Helper.app` → `Tacto Helper.app`)와 실행 파일(`NLCHelper` →
+`TactoHelper`)은 바뀌었고, 번들 식별자·서명 요구조건만 유지됩니다. 같은 식별자와
+요구조건이면 macOS가 권한을 이어 줄 것으로 예상하지만, 실제 업그레이드로 확인되기
+전까지는 확정된 사실로 안내하지 않습니다.
+
+`./skill/install.sh`는 `tacto`와 `nlc` 명령을 새 서명 실행기로 연결합니다.
+다른 프로그램·스킬은 덮어쓰지 않으며 소유를 확인한 이전 스킬만 백업합니다.
 
 GitHub 저장소 이름도 `Open330/tacto`로 변경했습니다. clone·문서 링크와
 Git remote를 새 주소로 갱신했습니다. 저장소 공개와 라이선스 변경은 별도입니다. 과거 측정의 nlc 라벨과 수치는 원본대로 보존합니다.
@@ -71,6 +80,6 @@ Tacto라는 기존 제품과 Python 패키지가 있습니다. 이 변경은 상
 `launcher/tacto.swift`로 통일했습니다. 사용하지 않는 이전 온보딩 경로의 README는
 제거했습니다. 비교 보고서의 수치·측정 결과는 변경하지 않았습니다.
 
-이는 활성 문서·소스 파일명 변경입니다. `nlc` Python 모듈·기존 명령 별칭,
-서명 식별자와 기존 설치 경로는 별도 호환성 경계입니다. 비공개 원자료와 과거
+후속 namespace 이전으로 Python 구현·실행 경로도 Tacto로 바꿨습니다.
+이전 import·명령·서명 식별자·설치 경로는 명시적인 호환 경계에만 남깁니다. 비공개 원자료와 과거
 Git 커밋의 파일명은 새로운 측정 결과인 것처럼 재작성하지 않습니다.

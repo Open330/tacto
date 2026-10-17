@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'examples'))
 from product_comparison import source_manifest
-from nlc.contract import ContextBinding, Envelope
-from nlc.flow import Flow, Postcondition, Selector, Step, pin_params
-from nlc.preparation_diagnostic import diagnostic_lines
+from tacto.contract import ContextBinding, Envelope
+from tacto.flow import Flow, Postcondition, Selector, Step, pin_params
+from tacto.preparation_diagnostic import diagnostic_lines
 
 
 def preparation_flow(path):
@@ -40,17 +40,17 @@ def preparation_flow(path):
 
 def main(report):
     fd = os.open(report, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    directory = os.path.realpath(tempfile.mkdtemp(prefix='nlc-finder-ready-'))
+    directory = os.path.realpath(tempfile.mkdtemp(prefix='tacto-finder-ready-'))
     identity = os.stat(directory)
     result = {'kind':'owned-finder-preparation', 'model_calls':0,
               'owned_directory':directory, 'diagnostics':[], 'cleanup':'left_as_is',
               'source_manifest_before':source_manifest()}
     try:
-        with tempfile.TemporaryDirectory(prefix='nlc-finder-flow-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-finder-flow-') as work:
             flow = Path(work) / 'prepare.json'
             flow.write_text(preparation_flow(directory).to_json())
-            launcher = Path.home() / '.local/bin/nlc'
-            if launcher.resolve() != ROOT / 'launcher/nlc':
+            launcher = Path.home() / '.local/bin/tacto'
+            if launcher.resolve() != ROOT / 'launcher/tacto':
                 raise RuntimeError('signed launcher checkout mismatch')
             with subprocess.Popen([str(launcher), 'run', str(flow), '--helper', '--yes', '--think', '0'],
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

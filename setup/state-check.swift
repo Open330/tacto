@@ -24,7 +24,7 @@ import Foundation
   assert(!state.ready)
   print("Permission state: 12 cases PASS; both grants required for readiness")
 
-  let helper = URL(fileURLWithPath: "/checkout/helper/NLC Helper.app")
+  let helper = URL(fileURLWithPath: "/checkout/helper/Tacto Helper.app")
   let setup = URL(fileURLWithPath: "/Applications/Tacto.app")
   assert(permissionApp(.control, helper: helper, setupApp: setup, bundledRuntime: true) == helper)
   assert(permissionApp(.screen, helper: helper, setupApp: setup, bundledRuntime: true) == setup)
@@ -73,11 +73,11 @@ import Foundation
   let root = temp.appendingPathComponent("runtime"), home = temp.appendingPathComponent("home")
   func directory(_ path: URL) { try! fm.createDirectory(at: path, withIntermediateDirectories: true) }
   directory(root.appendingPathComponent("launcher")); directory(root.appendingPathComponent("skill"))
-  try! Data("fixture".utf8).write(to: root.appendingPathComponent("launcher/nlc"))
+  try! Data("fixture".utf8).write(to: root.appendingPathComponent("launcher/tacto"))
   try! Data("---\nname: tacto\n---\n".utf8).write(to: root.appendingPathComponent("skill/SKILL.md"))
   func status(_ environment: [String:String] = [:]) -> AgentConnection { agentConnection(root: root, home: home, environment: environment) }
   assert(status() == .missing)
-  let targets = [(".local/bin/tacto", "launcher/nlc"), (".local/bin/nlc", "launcher/nlc"),
+  let targets = [(".local/bin/tacto", "launcher/tacto"), (".local/bin/nlc", "launcher/tacto"),
                  (".claude/skills/tacto", "skill"), (".codex/skills/tacto", "skill")]
   for (name, destination) in targets {
     let link = home.appendingPathComponent(name); directory(link.deletingLastPathComponent())

@@ -2,10 +2,10 @@
 import hashlib
 import unittest
 
-from nlc.agent import Agent
-from nlc.commit_evidence import ArtifactEvidence, CommitEvidence
-from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-from nlc.flow import Flow, Postcondition, Selector, Step, replay
+from tacto.agent import Agent
+from tacto.commit_evidence import ArtifactEvidence, CommitEvidence
+from tacto.contract import ContextBinding, Resource, SafetyContract, issue_approval
+from tacto.flow import Flow, Postcondition, Selector, Step, replay
 
 
 class MemoryStore:
@@ -102,7 +102,7 @@ class ReplayCommitEvidenceTests(unittest.TestCase):
         self.assertEqual(driver.writes, [{'path': '/tmp/Downloads/proof.rtf', 'content': 'hello'}])
 
     def test_live_trace_wrapper_preserves_host_receipt_hooks(self):
-        from nlc.trace import TracingDriver
+        from tacto.trace import TracingDriver
         driver = TextEditFixture(write=True)
         driver.install_evidence()
         traced = TracingDriver(driver)

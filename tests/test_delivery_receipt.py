@@ -3,8 +3,8 @@ from dataclasses import asdict, replace
 import hashlib
 import unittest
 
-from nlc.commit_evidence import CommitEvidence, evidence_error, make_event
-from nlc.delivery_receipt import (DeliveredMessageReceipt, DeliveryReceiptError,
+from tacto.commit_evidence import CommitEvidence, evidence_error, make_event
+from tacto.delivery_receipt import (DeliveredMessageReceipt, DeliveryReceiptError,
                                   InboxDelivery, PendingDelivery, InboxTemporarilyUnavailable)
 
 

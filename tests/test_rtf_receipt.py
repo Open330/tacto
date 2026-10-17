@@ -10,9 +10,9 @@ import unittest
 import uuid
 from unittest.mock import patch
 
-from nlc.artifact_receipt import ArtifactReceiptError
-from nlc.commit_evidence import make_event, evidence_error
-from nlc.rtf_receipt import FreshRTFReceipt, _ReadbackPending
+from tacto.artifact_receipt import ArtifactReceiptError
+from tacto.commit_evidence import make_event, evidence_error
+from tacto.rtf_receipt import FreshRTFReceipt, _ReadbackPending
 
 
 class RTFReceiptTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class RTFReceiptTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name).resolve()
         self.directory.chmod(0o755)
-        self.name = 'nlc-test-' + uuid.uuid4().hex + '.rtf'
+        self.name = 'tacto-test-' + uuid.uuid4().hex + '.rtf'
         self.path = self.directory / self.name
         self.event = make_event({'name':'click','element_index':5}, {'write_persistent'}, 'com.apple.TextEdit')
         self.response = {'type':'acted'}
@@ -156,7 +156,7 @@ class RTFReceiptTests(unittest.TestCase):
         def slow_decoder(argv,**kwargs):
             return original_popen([sys.executable,'-c','import time;time.sleep(20)'],**kwargs)
         started=time.monotonic()
-        with patch('nlc.rtf_receipt.subprocess.Popen',side_effect=slow_decoder):
+        with patch('tacto.rtf_receipt.subprocess.Popen',side_effect=slow_decoder):
             self.assertIsNone(adapter.after_commit(self.event,self.response,context))
         self.assertLess(time.monotonic()-started,1)
         self.path.unlink()
@@ -185,7 +185,7 @@ class RTFReceiptTests(unittest.TestCase):
         start, children = self.fake_decoder(
             "import os\nwhile True: os.write(1, b'x'*65536)")
         started = time.monotonic()
-        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=start):
+        with patch('tacto.rtf_receipt.subprocess.Popen', side_effect=start):
             with self.assertRaisesRegex(_ReadbackPending, 'byte budget'):
                 adapter._decode(b'{\\rtf1 Hello}')
         self.assertLess(time.monotonic() - started, 1.5)
@@ -205,7 +205,7 @@ class RTFReceiptTests(unittest.TestCase):
             "sys.stdout.buffer.flush()\nraw=sys.stdin.buffer.read()\n"
             "sys.exit(0 if len(raw)==1048576 else 1)")
         raw = b'{\\rtf1 ' + b'a' * (1048576 - 8) + b'}'
-        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=start):
+        with patch('tacto.rtf_receipt.subprocess.Popen', side_effect=start):
             self.assertEqual(adapter._decode(raw), 'x' * 65536)
         self.assertEqual(children[0].returncode, 0)
 
@@ -233,7 +233,7 @@ class RTFReceiptTests(unittest.TestCase):
             adapter._decode_deadline = adapter._clock() + .15
             return proc
         started = time.monotonic()
-        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=exited_parent):
+        with patch('tacto.rtf_receipt.subprocess.Popen', side_effect=exited_parent):
             with self.assertRaisesRegex(_ReadbackPending, 'deadline'):
                 adapter._decode(b'{\\rtf1 Hello}')
         self.assertLess(time.monotonic() - started, 4)
@@ -250,8 +250,8 @@ class RTFReceiptTests(unittest.TestCase):
         adapter = self.receipt(timeout_seconds=2)
         adapter._decode_deadline = adapter._clock() + 2
         start, children = self.fake_decoder('import time;time.sleep(20)')
-        with patch('nlc.rtf_receipt.subprocess.Popen', side_effect=start), \
-                patch('nlc.rtf_receipt.selectors.DefaultSelector.select',
+        with patch('tacto.rtf_receipt.subprocess.Popen', side_effect=start), \
+                patch('tacto.rtf_receipt.selectors.DefaultSelector.select',
                       side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):
                 adapter._decode(b'{\\rtf1 Hello}')
@@ -260,7 +260,7 @@ class RTFReceiptTests(unittest.TestCase):
         self.assertTrue(children[0].stdout.closed)
 
     def xattr(self, value):
-        name='com.nlc.receipt-test' if sys.platform=='darwin' else 'user.nlc_receipt_test'
+        name='com.tacto.receipt-test' if sys.platform=='darwin' else 'user.tacto_receipt_test'
         data=str(value).encode()
         if hasattr(os, 'setxattr'):
             os.setxattr(self.path,name,data)
@@ -321,7 +321,7 @@ class RTFReceiptTests(unittest.TestCase):
                     return value
                 with patch.object(adapter,'_decode',return_value='Hello'), \
                      patch.object(adapter,'_read_file',side_effect=readback), \
-                     patch('nlc.rtf_receipt.os.read',side_effect=read):
+                     patch('tacto.rtf_receipt.os.read',side_effect=read):
                     proof=adapter.after_commit(self.event,self.response,context)
                 self.assertIsNotNone(proof)
                 self.assertEqual(2,len(reads))
@@ -339,7 +339,7 @@ class RTFReceiptTests(unittest.TestCase):
         self.assertGreater(count[0],1)
 
     def test_non_ctime_identity_changes_still_raise_and_plain_receipt_stays_strict(self):
-        from nlc.artifact_receipt import FreshFileReceipt
+        from tacto.artifact_receipt import FreshFileReceipt
         identity=(1,2,0o100644,501,1,20,100,20,200)
         for field in range(len(identity)-1):
             changed=list(identity);changed[field]+=1

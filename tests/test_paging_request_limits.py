@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import patch
 
-from nlc.ask import _here_question, ask_here_paged
+from tacto.ask import _here_question, ask_here_paged
 
 
 class PagingRequestLimitsTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class PagingRequestLimitsTests(unittest.TestCase):
             return '{"actions":[{"pick":999,"do":"read"}]}'
 
         budget = len(self.initial) + 1
-        with patch('nlc.ask.reach_model', side_effect=respond):
+        with patch('tacto.ask.reach_model', side_effect=respond):
             result = ask_here_paged(self.goal, [self.candidate], budget=budget,
                                     token_counter=len, max_pages=8)
         self.assertEqual(1, len(sent))
@@ -32,14 +32,14 @@ class PagingRequestLimitsTests(unittest.TestCase):
         self.assertEqual([], result['actions'])
 
     def test_rejected_answer_does_not_get_an_extra_call_past_limit(self):
-        with patch('nlc.ask.reach_model', return_value='{"actions":[{"pick":999,"do":"read"}]}') as call:
+        with patch('tacto.ask.reach_model', return_value='{"actions":[{"pick":999,"do":"read"}]}') as call:
             result = ask_here_paged(self.goal, [self.candidate], max_pages=1)
         self.assertEqual(1, call.call_count)
         self.assertEqual('model_request_limit', result['stop_reason'])
         self.assertEqual(1, result['paging']['requests_used'])
 
     def test_fitting_retry_still_selects_the_original_candidate(self):
-        with patch('nlc.ask.reach_model', side_effect=(
+        with patch('tacto.ask.reach_model', side_effect=(
                 '{"actions":[{"pick":999,"do":"read"}]}',
                 '{"actions":[{"pick":0,"do":"read"}]}')) as call:
             result = ask_here_paged(self.goal, [self.candidate], max_pages=2)
@@ -52,7 +52,7 @@ class PagingRequestLimitsTests(unittest.TestCase):
                 raise ValueError('PRIVATE counter error')
             return len(prompt)
 
-        with patch('nlc.ask.reach_model', return_value='{"actions":[{"pick":999,"do":"read"}]}') as call:
+        with patch('tacto.ask.reach_model', return_value='{"actions":[{"pick":999,"do":"read"}]}') as call:
             result = ask_here_paged(self.goal, [self.candidate], token_counter=counter)
         self.assertEqual(1, call.call_count)
         self.assertEqual('token_counter_failed', result['stop_reason'])
@@ -70,7 +70,7 @@ class PagingRequestLimitsTests(unittest.TestCase):
             return ('{"actions":[{"pick":999,"do":"read"}]}'
                     if len(sent) == 1 else '{"actions":[],"next_page":true}')
 
-        with patch('nlc.ask.reach_model', side_effect=respond):
+        with patch('tacto.ask.reach_model', side_effect=respond):
             result = ask_here_paged(self.goal, candidates, ['x' * 20000],
                                     budget=16000, token_counter=len, max_pages=2)
         self.assertEqual(2, len(sent))

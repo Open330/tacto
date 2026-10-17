@@ -5,7 +5,7 @@ serving models, reasoning, account state, or initial app state; those require
 separate recorded evidence. The requested computer-use layers are:
 
   sky  — Codex's own Computer Use plugin (@oai/sky through node_repl `js`)
-  nlc  — the NLC skill and the `nlc` command
+  tacto  — the NLC skill and the `tacto` command
 
 Each task names an independent oracle — read by this harness after the run,
 from the app or the file system — and never trusts what the agent says it did.
@@ -14,7 +14,7 @@ personal (Calculator, TextEdit documents this harness creates, Finder on
 /Applications, the macOS version); nothing reads mail, calendars or browsing.
 
     python examples/product_comparison.py --reps 1             # every task, both arms
-    python examples/product_comparison.py --only calc_mult --arms nlc
+    python examples/product_comparison.py --only calc_mult --arms tacto
     python examples/product_comparison.py --list
 
 Each run is a fresh Codex session in /tmp and spends model tokens (measured
@@ -59,26 +59,26 @@ BACKGROUND_CONSTRAINT = (
 ARM_CLAUSE = {
     "sky": ("Use the Computer Use plugin: the `js` tool of the node_repl MCP server with "
             "the @oai/sky interface (search your deferred tools for it if it is not listed). "
-            "Do not use the `nlc` command."),
-    "nlc": ("Use the nlc skill and the `nlc` command to drive the app. "
+            "Do not use the `tacto` command."),
+    "tacto": ("Use the tacto skill and the `tacto` command to drive the app. "
             "Do not use the Computer Use plugin or node_repl. "
-            "Use the installed signed nlc (typically ~/.local/bin/nlc) with --helper for GUI operations."),
+            "Use the installed signed tacto (typically ~/.local/bin/tacto) with --helper for GUI operations."),
 }
 
 
 # ---------------------------------------------------------------- app state
 
 def _driver():
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     if not InheritedHelperDriver.available():
         raise RuntimeError('comparison_requires_signed_launcher')
     return InheritedHelperDriver()
 
 
 def _agent_env():
-    from nlc.authoring import _provider_env
+    from tacto.authoring import _provider_env
     env = _provider_env()
-    for key in ('NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+    for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN'):
         env.pop(key, None)
     return env
 
@@ -89,7 +89,7 @@ def _run_agent(argv, prompt, timeout, diagnostics):
     This is execution, not the planning-only codex_result acceptance parser.
     Process diagnostics grant neither GUI authority nor comparison eligibility.
     """
-    from nlc.codex_result import _run_codex
+    from tacto.codex_result import _run_codex
     return _run_codex([_AGENT_EXECUTABLE, *argv[1:]], prompt, timeout, diagnostics, cwd="/tmp")
 
 
@@ -97,14 +97,14 @@ def _live_agent_probe():
     """Actual model request through this signed host, without a native task."""
     import os
     import secrets
-    from nlc.codex_result import parse_codex_events
-    from nlc.process_responsibility import observe_responsibility
+    from tacto.codex_result import parse_codex_events
+    from tacto.process_responsibility import observe_responsibility
     a, b = secrets.randbelow(10000), secrets.randbelow(10000)
     records = []
     controller = observe_responsibility(os.getpid())
     before = source_manifest()
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix='nlc-agent-probe-') as folder:
+    with tempfile.TemporaryDirectory(prefix='tacto-agent-probe-') as folder:
         final = Path(folder) / 'answer.txt'
         fd = os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
@@ -229,7 +229,7 @@ def _owned_lifecycle_probe(resume_directory=None, resume_identity=None, fixture_
 def _responsibility_probe():
     """Observe this controller and one owned, idle non-model child."""
     import os
-    from nlc.process_responsibility import observe_responsibility
+    from tacto.process_responsibility import observe_responsibility
     parent = observe_responsibility(os.getpid())
     cleanup_status = 'completed'
     # The child waits for one stdin byte. No GUI, network, model or file writes.
@@ -267,7 +267,7 @@ def _tree(target):
 
 
 def _calc_display():
-    from nlc.flow import Selector
+    from tacto.flow import Selector
     line = next((l for l in _tree(CALC).splitlines() if "Edit field" in l), "")
     return (Selector._attr(line, "Value") or "").replace(",", "").strip("‎ ")
 
@@ -279,7 +279,7 @@ def _calc_mode():
 
 def calc_reset(mode="basic"):
     """Basic (or given) mode, cleared display — the same start for both arms."""
-    from nlc.flow import Selector
+    from tacto.flow import Selector
     d = _driver()
     o = d.observe(CALC, "tree_full", require_window=False)
     bootstrap='not_needed'
@@ -380,7 +380,7 @@ def _document_read(window):
 def _textedit_windows():
     """TextEdit's windows by AX — the windows only, never what they contain."""
     from ApplicationServices import AXUIElementCreateApplication
-    from nlc.driver import _attr, _unhide_quietly
+    from tacto.driver import _attr, _unhide_quietly
     app, _identity = _textedit_process()
     if app is None:
         return []
@@ -390,7 +390,7 @@ def _textedit_windows():
 
 
 def _text_of(window):
-    from nlc.driver import _attr
+    from tacto.driver import _attr
 
     def find(el, depth=0):
         if depth > 6:
@@ -413,7 +413,7 @@ def _owned_path():
 
 def _window_path(window):
     """The window's document as a local file path, or None."""
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     doc = _attr(window, "AXDocument")
     return _local_path(doc) if isinstance(doc, str) else None
 
@@ -478,7 +478,7 @@ def owned_setup():
     import os
     import tempfile
     _OWNED.clear()
-    directory = tempfile.mkdtemp(prefix="nlc-compare-owned-")       # 0700, unique
+    directory = tempfile.mkdtemp(prefix="tacto-compare-owned-")       # 0700, unique
     # Real path: mkdtemp answers /var/…, TextEdit reports /private/var/….
     directory = os.path.realpath(directory)
     path = os.path.join(directory, OWNED_NAME)
@@ -522,7 +522,7 @@ def owned_cleanup():
     """
     import shutil
     from ApplicationServices import AXUIElementPerformAction
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     if not _OWNED.get("path"):
         return "nothing_owned"
     window = owned_window()
@@ -574,7 +574,7 @@ def owned_cleanup():
 
 
 def _find_button(el, title, depth=0):
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     if depth > 5 or el is None:
         return None
     if _attr(el, "AXRole") == "AXButton" and _attr(el, "AXTitle") == title:
@@ -593,7 +593,7 @@ def textedit_hidden():
 
 
 def _locked():
-    from nlc.session import lock_state
+    from tacto.session import lock_state
     state = lock_state()
     if state['locked'] is True:
         return True
@@ -636,10 +636,10 @@ OWNED_NAME = "NLC 비교 문서.txt"
 # and AX window that showed it. Nothing is assumed from a fixed path.
 _OWNED: dict = {}
 FOLDER_ITEMS = 7
-FOLDER_PREFIX = "nlc-compare-folder-"
+FOLDER_PREFIX = "tacto-compare-folder-"
 # The folder task's own directory: a fresh mkdtemp per run, so its name (the
 # only thing a Finder window shows) is unique to the run, and no fixed path is
-# ever removed. The first version reused /tmp/nlc-compare-folder and removed it
+# ever removed. The first version reused /tmp/tacto-compare-folder and removed it
 # before checking anything (Codex review of 1bf10aa).
 _FOLDER: dict = {}
 
@@ -675,7 +675,7 @@ def _ax(element, name):
 
 
 def _find_identified(el, identifier, depth=0):
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     if el is None or depth > 8:
         return None
     if _attr(el, "AXIdentifier") == identifier:
@@ -754,7 +754,7 @@ def finder_setup():
 def finder_oracle(answer):
     """The answer names the count AND a Finder window titled with this run's
     folder name shows that count in its status bar."""
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     state = finder_state() or {"shown": [], "sheets": []}
     statuses = [_attr(_find_identified(w, "statusBarText"), "AXValue") or ""
                 for w in state["shown"]]
@@ -901,7 +901,7 @@ def newdir_setup():
     import os
     import tempfile
     _NEWDIR.clear()
-    path = os.path.realpath(tempfile.mkdtemp(prefix="nlc-compare-newdir-", dir="/tmp"))
+    path = os.path.realpath(tempfile.mkdtemp(prefix="tacto-compare-newdir-", dir="/tmp"))
     st = os.stat(path)
     _NEWDIR.update(path=path, inode=(st.st_dev, st.st_ino))
 
@@ -991,12 +991,12 @@ def source_manifest():
     not silently omitted; package/fixture changes and binary rebuilds matter.
     """
     import hashlib
-    fixed = ["skill/SKILL.md", "launcher/nlc", "launcher/tacto.swift",
-             "helper/nlc-helper", "helper/NLC Helper.app/Contents/MacOS/NLCHelper",
-             "helper/NLC Helper.app/Contents/Info.plist", "signing.sh",
+    fixed = ["skill/SKILL.md", "launcher/tacto", "launcher/tacto.swift",
+             "helper/tacto-helper", "helper/Tacto Helper.app/Contents/MacOS/TactoHelper",
+             "helper/Tacto Helper.app/Contents/Info.plist", "signing.sh",
              "pyproject.toml", "uv.lock"]
     paths = {ROOT / name for name in fixed}
-    for directory, pattern in (("nlc", "**/*.py"), ("helper", "*.swift"),
+    for directory, pattern in (("tacto", "**/*.py"), ("helper", "*.swift"),
                                ("examples", "*.py"), ("examples/probes", "*.py"),
                                ("tests/fixtures", "*.swift"), ("flows", "*.json")):
         paths.update((ROOT / directory).glob(pattern))
@@ -1077,7 +1077,7 @@ TASKS = [
 def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     from focus_witness import FocusWitness
     source_before = source_manifest()
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     signed_channel_available = InheritedHelperDriver.available()
     if not signed_channel_available or task.cleanup is owned_cleanup:
         # Legacy owned TextEdit cleanup still sends direct AXPress. Do not create
@@ -1154,18 +1154,18 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         if item.get("type") == "mcp_tool_call":
             key = f"{item.get('server')}:{item.get('tool')}"
             calls[key] = calls.get(key, 0) + 1
-            if arm == "nlc" and item.get("server") in ("node_repl", "cua_repl"):
+            if arm == "tacto" and item.get("server") in ("node_repl", "cua_repl"):
                 layer_violation = True
         elif item.get("type") == "command_execution":
             cmd = item.get("command", "")
-            if re.search(r"(^|[\s'\"/])nlc\s", cmd):
+            if re.search(r"(^|[\s'\"/])tacto\s", cmd):
                 if event.get('type') == 'item.completed':
-                    from nlc.preparation_diagnostic import diagnostic_lines
+                    from tacto.preparation_diagnostic import diagnostic_lines
                     # Tool-reported diagnostics, not a completion oracle or
                     # attestation of a command's execution provenance.
                     preparation_diagnostics.extend(diagnostic_lines(item.get('aggregated_output')))
                     preparation_diagnostics = preparation_diagnostics[:64]
-                calls["shell:nlc"] = calls.get("shell:nlc", 0) + 1
+                calls["shell:tacto"] = calls.get("shell:tacto", 0) + 1
                 if arm == "sky":
                     layer_violation = True
             else:
@@ -1254,7 +1254,7 @@ def main() -> int:
     ap.add_argument('--timeout', type=int, default=600,
                     help='per-arm model timeout in seconds (same for both arms)')
     ap.add_argument("--reps", type=int, default=1)
-    ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
+    ap.add_argument("--arms", nargs="+", default=["tacto", "sky"], choices=["tacto", "sky"])
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
     checks = ap.add_mutually_exclusive_group()
@@ -1309,9 +1309,9 @@ def main() -> int:
         for t in tasks:
             print(f"{t.name:16} {t.preview if t.preview is not None else (t.ask() if callable(t.ask) else t.ask)}")
         return 0
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     if not InheritedHelperDriver.available():
-        print('Use the signed launcher: nlc eval --product-comparison [options]')
+        print('Use the signed launcher: tacto eval --product-comparison [options]')
         return 2
     if args.diagnose_owned_document_pin:
         reply = _driver().document_text('com.apple.TextEdit', document_path=args.diagnose_owned_document_pin)
@@ -1327,8 +1327,8 @@ def main() -> int:
             print('owned_save_environment_unavailable')
             return 2
         from signed_textedit_save import run
-        from nlc.driver import Driver
-        from nlc.native_frontmost import frontmost_pid
+        from tacto.driver import Driver
+        from tacto.native_frontmost import frontmost_pid
         def can_cleanup():
             try:return _locked() is False and frontmost_pid()!=Driver()._resolve('com.apple.TextEdit',launch=False)
             except Exception:return False

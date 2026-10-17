@@ -22,7 +22,7 @@ serving model의 tokenizer 확인으로 취급하지 않는다.
 
 ```python
 import tiktoken
-from nlc.ask import ask_here_paged
+from tacto.ask import ask_here_paged
 
 encoding = tiktoken.get_encoding("o200k_base")
 result = ask_here_paged(

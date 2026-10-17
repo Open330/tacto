@@ -55,7 +55,7 @@ Python driver와 signed helper의 창 준비 권한 판단도 이 native 전경 
 `require_selection=True`는 전경 포커스 요소의 `AXSelectedTextRange`도 필수 관측에 포함합니다. 위치와 길이는 UTF-16 단위이며 선택된 텍스트 자체는 수집하지 않습니다. 캐럿은 길이 0인 범위입니다. AX가 속성을 지원하지 않거나 읽기 오류·잘못된 범위·읽는 동안 포커스 변경이 있으면 보존 성공으로 처리하지 않습니다. ProcessInputAudit의 초기 필수 관측이 없으면 본문 실행 전에 중단합니다.
 
 ```python
-from nlc.input_audit_process import ProcessInputAudit
+from tacto.input_audit_process import ProcessInputAudit
 
 # spawn 방식이므로 실행 스크립트의 __main__ 가드 안에서 사용합니다.
 with ProcessInputAudit(require_selection=True) as audit:
@@ -78,8 +78,8 @@ report = audit.report()
 
 ```bash
 .venv/bin/python examples/eval.py native_navigation --require-selection
-./launcher/nlc eval visual_input_codex --require-selection
-./launcher/nlc eval visual_input_claude --require-selection
+./launcher/tacto eval visual_input_codex --require-selection
+./launcher/tacto eval visual_input_claude --require-selection
 ```
 
 지원 시나리오는 `native_navigation`, `signed_window_keys`,

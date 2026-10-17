@@ -129,7 +129,7 @@ class ReturnSheetSwiftTests(unittest.TestCase):
 
     def test_readiness_and_dispatch(self):
         import json
-        with tempfile.TemporaryDirectory(prefix='nlc-return-sheet-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-return-sheet-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(HARNESS)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),

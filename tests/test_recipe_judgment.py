@@ -11,8 +11,8 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
-from nlc.contract import ContextBinding, Resource, SafetyContract
-from nlc.flow import (Flow, Selector, Step, _as_labelled, intent_pattern,
+from tacto.contract import ContextBinding, Resource, SafetyContract
+from tacto.flow import (Flow, Selector, Step, _as_labelled, intent_pattern,
                       replay)
 
 PAD = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
@@ -81,7 +81,7 @@ class DecideStepTests(unittest.TestCase):
         self.assertEqual(([], []), (asked, screen.pressed))
 
     def test_sensitive_captures_are_not_shown_to_the_decider(self):
-        from nlc.flow import Capture
+        from tacto.flow import Capture
         flow = decide_then_press()
         read = Step("read", Selector(role="Button", desc="2"), intent_text="읽기",
                     safety=SafetyContract(effects=["read"], reversibility="reversible",
@@ -126,7 +126,7 @@ class ReaimTests(unittest.TestCase):
         class Here(Screen):
             def observe(s, *a, **k):
                 return {"type": "observation", "obs_id": "o", "tree": ReaimTests.TREE}
-        from nlc.flow import Resolution
+        from tacto.flow import Resolution
         step = Step("click", Selector(role="Button", desc="Clear"), intent_text="지우기",
                     safety=PAD, unverified_ok=True, on_uncertain=["target_missing"],
                     binding=ContextBinding(bundle_id="t", role="Button", desc="Clear",
@@ -148,7 +148,7 @@ class IntentTests(unittest.TestCase):
         self.assertIsNone(rx.fullmatch("계산기에서 abc의 제곱근 구해줘"))
 
     def test_the_reading_may_fill_inputs_only_with_words_that_were_said(self):
-        from nlc.ask import which_task
+        from tacto.ask import which_task
         q = which_task("계산기로 64의 제곱근 계산", [("sqrt", "계산기에서 {{n}}의 제곱근 구해줘")],
                        inputs={"sqrt": {"n": "25"}}, words="계산기로 64의 제곱근을 계산해 줄래?")
         self.assertEqual({"n": "64"}, q.check({"pick": "sqrt", "values": {"n": "64"}})["values"])
@@ -157,7 +157,7 @@ class IntentTests(unittest.TestCase):
         self.assertIsNone(q.check({"pick": "sqrt"}))                             # missing
 
     def test_two_matching_recipes_are_a_guess_and_neither_runs(self):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         a = Flow("a", "t", intents=["{{n}} 해줘"], params={"n": "1"})
         b = Flow("b", "t", intents=["{{m}} 해줘"], params={"m": "1"})
         store = type("S", (), {"list": lambda s: ["a", "b"],
@@ -172,12 +172,12 @@ class JudgeRouteTests(unittest.TestCase):
     def test_both_model_callbacks_go_through_the_launcher_relay(self):
         # Inside the signed launcher the provider CLIs are off PATH on purpose;
         # a direct call failed with FileNotFoundError on every escalation.
-        from nlc.flow import Uncertainty
-        from nlc.judge import model_decider, model_judge
-        with patch("nlc.judge.reach_model", return_value='{"choice": "3"}') as reach:
+        from tacto.flow import Uncertainty
+        from tacto.judge import model_decider, model_judge
+        with patch("tacto.judge.reach_model", return_value='{"choice": "3"}') as reach:
             self.assertEqual("3", model_decider()("q", ["2", "3"], {}))
         reach.assert_called_once()
-        with patch("nlc.judge.reach_model", return_value='{"kind": "give_up"}') as reach:
+        with patch("tacto.judge.reach_model", return_value='{"kind": "give_up"}') as reach:
             model_judge()(Uncertainty(kind="target_missing", step=0, intent="x", detail="y"))
         reach.assert_called_once()
 
@@ -187,20 +187,20 @@ if __name__ == "__main__":
 
 
 class ReplayCommandBudgetTests(unittest.TestCase):
-    """`nlc replay`/`nlc run` give walked recipes the same one question as `do`."""
+    """`tacto replay`/`tacto run` give walked recipes the same one question as `do`."""
     def budget(self, walked, argv):
         from contextlib import redirect_stdout
         from io import StringIO
-        from nlc import cli
+        from tacto import cli
         seen = {}
         done = type("R", (), {"ok": True, "log": [{"status": "done"}]})()
-        agent = patch("nlc.cli.Agent").start()
+        agent = patch("tacto.cli.Agent").start()
         self.addCleanup(patch.stopall)
         agent.return_value.authorize.return_value = ({}, [])
         agent.return_value.commit_adapter_hooks.return_value = {}
-        with patch("nlc.flow.replay", side_effect=lambda *a, **k: seen.update(k) or done), \
-             patch("nlc.cli._make_driver"), patch("nlc.cli._indicator_for"), \
-             patch("nlc.judge.model_judge", return_value="judge"), redirect_stdout(StringIO()):
+        with patch("tacto.flow.replay", side_effect=lambda *a, **k: seen.update(k) or done), \
+             patch("tacto.cli._make_driver"), patch("tacto.cli._indicator_for"), \
+             patch("tacto.judge.model_judge", return_value="judge"), redirect_stdout(StringIO()):
             cli._run_flow(Flow("f", "t"), argv, walked=walked)
         return seen["budget"], seen["escalate"]
 
@@ -219,7 +219,7 @@ class OneReadingTests(unittest.TestCase):
             "reversibility": "reversible", "missing": [], "kind": None}
 
     def q(self):
-        from nlc.ask import what_was_asked
+        from tacto.ask import what_was_asked
         return what_was_asked(self.WORDS, tasks=[("sqrt", "계산기에서 {{n}}의 제곱근 구해줘")],
                               inputs={"sqrt": {"n": "25"}})
 
@@ -235,7 +235,7 @@ class OneReadingTests(unittest.TestCase):
             self.assertIsNone(got["pick"], (pick, values))
 
     def test_one_call_finds_it_and_a_seen_none_asks_nothing_more(self):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         tpl = Flow("sqrt", "t", params={"n": "25"}, intents=["계산기에서 {{n}}의 제곱근 구해줘"])
         store = type("S", (), {"list": lambda s: ["sqrt"], "load": lambda s, n: tpl})()
         for pick, want in (("sqrt", ("sqrt", {"n": "16"})), (None, None)):
@@ -245,7 +245,7 @@ class OneReadingTests(unittest.TestCase):
                 return q.check({**self.BASE, "pick": pick,
                                 "pick_values": {"n": "16"} if pick else {}})
             agent = Agent(driver=object(), store=store, interpret=interpret)
-            with patch("nlc.library.builders", return_value={}):
+            with patch("tacto.library.builders", return_value={}):
                 match, _ = agent.read_request(self.WORDS)
             self.assertEqual(["what_was_asked"], calls)
             self.assertEqual(want, match and (match.name, match.params))
@@ -253,7 +253,7 @@ class OneReadingTests(unittest.TestCase):
 
 class SubtractionIsNotExclusionTests(unittest.TestCase):
     def test_a_number_being_subtracted_is_not_a_refusal(self):
-        from nlc.ask import _refuses
+        from tacto.ask import _refuses
         self.assertFalse(_refuses("그 결과가 20보다 크면 5를 빼고 아니면 5를 더해줘"))
         self.assertFalse(_refuses("3을 빼고 저장해줘"))
         # Still refusals: "except" with no number-and-particle before it.

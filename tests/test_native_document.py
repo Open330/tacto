@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
-from nlc.native_document import TextEditDocumentReader, DocumentSnapshotError
+from tacto.native_document import TextEditDocumentReader, DocumentSnapshotError
 
 
 class Adapter:
@@ -48,9 +48,9 @@ class NativeDocumentTests(unittest.TestCase):
         self.path = Path(temp.name).resolve() / '한글 file.rtf'
 
     def test_expired_caller_deadline_reads_no_document_and_issues_no_token(self):
-        from nlc.model_budget import model_deadline
+        from tacto.model_budget import model_deadline
         self.adapter.process_identity = Mock(side_effect=AssertionError('must not read'))
-        with patch('nlc.native_document.time.monotonic', return_value=10), model_deadline(9):
+        with patch('tacto.native_document.time.monotonic', return_value=10), model_deadline(9):
             with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'):
                 self.reader.read()
         self.adapter.process_identity.assert_not_called()
@@ -65,17 +65,17 @@ class NativeDocumentTests(unittest.TestCase):
             return original(element, name)
         self.adapter.read_attribute = read
         self.adapter.range_hook = lambda: clock.__setitem__(0, 13.01)
-        with patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+        with patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
             with self.assertRaises(DocumentSnapshotError):
                 self.reader.read()
         self.assertEqual(reads, ['AXDocument', 'AXNumberOfCharacters', 'AXValue'])
         self.assertFalse(self.reader._tokens)
 
     def test_caller_budget_is_not_extended_and_scope_restores_after_timeout(self):
-        from nlc.model_budget import model_deadline, remaining_model_seconds
+        from tacto.model_budget import model_deadline, remaining_model_seconds
         clock = [10.0]
         self.adapter.range_hook = lambda: clock.__setitem__(0, 10.2)
-        with patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+        with patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
             with model_deadline(10.1):
                 with self.assertRaises(DocumentSnapshotError):
                     self.reader.read()
@@ -92,7 +92,7 @@ class NativeDocumentTests(unittest.TestCase):
                 pass
         self.reader._lock = DelayedLock()
         self.adapter.process_identity = Mock(side_effect=AssertionError('must not read'))
-        with patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+        with patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
             with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'):
                 self.reader.read()
         self.adapter.process_identity.assert_not_called()
@@ -111,14 +111,14 @@ class NativeDocumentTests(unittest.TestCase):
         self.assertNotIn('source_format', second)
 
     def test_scoped_observations_expired_before_any_adapter_read(self):
-        from nlc.model_budget import model_deadline
+        from tacto.model_budget import model_deadline
         token = self.reader.read()['document_token']
         self.adapter.process_identity = Mock(side_effect=AssertionError('must not read'))
         for operation in (lambda: self.reader.window_for_token('com.apple.TextEdit', token),
                           lambda: self.reader.save_directory(document_token=token),
                           lambda: self.reader.save_panel(document_token=token),
                           lambda: self.reader.save_panel(document_token=token, witness=object())):
-            with self.subTest(operation=operation), patch('nlc.native_document.time.monotonic', return_value=10), model_deadline(9):
+            with self.subTest(operation=operation), patch('tacto.native_document.time.monotonic', return_value=10), model_deadline(9):
                 with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'):
                     operation()
         self.adapter.process_identity.assert_not_called()
@@ -139,7 +139,7 @@ class NativeDocumentTests(unittest.TestCase):
             process = self.adapter.process_identity = Mock(return_value=self.adapter.process)
             kwargs = {'document_token': token}
             if callback.startswith('revalidate_'): kwargs['witness'] = witness
-            with self.subTest(callback=callback), patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+            with self.subTest(callback=callback), patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
                 with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'):
                     getattr(self.reader, operation)(**kwargs)
             self.assertEqual(process.call_count, 1)  # no post-read validation after expiry
@@ -152,7 +152,7 @@ class NativeDocumentTests(unittest.TestCase):
             clock[0] = 13.01
             return a is b
         self.adapter.equal = equal
-        with patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+        with patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
             with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'):
                 self.reader.window_for_token('com.apple.TextEdit', token)
 
@@ -167,17 +167,17 @@ class NativeDocumentTests(unittest.TestCase):
         for operation in (lambda: self.reader.window_for_token('com.apple.TextEdit', token),
                           lambda: self.reader.save_panel(document_token=token)):
             clock[0] = 10.0
-            with patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+            with patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
                 with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'): operation()
         self.adapter.process_identity.assert_not_called()
 
     def test_panel_caller_budget_restores_and_interrupt_is_not_wrapped(self):
-        from nlc.model_budget import model_deadline, remaining_model_seconds
+        from tacto.model_budget import model_deadline, remaining_model_seconds
         token = self.reader.read()['document_token']
         clock = [10.0]
         def late(window, **kwargs): clock[0] = 10.2
         self.adapter.save_panel = late
-        with patch('nlc.native_document.time.monotonic', side_effect=lambda: clock[0]):
+        with patch('tacto.native_document.time.monotonic', side_effect=lambda: clock[0]):
             with model_deadline(10.1):
                 with self.assertRaisesRegex(DocumentSnapshotError, 'deadline'):
                     self.reader.save_panel(document_token=token)
@@ -377,18 +377,18 @@ class NativeDocumentTests(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC unavailable')
 class DriverDocumentTextTests(unittest.TestCase):
     def test_scoped_element_moved_to_another_window_is_rejected_before_labels(self):
-        from nlc.driver import Driver, NotStarted
+        from tacto.driver import Driver, NotStarted
         driver = Driver.__new__(Driver)
         driver._validate_document_observation = Mock()
         element, own, foreign = object(), object(), object()
         obs = SimpleNamespace(elements=[element], document_token='token', document_window=own)
-        with patch('nlc.driver.CFEqual', side_effect=lambda a,b:a is b), patch('nlc.driver._attr', return_value=foreign) as reads:
+        with patch('tacto.driver.CFEqual', side_effect=lambda a,b:a is b), patch('tacto.driver._attr', return_value=foreign) as reads:
             with self.assertRaises(NotStarted):
                 driver._element(obs, {'element_index':0})
             reads.assert_called_once_with(element, 'AXWindow')
 
     def test_scoped_observe_walks_only_pinned_window_and_stale_act_reads_nothing(self):
-        from nlc.driver import Driver
+        from tacto.driver import Driver
         driver = Driver.__new__(Driver)
         window = object()
         driver._document_reader = Mock()
@@ -400,7 +400,7 @@ class DriverDocumentTextTests(unittest.TestCase):
         driver._custom_selects = Mock(return_value={})
         obs = SimpleNamespace(target='com.apple.TextEdit', pid=10, obs_id='owned',
                               elements=[window], lines=['owned'], truncated=False, walk=Mock())
-        with patch('nlc.driver.Observation', return_value=obs), patch('nlc.driver.CFEqual', side_effect=lambda a,b:a is b), patch('nlc.driver._attr', return_value=False), patch('nlc.driver._real_windows') as all_windows:
+        with patch('tacto.driver.Observation', return_value=obs), patch('tacto.driver.CFEqual', side_effect=lambda a,b:a is b), patch('tacto.driver._attr', return_value=False), patch('tacto.driver._real_windows') as all_windows:
             reply = driver.observe('com.apple.TextEdit', mode='tree_full', document_token='token')
             self.assertEqual(reply['document_token'], 'token')
             all_windows.assert_not_called()
@@ -414,7 +414,7 @@ class DriverDocumentTextTests(unittest.TestCase):
             driver._perform.assert_not_called()
 
     def test_ax_path_filter_precedes_foreign_subtree_reads(self):
-        from nlc.native_document_ax import AXDocumentAdapter
+        from tacto.native_document_ax import AXDocumentAdapter
         adapter = AXDocumentAdapter(lambda *a, **kw: 10)
         own, foreign, body = object(), object(), object()
         adapter._process = lambda target: (10, None)
@@ -437,28 +437,28 @@ class DriverDocumentTextTests(unittest.TestCase):
 
     def test_native_checkbox_integral_numbers_are_normalized_without_guessing_float_or_text(self):
         from Foundation import NSNumber
-        timeout_patch = patch('nlc.native_document_ax.AXUIElementSetMessagingTimeout', return_value=0)
+        timeout_patch = patch('tacto.native_document_ax.AXUIElementSetMessagingTimeout', return_value=0)
         timeout_patch.start()
         self.addCleanup(timeout_patch.stop)
-        from nlc.native_document_ax import AXDocumentAdapter
+        from tacto.native_document_ax import AXDocumentAdapter
         for raw, expected in ((NSNumber.numberWithLongLong_(0), 0),
                               (NSNumber.numberWithLongLong_(1), 1)):
-            with patch('nlc.native_document_ax.AXUIElementCopyAttributeValue',
+            with patch('tacto.native_document_ax.AXUIElementCopyAttributeValue',
                        side_effect=[(0, raw), (0, 'AXCheckBox')]):
                 error, value = AXDocumentAdapter.read_attribute(object(), 'AXValue')
             self.assertEqual((error, value), (0, expected))
             self.assertIs(type(value), int)
         for raw in (NSNumber.numberWithDouble_(1.0), '1'):
-            with patch('nlc.native_document_ax.AXUIElementCopyAttributeValue', return_value=(0, raw)):
+            with patch('tacto.native_document_ax.AXUIElementCopyAttributeValue', return_value=(0, raw)):
                 result = AXDocumentAdapter.read_attribute(object(), 'AXValue')
             self.assertIs(result[1], raw)
         raw = NSNumber.numberWithLongLong_(1)
-        with patch('nlc.native_document_ax.AXUIElementCopyAttributeValue',
+        with patch('tacto.native_document_ax.AXUIElementCopyAttributeValue',
                    side_effect=[(0, raw), (0, 'AXTextField')]):
             self.assertIs(AXDocumentAdapter.read_attribute(object(), 'AXValue')[1], raw)
 
     def test_driver_returns_complete_text_without_advertising_save_snapshot(self):
-        from nlc.driver import Driver
+        from tacto.driver import Driver
         driver = Driver.__new__(Driver)  # No initialization or live UI calls.
         driver._document_reader = TextEditDocumentReader(Adapter())
         result = driver.document_text('com.apple.TextEdit')
@@ -468,7 +468,7 @@ class DriverDocumentTextTests(unittest.TestCase):
         self.assertNotIn('evidence.document_snapshot', driver.capabilities)
 
     def test_driver_wraps_adapter_failure_without_partial_complete_result(self):
-        from nlc.driver import Driver
+        from tacto.driver import Driver
         driver = Driver.__new__(Driver)
         adapter = Adapter()
         def failed(target):
@@ -490,8 +490,8 @@ if __name__ == '__main__':
 class NativeFileReferenceTests(unittest.TestCase):
     def test_reference_tracks_renamed_owned_file(self):
         from Foundation import NSURL
-        from nlc.native_document_ax import resolve_document_url
-        from nlc.native_document import _document_path
+        from tacto.native_document_ax import resolve_document_url
+        from tacto.native_document import _document_path
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory).resolve() / '원본 😀.rtf'
             path.write_text('owned fixture')
@@ -508,7 +508,7 @@ class NativeFileReferenceTests(unittest.TestCase):
                 resolve_document_url(raw)
 
     def test_path_urls_and_malformed_inputs_keep_existing_contract(self):
-        from nlc.native_document_ax import resolve_document_url
+        from tacto.native_document_ax import resolve_document_url
         with tempfile.TemporaryDirectory() as directory:
             missing = (Path(directory).resolve() / 'missing.rtf').as_uri()
             self.assertEqual(resolve_document_url(missing), missing)

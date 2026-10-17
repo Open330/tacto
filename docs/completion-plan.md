@@ -740,7 +740,7 @@ backend는 새 evidence.document_window_status와8개 앱을 보고했고 doctor
 현재 comparison의 TextEdit 미실행 gate를 해제하지 않았다.
 전체 G0~G10의 대표 앱/백본·인과적 저장/전송·동일 조건 비교/설치 완료 기준은 유지한다.
 
-최종 관련 테스트51개 중50 PASS/선택적 NLC_CONTRACT_LIVE 실기1 SKIP,
+최종 관련 테스트51개 중50 PASS/선택적 TACTO_CONTRACT_LIVE 실기1 SKIP,
 4.969초였다. 문서 변경 뒤 docs6도0.039초에 통과했다. 없는 test_trace 모듈을
 잘못 지정한 첫 검증 명령은 import 오류였고, 실제 test_document_text_trace로
 수정한 위 실행이 최종 결과다. 실기 SKIP을 성공으로 계산하지 않는다.

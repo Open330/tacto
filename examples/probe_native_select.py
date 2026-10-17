@@ -16,14 +16,14 @@ TARGET = 'ai.callabo.nlc.select-fixture'
 
 
 def run_probe(driver):
-    from nlc.driver import Driver, _attr, AXUIElementCreateApplication
-    from nlc.flow import Selector
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.driver import Driver, _attr, AXUIElementCreateApplication
+    from tacto.flow import Selector
+    from tacto.input_audit_process import ProcessInputAudit
     report = {'passed': False, 'target': TARGET, 'steps': [],
               'caret_preservation_verified': False, 'proves_no_intermediate_change': False}
     paths = [Path(__file__), ROOT/'tests/fixtures/NativeSelectFixture.swift',
-             ROOT/'nlc/driver.py', ROOT/'nlc/input_audit.py', ROOT/'nlc/input_audit_process.py',
-             ROOT/'helper/TactoHelper.swift', ROOT/'helper/nlc-helper', ROOT/'launcher/nlc']
+             ROOT/'tacto/driver.py', ROOT/'tacto/input_audit.py', ROOT/'tacto/input_audit_process.py',
+             ROOT/'helper/TactoHelper.swift', ROOT/'helper/tacto-helper', ROOT/'launcher/tacto']
     report['source_hashes'] = {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()
                                for p in paths if p.is_file()}
     try:
@@ -48,10 +48,10 @@ def run_probe(driver):
                 raise RuntimeError('fixture_value_ambiguous')
             return Selector._attr(lines[0], 'Value')
         def control(obs):
-            index, _ = Selector(role='PopUpButton',identifier='nlc-fixture-choice').resolve(obs['tree'])
+            index, _ = Selector(role='PopUpButton',identifier='tacto-fixture-choice').resolve(obs['tree'])
             return index
         initial = observe()
-        if value(initial,'nlc-fixture-result') != 'Alpha' or value(initial,'nlc-fixture-count') != '0':
+        if value(initial,'tacto-fixture-result') != 'Alpha' or value(initial,'tacto-fixture-count') != '0':
             raise RuntimeError('fixture_initial_state_mismatch')
         report['initial_pid'] = pid
         report['initial_tree'] = initial['tree']
@@ -86,8 +86,8 @@ def run_probe(driver):
                     step['result'] = result
                     time.sleep(.15)
                     after = observe()
-                    step['result_value'] = value(after,'nlc-fixture-result')
-                    step['selection_count'] = value(after,'nlc-fixture-count')
+                    step['result_value'] = value(after,'tacto-fixture-result')
+                    step['selection_count'] = value(after,'tacto-fixture-count')
                     step['menu'] = after.get('custom_selects',{}).get(str(control(after)))
             finally:
                 step['audit'] = audit.report()
@@ -111,17 +111,17 @@ def run_probe(driver):
 
 
 def run_model_probe(driver, *, provider):
-    from nlc.ask import ask_here_paged
-    from nlc.driver import Driver, _attr, AXUIElementCreateApplication
-    from nlc.flow import Selector
-    from nlc.general import run
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.ask import ask_here_paged
+    from tacto.driver import Driver, _attr, AXUIElementCreateApplication
+    from tacto.flow import Selector
+    from tacto.general import run
+    from tacto.input_audit_process import ProcessInputAudit
     report={'passed':False,'target':TARGET,'provider':provider,'plans':[],
             'evaluation_kind':'real_model_owned_appkit','caret_preservation_verified':False}
-    paths=sorted((ROOT/'nlc').glob('*.py'))+[Path(__file__),
+    paths=sorted((ROOT/'tacto').glob('*.py'))+[Path(__file__),
         ROOT/'helper/TactoHelper.swift', ROOT/'helper/WindowInput.swift',
-        ROOT/'helper/nlc-helper', ROOT/'helper/NLC Helper.app/Contents/MacOS/NLCHelper',
-        ROOT/'launcher/nlc', ROOT/'tests/fixtures/NativeSelectFixture.swift']
+        ROOT/'helper/tacto-helper', ROOT/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper',
+        ROOT/'launcher/tacto', ROOT/'tests/fixtures/NativeSelectFixture.swift']
     def sources():
         return {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     report['source_before']=sources()
@@ -138,7 +138,7 @@ def run_model_probe(driver, *, provider):
             obs=driver.observe(TARGET,'tree_full')
             if obs.get('type')!='observation': raise RuntimeError('observation_failed')
             values=[]
-            for identifier in ('nlc-fixture-result','nlc-fixture-count'):
+            for identifier in ('tacto-fixture-result','tacto-fixture-count'):
                 index,_=Selector(identifier=identifier).resolve(obs['tree'])
                 line=next(line for line in obs['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(index))
                 values.append(Selector._attr(line,'Value'))
@@ -182,7 +182,7 @@ def main():
     # Reserve first; a failed permission check also receives an artifact.
     with args.output.open('x') as stream:
         try:
-            from nlc.driver import Driver
+            from tacto.driver import Driver
             result = run_probe(Driver())
         except Exception as exc:
             result = {'passed':False,'error':type(exc).__name__ + ':' + str(exc)}

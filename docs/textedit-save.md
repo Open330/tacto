@@ -1,6 +1,6 @@
 # TextEdit 새 이름 저장의 호스트 증거
 
-`nlc.textedit_receipt.make_textedit_receipt`는 명시한 새 파일에 현재 문서의
+`tacto.textedit_receipt.make_textedit_receipt`는 명시한 새 파일에 현재 문서의
 정확한 **텍스트**가 저장됐는지 확인하는 실행별 adapter다. CLI/Agent 연결은 있으나
 native backend가 아직 필요한 capability를 제공하지 않으므로 실앱 검증 저장은 미활성이다.
 

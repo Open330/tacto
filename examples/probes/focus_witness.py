@@ -40,7 +40,7 @@ class FocusWitness:
         self.windows = []
 
     def __enter__(self):
-        fd, name = tempfile.mkstemp(prefix="nlc-focus-", suffix=".jsonl")
+        fd, name = tempfile.mkstemp(prefix="tacto-focus-", suffix=".jsonl")
         os.close(fd)
         self.path = Path(name)
         self.process = subprocess.Popen(

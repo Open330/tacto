@@ -32,8 +32,8 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
 
         let choice = NSPopUpButton(frame: NSRect(x: 24, y: 110, width: 220, height: 28),
                                    pullsDown: false)
-        choice.identifier = NSUserInterfaceItemIdentifier("nlc-fixture-choice")
-        choice.setAccessibilityIdentifier("nlc-fixture-choice")
+        choice.identifier = NSUserInterfaceItemIdentifier("tacto-fixture-choice")
+        choice.setAccessibilityIdentifier("tacto-fixture-choice")
         choice.addItems(withTitles: ["Alpha", "Beta", "Disabled"])
         choice.menu?.autoenablesItems = false
         choice.item(withTitle: "Disabled")?.isEnabled = false
@@ -42,15 +42,15 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
         choice.action = #selector(selectionChanged(_:))
 
         result.frame = NSRect(x: 24, y: 72, width: 300, height: 24)
-        result.identifier = NSUserInterfaceItemIdentifier("nlc-fixture-result")
-        result.setAccessibilityIdentifier("nlc-fixture-result")
+        result.identifier = NSUserInterfaceItemIdentifier("tacto-fixture-result")
+        result.setAccessibilityIdentifier("tacto-fixture-result")
         count.frame = NSRect(x: 24, y: 36, width: 300, height: 24)
-        count.identifier = NSUserInterfaceItemIdentifier("nlc-fixture-count")
-        count.setAccessibilityIdentifier("nlc-fixture-count")
+        count.identifier = NSUserInterfaceItemIdentifier("tacto-fixture-count")
+        count.setAccessibilityIdentifier("tacto-fixture-count")
         for index in 0..<decoys {
             let other = NSPopUpButton(frame: NSRect(x: 24 + (index % 3) * 160,
                 y: 180 + (index / 3) * 30, width: 150, height: 26), pullsDown: false)
-            other.setAccessibilityIdentifier("nlc-fixture-decoy-\(index)")
+            other.setAccessibilityIdentifier("tacto-fixture-decoy-\(index)")
             other.addItems(withTitles: ["Other \(index)", "Alternative \(index)"])
             window.contentView?.addSubview(other)
         }
@@ -82,7 +82,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate {
         // otherwise wait indefinitely for the menu to be dismissed.
         RunLoop.main.add(timer, forMode: .common)
         RunLoop.main.add(timer, forMode: .eventTracking)
-        print("NLC_NATIVE_SELECT_FIXTURE pid=\(ProcessInfo.processInfo.processIdentifier) timeout=\(lifetime)")
+        print("TACTO_NATIVE_SELECT_FIXTURE pid=\(ProcessInfo.processInfo.processIdentifier) timeout=\(lifetime)")
     }
 
     @objc private func selectionChanged(_ sender: NSPopUpButton) {

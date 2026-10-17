@@ -79,7 +79,7 @@ reproduced on another machine with no app and no permissions.
 
 
 Native image general mode is an explicit trusted Python integration:
-`nlc.general.run(..., visual_scope=NativeVisualScope(...))`. A model cannot
+`tacto.general.run(..., visual_scope=NativeVisualScope(...))`. A model cannot
 supply a scope, approval callback or effect declaration. The host must know the
 window and reversible ephemeral operation region; the Envelope still bounds
 its effects. Host verification of the receiving result is required before

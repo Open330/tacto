@@ -17,7 +17,7 @@ def requirement(identifier, team):
 
 
 def shell_requirement(identifier, team):
-    return subprocess.run(['bash','-c','. "$1"; nlc_requirement "$2" "$3"',
+    return subprocess.run(['bash','-c','. "$1"; tacto_requirement "$2" "$3"',
                            'signing-test',str(ROOT/'signing.sh'),identifier,team],
                           capture_output=True,text=True)
 
@@ -41,8 +41,8 @@ class ShellDefinition(unittest.TestCase):
         for name in ['launcher/build.sh','helper/build.sh','helper/bundle.sh']:
             code=(ROOT/name).read_text()
             self.assertIn('. ../signing.sh',code)
-            self.assertIn('nlc_select_identity',code)
-            self.assertIn('nlc_sign ',code)
+            self.assertIn('tacto_select_identity',code)
+            self.assertIn('tacto_sign ',code)
         code=(ROOT/'signing.sh').read_text()
         self.assertIn('codesign --verify --strict',code)
         self.assertNotIn('subject.CN',code)
@@ -70,8 +70,8 @@ class SwiftAcceptancePredicates(unittest.TestCase):
 class SignedArtifacts(unittest.TestCase):
     def test_built_peers_keep_identifier_and_actual_team_requirements(self):
         teams=[]
-        for name,identifier in [('launcher/nlc',LAUNCHER_ID),('helper/nlc-helper',HELPER_ID),
-                                ('helper/NLC Helper.app',HELPER_ID)]:
+        for name,identifier in [('launcher/tacto',LAUNCHER_ID),('helper/tacto-helper',HELPER_ID),
+                                ('helper/Tacto Helper.app',HELPER_ID)]:
             target=ROOT/name
             if not target.exists():self.skipTest('native artifacts not built')
             meta=subprocess.run(['codesign','-dv','--verbose=4',str(target)],capture_output=True,text=True)
@@ -85,7 +85,7 @@ class SignedArtifacts(unittest.TestCase):
         self.assertEqual(1,len(set(teams)))
 
 
-@unittest.skipUnless(os.environ.get('NLC_TEST_SIGNED_POLICY')=='1','opt-in: sign disposable policy probe')
+@unittest.skipUnless(os.environ.get('TACTO_TEST_SIGNED_POLICY')=='1','opt-in: sign disposable policy probe')
 class LiveSigningPolicy(unittest.TestCase):
     def test_unsigned_correct_team_wrong_team_identifier_and_environment(self):
         with tempfile.TemporaryDirectory(prefix='tacto-signing-policy-') as temp:
@@ -107,7 +107,7 @@ else if let text=TactoSigning.requirement(identifier:a[3],team:a[4]) {
             def run(*args,**kwargs):return subprocess.run([str(binary),*map(str,args)],capture_output=True,text=True,timeout=15,**kwargs)
             self.assertEqual('UNTRUSTED',run('own').stdout.strip())
             self.assertEqual(78,run('peer').returncode)
-            signed=subprocess.run(['bash','-c','. "$1"; nlc_select_identity && nlc_sign "$2" ai.callabo.nlc.policy-test',
+            signed=subprocess.run(['bash','-c','. "$1"; tacto_select_identity && tacto_sign "$2" ai.callabo.nlc.policy-test',
                                    'policy-test',str(ROOT/'signing.sh'),str(binary)],capture_output=True,text=True,timeout=30)
             self.assertEqual(0,signed.returncode,signed.stderr)
             team=run('own').stdout.strip();self.assertRegex(team,r'^[A-Z0-9]{10}$')
@@ -115,5 +115,5 @@ else if let text=TactoSigning.requirement(identifier:a[3],team:a[4]) {
             other='ABCDE12345' if team!='ABCDE12345' else 'ZYXWV98765'
             self.assertEqual('false',run('check',binary,'ai.callabo.nlc.policy-test',other).stdout.strip())
             self.assertEqual('false',run('check',binary,'ai.callabo.nlc.wrong',team).stdout.strip())
-            env={**os.environ,'NLC_TEAM_ID':other,'NLC_HELPER_REQUIREMENT':'true'}
+            env={**os.environ,'TACTO_TEAM_ID':other,'TACTO_HELPER_REQUIREMENT':'true'}
             self.assertEqual(requirement(HELPER_ID,team),run('peer',env=env).stdout.strip())

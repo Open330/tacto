@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 WITNESS = 'ai.callabo.nlc.user-typing-witness'
 TARGET = 'ai.callabo.nlc.navigation-fixture'
-EXPECTED = 'nlc typing 12345'
+EXPECTED = 'tacto typing 12345'
 STATE = re.compile(r'downs=(\d+) ups=(\d+) wrongWindow=(\d+) utf16=(\d+) '
                    r'selection=(\d+),(\d+) key=(true|false) focused=(true|false) sha256=([0-9a-f]{64})')
 
@@ -61,17 +61,17 @@ def prepare(directory):
 def run(directory, output, witness_build_report):
     from AppKit import NSRunningApplication
     from ApplicationServices import AXUIElementCreateApplication, AXUIElementSetMessagingTimeout
-    from nlc.driver import Driver, _attr
-    from nlc.flow import Selector
-    from nlc.input_audit import MacInputReader
+    from tacto.driver import Driver, _attr
+    from tacto.flow import Selector
+    from tacto.input_audit import MacInputReader
     manifest = json.loads((directory / 'build-report.json').read_text())
     binary = Path(manifest['binary'])
     report = {'passed': False, 'scope': 'owned foreground test text / owned background navigation',
               'hardware_origin_attested': False, 'actions': [], 'samples': [],
               'classification': 'not_run', 'expected_text_sha256': hashlib.sha256(EXPECTED.encode()).hexdigest()}
-    selected = ['examples/probes/concurrent-typing.py', 'nlc/driver.py', 'nlc/input_audit.py',
-                'nlc/native_frontmost.py', 'nlc/native_window_ready.py',
-                'nlc/native_window_binding.py', 'nlc/native_window_dispatch.py', 'nlc/native_key_events.py']
+    selected = ['examples/probes/concurrent-typing.py', 'tacto/driver.py', 'tacto/input_audit.py',
+                'tacto/native_frontmost.py', 'tacto/native_window_ready.py',
+                'tacto/native_window_binding.py', 'tacto/native_window_dispatch.py', 'tacto/native_key_events.py']
     report['selected_sources_before'] = {name: digest(ROOT / name) for name in selected}
     child = None
     try:
@@ -149,7 +149,7 @@ def run(directory, output, witness_build_report):
         assert state['nav-A-first'] == 'position=0'
         assert all('downs=0 ups=0 routeErrors=0 key=false' in state[f'nav-{suffix}-state'] for suffix in ('A', 'B')), 'fresh background counters required'
         assert sample()['downs'] == 0, 'typing started before arming; fresh trial required'
-        print('ARMED: type "nlc typing 12345" slowly in own witness; first key starts background trial', flush=True)
+        print('ARMED: type "tacto typing 12345" slowly in own witness; first key starts background trial', flush=True)
         report['classification'] = 'waiting_for_user_typing'
         deadline = time.monotonic() + 60
         while sample()['downs'] == 0:

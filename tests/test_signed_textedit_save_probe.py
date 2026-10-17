@@ -35,9 +35,9 @@ class ProbeTests(unittest.TestCase):
         body='NLC 실제 저장 검증 aa\n두 번째 줄\n'.encode()
         with patch.object(probe,'SignedOwnedTextEdit',return_value=fixture),patch.object(probe.secrets,'token_hex',return_value='aa'),\
              patch.dict(sys.modules,{'focus_witness':types.SimpleNamespace(FocusWitness=Witness)}),\
-             patch('nlc.existing_file_receipt.ExistingTextFileReceipt',return_value=receipt),\
-             patch('nlc.existing_file_receipt._file_state',return_value=(None,None,None,None,None,body)),\
-             patch('nlc.commit_evidence.evidence_error',return_value=None):
+             patch('tacto.existing_file_receipt.ExistingTextFileReceipt',return_value=receipt),\
+             patch('tacto.existing_file_receipt._file_state',return_value=(None,None,None,None,None,body)),\
+             patch('tacto.commit_evidence.evidence_error',return_value=None):
             report=probe.run(driver,can_cleanup=lambda:cleanup_allowed)
         return report,fixture,driver
 

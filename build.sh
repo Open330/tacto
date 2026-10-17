@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Build everything the permission boundary needs, in dependency order.
 #
-#   launcher/nlc        signed entry point
+#   launcher/tacto        signed entry point
 #   (the relay lives inside the launcher — a separate signed broker binary was
 #    removed: anyone could run it, so authenticating it proved nothing)
-#   helper/nlc-helper   the binary that holds the Accessibility grant
-#   NLC Helper.app      that binary packaged so TCC lists it by name
+#   helper/tacto-helper   the binary that holds the Accessibility grant
+#   Tacto Helper.app      that binary packaged so TCC lists it by name
 #
 # Nothing here needs an Xcode licence: the Command Line Tools toolchain is used
 # with an explicit SDK path.

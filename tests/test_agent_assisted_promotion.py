@@ -10,9 +10,9 @@ import json
 import unittest
 from unittest.mock import patch
 
-from nlc.contract import Envelope
-from nlc.flow import Flow
-from nlc.promote import (Candidate, checked_decisions, decision_prompt, to_flow,
+from tacto.contract import Envelope
+from tacto.flow import Flow
+from tacto.promote import (Candidate, checked_decisions, decision_prompt, to_flow,
                          replays_the_walk, with_decisions)
 
 REQUEST = "계산기 화면에 있는 수가 짝수면 2를 곱하고 홀수면 3을 곱해서 결과를 알려줘"
@@ -82,13 +82,13 @@ class DecisionReviewTests(unittest.TestCase):
         self.assertIn("요청에서 정해진 값", why[0])
 
     def test_promote_asks_once_and_applies_only_what_passed(self):
-        from nlc import cli
+        from tacto import cli
         rec = {"blocked_by": [], "parameters": {"3": [1]}, "request": REQUEST,
                "candidate": {**walk().__dict__, "envelope": None},
                "flow": json.loads(to_flow(walk(), "parity").to_json())}
-        with patch("nlc.promote.CandidateStore.get", return_value=rec), \
-             patch("nlc.cli.FlowStore") as store, \
-             patch("nlc.authoring.reach_model",
+        with patch("tacto.promote.CandidateStore.get", return_value=rec), \
+             patch("tacto.cli.FlowStore") as store, \
+             patch("tacto.authoring.reach_model",
                    return_value=json.dumps({"decisions": [PROPOSAL]})) as reach:
             from contextlib import redirect_stdout
             from io import StringIO
@@ -102,12 +102,12 @@ class DecisionReviewTests(unittest.TestCase):
         self.assertNotIn("-p 3=", out.getvalue())
 
     def test_a_walk_with_nothing_visible_costs_no_review(self):
-        from nlc import cli
+        from tacto import cli
         blind = walk()
         for a in blind.actions:
             a["screen_reads"] = []
         rec = {"candidate": {**blind.__dict__, "envelope": None}, "request": REQUEST}
-        with patch("nlc.authoring.reach_model") as reach:
+        with patch("tacto.authoring.reach_model") as reach:
             flow = to_flow(blind, "x")
             self.assertIs(flow, cli._promote_decisions(rec, flow, "auto"))
         reach.assert_not_called()
@@ -115,7 +115,7 @@ class DecisionReviewTests(unittest.TestCase):
 
 class LearnedPhrasingTests(unittest.TestCase):
     def agent(self, flows):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         saved = {}
         store = type("S", (), {"list": lambda s: list(flows),
                                "load": lambda s, n: flows[n],
@@ -140,7 +140,7 @@ class LearnedPhrasingTests(unittest.TestCase):
         self.assertEqual({}, saved)
 
     def test_only_a_run_found_by_reading_and_done_teaches(self):
-        from nlc.agent import Agent, Match, Turn
+        from tacto.agent import Agent, Match, Turn
         sqrt = Flow("sqrt", "t", params={"n": "25"}, intents=["x {{n}}"])
         for found_by_reading, status, learned in ((True, "done", 1), (False, "done", 0),
                                                   (True, "failed", 0)):
@@ -155,8 +155,8 @@ class LearnedPhrasingTests(unittest.TestCase):
             agent._to_turn = lambda f, r: Turn(status, "")
             calls = []
             agent._learn_phrasing = lambda *a: calls.append(a)
-            with patch("nlc.agent.replay"), patch("nlc.library.builders", return_value={}), \
-                 patch("nlc.judge.model_judge"):
+            with patch("tacto.agent.replay"), patch("tacto.library.builders", return_value={}), \
+                 patch("tacto.judge.model_judge"):
                 agent.handle("말 4", think=0)
             self.assertEqual(learned, len(calls), (found_by_reading, status))
 

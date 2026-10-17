@@ -144,10 +144,10 @@ final class MenuFixtureDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
         window.delegate = self
         let content = ResponderView(counter: responderCounter)
         window.contentView = content
-        identify(responderCounter, "nlc-fixture-responder-count")
-        identify(directCounter, "nlc-fixture-direct-count")
-        identify(makeKeyCounter, "nlc-fixture-make-key-count")
-        identify(state, "nlc-fixture-state")
+        identify(responderCounter, "tacto-fixture-responder-count")
+        identify(directCounter, "tacto-fixture-direct-count")
+        identify(makeKeyCounter, "tacto-fixture-make-key-count")
+        identify(state, "tacto-fixture-state")
         responderCounter.frame = NSRect(x: 24, y: 160, width: 260, height: 24)
         directCounter.frame = NSRect(x: 24, y: 125, width: 260, height: 24)
         makeKeyCounter.frame = NSRect(x: 320, y: 125, width: 260, height: 24)
@@ -159,7 +159,7 @@ final class MenuFixtureDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         let button = NSButton(title: "Make Fixture Window Key", target: self,
                               action: #selector(makeWindowKey(_:)))
-        identify(button, "nlc-fixture-make-key")
+        identify(button, "tacto-fixture-make-key")
         button.frame = NSRect(x: 24, y: 24, width: 270, height: 32)
         content.addSubview(button)
 

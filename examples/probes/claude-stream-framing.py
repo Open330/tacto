@@ -92,14 +92,14 @@ def synthetic_png():
 
 def main(output, *, requests=2, timeout=40):
     from unittest.mock import patch
-    import nlc.claude_result as adapter
+    import tacto.claude_result as adapter
     if type(requests) is not int or not 1 <= requests <= 4:
         raise ValueError('requests must be 1..4')
     if type(timeout) not in (int, float) or not 0 < timeout <= 60 or requests * timeout > 120:
         raise ValueError('finite total budget must be at most 120 seconds')
     root = Path(__file__).resolve().parents[2]
-    paths = ['examples/probes/claude-stream-framing.py', 'nlc/claude_result.py',
-             'nlc/authoring.py', 'nlc/provider_result.py']
+    paths = ['examples/probes/claude-stream-framing.py', 'tacto/claude_result.py',
+             'tacto/authoring.py', 'tacto/provider_result.py']
     hashes = lambda: {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in paths}
     report = {'scope': 'synthetic PNG only; strict adapter, no GUI', 'requests': [],
               'source_hashes_before': hashes(), 'passed': False}
@@ -119,12 +119,12 @@ def main(output, *, requests=2, timeout=40):
                     observed.update(stream_headers(stdout, session_id))
                     return original(stdout, session_id)
                 with patch.object(adapter, 'parse_claude_events', side_effect=parse):
-                    result = adapter.claude_result('Reply with exactly NLC_FRAME_OK.',
+                    result = adapter.claude_result('Reply with exactly TACTO_FRAME_OK.',
                         image_bytes=synthetic_png(), timeout=min(timeout, remaining))
                 metadata = result.to_dict()
                 metadata.pop('text', None)
                 report['requests'].append({'provider': metadata, 'framing': observed,
-                    'answer_verified': result.status == 'ok' and result.text == 'NLC_FRAME_OK'})
+                    'answer_verified': result.status == 'ok' and result.text == 'TACTO_FRAME_OK'})
             report['passed'] = len(report['requests']) == requests and all(
                 r['answer_verified'] for r in report['requests'])
         finally:

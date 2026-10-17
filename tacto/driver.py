@@ -1,4 +1,4 @@
-"""NLC Protocol P0 driver — macOS accessibility (AX) backend.
+"""Tacto Protocol P0 driver — macOS accessibility (AX) backend.
 
 L1 (OS driver) + L2 (action protocol) in one module.
 Implements the PROTOCOL.md v0.1 decisions:
@@ -10,6 +10,7 @@ Implements the PROTOCOL.md v0.1 decisions:
 """
 
 from __future__ import annotations
+from .environment import value as _environment_value
 
 import difflib
 import math
@@ -57,7 +58,7 @@ from ApplicationServices import (
 )
 
 # There is no CGEvent source here any more, and no marker to tag one with.
-# Synthetic input used to be stamped with NLC_EVENT_MARKER so a cooperating app
+# Synthetic input used to be stamped with TACTO_EVENT_MARKER so a cooperating app
 # or an audit tool could tell our events apart from a person's — the best
 # public signal available, because macOS has no "this window is being
 # automated" flag. Nothing is synthesised now: every action addresses the
@@ -333,7 +334,7 @@ def _real_windows(pid):
         captured and which then appears in that app's own window list: 66x20
         inside a 460x232 window, subrole AXDialog, title "Window", no close,
         minimize or zoom button (2026-09-21). Holding the control indicator is
-        what puts it there, so saying "NLC is working on this window" was what
+        what puts it there, so saying "Tacto is working on this window" was what
         made that window ambiguous.
 
     Only the measured capture badge is excluded. File panels and modal dialogs
@@ -564,13 +565,13 @@ class Driver:
         # Showing that this is happening belongs to whatever touches the
         # screen, not to whoever remembered to wrap the call. It used to be
         # wired at two CLI commands and two helper messages, so every other
-        # way in — a script holding a Driver, `nlc observe`, the whole
+        # way in — a script holding a Driver, `tacto observe`, the whole
         # evaluation suite — drove somebody's machine with nothing on screen
         # to say so (found 2026-09-20 while verifying browsers).
         self._indicator = None
         self._indicator_pid = None
         self._indicator_beat = None
-        self._indicate = os.environ.get("NLC_NO_INDICATOR") != "1"
+        self._indicate = _environment_value('NO_INDICATOR') != "1"
         # The one menu this driver opened and has not yet spent, if any. It is
         # a registry of ONE: a second open would leave a menu standing that
         # nothing is tracking, and the caller would have no way to say which of
@@ -682,7 +683,7 @@ class Driver:
         # reason: macOS's screen-capture badge is a window in the app's own
         # AXWindows, so while the control indicator was up every observation of
         # the app being driven began with a phantom `Window  Title: Window,
-        # Identifier: _NS:8` — our own way of saying "NLC is working here"
+        # Identifier: _NS:8` — our own way of saying "Tacto is working here"
         # walked into the tree it was working on, and shifted every element
         # index behind it.
         windows = _real_windows(obs.pid) if selected_window is None else [selected_window]
@@ -1133,7 +1134,7 @@ class Driver:
             beat = getattr(self, "_indicator_beat", None)
             if beat is None:
                 import tempfile
-                handle, beat = tempfile.mkstemp(prefix="nlc-indicator-")
+                handle, beat = tempfile.mkstemp(prefix="tacto-indicator-")
                 os.close(handle)
                 self._indicator_beat = beat
             os.utime(beat, None)                      # this is the heartbeat
@@ -1222,7 +1223,7 @@ class Driver:
                         "target": target,
                         "detail": "이 프로세스가 화면(GUI) 세션에 연결돼 있지 않아요. "
                                   "tmux/스크린 안에서 실행 중이라면 tmux 밖에서 실행하거나 "
-                                  "`reattach-to-user-namespace uv run nlc ...` 로 실행해 주세요."}
+                                  "`reattach-to-user-namespace uv run tacto ...` 로 실행해 주세요."}
             return {"type": "error", "error": "target_not_found", "target": target,
                     "detail": f"'{target}' 앱을 찾지 못했어요. 실행 중인 앱: "
                               + ", ".join(sorted(a.bundleIdentifier() or a.localizedName()

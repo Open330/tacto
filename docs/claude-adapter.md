@@ -1,6 +1,6 @@
 # Claude CLI result adapter
 
-`nlc.claude_result.claude_result(prompt, *, model=None, timeout=120,
+`tacto.claude_result.claude_result(prompt, *, model=None, timeout=120,
 image_bytes=None, image_media_type='image/png')` is the restricted Claude
 adapter used by planning and the visual API when provider="claude". It can
 also be called directly for a structured result.

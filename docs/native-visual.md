@@ -1,8 +1,8 @@
 # Native window image reads
 
-`nlc.native_visual.capture_native` provides an optional, read-only ScreenCaptureKit path for one macOS application window. It uses `SCScreenshotManager` on macOS 14 or later. It does not use the obsolete CoreGraphics desktop-capture API, send input, activate a window, or request screen-recording permission.
+`tacto.native_visual.capture_native` provides an optional, read-only ScreenCaptureKit path for one macOS application window. It uses `SCScreenshotManager` on macOS 14 or later. It does not use the obsolete CoreGraphics desktop-capture API, send input, activate a window, or request screen-recording permission.
 
-The in-process path consumes the `nlc.driver.Driver` observation registry and is also exposed by `Driver.capture`. The signed helper/launcher provides its own window capture through `InheritedHelperDriver.capture`; it does not bypass the helper with Python framework calls. Native coordinates must not be passed to the browser coordinate executor.
+The in-process path consumes the `tacto.driver.Driver` observation registry and is also exposed by `Driver.capture`. The signed helper/launcher provides its own window capture through `InheritedHelperDriver.capture`; it does not bypass the helper with Python framework calls. Native coordinates must not be passed to the browser coordinate executor.
 
 Native `act(..., {"name": "click", "point": {"x": ..., "y": ...}})` resolves a window-relative point through the target application's AX hit test and presses the returned AX element. It does not dispatch a mouse event. A surface with neither an accessible press target nor a hit-test target requires the separate explicitly authorized `click_point` mouse route; ordinary `click` never falls back to it. Capturing an image does not itself authorize this action or certify completion.
 
@@ -14,7 +14,7 @@ From the project directory:
 uv sync --extra native-visual
 ```
 
-The extra installs `pyobjc-framework-ScreenCaptureKit>=10.0` on macOS. The project's base macOS dependencies already include the Cocoa, Quartz, and ApplicationServices bindings. Importing `nlc.native_visual` itself remains portable: framework imports are deferred until a native operation is requested.
+The extra installs `pyobjc-framework-ScreenCaptureKit>=10.0` on macOS. The project's base macOS dependencies already include the Cocoa, Quartz, and ApplicationServices bindings. Importing `tacto.native_visual` itself remains portable: framework imports are deferred until a native operation is requested.
 
 Both the in-process AX driver and screen capture need their respective existing Accessibility and Screen Recording permissions. `capture_native` calls `CGPreflightScreenCaptureAccess` only. If access is missing it raises `NativeVisualError("screen_capture_permission_missing")` before enumerating shareable windows or submitting a screenshot. It does not call `CGRequestScreenCaptureAccess` or present a permission dialog. Permissions granted to a different process, including a signed helper, do not establish that this Python process can capture.
 
@@ -23,9 +23,9 @@ Both the in-process AX driver and screen capture need their respective existing 
 Create an ordinary in-process observation for an application that is already running and has a visible window. The AX driver's own observation behavior remains separate from capture; its `observe` method can launch a missing target, so choose the target deliberately.
 
 ```python
-from nlc.driver import Driver
-from nlc.native_visual import capture_native, NativeVisualError
-from nlc.visual import query_visual
+from tacto.driver import Driver
+from tacto.native_visual import capture_native, NativeVisualError
+from tacto.visual import query_visual
 
 driver = Driver()
 target = "com.apple.TextEdit"  # An application you intend to inspect.
@@ -86,7 +86,7 @@ These checks establish the signed fixture paths, not arbitrary opaque native sur
 
 ## Native image proposals and point dispatch
 
-`nlc.native_visual_actions.capture_window(driver, obs_id, target, window_index=...)`
+`tacto.native_visual_actions.capture_window(driver, obs_id, target, window_index=...)`
 reads either public capture transport into a `NativeVisualCapture`, checks PNG
 header dimensions and SHA256, and removes its requested temporary copy. The
 signed helper retains its original private artifact under the capture contract.
@@ -151,7 +151,7 @@ attempts are in `reviews/2026-10-01/verification/evidence-summary.json`.
 
 ## General loop host scope
 
-`nlc.general.run(..., visual_scope=NativeVisualScope(...))` now lets the host
+`tacto.general.run(..., visual_scope=NativeVisualScope(...))` now lets the host
 enter the mapped native image route at a screen boundary. Construct the scope
 in trusted application code with an explicit Window selector, image `planner`,
 `authorize(proposal, capture)`, and `verify(capture, history)`. Declare known
@@ -218,7 +218,7 @@ refusals apply. This does not select a first responder; the host prepares and
 verifies the known receiving view separately. A pending pair requires
 `verify_step` before another input or a return to AX. Model done is not proof.
 
-`nlc.visual.plan_native_input` queries the existing bounded image provider relay
+`tacto.visual.plan_native_input` queries the existing bounded image provider relay
 for key/text proposals. It requires a mapped NativeVisualCapture, a bounded
 goal, and explicit allowed kinds. It rejects shortcuts, controls, coordinates,
 indices, additional fields and overlong text. JSON contains no authority.

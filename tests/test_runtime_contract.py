@@ -10,12 +10,12 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 
-from nlc.contract import ContextBinding, Envelope, Resource, SafetyContract, POLICY_VERSION
-from nlc.flow import Capture, Flow, Postcondition, Selector, Step, replay
-from nlc.general import run
-from nlc.outcome import Check, OutcomeSpec, spec_for, verify, DONE
-from nlc.store import FlowStore
-from nlc.trace import TracingDriver, TraceDriver, Trace
+from tacto.contract import ContextBinding, Envelope, Resource, SafetyContract, POLICY_VERSION
+from tacto.flow import Capture, Flow, Postcondition, Selector, Step, replay
+from tacto.general import run
+from tacto.outcome import Check, OutcomeSpec, spec_for, verify, DONE
+from tacto.store import FlowStore
+from tacto.trace import TracingDriver, TraceDriver, Trace
 
 
 class App:
@@ -87,7 +87,7 @@ def contract(effects=("read",)):
 
 class RuntimeContract(unittest.TestCase):
     def test_reacquire_never_drops_original_container_when_sibling_disappears(self):
-        from nlc.general import candidates, reacquire
+        from tacto.general import candidates, reacquire
         tree = ("0 Window  Title: form\n  1 Group  Title: billing\n"
                 "    2 TextField  Title: name, Value: Alice\n"
                 "  3 Group  Title: shipping\n    4 TextField  Title: name, Value: Bob")
@@ -99,7 +99,7 @@ class RuntimeContract(unittest.TestCase):
         self.assertIsNone(reacquire(billing, renamed))
 
     def test_named_invariant_requires_direct_witness_even_if_text_is_elsewhere(self):
-        from nlc.general import GeneralResult
+        from tacto.general import GeneralResult
         expected = OutcomeSpec(kind="test", must_read=["answer"], must_not_change=["original"],
             required=(Check("source", "prior", "after", "unchanged"),),
             expected={"source": "original"})
@@ -140,12 +140,12 @@ class RuntimeContract(unittest.TestCase):
         self.assertTrue(all(v.cut_short for v in result.visits[:2]))
 
     def test_candidates_do_not_silently_drop_later_controls(self):
-        from nlc.general import candidates
+        from tacto.general import candidates
         tree = "\n".join(f"{i} Button  Title: item{i}" for i in range(100))
         self.assertEqual(100, len(candidates(tree)))
 
     def test_element_bound_navigation_preserves_candidate_and_expectations(self):
-        from nlc.general import candidates
+        from tacto.general import candidates
         app = App(action="Next")
         app.capabilities = {"action.press_key", "press_key.element_bound", "press_key.no_escape"}
         choices = candidates(app.tree, capabilities=app.capabilities)
@@ -170,8 +170,8 @@ class RuntimeContract(unittest.TestCase):
         self.assertEqual(seen[0]['label'], 'recipient')
 
     def test_navigation_keys_require_capability_and_preserve_parameters(self):
-        from nlc.general import candidates
-        from nlc.promote import candidate_from, to_flow
+        from tacto.general import candidates
+        from tacto.promote import candidate_from, to_flow
         app = App(action="Next")
         def here(goal, cands, done):
             if done:
@@ -202,8 +202,8 @@ class RuntimeContract(unittest.TestCase):
         self.assertEqual([], app.calls)
 
     def test_agent_real_send_kind_with_trusted_prior_and_empty_bcc_completes(self):
-        from nlc.agent import Agent
-        from nlc.promote import CandidateStore
+        from tacto.agent import Agent
+        from tacto.promote import CandidateStore
         class Mail(App):
             def __init__(self, bcc=""):
                 super().__init__()
@@ -211,7 +211,7 @@ class RuntimeContract(unittest.TestCase):
             def prepare_commit(self, event):
                 return self.sent
             def after_commit(self, event, result, before):
-                from nlc.commit_evidence import CommitEvidence, DeliveryEvidence
+                from tacto.commit_evidence import CommitEvidence, DeliveryEvidence
                 import hashlib
                 if self.sent == before + 1:
                     return CommitEvidence(event['event_id'],event['action_digest'],
@@ -258,8 +258,8 @@ class RuntimeContract(unittest.TestCase):
                     interpret=lambda q: q.check(reading) if q.kind == "what_was_asked" else None,
                     general=general, outcome_context=lambda intent, request: (
                         {"원본 보존": "draft text"}, {"원본 보존": "prior"}))
-                with patch("nlc.authoring.guess_target", return_value="app"), \
-                     patch("nlc.promote.CandidateStore", return_value=CandidateStore(root + "/candidates")):
+                with patch("tacto.authoring.guess_target", return_value="app"), \
+                     patch("tacto.promote.CandidateStore", return_value=CandidateStore(root + "/candidates")):
                     turn = agent.handle("sender 계정에서 mom에게 hello 보내줘", ask=lambda _: True)
                 self.assertEqual(expected_sends, app.sent, turn.say)
                 self.assertEqual(expected_sends == 1, turn.status == DONE, turn.say)
@@ -279,7 +279,7 @@ class RuntimeContract(unittest.TestCase):
 
     def test_native_rejects_unknown_and_blocked_risk_before_touching_os(self):
         try:
-            from nlc.driver import Driver
+            from tacto.driver import Driver
         except ImportError:
             self.skipTest("native dependencies unavailable")
         driver = Driver.__new__(Driver)
@@ -294,7 +294,7 @@ class RuntimeContract(unittest.TestCase):
                                 {"element_index": index})
 
     def test_unknown_actual_fields_cannot_authorize_unattended_mutation(self):
-        from nlc.contract import policy, Evidence
+        from tacto.contract import policy, Evidence
         for c in (SafetyContract(effects=["write_ephemeral"]),
                   SafetyContract(effects=["write_persistent"], evidence=[
                       Evidence("user_intent", "request", "save", covers=("write_persistent",))])):
@@ -348,8 +348,8 @@ class RuntimeContract(unittest.TestCase):
 
     def test_confirmed_commit_can_finish_and_duplicate_cannot(self):
         from copy import deepcopy
-        from nlc.general import GeneralResult
-        from nlc.commit_evidence import make_event, CommitEvidence, DeliveryEvidence
+        from tacto.general import GeneralResult
+        from tacto.commit_evidence import make_event, CommitEvidence, DeliveryEvidence
         import hashlib
         expected = OutcomeSpec(kind="send_message", must_read=["mom"], required=(
             Check("recipient", "request", "before_commit", "reports"),
@@ -474,7 +474,7 @@ class RuntimeContract(unittest.TestCase):
             self.assertEqual(original, path.read_text())
 
     def test_authoring_preserves_witnesses_and_uncertainty(self):
-        from nlc.authoring import _to_flow
+        from tacto.authoring import _to_flow
         flow = _to_flow(dict(name="save", target="app", steps=[dict(
             action="click", selector={"title": "Save"}, safety={"effects": ["write_persistent"]},
             binding={"resource_identity": "report.txt", "resource_identity_from": {"identifier": "filename"}},
@@ -484,28 +484,28 @@ class RuntimeContract(unittest.TestCase):
         self.assertEqual(["target_missing"], flow.steps[0].on_uncertain)
 
     def test_provider_pin_crosses_launcher_channel(self):
-        from nlc.authoring import reach_model
-        with patch("nlc.helper.InheritedHelperDriver") as helper:
+        from tacto.authoring import reach_model
+        with patch("tacto.helper.InheritedHelperDriver") as helper:
             helper.available.return_value = True
             helper.return_value.ask_launcher.return_value = "{}"
             self.assertEqual("{}", reach_model("question", "gemini", expect_json=True))
             helper.return_value.ask_launcher.assert_called_once_with("question", True, provider="gemini", timeout_seconds=420)
 
     def test_malformed_json_falls_through_even_with_open_brace(self):
-        from nlc.authoring import _ask_model
-        with patch("nlc.authoring._try_muxa", return_value="401 error {broken"), \
-             patch("nlc.authoring._try_cli", return_value='{"text":"}"}'):
+        from tacto.authoring import _ask_model
+        with patch("tacto.authoring._try_muxa", return_value="401 error {broken"), \
+             patch("tacto.authoring._try_cli", return_value='{"text":"}"}'):
             self.assertEqual('{"text":"}"}', _ask_model("q", "codex", expect_json=True))
 
     def test_model_attempts_share_one_deadline(self):
-        from nlc.authoring import _ask_model
+        from tacto.authoring import _ask_model
         now = [10]
         def exhausted_route(*args):
             now[0] = 21
             return None
-        with patch("nlc.authoring.time.monotonic", side_effect=lambda: now[0]), \
-             patch("nlc.authoring._try_muxa", side_effect=exhausted_route), \
-             patch("nlc.authoring._try_cli") as cli:
+        with patch("tacto.authoring.time.monotonic", side_effect=lambda: now[0]), \
+             patch("tacto.authoring._try_muxa", side_effect=exhausted_route), \
+             patch("tacto.authoring._try_cli") as cli:
             with self.assertRaises(TimeoutError):
                 _ask_model("q", "codex", timeout=10)
             cli.assert_not_called()
@@ -532,7 +532,7 @@ class RuntimeContract(unittest.TestCase):
         self.assertEqual(original.log, recorded.log)
 
     def test_cli_run_can_approve_and_trace_without_claiming_unverified_save(self):
-        from nlc import cli
+        from tacto import cli
         app = App(action="Save")
         flow = Flow("save", "app", [Step("click", Selector(title="Save"),
             safety=contract(["write_persistent"]), binding=ContextBinding(bundle_id="app", operation="click"))])
@@ -556,7 +556,7 @@ def restricted(name, *args, **kwargs):
         raise ImportError('macOS dependency forbidden in core: ' + name)
     return old(name, *args, **kwargs)
 builtins.__import__ = restricted
-import nlc.flow, nlc.agent, nlc.authoring, nlc.cli, nlc.trace, nlc.promote
+import tacto.flow, tacto.agent, tacto.authoring, tacto.cli, tacto.trace, tacto.promote
 '''
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)

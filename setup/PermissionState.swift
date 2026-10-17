@@ -13,8 +13,8 @@ func agentConnectionLinks(root: URL, home: URL, environment: [String: String]) -
             folders.append(URL(fileURLWithPath: value).appendingPathComponent("skills"))
         }
     }
-    var links = [(URL(fileURLWithPath: bin).appendingPathComponent("tacto"), root.appendingPathComponent("launcher/nlc")),
-                 (URL(fileURLWithPath: bin).appendingPathComponent("nlc"), root.appendingPathComponent("launcher/nlc"))]
+    var links = [(URL(fileURLWithPath: bin).appendingPathComponent("tacto"), root.appendingPathComponent("launcher/tacto")),
+                 (URL(fileURLWithPath: bin).appendingPathComponent("nlc"), root.appendingPathComponent("launcher/tacto"))]
     // URL equality includes the directory/trailing-slash flag. Installation
     // identity is the canonical filesystem path, including repeated profiles.
     links += Set(folders.map { $0.resolvingSymlinksInPath().path }).sorted().map {
@@ -39,10 +39,10 @@ func agentConnectionReport(root: URL, home: URL, environment: [String: String]) 
         let resolved = link.resolvingSymlinksInPath()
         if destination != nil && fm.fileExists(atPath: resolved.path) && resolved.path == expected.resolvingSymlinksInPath().path { report.append((link, .current)); continue }
         var previous = resolved
-        if expected.lastPathComponent == "nlc" {
+        if expected.lastPathComponent == "tacto" {
             guard let destination else { report.append((link, .conflict)); continue }
             let written = URL(fileURLWithPath: destination, relativeTo: link.deletingLastPathComponent()).standardizedFileURL
-            if written.path.hasSuffix("/launcher/nlc") {
+            if written.path.hasSuffix("/launcher/tacto") || written.path.hasSuffix("/launcher/nlc") {
                 previous = written.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("skill")
             } else if written.path.hasSuffix("/.venv/bin/nlc") || written.path.hasSuffix("/.venv/bin/tacto") {
                 previous = written.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("skill")

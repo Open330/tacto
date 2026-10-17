@@ -117,7 +117,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         if required:
             all_ok = False
     # Over-broad grant check. TCC identifies a client by binary, and a venv's
-    # python is usually a symlink to a SHARED interpreter — so granting NLC
+    # python is usually a symlink to a SHARED interpreter — so granting Tacto
     # accessibility grants it to every script run with that interpreter.
     # Verified on this machine: an unrelated /tmp script could read other apps'
     # windows. Users deserve to know that before they click Allow.
@@ -155,7 +155,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         if st["built"]:
             narrate("— 권한 경계 —")
             if run_helper_onboarding(narrate, interactive=interactive):
-                narrate("   실행:  tacto <명령> --helper   (설치 전이면 Tacto checkout에서 ./launcher/nlc)")
+                narrate("   실행:  tacto <명령> --helper   (설치 전이면 Tacto checkout에서 ./launcher/tacto)")
             else:
                 all_ok = False
         else:
@@ -187,10 +187,13 @@ def helper_status() -> dict:
     other script on the machine also uses.
     """
     import os
-    from .helper import HELPER, helper_display_name
+    from .helper import HELPER, helper_display_name, helper_candidates
     out = {"built": os.path.exists(HELPER), "path": HELPER, "trusted": None,
-           "bundled": HELPER.endswith("Contents/MacOS/NLCHelper"),
+           "bundled": HELPER.endswith(("Contents/MacOS/TactoHelper", "Contents/MacOS/NLCHelper")),
            "name": helper_display_name()}
+    candidates = helper_candidates()
+    if any("/NLC Helper.app/" in path or path.endswith("/nlc-helper") for path in candidates) and any("/Tacto Helper.app/" in path or path.endswith("/tacto-helper") for path in candidates):
+        out["coexisting_builds"] = candidates
     from pathlib import Path
     binary = Path(HELPER).resolve()
     # Fixed standalone layout only; never infer this from a loose '.app' substring.
@@ -198,7 +201,7 @@ def helper_status() -> dict:
         if parent.name == "runtime" and parent.parent.name == "Resources" and parent.parent.parent.name == "Contents":
             outer = parent.parent.parent.parent
             if outer.suffix == ".app":
-                out["screen_name"] = helper_display_name(outer / "Contents/MacOS/NLCSetup")
+                out["screen_name"] = helper_display_name(outer / "Contents/MacOS/TactoSetup")
                 break
     if not out["built"]:
         return out
@@ -209,7 +212,7 @@ def helper_status() -> dict:
             # Under the signed launcher, the channel it handed down is the
             # only one the helper answers. Dialling the helper directly, as
             # this did, is refused BY DESIGN (peer authentication) — so the
-            # check reported "grant NLC Helper" to people whose helper was
+            # check reported "grant Tacto Helper" to people whose helper was
             # granted and working, and told them to use the launcher they
             # were already using (2026-09-28).
             driver = InheritedHelperDriver()    # its handshake checks AX trust
@@ -232,6 +235,9 @@ def helper_status() -> dict:
 def run_helper_onboarding(narrate=print, *, interactive=True) -> bool:
     """Walk the user through granting the HELPER, not this interpreter."""
     st = helper_status()
+    if st.get("coexisting_builds"):
+        narrate(f"도우미 빌드가 여러 개 있습니다. 선택된 경로: {st['path']}")
+        narrate("    새 빌드를 사용하려면 ./build.sh로 앱 번들까지 빌드하세요.")
     if not st["built"]:
         narrate("✕ 도우미가 아직 빌드되지 않았어요:")
         narrate("    helper/build.sh && helper/bundle.sh && launcher/build.sh")

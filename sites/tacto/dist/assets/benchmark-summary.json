@@ -1,7 +1,7 @@
 {
   "same_requested_conditions": true,
   "summary": {
-    "nlc": {
+    "tacto": {
       "runs": 3,
       "passed": 3,
       "seconds": 126.29850741592236,
@@ -40,6 +40,6 @@
   "product": {
     "name": "Tacto",
     "previous_name": "NLC",
-    "measurement_label": "nlc"
+    "measurement_label": "tacto"
   }
 }

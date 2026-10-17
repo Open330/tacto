@@ -16,7 +16,7 @@ class AgentLifecycle(unittest.TestCase):
     def test_host_absolute_executable_is_used_without_changing_prompt_or_environment(self):
         records = []
         with patch.object(comparison, '_AGENT_EXECUTABLE', '/host/codex'), \
-             patch('nlc.codex_result._run_codex') as run:
+             patch('tacto.codex_result._run_codex') as run:
             comparison._run_agent(['codex', 'exec', '-'], 'owned prompt', 12, records)
         run.assert_called_once_with(['/host/codex', 'exec', '-'], 'owned prompt', 12, records, cwd='/tmp')
 
@@ -39,7 +39,7 @@ class AgentLifecycle(unittest.TestCase):
         fixture.setUp()
         diagnostic = {'samples':[{'status':'observed'}], 'descendants_observed':False}
         try:
-            for arm in ('nlc', 'sky'):
+            for arm in ('tacto', 'sky'):
                 result = fixture.execute(observations=[diagnostic], arm=arm)
                 self.assertTrue(result['oracle_passed'])
                 self.assertEqual([diagnostic], result['agent_primary_process_diagnostics'])
@@ -74,7 +74,7 @@ class AgentLifecycle(unittest.TestCase):
     def test_owned_real_timeout_uses_group_cleanup_and_keeps_observations(self):
         records = []
         with patch.object(comparison, '_AGENT_EXECUTABLE', sys.executable), \
-             patch('nlc.process_responsibility.observe_responsibility', return_value={'status':'observed'}), \
+             patch('tacto.process_responsibility.observe_responsibility', return_value={'status':'observed'}), \
              self.assertRaises(subprocess.TimeoutExpired):
             comparison._run_agent(['codex', '-c', 'import time;time.sleep(10)'], '', .03, records)
         self.assertEqual(1, len(records))

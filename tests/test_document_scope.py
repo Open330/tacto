@@ -7,8 +7,8 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from nlc.cli import document_window_view, main
-from nlc.flow import Selector
+from tacto.cli import document_window_view, main
+from tacto.flow import Selector
 
 PATH = '/Users/x/저장 검증.txt'
 TREE = '\n'.join([
@@ -23,7 +23,7 @@ TREE = '\n'.join([
 
 class DocumentScopeTests(unittest.TestCase):
     def test_close_button_requires_its_exact_subrole_and_document(self):
-        from nlc.flow import Flow
+        from tacto.flow import Flow
         tree='0 Window Title: one, Document: /owned/one.txt\n  1 Button Subrole: AXCloseButton\n  2 Button Subrole: AXMinimizeButton\n3 Window Title: two, Document: /owned/two.txt\n  4 Button Subrole: AXCloseButton'
         selector=Selector(role='Button', subrole='AXCloseButton', ancestor='/owned/one.txt')
         self.assertEqual(1,selector.resolve(tree)[0])
@@ -34,7 +34,7 @@ class DocumentScopeTests(unittest.TestCase):
         old=Flow.from_json('{"schema":2,"name":"old","target":"owned","steps":[{"action":"read","selector":{"role":"Window","title":"owned"}}]}')
         encoded=json.loads(old.to_json())
         self.assertNotIn('subrole',encoded['steps'][0]['selector'])
-        from nlc.flow import _flow_json_value
+        from tacto.flow import _flow_json_value
         self.assertEqual({'subrole':None},_flow_json_value({'subrole':None}))
 
     def test_view_is_the_one_window_showing_that_file(self):
@@ -56,7 +56,7 @@ class DocumentScopeTests(unittest.TestCase):
     def test_package_document_directory_marker_keeps_canonical_identity(self):
         import tempfile
         from pathlib import Path
-        from nlc.native_document import _document_path, DocumentSnapshotError
+        from tacto.native_document import _document_path, DocumentSnapshotError
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder).resolve(); package=root/'owned.rtfd'; package.mkdir()
             self.assertEqual(str(package), _document_path((0, package.as_uri()+'/')))
@@ -77,7 +77,7 @@ class DocumentScopeTests(unittest.TestCase):
                     raise AssertionError('an unpinned app-wide read is forbidden')
                 return {'type': 'observation', 'document_token': document_token,
                         'tree': document_window_view(TREE, PATH)}
-        with patch('nlc.cli._make_driver', return_value=D()):
+        with patch('tacto.cli._make_driver', return_value=D()):
             out = io.StringIO()
             with redirect_stdout(out):
                 code = main(['observe', 'com.apple.TextEdit', '--document', PATH])

@@ -406,7 +406,7 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
                 '--system-prompt', 'Return the requested short answer without tools.']
         if model is not None:
             argv += ['--model', model]
-        with tempfile.TemporaryDirectory(prefix='nlc-claude-result-') as folder:
+        with tempfile.TemporaryDirectory(prefix='tacto-claude-result-') as folder:
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
                 raise TimeoutError('deadline exceeded')

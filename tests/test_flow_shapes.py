@@ -7,7 +7,7 @@ import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
 
-from nlc.flow import Flow
+from tacto.flow import Flow
 
 
 BASE = {"schema": 2, "name": "shape-check", "target": "fixture",
@@ -52,7 +52,7 @@ class FlowShapeTests(unittest.TestCase):
                 self.assertIn(where, str(raised.exception))
 
     def test_cli_rejects_every_case_without_a_traceback(self):
-        from nlc.cli import _dispatch
+        from tacto.cli import _dispatch
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bad.json"
             for where, doc in self.malformed():

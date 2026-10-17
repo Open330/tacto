@@ -3,10 +3,10 @@ from pathlib import Path
 import unittest
 import tempfile
 
-from nlc.artifact_receipt import ArtifactReceiptError
-from nlc.commit_evidence import CommitEvidence
+from tacto.artifact_receipt import ArtifactReceiptError
+from tacto.commit_evidence import CommitEvidence
 from tests.test_existing_file_receipt import Doc, save_event
-from nlc.existing_file_receipt import ExistingTextFileReceipt
+from tacto.existing_file_receipt import ExistingTextFileReceipt
 
 
 class ExistingDispatchTests(unittest.TestCase):

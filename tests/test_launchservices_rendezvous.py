@@ -134,14 +134,14 @@ class WhereDiagnosticsGo(unittest.TestCase):
 
 class NoTransportPretendsItCanConnect(unittest.TestCase):
     def test_the_python_socket_transport_is_gone(self):
-        import nlc.helper as helper
+        import tacto.helper as helper
         self.assertFalse(hasattr(helper, "SocketHelperDriver"),
                          "it spawned the helper with --listen, a mode that no "
                          "longer exists, and no python process can satisfy the "
                          "helper's compiled-in requirement anyway")
 
     def test_nothing_still_starts_the_helper_with_listen(self):
-        self.assertNotIn('"--listen"', (ROOT / "nlc/helper.py").read_text())
+        self.assertNotIn('"--listen"', (ROOT / "tacto/helper.py").read_text())
 
 
 if __name__ == "__main__":

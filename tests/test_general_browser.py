@@ -14,8 +14,8 @@ except ImportError:
 @unittest.skipUnless(AVAILABLE, "optional playwright dependency not installed")
 class GeneralBrowser(unittest.TestCase):
     def test_reopen_same_menu_after_command_changes_content(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import run
+        from tacto.browser import BrowserDriver
+        from tacto.general import run
         for changes in (True, False):
             with self.subTest(content_changes=changes):
                 driver = BrowserDriver()
@@ -48,10 +48,10 @@ class GeneralBrowser(unittest.TestCase):
                     driver.close()
 
     def test_save_has_real_disk_readback_and_rejects_wrong_destination(self):
-        from nlc.browser import BrowserDriver
-        from nlc.contract import Envelope
-        from nlc.general import run
-        from nlc.outcome import spec_for, verify
+        from tacto.browser import BrowserDriver
+        from tacto.contract import Envelope
+        from tacto.general import run
+        from tacto.outcome import spec_for, verify
         for wrong_path, corrupt in ((False, False), (True, False), (False, True)):
             with self.subTest(wrong_path=wrong_path, corrupt=corrupt), tempfile.TemporaryDirectory() as folder:
                 driver = BrowserDriver()
@@ -60,7 +60,7 @@ class GeneralBrowser(unittest.TestCase):
                     def prepare_commit(event):
                         return len(writes)
                     def after_commit(event, response, before):
-                        from nlc.commit_evidence import CommitEvidence, ArtifactEvidence
+                        from tacto.commit_evidence import CommitEvidence, ArtifactEvidence
                         import hashlib
                         if len(writes) == before + 1:
                             path = writes[-1]
@@ -106,9 +106,9 @@ class GeneralBrowser(unittest.TestCase):
                     driver.close()
 
     def test_scoped_candidate_keeps_region_in_promoted_flow(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import run, candidates, reacquire
-        from nlc.promote import candidate_from, to_flow
+        from tacto.browser import BrowserDriver
+        from tacto.general import run, candidates, reacquire
+        from tacto.promote import candidate_from, to_flow
         driver = BrowserDriver()
         try:
             driver.goto("data:text/html," + quote('<section aria-label="billing"><input aria-label="name" value="Alice"></section><section aria-label="shipping"><input aria-label="name" value="Bob"></section>'))
@@ -130,8 +130,8 @@ class GeneralBrowser(unittest.TestCase):
             driver.close()
 
     def test_navigation_key_uses_current_focus_and_reobserves(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import run
+        from tacto.browser import BrowserDriver
+        from tacto.general import run
         driver = BrowserDriver()
         try:
             driver.goto("data:text/html," + quote('<input aria-label="first"><input aria-label="second">'))
@@ -149,8 +149,8 @@ class GeneralBrowser(unittest.TestCase):
             driver.close()
 
     def test_scroll_replans_before_reading_updated_dom(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import run
+        from tacto.browser import BrowserDriver
+        from tacto.general import run
         driver = BrowserDriver()
         try:
             driver.goto("data:text/html," + quote('''<div style="height:100px;overflow:auto"

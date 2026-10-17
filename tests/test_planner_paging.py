@@ -2,7 +2,7 @@ import re
 import unittest
 from unittest.mock import patch
 
-from nlc.ask import ask_here_paged, what_to_do_here
+from tacto.ask import ask_here_paged, what_to_do_here
 
 
 def row_counter(prompt):
@@ -16,7 +16,7 @@ class PlannerPagingTests(unittest.TestCase):
                            for i in range(5)]
 
     def run_plan(self, responder, **kwargs):
-        with patch("nlc.ask.ask", side_effect=lambda q, **_: responder(q)) as calls:
+        with patch("tacto.ask.ask", side_effect=lambda q, **_: responder(q)) as calls:
             result = ask_here_paged("read row 4", self.candidates, budget=2,
                                     token_counter=row_counter, **kwargs)
         return result, calls
@@ -55,7 +55,7 @@ class PlannerPagingTests(unittest.TestCase):
         self.assertEqual(result["actions"], [])
 
     def test_oversized_prompt_never_reaches_model(self):
-        with patch("nlc.ask.ask") as ask:
+        with patch("tacto.ask.ask") as ask:
             result = ask_here_paged("read", self.candidates, budget=1)
         ask.assert_not_called()
         self.assertEqual(result["stop_reason"], "candidate_budget_overflow")
@@ -80,7 +80,7 @@ class PlannerPagingTests(unittest.TestCase):
             for text in (long_value, "g" * 350, "history zero", '"value": "XL"'):
                 self.assertIn(text, q.prompt)
             return q.check({"actions": [{"pick": 0, "do": "select_option", "value": "XL"}]})
-        with patch("nlc.ask.ask", side_effect=respond):
+        with patch("tacto.ask.ask", side_effect=respond):
             result = ask_here_paged("g" * 350, [candidate],
                                     ["history zero"] + ["other"] * 8)
         self.assertEqual(result["actions"][0]["value"], "XL")

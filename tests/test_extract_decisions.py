@@ -8,8 +8,8 @@ document then held exactly that.
 import json
 import unittest
 
-from nlc.contract import ContextBinding, Resource, SafetyContract
-from nlc.flow import Capture, Flow, Selector, Step, pin_params, replay
+from tacto.contract import ContextBinding, Resource, SafetyContract
+from tacto.flow import Capture, Flow, Selector, Step, pin_params, replay
 
 FIELD = Selector(role="TextArea", identifier="doc")
 EDIT = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
@@ -104,7 +104,7 @@ class RuntimeConsentTests(unittest.TestCase):
         self.assertEqual(("decision_drives_consent", []), (r.log[-1]["error"], doc.sets))
 
     def test_nothing_is_asked_before_the_run_for_such_a_step(self):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         asked = []
         Agent(driver=object()).authorize(extract_then(SAVE, self.BIND),
                                          ask=lambda w: asked.append(w) or True)
@@ -113,8 +113,8 @@ class RuntimeConsentTests(unittest.TestCase):
 
 class LiftTests(unittest.TestCase):
     def walk(self, typed, visible):
-        from nlc.contract import Envelope
-        from nlc.promote import Candidate
+        from tacto.contract import Envelope
+        from tacto.promote import Candidate
         seen = [{"role": "StaticText", "attr": "Description", "match": "Order",
                  "container": "", "label": "Order", "value": visible}]
         return Candidate(goal="주문번호를 입력칸에 옮겨 적기", target="t", verified=True,
@@ -127,7 +127,7 @@ class LiftTests(unittest.TestCase):
              "line": f"  2 TextField  Description: Search, Value: {typed}"}])
 
     def test_the_whole_value_is_read_again_and_needs_no_model(self):
-        from nlc.promote import deployable
+        from tacto.promote import deployable
         flow, why = deployable(self.walk("A-48213", "A-48213"), "t", "주문번호를 입력칸에 옮겨 적어줘")
         self.assertEqual([], why)
         self.assertEqual(["read", "set_value", "read"], [s.action for s in flow.steps])
@@ -135,7 +135,7 @@ class LiftTests(unittest.TestCase):
         Flow.from_json(flow.to_json())
 
     def test_part_of_a_value_becomes_a_checked_extraction(self):
-        from nlc.promote import deployable
+        from tacto.promote import deployable
         flow, why = deployable(self.walk("A-48213", TEXT), "t", "주문번호를 입력칸에 옮겨 적어줘")
         self.assertEqual([], why)
         self.assertEqual(["read", "decide", "set_value", "read"], [s.action for s in flow.steps])
@@ -143,7 +143,7 @@ class LiftTests(unittest.TestCase):
         self.assertEqual("{{text1}}", flow.steps[2].params["value"])
 
     def test_a_value_seen_nowhere_was_written_and_is_composed_afresh(self):
-        from nlc.promote import deployable
+        from tacto.promote import deployable
         flow, why = deployable(self.walk("안녕하세요, 확인해 보겠습니다", TEXT), "t",
                                "문의에 짧게 답해줘")
         self.assertEqual([], why)
@@ -154,7 +154,7 @@ class LiftTests(unittest.TestCase):
 
     def test_the_gate_still_refuses_anything_but_the_walks_own_value(self):
         from dataclasses import replace
-        from nlc.promote import gate, lift_screen_values, to_flow
+        from tacto.promote import gate, lift_screen_values, to_flow
         c = self.walk("안녕하세요", TEXT)
         flow = to_flow(c, "t")
         _, lifted = lift_screen_values(c, flow, "답해줘")
@@ -163,7 +163,7 @@ class LiftTests(unittest.TestCase):
         self.assertTrue(gate(c, smuggled, "답해줘", lifted))
 
     def test_decisions_are_renumbered_past_lifted_steps(self):
-        from nlc.promote import shifted
+        from tacto.promote import shifted
         self.assertEqual([{"step": 5}], shifted([{"step": 2}], {0: 1, 1: 2, 3: 2}))
 
 

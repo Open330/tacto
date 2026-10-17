@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import tempfile
 import unittest
 
-from nlc.helper import InheritedHelperDriver
+from tacto.helper import InheritedHelperDriver
 
 
 class HelperCaptureArtifacts(unittest.TestCase):

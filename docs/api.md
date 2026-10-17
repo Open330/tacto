@@ -49,11 +49,11 @@ element_index와 `point={"x":..., "y":...}`를 받는다. 호스트가
 직전에 다시 검증하며, 한 입력 시도 전에 token을 소모한다. 이것은 저장 완료
 증거나 `document_snapshot`이 아니다. [패널 검증 범위](save-directory-observation.md)를 참조한다.
 
-## 레시피 (IR) — `nlc.flow`
+## 레시피 (IR) — `tacto.flow`
 
 ```python
-from nlc.flow import Flow, Step, Selector, Capture, Postcondition, replay
-from nlc.contract import SafetyContract, Resource
+from tacto.flow import Flow, Step, Selector, Capture, Postcondition, replay
+from tacto.contract import SafetyContract, Resource
 
 flow = Flow.from_json(open("flows/sqrt.json").read())   # 검사하며 읽음 (잘못된 IR은 ValueError)
 concrete = flow.bind(n="49")                              # 입력 채우기 · for_each 펼치기 (분기 안까지)
@@ -76,7 +76,7 @@ print(concrete.to_json())
   `question, choices, into, extract_from, compose, branches, goal` 의 뜻은 [`recipes.md`](recipes.md#판단-단계-decide)에.
 - `Flow.intents` 는 레시피가 답하는 문장입니다(`"계산기에서 {{n}}의 제곱근 구해줘"`).
 - `Flow.runtime_names()` 는 실행 중에만 생기는 이름(capture, 판단)입니다. `bind()`는 이 이름을 채우지 않고 남겨 둡니다.
-- `nlc.flow.every_step(steps)` 는 분기 안까지 포함한 모든 단계를 순서대로 돌려줍니다.
+- `tacto.flow.every_step(steps)` 는 분기 안까지 포함한 모든 단계를 순서대로 돌려줍니다.
 
 ## 재실행 — `replay`
 
@@ -116,10 +116,10 @@ event ID·action digest·obs ID에 결합한 패널 token과 receipt context를 
 | `learned` | `{(판단 이름, 답): [단계]}` — 이번 실행에서 새로 조작한 분기. **저장은 호출자의 몫** |
 | `events`, `commit_evidence` | 커밋 이벤트와 그 증거 |
 
-## 에이전트 — `nlc.agent.Agent`
+## 에이전트 — `tacto.agent.Agent`
 
 ```python
-from nlc.agent import Agent
+from tacto.agent import Agent
 agent = Agent(driver=None, store=None, narrate=None, author=None, judge=None,
               interpret=None, general=None, outcome_context=None,
               commit_adapter_factory=None, decide=None, review=None)
@@ -132,12 +132,12 @@ print(turn.status, turn.say)          # Turn(status, say, flow, detail)
 - `think=None` 이면 에이전트 실행에서 승격된 레시피는 1, 나머지는 0.
 - `ask` 는 승인 질문에 답합니다(실행 전 `authorize`, 실행 중 `confirm` 모두).
 - 성공한 실행 뒤: 요청 읽기로 찾았다면 그 말투를, 새 분기를 조작했다면 그 분기를 저장합니다.
-- 콜백을 주지 않으면 해당 기능은 꺼집니다. `tacto do` 가 붙이는 콜백은 `nlc/cli.py` 의 `do` 명령을 보면 됩니다.
+- 콜백을 주지 않으면 해당 기능은 꺼집니다. `tacto do` 가 붙이는 콜백은 `tacto/cli.py` 의 `do` 명령을 보면 됩니다.
 
-## 모델에 묻는 콜백 — `nlc.judge`
+## 모델에 묻는 콜백 — `tacto.judge`
 
 ```python
-from nlc.judge import model_judge, model_decider
+from tacto.judge import model_judge, model_decider
 escalate = model_judge(target="com.apple.calculator", provider="auto", narrate=print)
 decide = model_decider(provider="auto", narrate=print)      # decide.compose 포함
 ```
@@ -145,10 +145,10 @@ decide = model_decider(provider="auto", narrate=print)      # decide.compose 포
 둘 다 서명된 런처 안에서는 런처의 중계로 모델을 부릅니다(`authoring.reach_model`). 런처 안에서는
 모델 CLI가 PATH에 없기 때문입니다.
 
-## 실행 기록 → 레시피 — `nlc.promote`
+## 실행 기록 → 레시피 — `tacto.promote`
 
 ```python
-from nlc.promote import (candidate_from, CandidateStore, parameters, deployable,
+from tacto.promote import (candidate_from, CandidateStore, parameters, deployable,
                          lift_screen_values, decision_prompt, checked_decisions,
                          with_decisions, replays_the_walk)
 
@@ -169,7 +169,7 @@ CandidateStore().record(c, request, name)         # 레시피 옆 _candidates/ �
 판단 지점 검토(`tacto promote` 가 하는 것):
 
 ```python
-from nlc.authoring import reach_model, _extract_json
+from tacto.authoring import reach_model, _extract_json
 proposed = _extract_json(reach_model(decision_prompt(c), "auto", expect_json=True))["decisions"]
 ok, refused = checked_decisions(c, proposed, request)     # 기록이 뒷받침하는 것만
 flow = with_decisions(flow, ok, goal=c.goal, taken_names=frozenset())
@@ -179,23 +179,23 @@ assert replays_the_walk(flow, concrete, ok)               # 기록 당시 답으
 `lift_screen_values(c, flow, request)` 는 화면에서 읽은 값을 입력한 단계를 복사/추출/쓰기로 바꾸고
 `(flow, {단계: 끼워 넣은 단계 수})` 를 돌려줍니다.
 
-## 화면 단위 루프 — `nlc.general.run`
+## 화면 단위 루프 — `tacto.general.run`
 
 ```python
-from nlc.general import run
+from tacto.general import run
 result = run(driver, target, goal, ask_here, *, max_screens=8, approve=None, narrate=None,
              envelope=None, witnesses=None, ask_where=None, spec=None,
              timeout_seconds=None, cancelled=None, prepare_commit=None, after_commit=None)
 ```
 
-`ask_here(goal, candidates, done_so_far)` 가 화면마다 불립니다(`nlc.ask.ask_here_paged` 가 모델 구현).
+`ask_here(goal, candidates, done_so_far)` 가 화면마다 불립니다(`tacto.ask.ask_here_paged` 가 모델 구현).
 결과의 `ok`, `verified`, `said`, `visits`, `effects` 를 보세요.
 
 ## 저장소
 
-- `nlc.store.FlowStore(path=None)` — `list()`, `has(name)`, `load(name)`, `save(flow)`. 기본 위치는
-  소스 체크아웃이면 `flows/`, 설치본이면 `$XDG_DATA_HOME/nlc/flows` (없으면 `~/.local/share/nlc/flows`).
-- `nlc.promote.CandidateStore(path=None)` — `list()`, `get(name)`, `record(c, request, name)`. 기본 위치는
+- `tacto.store.FlowStore(path=None)` — `list()`, `has(name)`, `load(name)`, `save(flow)`. 기본 위치는
+  소스 체크아웃이면 `flows/`, 설치본이면 `$XDG_DATA_HOME/tacto/flows` (없으면 `~/.local/share/tacto/flows`).
+- `tacto.promote.CandidateStore(path=None)` — `list()`, `get(name)`, `record(c, request, name)`. 기본 위치는
   레시피 옆의 `_candidates/`. 여기 있는 것은 재실행되지 않습니다.
 
 
@@ -209,7 +209,7 @@ Python native/signed helper `press_key`는 `press_key.element_bound` capability�
 attribute postcondition이 필요하다. signed helper도 같은 binding과 공유 입력 기한을 검증한다. [창 입력 계약](native-window-input.md)을 참고한다.
 
 
-For native screenshot proposals, `nlc.native_visual_actions` exposes
+For native screenshot proposals, `tacto.native_visual_actions` exposes
 `capture_window`, `NativeVisualClickExecutor`, and `run_native_visual`. Window
 image pixels are mapped explicitly to native points and rechecked before a
 host-authorized public `click_point`. See [native visual contracts](native-visual.md)
@@ -218,8 +218,8 @@ remaining deadlines, host verification and the bounded signed image-model
 relay. Model output does not authorize input or verify document completion.
 
 
-`nlc.general.run` accepts optional `visual_scope`, a trusted
-`nlc.general_visual.NativeVisualScope` built with `window_selector`, `planner`,
+`tacto.general.run` accepts optional `visual_scope`, a trusted
+`tacto.general_visual.NativeVisualScope` built with `window_selector`, `planner`,
 `authorize`, `verify`, and known `effects`. Optional `when` switches between AX
 and visual reasoning, while `verify_step` must independently confirm a pending
 visual input before another action or a return to AX. Both paths share the same
@@ -229,7 +229,7 @@ Envelope or replace consequential completion evidence. Results expose
 AX recipe promotion. See [native image scope contracts](native-visual.md).
 
 
-`nlc.flow.replay(..., visual_scopes={"green": scope})` supports an explicit
+`tacto.flow.replay(..., visual_scopes={"green": scope})` supports an explicit
 `Step("visual", params={"scope":"green", "max_screens":2,
 "timeout_seconds":10}, intent_text="green once", safety=contract)`.
 `scope` is a host-registered `NativeVisualScope`; JSON carries its name, never
@@ -262,7 +262,7 @@ input_actions; ordinary AX planning does not acquire an opaque input target; see
 
 A NativeVisualScope may set `input_actions=frozenset({"key","text"})` to permit
 image proposals of those kinds. Defaults remain click only. The host planner
-may use `nlc.visual.plan_native_input(capture, goal, history,
+may use `tacto.visual.plan_native_input(capture, goal, history,
 input_actions=frozenset({"key","text"}), provider="codex", model=None, timeout=60)`.
 The mapped capture and host callback do not identify or focus an opaque first
 responder; prepare and verify it explicitly. `NativeVisualClickExecutor.input`

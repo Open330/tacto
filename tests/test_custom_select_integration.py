@@ -1,8 +1,8 @@
 """Custom ARIA selects through checked planner, general loop and promoted flow."""
 import unittest
 from urllib.parse import quote
-from nlc.ask import what_to_do_here
-from nlc.safety import effects_of
+from tacto.ask import what_to_do_here
+from tacto.safety import effects_of
 
 try:
     import playwright.sync_api
@@ -45,7 +45,7 @@ class CustomSelectSchemaTests(unittest.TestCase):
         self.assertIsNone(what_to_do_here('Choose Beta', [c]).check({'actions': [{'pick': 0, 'do': 'select_custom_option', 'option_label': 'Beta'}]}))
 
     def test_selection_option_effects_cannot_lower_parent_or_hide_command(self):
-        from nlc.safety import classify
+        from tacto.safety import classify
         for operation in ('select_option', 'select_custom_option'):
             for parent, label, expected in (
                     ('Actions', 'Delete', {'delete'}),
@@ -70,7 +70,7 @@ class CustomSelectSchemaTests(unittest.TestCase):
 @unittest.skipUnless(AVAILABLE, 'optional playwright dependency not installed')
 class CustomSelectLoopTests(unittest.TestCase):
     def setUp(self):
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
         self.driver = BrowserDriver()
         self.driver.goto('data:text/html,' + quote(PAGE))
 
@@ -78,9 +78,9 @@ class CustomSelectLoopTests(unittest.TestCase):
         self.driver.close()
 
     def test_general_checked_model_open_choose_read_promote_and_replay(self):
-        from nlc.general import run
-        from nlc.promote import candidate_from, to_flow
-        from nlc.flow import replay, Flow
+        from tacto.general import run
+        from tacto.promote import candidate_from, to_flow
+        from tacto.flow import replay, Flow
         seen = []
         def planner(goal, candidates, done):
             seen.append(candidates)
@@ -132,7 +132,7 @@ class CustomSelectLoopTests(unittest.TestCase):
                 self.assertEqual(0,self.driver._page.evaluate('window.writes'))
 
     def test_general_stops_after_noop_selection_without_retry_or_read(self):
-        from nlc.general import run
+        from tacto.general import run
         self.driver._page.evaluate("() => {window.choose=()=>{window.writes++}}")
         plans = []
         def planner(goal, candidates, done):
@@ -158,8 +158,8 @@ class CustomSelectLoopTests(unittest.TestCase):
 @unittest.skipUnless(AVAILABLE, 'optional playwright dependency not installed')
 class BrowserModalScopeTests(unittest.TestCase):
     def test_aria_modal_background_and_multiple_dialogs_are_refused(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import blocking_sheet
+        from tacto.browser import BrowserDriver
+        from tacto.general import blocking_sheet
         driver = BrowserDriver()
         try:
             driver.goto('data:text/html,' + quote('''<button aria-label="Background" onclick="window.writes++">Background</button>

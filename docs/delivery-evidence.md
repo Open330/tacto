@@ -1,6 +1,6 @@
 # 요청과 수신함을 결합한 전송 영수증
 
-`nlc.delivery_receipt.DeliveredMessageReceipt`는 호스트가 실제 전송 요청과
+`tacto.delivery_receipt.DeliveredMessageReceipt`는 호스트가 실제 전송 요청과
 수신 서비스의 새 메시지를 연결할 수 있는 경우 사용하는 in-process adapter다.
 `prepare_commit`, `after_commit`, `commit_expected`를 기존 replay에 전달한다.
 승인을 발급하거나 메시지를 보내는 기능은 없다. 카카오톡·Mail 등 native 앱에
@@ -56,7 +56,7 @@ prepare에서 이 신호를 받으면 `inbox_read_unavailable`로 거부한다. 
 adapter가 강제 취소할 수 없고 마감 후 반환된 record는 수용하지 않는다.
 
 ```python
-from nlc.delivery_receipt import InboxTemporarilyUnavailable
+from tacto.delivery_receipt import InboxTemporarilyUnavailable
 
 def read_inbox(request_id):
     response = authenticated_receiving_service.read(request_id)

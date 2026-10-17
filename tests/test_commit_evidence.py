@@ -4,10 +4,10 @@ import hashlib
 from types import SimpleNamespace
 import unittest
 
-from nlc.commit_evidence import (ArtifactEvidence, DeliveryEvidence, CommitEvidence,
+from tacto.commit_evidence import (ArtifactEvidence, DeliveryEvidence, CommitEvidence,
                                   SavePanelCommitPreparation, save_panel_dispatch_parameters,
                                   make_event, evidence_error)
-from nlc.outcome import Check, OutcomeSpec, verify, DONE
+from tacto.outcome import Check, OutcomeSpec, verify, DONE
 
 HASH = hashlib.sha256(b'hello').hexdigest()
 
@@ -107,8 +107,8 @@ class CommitEvidenceTests(unittest.TestCase):
         self.assertNotEqual(DONE, verify(spec, result).state)
 
     def test_general_noop_send_and_unrelated_marker_remain_dispatched(self):
-        from nlc.general import run
-        from nlc.contract import Envelope
+        from tacto.general import run
+        from tacto.contract import Envelope
         class Noop:
             changed = False
             def observe(self, *args, **kwargs):

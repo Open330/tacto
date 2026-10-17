@@ -6,7 +6,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from nlc.native_visual import (NativeVisualError, NativeWindowBinding, WindowRecord,
+from tacto.native_visual import (NativeVisualError, NativeWindowBinding, WindowRecord,
                                capture_native, _await_callback)
 
 PNG = b'\x89PNG\r\n\x1a\nmock-image'
@@ -143,7 +143,7 @@ class NativeCallbackContract(unittest.TestCase):
 class ScreenCaptureAPIContract(unittest.TestCase):
     def test_backend_uses_only_desktop_independent_window_filter(self):
         from unittest.mock import Mock, patch
-        from nlc.native_visual import ScreenCaptureBackend
+        from tacto.native_visual import ScreenCaptureBackend
         backend = ScreenCaptureBackend.__new__(ScreenCaptureBackend)
         sc = Mock()
         backend.sc = sc
@@ -170,7 +170,7 @@ class ScreenCaptureAPIContract(unittest.TestCase):
 
     def test_unavailable_screenshot_manager_refused(self):
         from unittest.mock import Mock, patch
-        from nlc.native_visual import ScreenCaptureBackend
+        from tacto.native_visual import ScreenCaptureBackend
         backend = ScreenCaptureBackend.__new__(ScreenCaptureBackend)
         backend.sc = None
         backend.f = Mock()
@@ -181,7 +181,7 @@ class ScreenCaptureAPIContract(unittest.TestCase):
 
     def test_tuple_os_version_is_supported(self):
         from unittest.mock import Mock, patch
-        from nlc.native_visual import ScreenCaptureBackend
+        from tacto.native_visual import ScreenCaptureBackend
         backend = ScreenCaptureBackend.__new__(ScreenCaptureBackend)
         backend.sc = None
         backend.f = Mock()

@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "systems": [
-    "nlc",
+    "tacto",
     "codex-computer-use"
   ],
   "tasks": [

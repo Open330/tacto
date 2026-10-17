@@ -5,8 +5,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from nlc.flow import Selector
-from nlc.driver import _line_attr, _elem_label, Driver
+from tacto.flow import Selector
+from tacto.driver import _line_attr, _elem_label, Driver
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -25,7 +25,7 @@ class SubroleParsing(unittest.TestCase):
         for title,role,expected in [('named','AXButton','Title: named'),
                                     ('','AXWindow',''),('','AXButton','Subrole: AXCloseButton')]:
             attrs={'AXTitle':title,'AXRole':role,'AXSubrole':'AXCloseButton'}
-            with patch('nlc.driver._attr',side_effect=lambda e,k:attrs.get(k)), \
+            with patch('tacto.driver._attr',side_effect=lambda e,k:attrs.get(k)), \
                  patch('ApplicationServices.AXUIElementCopyMultipleAttributeValues',side_effect=RuntimeError('fixture fallback')):
                 self.assertEqual(expected,_elem_label('owned'))
 
@@ -35,7 +35,7 @@ class SubroleParsing(unittest.TestCase):
         for subrole in ('AXCloseButton','AXMinimizeButton',None):
             attrs={'AXRole':'AXButton','AXSubrole':subrole,'AXEnabled':True}
             with patch.object(driver,'_element',return_value='owned'), \
-                 patch('nlc.driver._attr',side_effect=lambda e,k:attrs.get(k)):
+                 patch('tacto.driver._attr',side_effect=lambda e,k:attrs.get(k)):
                 value=driver._mismatch(SimpleNamespace(pid=42),{'element_index':2},expect)
             self.assertEqual(subrole=='AXCloseButton',value=='')
 

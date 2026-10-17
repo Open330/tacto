@@ -71,7 +71,7 @@ def write_report(path, report):
     or leave a truncated report where a later comparison could consume it.
     """
     path = Path(path)
-    fd, temporary = tempfile.mkstemp(prefix=".nlc-eval-", dir=path.parent)
+    fd, temporary = tempfile.mkstemp(prefix=".tacto-eval-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(report, stream, ensure_ascii=False, indent=2, allow_nan=False)

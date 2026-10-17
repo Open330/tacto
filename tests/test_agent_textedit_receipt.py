@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.agent import Agent
-from nlc.library import textedit_save_as
-from nlc.trace import Trace, TraceDriver, TracingDriver
+from tacto.agent import Agent
+from tacto.library import textedit_save_as
+from tacto.trace import Trace, TraceDriver, TracingDriver
 from test_replay_commit_evidence import TextEditFixture, MemoryStore
 
 
@@ -79,12 +79,12 @@ class AgentTextEditReceiptTests(unittest.TestCase):
         self.assertIsNone(Agent(driver=self.d).commit_adapter_for(f))
         self.assertEqual([],self.d.snapshot_calls)
     def test_cli_replay_and_live_trace_use_receipt_but_recording_cannot_issue_one(self):
-        from nlc.cli import _run_flow
+        from tacto.cli import _run_flow
         d=TracingDriver(self.d,Trace())
         f=textedit_save_as().bind(filename='보고서.rtf',folder='Downloads')
-        with patch('nlc.cli._make_driver',return_value=d), \
-             patch('nlc.cli._indicator_for',return_value=nullcontext()), \
-             patch('nlc.cli._confirmer',return_value=lambda _:True),redirect_stdout(io.StringIO()):
+        with patch('tacto.cli._make_driver',return_value=d), \
+             patch('tacto.cli._indicator_for',return_value=nullcontext()), \
+             patch('tacto.cli._confirmer',return_value=lambda _:True),redirect_stdout(io.StringIO()):
             self.assertEqual(0,_run_flow(f,[]))
         self.assertEqual(1,self.d.clicks)
         self.assertTrue(self.d.snapshot_calls)

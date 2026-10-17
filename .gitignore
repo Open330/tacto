@@ -44,3 +44,9 @@ credentials.json
 /helper/nlc-helper
 /helper/NLC Helper.app/
 /broker/nlc-broker
+
+# Canonical Tacto native outputs (old output names remain ignored above).
+/launcher/tacto
+/helper/tacto-helper
+/helper/Tacto Helper.app/
+/broker/tacto-broker

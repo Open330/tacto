@@ -30,7 +30,7 @@ class SkillInstallTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=30)
 
     def entry(self):
-        for candidate in (ROOT / "launcher" / "nlc",):
+        for candidate in (ROOT / "launcher" / "tacto",):
             if os.access(candidate, os.X_OK):
                 return candidate
         self.skipTest("no built entry point in this checkout")
@@ -92,21 +92,21 @@ class SandboxTests(unittest.TestCase):
     that was already granted. sandbox_check() answered 1 inside, 0 outside.
     """
     def test_this_process_is_not_sandboxed(self):
-        from nlc.session import sandboxed
+        from tacto.session import sandboxed
         self.assertFalse(sandboxed())
 
     def test_screen_commands_stop_with_the_real_cause_and_the_rest_still_work(self):
         from contextlib import redirect_stdout
         from io import StringIO
         from unittest.mock import patch
-        from nlc import cli
+        from tacto import cli
         for cmd in ("doctor", "apps", "observe", "run", "replay", "do", "eval"):
             out = StringIO()
-            with patch("nlc.session.sandboxed", return_value=True), redirect_stdout(out):
+            with patch("tacto.session.sandboxed", return_value=True), redirect_stdout(out):
                 self.assertEqual(3, cli.main([cmd, "x"]), cmd)
             self.assertIn("샌드박스", out.getvalue())
             self.assertIn("권한 문제가 아니니", out.getvalue())
-        with patch("nlc.session.sandboxed", return_value=True), redirect_stdout(StringIO()):
+        with patch("tacto.session.sandboxed", return_value=True), redirect_stdout(StringIO()):
             self.assertEqual(0, cli.main(["list"]))
 
     def test_the_skill_tells_an_agent_what_to_do_in_a_sandbox(self):
@@ -120,22 +120,22 @@ class DoctorUnderTheLauncherTests(unittest.TestCase):
     """`nlc doctor` asked to grant a helper that was granted and working."""
     def test_under_the_launcher_the_inherited_channel_is_what_is_checked(self):
         from unittest.mock import patch
-        from nlc import onboard
-        with patch("nlc.helper.InheritedHelperDriver.available", return_value=True), \
-             patch("nlc.helper.InheritedHelperDriver.__init__", return_value=None), \
-             patch("nlc.helper.InheritedHelperDriver.__new__",
+        from tacto import onboard
+        with patch("tacto.helper.InheritedHelperDriver.available", return_value=True), \
+             patch("tacto.helper.InheritedHelperDriver.__init__", return_value=None), \
+             patch("tacto.helper.InheritedHelperDriver.__new__",
                    side_effect=lambda cls: object.__new__(cls)), \
-             patch("nlc.helper.HelperDriver", side_effect=AssertionError("dialled directly")), \
+             patch("tacto.helper.HelperDriver", side_effect=AssertionError("dialled directly")), \
              patch("os.path.exists", return_value=True):
             st = onboard.helper_status()
         self.assertEqual((True, "launcher"), (st["trusted"], st["channel"]))
 
     def test_a_real_refusal_on_that_channel_is_still_reported(self):
         from unittest.mock import patch
-        from nlc import onboard
-        from nlc.helper import HelperUnavailable
-        with patch("nlc.helper.InheritedHelperDriver.available", return_value=True), \
-             patch("nlc.helper.InheritedHelperDriver.__new__",
+        from tacto import onboard
+        from tacto.helper import HelperUnavailable
+        with patch("tacto.helper.InheritedHelperDriver.available", return_value=True), \
+             patch("tacto.helper.InheritedHelperDriver.__new__",
                    side_effect=HelperUnavailable("도우미에 접근성 권한이 없습니다")), \
              patch("os.path.exists", return_value=True):
             st = onboard.helper_status()
@@ -146,18 +146,18 @@ class DoctorUnderTheLauncherTests(unittest.TestCase):
 class ScreenRecordingLineTests(unittest.TestCase):
     """doctor said "enable this app" for screen recording without naming it."""
     def check(self):
-        from nlc.onboard import Check
+        from tacto.onboard import Check
         return Check("screen_recording", False, "화면 읽기 권한(화면 기록)", "…", "x-apple:…")
 
     def test_the_helpers_own_answer_is_reported_when_it_does_the_work(self):
-        from nlc.onboard import _screen_recording_for
+        from tacto.onboard import _screen_recording_for
         c = _screen_recording_for(self.check(), {"built": True, "trusted": True, "screen_capture": True})
         self.assertTrue(c.ok)
         self.assertIn("Tacto Helper", c.title)
 
     def test_otherwise_the_interpreter_is_named(self):
         import os, sys
-        from nlc.onboard import _screen_recording_for
+        from tacto.onboard import _screen_recording_for
         c = _screen_recording_for(self.check(), {})
         self.assertFalse(c.ok)
         self.assertIn(os.path.basename(os.path.realpath(sys.executable)), c.fix_hint)
@@ -173,11 +173,11 @@ class KeepAwakeTests(unittest.TestCase):
         from contextlib import redirect_stdout
         from io import StringIO
         from unittest.mock import patch
-        from nlc import cli
+        from tacto import cli
         for cmd in ("observe", "run", "replay", "eval", "apps", "doctor"):
             held = []
-            with patch("nlc.session.sandboxed", return_value=False), \
-                 patch("nlc.session.KeepAwake.__enter__", side_effect=lambda: held.append(1)), \
+            with patch("tacto.session.sandboxed", return_value=False), \
+                 patch("tacto.session.KeepAwake.__enter__", side_effect=lambda: held.append(1)), \
                  redirect_stdout(StringIO()):
                 try:
                     cli.main([cmd, "--no-such-thing-xyz"])
@@ -187,7 +187,7 @@ class KeepAwakeTests(unittest.TestCase):
 
     def test_it_is_display_and_idle_sleep_and_it_dies_with_the_command(self):
         import inspect
-        from nlc.session import KeepAwake
+        from tacto.session import KeepAwake
         src = inspect.getsource(KeepAwake.__enter__)
         self.assertIn('"-di"', src)
         self.assertIn('"-w"', src)
@@ -200,7 +200,7 @@ class FocusedWindowViewTests(unittest.TestCase):
             "4 Window  Title: Other\n  5 Button  Title: OK")
 
     def test_only_the_focused_window_with_indices_unchanged(self):
-        from nlc.cli import focused_window_view
+        from tacto.cli import focused_window_view
         out = focused_window_view(self.TREE)
         self.assertIn("2 Window  Title: Draft [focused]", out)
         self.assertIn("3 TextArea  Value: y", out)
@@ -208,7 +208,7 @@ class FocusedWindowViewTests(unittest.TestCase):
         self.assertIn("다른 창 2개: Notes, Other", out)
 
     def test_one_window_is_printed_as_is(self):
-        from nlc.cli import focused_window_view
+        from tacto.cli import focused_window_view
         tree = "0 Window  Title: Calc\n  1 Button  Title: 1"
         self.assertEqual(tree, focused_window_view(tree))
 
@@ -218,7 +218,7 @@ class AgentFrictionTests(unittest.TestCase):
     def test_run_and_replay_help_print_usage_instead_of_crashing(self):
         from contextlib import redirect_stdout
         from io import StringIO
-        from nlc import cli
+        from tacto import cli
         for cmd in ("run", "replay"):
             out = StringIO()
             with redirect_stdout(out):
@@ -227,9 +227,9 @@ class AgentFrictionTests(unittest.TestCase):
 
     def test_a_built_in_recipe_comes_from_the_code_not_a_stale_saved_copy(self):
         from unittest.mock import patch
-        from nlc import cli
-        from nlc.library import builders
-        with patch("nlc.cli.FlowStore") as store:
+        from tacto import cli
+        from tacto.library import builders
+        with patch("tacto.cli.FlowStore") as store:
             flow = cli._load_recipe("textedit_write_note")
         store.return_value.load.assert_not_called()
         self.assertEqual(builders()["textedit_write_note"]().to_json(), flow.to_json())
@@ -238,18 +238,18 @@ class AgentFrictionTests(unittest.TestCase):
         from contextlib import redirect_stdout
         from io import StringIO
         from unittest.mock import patch
-        from nlc import cli
-        from nlc.flow import Flow
+        from tacto import cli
+        from tacto.flow import Flow
         result = type("R", (), {"ok": False, "log": [{"status": "unverified",
                                                        "error": "commit_unverified",
                                                        "effect": "unknown"}]})()
-        agent = patch("nlc.cli.Agent").start()
+        agent = patch("tacto.cli.Agent").start()
         self.addCleanup(patch.stopall)
         agent.return_value.authorize.return_value = ({}, [])
         agent.return_value.commit_adapter_hooks.return_value = {}
         out = StringIO()
-        with patch("nlc.flow.replay", return_value=result), patch("nlc.cli._make_driver"), \
-             patch("nlc.cli._indicator_for"), redirect_stdout(out):
+        with patch("tacto.flow.replay", return_value=result), patch("tacto.cli._make_driver"), \
+             patch("tacto.cli._indicator_for"), redirect_stdout(out):
             cli._run_flow(Flow("f", "t"), ["--yes"])
         self.assertTrue(out.getvalue().startswith("unverified"))
 
@@ -264,7 +264,7 @@ class DoctorCheckIsReadOnlyTests(unittest.TestCase):
     (Codex finding, 2026-10-07): a check must not change what is on screen."""
     def run_doctor(self, interactive):
         from unittest.mock import patch
-        from nlc import onboard
+        from tacto import onboard
         opened = []
         status = {"built": True, "trusted": False, "bundled": True, "path": "x",
                   "why": "도우미에 접근성 권한이 없습니다"}

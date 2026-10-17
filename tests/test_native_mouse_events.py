@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from nlc import native_mouse_events as mouse
+from tacto import native_mouse_events as mouse
 
 
 class FakeBackend:
@@ -139,7 +139,7 @@ class AccessibilityScrollTests(unittest.TestCase):
     """
     def setUp(self):
         from types import SimpleNamespace
-        from nlc import driver
+        from tacto import driver
         self.m = driver
         self.d = object.__new__(driver.Driver)
         self.content, self.area = object(), object()

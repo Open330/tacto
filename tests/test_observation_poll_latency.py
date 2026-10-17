@@ -1,10 +1,10 @@
 """Predicate polling reads immediately; ordinary observations retain settling."""
 import unittest
 from unittest.mock import Mock, patch
-from nlc.helper import HelperDriver
-from nlc.driver import Driver
-from nlc.flow import Flow, Step, Selector, Postcondition, replay
-from nlc.contract import Envelope
+from tacto.helper import HelperDriver
+from tacto.driver import Driver
+from tacto.flow import Flow, Step, Selector, Postcondition, replay
+from tacto.contract import Envelope
 
 
 class Clock:
@@ -24,8 +24,8 @@ class ObservationPollLatencyTests(unittest.TestCase):
         ready = {'type': 'observation', 'tree': 'ready'}
         driver = self.helper([ready])
         clock = Clock()
-        with patch('nlc.helper.time.monotonic', side_effect=clock.now), \
-             patch('nlc.helper.time.sleep', side_effect=clock.sleep):
+        with patch('tacto.helper.time.monotonic', side_effect=clock.now), \
+             patch('tacto.helper.time.sleep', side_effect=clock.sleep):
             self.assertEqual(ready, driver.wait_until('fixture', lambda tree: tree == 'ready'))
         self.assertEqual([], clock.sleeps)
         self.assertEqual(1, driver._send.call_count)
@@ -34,8 +34,8 @@ class ObservationPollLatencyTests(unittest.TestCase):
         driver = self.helper([{'type': 'observation', 'tree': 'old'},
                               {'type': 'observation', 'tree': 'ready'}])
         clock = Clock()
-        with patch('nlc.helper.time.monotonic', side_effect=clock.now), \
-             patch('nlc.helper.time.sleep', side_effect=clock.sleep):
+        with patch('tacto.helper.time.monotonic', side_effect=clock.now), \
+             patch('tacto.helper.time.sleep', side_effect=clock.sleep):
             result = driver.wait_until('fixture', lambda tree: tree == 'ready', poll_ms=50)
         self.assertEqual('ready', result['tree'])
         self.assertEqual([.05], clock.sleeps)
@@ -43,8 +43,8 @@ class ObservationPollLatencyTests(unittest.TestCase):
     def test_false_result_times_out_and_no_new_action_is_sent(self):
         driver = self.helper([{'type': 'observation', 'tree': 'old'}] * 3)
         clock = Clock()
-        with patch('nlc.helper.time.monotonic', side_effect=clock.now), \
-             patch('nlc.helper.time.sleep', side_effect=clock.sleep):
+        with patch('tacto.helper.time.monotonic', side_effect=clock.now), \
+             patch('tacto.helper.time.sleep', side_effect=clock.sleep):
             result = driver.wait_until('fixture', lambda tree: tree == 'ready', timeout_ms=100, poll_ms=60)
         self.assertEqual('timeout', result['type'])
         self.assertAlmostEqual(.1, sum(clock.sleeps))
@@ -53,9 +53,9 @@ class ObservationPollLatencyTests(unittest.TestCase):
     def test_default_observation_keeps_settle_and_uses_monotonic_clock(self):
         driver = self.helper([{'type': 'observation', 'tree': 'ready'}])
         clock = Clock()
-        with patch('nlc.helper.time.monotonic', side_effect=clock.now), \
-             patch('nlc.helper.time.time', return_value=999999999.), \
-             patch('nlc.helper.time.sleep', side_effect=clock.sleep):
+        with patch('tacto.helper.time.monotonic', side_effect=clock.now), \
+             patch('tacto.helper.time.time', return_value=999999999.), \
+             patch('tacto.helper.time.sleep', side_effect=clock.sleep):
             driver.observe('fixture')
         self.assertEqual([1.], clock.sleeps)
 
@@ -66,8 +66,8 @@ class ObservationPollLatencyTests(unittest.TestCase):
             driver._last_action_at = 100.
             driver._resolve = Mock(side_effect=StopRead)
             clock = Clock()
-            with patch('nlc.driver.time.monotonic', side_effect=clock.now), \
-                 patch('nlc.driver.time.sleep', side_effect=clock.sleep), self.assertRaises(StopRead):
+            with patch('tacto.driver.time.monotonic', side_effect=clock.now), \
+                 patch('tacto.driver.time.sleep', side_effect=clock.sleep), self.assertRaises(StopRead):
                 driver.observe('fixture', _settle_after_action=settle)
             self.assertEqual([1.] if settle else [], clock.sleeps)
 
@@ -111,10 +111,10 @@ class ObservationPollLatencyTests(unittest.TestCase):
         step = Step('click', Selector(identifier='toggle'),
                     safety=Envelope.minimal().contract_for({'write_ephemeral'}, 'entry'),
                     postcondition=Postcondition(field=Selector(identifier='toggle'), equals=wanted, attribute='Value'))
-        with patch('nlc.helper.time.monotonic', side_effect=clock.now), \
-                patch('nlc.helper.time.sleep', side_effect=clock.sleep):
+        with patch('tacto.helper.time.monotonic', side_effect=clock.now), \
+                patch('tacto.helper.time.sleep', side_effect=clock.sleep):
             if general:
-                from nlc.general import run
+                from tacto.general import run
                 def planner(goal, candidates, history):
                     chosen = next(c for c in candidates if 'click' in c['can'])
                     return {'actions':[{'do':'click', 'candidate':chosen}], 'expect':'Value: '+wanted}

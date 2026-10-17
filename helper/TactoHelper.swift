@@ -541,7 +541,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     // reason: macOS's screen-capture badge is a window in the app's own
     // AXWindows, so while the control indicator was up every observation of the
     // app being driven began with a phantom `Window  Title: Window, Identifier:
-    // _NS:8` — this helper's own way of saying "NLC is working here" walked
+    // _NS:8` — this helper's own way of saying "Tacto is working here" walked
     // into the tree it was working on, and shifted every element index behind
     // it.
     let windows: [AXUIElement]
@@ -2308,7 +2308,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 // MARK: - The user is the authority
 //
 // Caller identity cannot protect this interface while the client is a shared
-// Python interpreter: any script using that interpreter looks identical to NLC,
+// Python interpreter: any script using that interpreter looks identical to Tacto,
 // which is the very problem the helper exists to fix. What DOES hold regardless
 // of who is calling is that the person can see what is happening and stop it.
 // So the indicator and the abort key belong HERE, in the process that performs
@@ -2321,7 +2321,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 /// The menu-bar item that says this is happening. Nil when nothing is running.
 var controlItem: NSStatusItem?
 
-/// Show that NLC is working, and say on which app.
+/// Show that Tacto is working, and say on which app.
 ///
 /// This was an outline drawn around the target window, and it was wrong in two
 /// ways. It covered part of someone's screen with our own drawing, and — the
@@ -2334,8 +2334,8 @@ var controlItem: NSStatusItem?
 /// The other half of the promise is macOS's own: when this helper actually
 /// captures the screen, the system lights its recording indicator, which we do
 /// not draw, cannot fake and cannot suppress. Two signals whose scopes differ
-/// exactly as the access does — the menu bar for "NLC is acting", the system
-/// indicator for "NLC is looking".
+/// exactly as the access does — the menu bar for "Tacto is acting", the system
+/// indicator for "Tacto is looking".
 ///
 /// Returns false when the item could not be created. Callers treat that as a
 /// refusal: acting without the person being able to see it is the situation
@@ -2353,7 +2353,7 @@ final class ControlMenuTarget: NSObject {
 
     @objc func stopNow(_ sender: Any?) {
         abortState.stopNow()
-        note("nlc-helper: 표시 메뉴에서 중단했습니다")
+        note("tacto-helper: 표시 메뉴에서 중단했습니다")
         DispatchQueue.main.async {
             controlItem?.button?.title = "● Tacto 중단됨"
         }
@@ -2453,7 +2453,7 @@ func controlWindowID(forPID pid: pid_t) -> CGWindowID? {
 
 func ensureControlStream(forPID pid: pid_t) -> Bool {
     guard let windowID = controlWindowID(forPID: pid) else {
-        note("nlc-helper: 조작 표시를 켜지 못했습니다 — 대상 창을 찾지 못했습니다")
+        note("tacto-helper: 조작 표시를 켜지 못했습니다 — 대상 창을 찾지 못했습니다")
         return false
     }
     if controlStream != nil && controlStreamWindow == windowID { return true }
@@ -2476,7 +2476,7 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
         }
         // ONE WINDOW. `SCContentFilter(display:)` stood here and it was wrong:
         // it captures the whole screen, so lighting an indicator that says
-        // "NLC is looking" meant looking at everything — including every other
+        // "Tacto is looking" meant looking at everything — including every other
         // window the person had open and never offered us (user report,
         // 2026-09-21). The filter is the same one `captureWindow` uses, and it
         // sees the target window and nothing else.
@@ -2510,14 +2510,14 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
         }
     }
     if ready.wait(timeout: .now() + 8) != .success {
-        note("nlc-helper: 조작 표시를 켜지 못했습니다 (시간 초과)")
+        note("tacto-helper: 조작 표시를 켜지 못했습니다 (시간 초과)")
         return false
     }
     // Both outcomes, not just the bad one. "Did the indicator actually come
     // on during that run?" was not answerable from the log, and the photograph
     // that was supposed to answer it raced the run and missed.
-    note(started ? "nlc-helper: 조작 표시 켜짐 — 창 \(windowID) 하나만 캡처합니다"
-                 : "nlc-helper: 조작 표시를 켜지 못했습니다 — \(why)")
+    note(started ? "tacto-helper: 조작 표시 켜짐 — 창 \(windowID) 하나만 캡처합니다"
+                 : "tacto-helper: 조작 표시를 켜지 못했습니다 — \(why)")
     return started
 }
 
@@ -2818,7 +2818,7 @@ func captureWindow(_ obsID: String, _ target: String,
         return refuse("target_changed", "the app changed while capturing")
     }
 
-    let directory = NSTemporaryDirectory() + "nlc-capture-\(getpid())"
+    let directory = NSTemporaryDirectory() + "tacto-capture-\(getpid())"
     try? FileManager.default.createDirectory(atPath: directory,
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let path = directory + "/\(UUID().uuidString).png"
@@ -3128,7 +3128,7 @@ let helperCapabilities: [String] = [
 
 // MARK: - Read-only document text
 //
-// The same contract nlc/native_document.py states, spoken over the signed
+// The same contract tacto/native_document.py states, spoken over the signed
 // channel. Reading only: no launch, no activation, no AX mutation, no
 // synthesized input. It says what a document CONTAINS and where it lives; it
 // does not claim a source format or a save-panel destination, which is why the
@@ -4311,7 +4311,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         // request).
         // Screen capture is granted to THIS process's identity (it is opened
         // through LaunchServices), so only it can say whether it holds it; a
-        // Python asking about itself answered for the wrong app, and `nlc
+        // Python asking about itself answered for the wrong app, and `tacto
         // doctor` told people to enable "this app" without saying which.
         return ["type": "pong", "trusted": AXIsProcessTrusted(),
                 "screen_capture": CGPreflightScreenCaptureAccess(),
@@ -4499,7 +4499,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-menu-probe"),
         }
         Thread.sleep(forTimeInterval: 0.3)
         report += ", \"stopped_after\": \(abortState.isStopped)}"
-        note("nlc-helper: indicator menu probe \(report)")
+        note("tacto-helper: indicator menu probe \(report)")
         if let out = CommandLine.arguments.firstIndex(of: "--probe-out"),
            out + 1 < CommandLine.arguments.count {
             try? report.write(toFile: CommandLine.arguments[out + 1],
@@ -4541,7 +4541,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--hold-indicator"),
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
         _ = showControlIndicator(forPID: holdTarget)
         let ok = ensureControlStream(forPID: holdTarget)
-        note("nlc-helper: hold-indicator target=\(holdTarget) -> \(ok)")
+        note("tacto-helper: hold-indicator target=\(holdTarget) -> \(ok)")
         // Give the indicator a moment to appear, then photograph.
         if let shot = CommandLine.arguments.firstIndex(of: "--probe-shot"),
            shot + 1 < CommandLine.arguments.count {
@@ -4564,7 +4564,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--hold-indicator"),
                             UTType.png.identifier as CFString, 1, nil) else { return }
                     CGImageDestinationAddImage(dst, image, nil)
                     CGImageDestinationFinalize(dst)
-                    note("nlc-helper: hold-indicator photographed, stream=\(controlStream != nil)")
+                    note("tacto-helper: hold-indicator photographed, stream=\(controlStream != nil)")
                 }
             }
             }
@@ -4633,7 +4633,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
         after += "\(laidOut.origin.y), \(laidOut.size.width), \(laidOut.size.height)]"
         after += ", \"visible\": \(item.isVisible)"
         after += ", \"window_visible\": \(item.button?.window?.isVisible ?? false)}"
-        note("nlc-helper: indicator probe \(after)")
+        note("tacto-helper: indicator probe \(after)")
         if let out = CommandLine.arguments.firstIndex(of: "--probe-out"),
            out + 1 < CommandLine.arguments.count {
             try? after.write(toFile: CommandLine.arguments[out + 1],
@@ -4664,7 +4664,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
                             1, nil) else { return }
                     CGImageDestinationAddImage(destination, image, nil)
                     CGImageDestinationFinalize(destination)
-                    note("nlc-helper: menu bar photographed to \(path)")
+                    note("tacto-helper: menu bar photographed to \(path)")
                 }
             }
         }
@@ -4858,14 +4858,14 @@ let connectPath: String? = {
 
 guard connectPath != nil else {
     FileHandle.standardError.write(Data(
-        "nlc-helper: --connect 가 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
+        "tacto-helper: --connect 가 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
     exit(3)
 }
 
 /// Does the process that launched us satisfy the code requirement?
 ///
 /// This is the check that makes the helper refuse to be anyone's deputy: the
-/// grant it holds is usable only through the signed `nlc` launcher, not by any
+/// grant it holds is usable only through the signed `tacto` launcher, not by any
 /// process that can execute this binary. It is a genuine OS check —
 /// `SecCodeCheckValidity` against a requirement, not a name comparison —
 /// though a PID can in principle be reused, so it is made once at startup and
@@ -4898,7 +4898,7 @@ func parentOf(_ pid: pid_t) -> pid_t? {
 /// The immediate parent is the Python process the launcher started, so checking
 /// only one level would reject our own client. Descending FROM the signed
 /// launcher is the property that matters: to be one of its descendants a process
-/// has to have been started by it, and the launcher runs only NLC's own code —
+/// has to have been started by it, and the launcher runs only Tacto's own code —
 /// it takes no script path, interpreter override or injectable environment. An
 /// unrelated process has no signed ancestor and is refused.
 func ancestrySatisfiesRequirement(_ start: pid_t, maxDepth: Int = 6) -> (Bool, String) {
@@ -5016,7 +5016,7 @@ let rendezvousDeadline: TimeInterval = 20
 
     let (ok, why) = PeerAuth.satisfies(fd: fd, requirement: clientRequirement)
     guard ok else {
-        note("nlc-helper: \(why)")
+        note("tacto-helper: \(why)")
         close(fd); return nil
     }
     // A same-audit-session check stood here and was wrong. The launcher and
@@ -5028,13 +5028,13 @@ let rendezvousDeadline: TimeInterval = 20
     // so equality could never have held. Signing identity is the check; the
     // rendezvous path only has to stay secret, and it is, inside a directory
     // whose name the launcher made and whose mode admits nobody else.
-    note("nlc-helper: peer \(PeerAuth.describe(fd: fd)) 인증됨")
+    note("tacto-helper: peer \(PeerAuth.describe(fd: fd)) 인증됨")
     return fd
 }
 
 @Sendable func serveLauncher(at path: String) -> Never {
     guard let conn = connectToLauncher(path) else {
-        note("nlc-helper: 런처에 연결하지 못했습니다")
+        note("tacto-helper: 런처에 연결하지 못했습니다")
         exit(4)
     }
     // Fresh state for the one connection we serve, and the abort is part of

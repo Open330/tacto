@@ -137,11 +137,11 @@ final class CanvasDelegate: NSObject, NSApplicationDelegate {
         // The witnesses. These ARE accessible, on purpose: the point of the
         // fixture is that the target cannot be found through AX while the
         // result of hitting it can be read back through AX.
-        hit.identifier = NSUserInterfaceItemIdentifier("nlc-canvas-hit")
-        hit.setAccessibilityIdentifier("nlc-canvas-hit")
+        hit.identifier = NSUserInterfaceItemIdentifier("tacto-canvas-hit")
+        hit.setAccessibilityIdentifier("tacto-canvas-hit")
         hit.frame = NSRect(x: 20, y: 130, width: 200, height: 24)
-        count.identifier = NSUserInterfaceItemIdentifier("nlc-canvas-count")
-        count.setAccessibilityIdentifier("nlc-canvas-count")
+        count.identifier = NSUserInterfaceItemIdentifier("tacto-canvas-count")
+        count.setAccessibilityIdentifier("tacto-canvas-count")
         count.frame = NSRect(x: 240, y: 130, width: 120, height: 24)
 
         window.contentView?.addSubview(canvas)
@@ -156,7 +156,7 @@ final class CanvasDelegate: NSObject, NSApplicationDelegate {
         }
         RunLoop.main.add(timer, forMode: .common)
         RunLoop.main.add(timer, forMode: .eventTracking)
-        print("NLC_NATIVE_CANVAS_FIXTURE pid=\(ProcessInfo.processInfo.processIdentifier)")
+        print("TACTO_NATIVE_CANVAS_FIXTURE pid=\(ProcessInfo.processInfo.processIdentifier)")
     }
 }
 

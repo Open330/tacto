@@ -1,8 +1,8 @@
 """Save settings are explicit, identity-bound and fail closed on observed drift."""
 import unittest
 
-from nlc.native_save_directory import SaveDirectoryReader
-from nlc.native_save_panel import SavePanelReader, SavePanelUnavailable
+from tacto.native_save_directory import SaveDirectoryReader
+from tacto.native_save_panel import SavePanelReader, SavePanelUnavailable
 from tests.test_native_save_directory import Adapter, Node, node
 
 

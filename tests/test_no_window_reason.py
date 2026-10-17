@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 class NoWindowReasonTests(unittest.TestCase):
     def why(self, lock, hidden=False, windows=()):
-        from nlc import driver
+        from tacto import driver
         app = type("App", (), {"isHidden": lambda self: hidden})()
         fake = type("NSRunningApplication", (), {
             "runningApplicationWithProcessIdentifier_": staticmethod(lambda pid: app)})
@@ -46,7 +46,7 @@ class NoWindowReasonTests(unittest.TestCase):
                 self.assertEqual("no_visible_window", self.why({"locked": False})[0])
 
     def test_a_bare_helper_reply_is_explained_the_same_way(self):
-        from nlc import helper
+        from tacto import helper
         d = object.__new__(helper.HelperDriver)
         d._last_action_at = 0
         d._send = lambda msg: {"type": "error", "error": "no_window_content", "target": "t"}
@@ -75,7 +75,7 @@ class UnhideQuietlyTests(unittest.TestCase):
     was observed with its windows and the focus witness saw no activation.
     """
     def unhide(self, hidden=True, unhid=True, fronts=(10, 10)):
-        from nlc import driver
+        from tacto import driver
         calls = []
         app = type("App", (), {"isHidden": lambda s: hidden,
                                "unhide": lambda s: calls.append("unhide") or unhid})()
@@ -83,7 +83,7 @@ class UnhideQuietlyTests(unittest.TestCase):
             "runningApplicationWithProcessIdentifier_": staticmethod(lambda pid: app)})
         seq = iter(fronts)
         with patch("AppKit.NSRunningApplication", fake), \
-             patch("nlc.native_frontmost.frontmost_pid", side_effect=lambda: next(seq)), \
+             patch("tacto.native_frontmost.frontmost_pid", side_effect=lambda: next(seq)), \
              patch.object(driver, "AXUIElementCreateApplication", return_value="ax"), \
              patch.object(driver, "_attr", return_value=["w"]):
             return driver._unhide_quietly(1, wait=0.1), calls
@@ -98,20 +98,20 @@ class UnhideQuietlyTests(unittest.TestCase):
         self.assertEqual(False, self.unhide(fronts=(10, 11))[0])
 
     def test_unknown_focus_means_no_unhide(self):
-        from nlc import driver
-        from nlc.native_frontmost import FrontmostUnavailable
+        from tacto import driver
+        from tacto.native_frontmost import FrontmostUnavailable
         app = type("App", (), {"isHidden": lambda s: True,
                                "unhide": lambda s: self.fail("unhid without knowing focus")})()
         fake = type("NSRunningApplication", (), {
             "runningApplicationWithProcessIdentifier_": staticmethod(lambda pid: app)})
         with patch("AppKit.NSRunningApplication", fake), \
-             patch("nlc.native_frontmost.frontmost_pid", side_effect=FrontmostUnavailable("x")):
+             patch("tacto.native_frontmost.frontmost_pid", side_effect=FrontmostUnavailable("x")):
             self.assertFalse(driver._unhide_quietly(1))
 
 
 class HelperPathUnhideTests(unittest.TestCase):
     def test_a_hidden_app_on_the_helper_path_is_unhidden_and_observed_again(self):
-        from nlc import helper
+        from tacto import helper
         d = object.__new__(helper.HelperDriver)
         d._last_action_at = 0
         replies = iter([{"type": "error", "error": "no_window_content", "target": "t"},
@@ -122,7 +122,7 @@ class HelperPathUnhideTests(unittest.TestCase):
             self.assertEqual("observation", helper.HelperDriver.observe(d, "t")["type"])
 
     def test_without_an_unhide_the_reason_is_reported(self):
-        from nlc import helper
+        from tacto import helper
         d = object.__new__(helper.HelperDriver)
         d._last_action_at = 0
         d._send = lambda msg: {"type": "error", "error": "no_window_content", "target": "t"}

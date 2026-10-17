@@ -368,7 +368,9 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         root = runtime
         bundledRuntime = object["bundledRoot"] == "runtime"
-        helper = root.appendingPathComponent("helper/NLC Helper.app")
+        let canonicalHelper = root.appendingPathComponent("helper/Tacto Helper.app")
+        helper = FileManager.default.fileExists(atPath: canonicalHelper.path)
+            ? canonicalHelper : root.appendingPathComponent("helper/NLC Helper.app")
         refreshConnection()
         build()
         installMenus()

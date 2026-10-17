@@ -4,10 +4,10 @@ the receipt re-reads the SENDER's window — the room still names the approved
 recipient and its new last message is the approved text. Not delivery."""
 from dataclasses import replace
 import unittest
-from nlc.commit_evidence import TranscriptEvidence, CommitEvidence, evidence_error, make_event
-from nlc.contract import Envelope, ContextBinding, issue_approval
-from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
-from nlc.transcript_receipt import TranscriptReceipt, TranscriptReceiptError
+from tacto.commit_evidence import TranscriptEvidence, CommitEvidence, evidence_error, make_event
+from tacto.contract import Envelope, ContextBinding, issue_approval
+from tacto.flow import Flow, Step, Selector, Postcondition, replay, pin_params
+from tacto.transcript_receipt import TranscriptReceipt, TranscriptReceiptError
 
 CAPS = {'action.press_key', 'press_key.element_bound', 'press_key.no_escape', 'press_key.return_bound'}
 SENT = {'type': 'acted', 'input_route': 'window_bound_submit_key', 'posted_events': 1,

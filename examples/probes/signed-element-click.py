@@ -19,11 +19,11 @@ TARGET = 'ai.callabo.nlc.list-fixture'
 
 
 def main(driver, output):
-    from nlc.driver import Driver, _attr
-    from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
-    from nlc.contract import Envelope, ContextBinding
+    from tacto.driver import Driver, _attr
+    from tacto.flow import Flow, Step, Selector, Postcondition, replay, pin_params
+    from tacto.contract import Envelope, ContextBinding
     from ApplicationServices import AXUIElementCreateApplication
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.input_audit_process import ProcessInputAudit
     root = Path(__file__).resolve().parents[2]
     local = Driver()
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
@@ -33,7 +33,7 @@ def main(driver, output):
     try:
         assert local._resolve(TARGET, launch=False) is None, 'fixture already running'
         assert {'action.double_click', 'click.window_bound_element'} <= set(driver.capabilities)
-        with tempfile.TemporaryDirectory(prefix='nlc-signed-element-click-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-signed-element-click-') as work:
             app = Path(work) / 'NLC List Fixture.app'
             binary = app / 'Contents/MacOS/NativeListFixture'
             binary.parent.mkdir(parents=True)
@@ -164,8 +164,8 @@ def main(driver, output):
 
                     # 6. A transmit send: asked first, then witnessed in the
                     #    sender's own window by an independent AX reader.
-                    from nlc.contract import issue_approval
-                    from nlc.transcript_receipt import TranscriptReceipt
+                    from tacto.contract import issue_approval
+                    from tacto.transcript_receipt import TranscriptReceipt
                     view = observe()
                     index, _ = Selector(identifier='message-field').resolve(view['tree'])
                     typed = driver.act(view['obs_id'], TARGET,

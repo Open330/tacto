@@ -1,7 +1,7 @@
 """A postcondition field of the wrong type is refused when the flow loads.
 
 Seen 2026-10-07: an agent wrote `"absent": {"role": "Sheet", ...}`; it loaded,
-then `nlc run` died mid-replay with `TypeError: 'in <string>' requires string`
+then `tacto run` died mid-replay with `TypeError: 'in <string>' requires string`
 and the agent got a traceback instead of the one line naming the field."""
 import io
 import json
@@ -13,7 +13,7 @@ from contextlib import redirect_stderr
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from nlc.flow import Flow
+from tacto.flow import Flow
 
 
 def _flow(post):
@@ -55,7 +55,7 @@ class PostconditionTypeTests(unittest.TestCase):
         self.assertEqual(flow.steps[0].postcondition.absent, "GoToWindow")
 
     def test_run_reports_invalid_flow_without_traceback(self):
-        from nlc import cli
+        from tacto import cli
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
             fh.write(_flow({"absent": {"role": "Sheet"}}))
         self.addCleanup(os.unlink, fh.name)

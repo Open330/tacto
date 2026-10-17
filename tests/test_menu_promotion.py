@@ -1,9 +1,9 @@
 """A menu's observed path can be reviewed, but replay needs an explicit result contract."""
 from dataclasses import replace
 import unittest
-from nlc.flow import Postcondition, Selector, replay, pin_params
-from nlc.general import run
-from nlc.promote import candidate_from, deployable, gate, to_flow
+from tacto.flow import Postcondition, Selector, replay, pin_params
+from tacto.general import run
+from tacto.promote import candidate_from, deployable, gate, to_flow
 import test_general_menu as fixture
 
 class MenuPromotionTests(unittest.TestCase):

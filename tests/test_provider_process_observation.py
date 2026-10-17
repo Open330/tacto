@@ -5,19 +5,19 @@ import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
-from nlc.authoring import _provider_env
-from nlc.codex_result import _run_codex, codex_result
-from nlc.process_responsibility import OwnedProcessSampler
+from tacto.authoring import _provider_env
+from tacto.codex_result import _run_codex, codex_result
+from tacto.process_responsibility import OwnedProcessSampler
 
 
 class ProviderProcessObservationTests(unittest.TestCase):
     def test_channel_markers_are_removed_even_outside_claude_session(self):
-        env = {'NLC_HELPER_FD':'3', 'NLC_LAUNCHER':'1', 'NLC_HELPER_TOKEN':'fixture',
+        env = {'TACTO_HELPER_FD':'3', 'TACTO_LAUNCHER':'1', 'TACTO_HELPER_TOKEN':'fixture',
                'CODEX_HOME':'/owned/profile', 'ANTHROPIC_API_KEY':'fixture-credential'}
         for claude in ('', '1'):
             with self.subTest(claude=claude), patch.dict(os.environ, {**env, 'CLAUDECODE':claude}):
                 result = _provider_env()
-                for key in ('NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+                for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN'):
                     self.assertNotIn(key, result)
                     self.assertEqual(env[key], os.environ[key])
                 self.assertEqual(env['CODEX_HOME'], result['CODEX_HOME'])
@@ -25,7 +25,7 @@ class ProviderProcessObservationTests(unittest.TestCase):
 
     def test_observer_failure_does_not_change_actual_child_output(self):
         records = []
-        with patch('nlc.process_responsibility.observe_responsibility', side_effect=RuntimeError('PRIVATE')):
+        with patch('tacto.process_responsibility.observe_responsibility', side_effect=RuntimeError('PRIVATE')):
             result = _run_codex([sys.executable, '-c', 'import sys;print(sys.stdin.read())'],
                                 'owned input', 3, records)
         self.assertEqual(0, result.returncode)
@@ -38,7 +38,7 @@ class ProviderProcessObservationTests(unittest.TestCase):
         process = Mock(pid=42)
         process.poll.side_effect = [None, 0]
         sampler = OwnedProcessSampler(process)
-        with patch('nlc.process_responsibility.observe_responsibility', return_value={'status':'observed'}):
+        with patch('tacto.process_responsibility.observe_responsibility', return_value={'status':'observed'}):
             sampler._observe()
         self.assertEqual([], sampler.snapshot()['samples'])
         self.assertEqual('owned_process_exited_during_read', sampler.snapshot()['error_code'])
@@ -46,7 +46,7 @@ class ProviderProcessObservationTests(unittest.TestCase):
     def test_sample_limit_and_snapshot_copy_preserve_diagnostic_scope(self):
         sampler = OwnedProcessSampler(Mock(pid=42, poll=Mock(return_value=None)))
         sampler.stop = Mock(is_set=Mock(return_value=False), wait=Mock(return_value=False))
-        with patch('nlc.process_responsibility.observe_responsibility', return_value={'status':'observed'}):
+        with patch('tacto.process_responsibility.observe_responsibility', return_value={'status':'observed'}):
             sampler._observe()
         result = sampler.snapshot()
         self.assertTrue(result['sample_limit_reached'])
@@ -57,7 +57,7 @@ class ProviderProcessObservationTests(unittest.TestCase):
         self.assertFalse(result['tcc_permission_verified'])
 
     def test_invalid_host_observation_sink_refuses_before_process_launch(self):
-        with patch('nlc.codex_result._run_codex') as run:
+        with patch('tacto.codex_result._run_codex') as run:
             result = codex_result('owned', process_observations={})
         self.assertEqual('error', result.status)
         run.assert_not_called()
@@ -69,8 +69,8 @@ class ProviderProcessObservationTests(unittest.TestCase):
             child = launch(*args, **kwargs)
             children.append(child)
             return child
-        with patch('nlc.codex_result.subprocess.Popen', side_effect=capture), \
-             patch('nlc.process_responsibility.observe_responsibility', return_value={'status':'observed'}), \
+        with patch('tacto.codex_result.subprocess.Popen', side_effect=capture), \
+             patch('tacto.process_responsibility.observe_responsibility', return_value={'status':'observed'}), \
              self.assertRaises(subprocess.TimeoutExpired):
             _run_codex([sys.executable, '-c', 'import time;time.sleep(10)'],
                        'owned', .03, records)

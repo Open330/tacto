@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.codex_result import codex_result, parse_codex_events, CodexProtocolError, _run_codex
+from tacto.codex_result import codex_result, parse_codex_events, CodexProtocolError, _run_codex
 
 
 def events():
@@ -94,7 +94,7 @@ class CodexResultTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0,
                 stream(source[:2] + [tool] + source[2:]), '')
 
-        with patch('nlc.codex_result._run_codex', side_effect=launch):
+        with patch('tacto.codex_result._run_codex', side_effect=launch):
             result = codex_result('q')
         self.assertEqual('error', result.status)
         self.assertEqual('CodexProtocolError', result.error.code)
@@ -116,7 +116,7 @@ class CodexResultTests(unittest.TestCase):
             self.assertEqual(0o600, stat.S_IMODE(path.stat().st_mode))
             path.write_text('{"done":true}')
             return subprocess.CompletedProcess(argv, 0, stream(events()), '')
-        with patch('nlc.codex_result._run_codex', side_effect=launch):
+        with patch('tacto.codex_result._run_codex', side_effect=launch):
             result = codex_result('sensitive prompt', model='requested-model')
         self.assertEqual('ok', result.status)
         self.assertEqual(10, result.output_tokens)
@@ -127,10 +127,10 @@ class CodexResultTests(unittest.TestCase):
         self.assertFalse(paths[0].exists())
 
     def test_nonzero_exit_and_timeout_are_not_success(self):
-        with patch('nlc.codex_result._run_codex', return_value=subprocess.CompletedProcess([], 1, stream(events()), '')):
+        with patch('tacto.codex_result._run_codex', return_value=subprocess.CompletedProcess([], 1, stream(events()), '')):
             result = codex_result('q')
         self.assertEqual('error', result.status)
-        with patch('nlc.codex_result._run_codex', side_effect=subprocess.TimeoutExpired('PRIVATE', 1)):
+        with patch('tacto.codex_result._run_codex', side_effect=subprocess.TimeoutExpired('PRIVATE', 1)):
             result = codex_result('q')
         self.assertEqual('timeout', result.status)
         self.assertIsNone(result.input_tokens)
@@ -145,7 +145,7 @@ class CodexResultTests(unittest.TestCase):
         for code, stdout, stderr, reason in ((1, '', 'usage limit reached SECRET', 'usage_limit'),
                                             (0, 'Please run /login', '', 'not_logged_in')):
             response = subprocess.CompletedProcess([], code, stdout, stderr)
-            with patch('nlc.codex_result._run_codex', return_value=response):
+            with patch('tacto.codex_result._run_codex', return_value=response):
                 result = codex_result('private prompt')
             self.assertEqual(result.status, 'error')
             self.assertEqual(result.error.code, reason)
@@ -153,7 +153,7 @@ class CodexResultTests(unittest.TestCase):
 
     def test_invalid_deadline_rejected_before_launch(self):
         for value in (0, -1, float('nan'), float('inf'), True):
-            with self.subTest(value=value), patch('nlc.codex_result._run_codex') as launch:
+            with self.subTest(value=value), patch('tacto.codex_result._run_codex') as launch:
                 result = codex_result('q', timeout=value)
                 self.assertEqual('error', result.status)
                 launch.assert_not_called()

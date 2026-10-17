@@ -6,8 +6,8 @@ from signed_owned_textedit import SignedOwnedTextEdit, TARGET
 
 def run(driver,*,can_cleanup):
     from focus_witness import FocusWitness
-    from nlc.commit_evidence import make_event,evidence_error
-    from nlc.existing_file_receipt import ExistingTextFileReceipt,SAVE_PATH,_file_state
+    from tacto.commit_evidence import make_event,evidence_error
+    from tacto.existing_file_receipt import ExistingTextFileReceipt,SAVE_PATH,_file_state
     report={'scope':'owned_textedit_in_place_save_dispatch_and_saved_state',
             'passed':False,'model_requests':0,'producer_attribution_verified':False}
     fixture=SignedOwnedTextEdit(driver,'NLC 저장 검증 '+secrets.token_hex(8)+'.txt')

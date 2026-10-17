@@ -38,9 +38,9 @@ class TaskBenchmarkTests(unittest.TestCase):
         baseline = bench.run_task(self.manifest, 'input-next-read', 'codex-computer-use')
         self.assertEqual('unavailable', baseline['status'])
         summary = bench.summarize(self.manifest, [self.success(), baseline])
-        self.assertEqual(0.2, summary['totals']['nlc']['planned_task_completion_rate'])
+        self.assertEqual(0.2, summary['totals']['tacto']['planned_task_completion_rate'])
         self.assertEqual(0, summary['totals']['codex-computer-use']['planned_task_completion_rate'])
-        self.assertEqual(4, summary['totals']['nlc']['missing_tasks'])
+        self.assertEqual(4, summary['totals']['tacto']['missing_tasks'])
         self.assertFalse(summary['equivalence_established'])
 
     def test_unimplemented_task_never_executes(self):
@@ -75,8 +75,8 @@ class TaskBenchmarkTests(unittest.TestCase):
         failed = copy.deepcopy(passed)
         failed.update(run_id='retry-failed', status='failed', reason='oracle failed')
         summary = bench.summarize(self.manifest, [passed, failed])
-        self.assertEqual(0, summary['totals']['nlc']['fully_passed_tasks'])
-        self.assertEqual(1, summary['totals']['nlc']['passed_runs'])
+        self.assertEqual(0, summary['totals']['tacto']['fully_passed_tasks'])
+        self.assertEqual(1, summary['totals']['tacto']['passed_runs'])
 
     def test_timeout_and_missing_outcome_do_not_pass(self):
         with patch.object(bench, '_run_bounded', side_effect=subprocess.TimeoutExpired('probe', 180)):
@@ -105,10 +105,10 @@ class TaskBenchmarkTests(unittest.TestCase):
     def test_source_snapshot_hashes_allowlist_bytes_and_effective_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'nlc').mkdir()
+            (root / 'tacto').mkdir()
             (root / 'examples').mkdir()
             (root / 'reviews').mkdir()
-            (root / 'nlc/core.py').write_text('original')
+            (root / 'tacto/core.py').write_text('original')
             for name in ('task_benchmark.py', 'benchmark_web_runner.py', 'probe_browser_task.py'):
                 (root / 'examples' / name).write_text(name)
             manifest_file = root / 'reviews/manifest.json'
@@ -119,9 +119,9 @@ class TaskBenchmarkTests(unittest.TestCase):
                 (root / '.venv').mkdir()
                 (root / '.venv/ignored.py').write_text('environment noise')
                 self.assertEqual(first['source_sha256'], bench.source_snapshot(self.manifest, manifest_file)['source_sha256'])
-                (root / 'nlc/core.py').write_text('changed')
+                (root / 'tacto/core.py').write_text('changed')
                 self.assertNotEqual(first['source_sha256'], bench.source_snapshot(self.manifest, manifest_file)['source_sha256'])
-                (root / 'nlc/core.py').write_text('original')
+                (root / 'tacto/core.py').write_text('original')
                 manifest_file.write_text(json.dumps(self.manifest) + '\n')
                 self.assertNotEqual(first['source_sha256'], bench.source_snapshot(self.manifest, manifest_file)['source_sha256'])
                 altered = copy.deepcopy(self.manifest)
@@ -177,7 +177,7 @@ class ExternalBenchmarkTests(unittest.TestCase):
         self.manifest = json.loads(bench.DEFAULT_MANIFEST.read_text())
 
     def test_observed_provider_metadata_preserves_unknown_and_attempt_totals(self):
-        from nlc.provider_result import ProviderResult, ProviderAttempt
+        from tacto.provider_result import ProviderResult, ProviderAttempt
         observed = ProviderResult('request', 'auto', 'claude', 'cli', 'ok', 'secret', None, 1,
             model='observed-model', output_tokens=4,
             attempts=(ProviderAttempt('claude', 'cli', 'ok', 1, output_tokens=4),)).to_dict()
@@ -243,7 +243,7 @@ except ImportError:
 @unittest.skipUnless(HAS_BROWSER, 'optional playwright dependency not installed')
 class WebBenchmarkFixtureTests(unittest.TestCase):
     def test_input_probe_records_actual_provider_requests_through_common_boundary(self):
-        from nlc.provider_result import ProviderResult
+        from tacto.provider_result import ProviderResult
         spec = importlib.util.spec_from_file_location('probe_browser_task',
             bench.ROOT / 'examples/probe_browser_task.py')
         probe = importlib.util.module_from_spec(spec)
@@ -262,7 +262,7 @@ class WebBenchmarkFixtureTests(unittest.TestCase):
                 model='observed-test-model', input_tokens=10, output_tokens=3)
         output = io.StringIO()
         with patch('sys.argv', ['probe_browser_task', '--provider', 'claude']), \
-             patch('sys.stdout', output), patch('nlc.authoring._try_cli', side_effect=provider):
+             patch('sys.stdout', output), patch('tacto.authoring._try_cli', side_effect=provider):
             self.assertEqual(0, probe.main(), output.getvalue())
         result = json.loads(output.getvalue().splitlines()[-1])
         self.assertTrue(result['passed'])

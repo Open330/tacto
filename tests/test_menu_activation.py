@@ -7,8 +7,8 @@ import pathlib
 import unittest
 from unittest.mock import patch
 
-from nlc.contract import Envelope
-from nlc.flow import Flow, Step, Selector, Capture, Postcondition, Resolution, replay
+from tacto.contract import Envelope
+from tacto.flow import Flow, Step, Selector, Capture, Postcondition, Resolution, replay
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -100,7 +100,7 @@ class MenuActivationTests(unittest.TestCase):
         def escalate(uncertainty):
             asked.append(uncertainty.kind)
             return Resolution(kind='recover', recovery='dismiss_dialog')
-        with patch('nlc.flow._run_fix', side_effect=lambda *a, **k: fixes.append(a[2]) or True):
+        with patch('tacto.flow._run_fix', side_effect=lambda *a, **k: fixes.append(a[2]) or True):
             result = replay(app, step_flow, escalate=escalate, budget=3)
         return result, asked, fixes
 

@@ -4,11 +4,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.artifact_receipt import ArtifactReceiptError
-from nlc.commit_evidence import make_event
-from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-from nlc.flow import Flow, Selector, Step, replay
-from nlc.textedit_receipt import make_textedit_receipt, TextEditReceiptUnavailable
+from tacto.artifact_receipt import ArtifactReceiptError
+from tacto.commit_evidence import make_event
+from tacto.contract import ContextBinding, Resource, SafetyContract, issue_approval
+from tacto.flow import Flow, Selector, Step, replay
+from tacto.textedit_receipt import make_textedit_receipt, TextEditReceiptUnavailable
 
 
 class SnapshotDriver:
@@ -64,7 +64,7 @@ class TextEditReceiptTests(unittest.TestCase):
                                 {'write_persistent'}, 'com.apple.TextEdit', obs_id='o')
 
     def adapter(self, **kwargs):
-        with patch('nlc.textedit_receipt.Path.home', return_value=self.home):
+        with patch('tacto.textedit_receipt.Path.home', return_value=self.home):
             return make_textedit_receipt(self.driver, target=kwargs.pop('target', 'com.apple.TextEdit'),
                                          directory=kwargs.pop('directory', str(self.directory)),
                                          filename=kwargs.pop('filename', self.path.name),

@@ -38,13 +38,13 @@ def main():
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
-    from nlc.browser import BrowserDriver
-    from nlc.visual import plan_visual
-    from nlc.visual_actions import run_visual
+    from tacto.browser import BrowserDriver
+    from tacto.visual import plan_visual
+    from tacto.visual_actions import run_visual
 
     root = Path(__file__).resolve().parents[1]
-    files = ['nlc/visual.py', 'nlc/visual_actions.py', 'nlc/browser.py',
-             'nlc/claude_result.py', 'nlc/provider_result.py',
+    files = ['tacto/visual.py', 'tacto/visual_actions.py', 'tacto/browser.py',
+             'tacto/claude_result.py', 'tacto/provider_result.py',
              'examples/probe_visual_task.py']
     def hashes():
         return {p: hashlib.sha256((root / p).read_bytes()).hexdigest() for p in files}

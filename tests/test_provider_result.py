@@ -8,18 +8,18 @@ import tempfile
 import time
 import unittest
 import uuid
-from nlc.provider_result import ProviderResult
+from tacto.provider_result import ProviderResult
 from unittest.mock import patch
 
-from nlc.authoring import ask_model_result, reach_model_result, _run_provider
+from tacto.authoring import ask_model_result, reach_model_result, _run_provider
 
 
 class ProviderResultTests(unittest.TestCase):
     def test_auto_records_actual_fallback_without_inventing_telemetry(self):
         def muxa(provider, prompt, timeout):
             return '{"ok":true}' if provider == 'codex' else None
-        with patch('nlc.authoring._try_muxa', side_effect=muxa), \
-             patch('nlc.authoring._try_cli', return_value=None):
+        with patch('tacto.authoring._try_muxa', side_effect=muxa), \
+             patch('tacto.authoring._try_cli', return_value=None):
             result = ask_model_result('private prompt', expect_json=True)
         self.assertEqual(('ok', 'codex', 'muxa'),
                          (result.status, result.provider, result.transport))
@@ -32,8 +32,8 @@ class ProviderResultTests(unittest.TestCase):
         self.assertNotIn('private prompt', json.dumps(result.to_dict()))
 
     def test_failure_is_structured_and_does_not_leak_provider_output(self):
-        with patch('nlc.authoring._try_muxa', side_effect=ValueError('SECRET')) , \
-             patch('nlc.authoring._try_cli', return_value='malformed SECRET'):
+        with patch('tacto.authoring._try_muxa', side_effect=ValueError('SECRET')) , \
+             patch('tacto.authoring._try_cli', return_value='malformed SECRET'):
             result = ask_model_result('question', 'codex', expect_json=True)
         self.assertEqual('error', result.status)
         self.assertEqual('codex', result.provider)
@@ -41,8 +41,8 @@ class ProviderResultTests(unittest.TestCase):
         self.assertNotIn('SECRET', json.dumps(result.to_dict()))
 
     def test_deadline_is_timeout_even_if_last_transport_expires(self):
-        with patch('nlc.authoring._try_muxa', return_value=None), \
-             patch('nlc.authoring._try_cli', side_effect=subprocess.TimeoutExpired('private', 1)):
+        with patch('tacto.authoring._try_muxa', return_value=None), \
+             patch('tacto.authoring._try_cli', side_effect=subprocess.TimeoutExpired('private', 1)):
             result = ask_model_result('q', 'codex')
         self.assertEqual('timeout', result.status)
         self.assertIsNone(result.text)
@@ -50,7 +50,7 @@ class ProviderResultTests(unittest.TestCase):
         self.assertFalse(result.cancellation_supported)
 
     def test_launcher_auto_cannot_claim_provider_identity(self):
-        with patch('nlc.helper.InheritedHelperDriver') as helper:
+        with patch('tacto.helper.InheritedHelperDriver') as helper:
             helper.available.return_value = True
             helper.return_value.ask_launcher_result.return_value = ProviderResult(
                 str(uuid.uuid4()), 'auto', None, 'launcher', 'ok', '{}', None, 0)
@@ -61,7 +61,7 @@ class ProviderResultTests(unittest.TestCase):
         self.assertIsNone(result.provider)
 
     def test_launcher_pinned_and_request_ids_are_local_unique(self):
-        with patch('nlc.helper.InheritedHelperDriver') as helper:
+        with patch('tacto.helper.InheritedHelperDriver') as helper:
             helper.available.return_value = True
             helper.return_value.ask_launcher_result.side_effect = lambda *a, **k: ProviderResult(
                 str(uuid.uuid4()), 'gemini', 'gemini', 'launcher', 'ok', 'answer', None, 0)
@@ -87,14 +87,14 @@ class ProviderResultTests(unittest.TestCase):
 
 class CliUnavailableTests(unittest.TestCase):
     def run_cli(self, code, stdout, stderr=''):
-        from nlc.authoring import _try_cli
+        from tacto.authoring import _try_cli
         done = subprocess.CompletedProcess([], code, stdout, stderr)
-        with patch('nlc.authoring.shutil.which', return_value='/bin/codex'), \
-             patch('nlc.authoring._run_provider', return_value=done):
+        with patch('tacto.authoring.shutil.which', return_value='/bin/codex'), \
+             patch('tacto.authoring._run_provider', return_value=done):
             return _try_cli('opencode', 'q', 5)
 
     def test_failed_run_is_named_when_a_person_can_fix_it(self):
-        from nlc.provider_result import ProviderUnavailable
+        from tacto.provider_result import ProviderUnavailable
         for code, out, err, reason in ((1, '', 'usage limit reached SECRET', 'usage_limit'),
                                        (0, 'Please run /login', '', 'not_logged_in')):
             with self.assertRaises(ProviderUnavailable) as caught:
@@ -108,9 +108,9 @@ class CliUnavailableTests(unittest.TestCase):
                          self.run_cli(0, 'the quota and rate limit are explained here'))
 
     def test_attempts_carry_the_reason_code_not_provider_output(self):
-        from nlc.provider_result import ProviderUnavailable
-        with patch('nlc.authoring._try_muxa', return_value=None), \
-             patch('nlc.authoring._try_cli', side_effect=ProviderUnavailable('usage_limit')):
+        from tacto.provider_result import ProviderUnavailable
+        with patch('tacto.authoring._try_muxa', return_value=None), \
+             patch('tacto.authoring._try_cli', side_effect=ProviderUnavailable('usage_limit')):
             result = ask_model_result('q', 'codex', expect_json=True)
         self.assertEqual('error', result.status)
         self.assertIn('usage_limit', result.error.message)

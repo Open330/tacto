@@ -22,7 +22,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         (self.root / 'skill/SKILL.md').write_text('---\nname: nlc\n---\nfixture\n')
         (self.root / 'launcher').mkdir()
         # Tests link ownership and discovery only, not cryptographic signing.
-        self.entry = self.root / 'launcher/nlc'
+        self.entry = self.root / 'launcher/tacto'
         self.entry.write_text('#!/bin/sh\nexit 0\n')
         self.entry.chmod(0o755)
         self.bin = self.home / '.local/bin'
@@ -67,7 +67,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         console.chmod(0o755)
         installed = self.run_script()
         self.assertEqual(1, installed.returncode)
-        self.assertIn('launcher/nlc', installed.stdout)
+        self.assertIn('launcher/tacto', installed.stdout)
         self.assertEqual([], list(self.home.iterdir()))
 
     def test_unrelated_command_symlink_is_preserved(self):
@@ -110,7 +110,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         (old / 'skill').mkdir(parents=True)
         (old / 'skill/SKILL.md').write_text('---\nname: nlc\n---\nold\n')
         self.bin.mkdir(parents=True)
-        (self.bin / 'nlc').symlink_to(old / 'launcher/nlc')
+        (self.bin / 'nlc').symlink_to(old / 'launcher/tacto')
         destination = self.home / '.codex/skills/tacto'
         destination.parent.mkdir(parents=True)
         destination.symlink_to(old / 'skill')

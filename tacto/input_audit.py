@@ -363,7 +363,7 @@ class InputAudit:
         self._started = True
         self.sample()
         if self.background:
-            self._thread = threading.Thread(target=self._poll, name='nlc-input-audit', daemon=True)
+            self._thread = threading.Thread(target=self._poll, name='tacto-input-audit', daemon=True)
             self._thread.start()
         return self
 

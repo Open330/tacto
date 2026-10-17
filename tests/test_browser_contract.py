@@ -11,7 +11,7 @@ except ImportError:
 @unittest.skipUnless(AVAILABLE, "optional playwright dependency not installed")
 class BrowserContract(unittest.TestCase):
     def setUp(self):
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
         self.driver = BrowserDriver()
         self.addCleanup(self.driver.close)
 
@@ -31,14 +31,14 @@ class BrowserContract(unittest.TestCase):
         self.assertEqual(('target_changed','not_started'), (denied['error'],denied['effect']))
 
     def test_readonly_values_remain_readable_without_offering_or_dispatching_edits(self):
-        from nlc.general import candidates
+        from tacto.general import candidates
         d = self.driver
         d.goto("data:text/html,<input aria-label='immutable' value='fixed' readonly>"
                "<input aria-label='editable' value='free'>")
         obs = d.observe()
         fields = {c['label']: c for c in candidates(obs['tree']) if c['role'] == 'textbox'}
         self.assertIn('read', fields['immutable']['can'])
-        from nlc.flow import Selector
+        from tacto.flow import Selector
         self.assertEqual('fixed', Selector._attr(fields['immutable']['line'], 'Value'))
         self.assertNotIn('set_value', fields['immutable']['can'])
         self.assertIn('set_value', fields['editable']['can'])
@@ -74,8 +74,8 @@ class BrowserContract(unittest.TestCase):
         self.assertEqual(0, d._page.evaluate('window.edits || 0'))
 
     def test_readonly_marker_is_state_without_truncating_or_reclassifying_literal_text(self):
-        from nlc.flow import Selector
-        from nlc.general import candidates
+        from tacto.flow import Selector
+        from tacto.general import candidates
         d = self.driver
         d.goto("data:text/html,<input aria-label='immutable' value='literal [readonly] text [readonly]' readonly>"
                "<input aria-label='literal [readonly]' value='editable [readonly]'>")
@@ -128,8 +128,8 @@ class BrowserContract(unittest.TestCase):
         self.assertEqual([],d._page.evaluate("Object.getOwnPropertyNames(globalThis).filter(k => k.startsWith('__nlc_node_'))"))
 
     def test_named_regions_keep_their_own_same_named_inputs(self):
-        from nlc.general import candidates
-        from nlc.flow import Selector
+        from tacto.general import candidates
+        from tacto.flow import Selector
         d = self.driver
         d.goto("data:text/html,<section aria-label='billing'><input aria-label='name'></section><section aria-label='shipping'><input aria-label='name'></section><button>Next</button>")
         obs = d.observe()
@@ -142,7 +142,7 @@ class BrowserContract(unittest.TestCase):
         self.assertEqual('',d._page.locator('section').nth(1).locator('input').input_value())
 
     def test_value_probe_and_tracing(self):
-        from nlc.trace import TracingDriver
+        from tacto.trace import TracingDriver
         d = self.driver
         d.goto("data:text/html,<input aria-label='name'>")
         traced = TracingDriver(d)
@@ -266,9 +266,9 @@ class BrowserContract(unittest.TestCase):
         self.assertIsNone(d._page.evaluate('document.body.dataset.clicked'))
 
     def test_full_flow_replay_with_trace_checks_input_value(self):
-        from nlc.contract import Resource, SafetyContract
-        from nlc.flow import Flow, Postcondition, Selector, Step, replay
-        from nlc.trace import TraceDriver, TracingDriver
+        from tacto.contract import Resource, SafetyContract
+        from tacto.flow import Flow, Postcondition, Selector, Step, replay
+        from tacto.trace import TraceDriver, TracingDriver
         d = self.driver
         d.goto("data:text/html,<input aria-label='name'>")
         selector = Selector(role='textbox', title='name')
@@ -283,7 +283,7 @@ class BrowserContract(unittest.TestCase):
         self.assertTrue(result.ok,result.log)
 
     def test_general_batch_reads_the_value_it_just_typed(self):
-        from nlc.general import run
+        from tacto.general import run
         d = self.driver
         d.goto("data:text/html,<input aria-label='name'>")
         def plan(goal, candidates, done):

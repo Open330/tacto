@@ -12,8 +12,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from nlc import driver
-from nlc.flow import Selector, _where
+from tacto import driver
+from tacto.flow import Selector, _where
 
 
 TREE = "\n".join([

@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nlc.artifact_receipt import ArtifactReceiptError
-from nlc.commit_evidence import CommitEvidence, evidence_error, make_event
-from nlc.existing_file_receipt import (SAVE_PATH, ExistingFileReceiptUnavailable,
+from tacto.artifact_receipt import ArtifactReceiptError
+from tacto.commit_evidence import CommitEvidence, evidence_error, make_event
+from tacto.existing_file_receipt import (SAVE_PATH, ExistingFileReceiptUnavailable,
                                        ExistingTextFileReceipt)
 
 
@@ -147,7 +147,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
 
 class RecipeWiringTests(unittest.TestCase):
     def setUp(self):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         self.dir = os.path.realpath(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__('shutil').rmtree(self.dir, True))
         self.doc = os.path.join(self.dir, 'note.txt'); Path(self.doc).write_text('')
@@ -158,7 +158,7 @@ class RecipeWiringTests(unittest.TestCase):
         self.agent = agent
 
     def bound(self, document, name):
-        from nlc.library import textedit_save
+        from tacto.library import textedit_save
         return textedit_save().bind(document=document, name=name)
 
     def test_the_exact_bound_recipe_gets_a_receipt_for_that_path(self):
@@ -191,7 +191,7 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1]
 
     def test_recipe_binds_the_press_to_the_file(self):
-        from nlc.library import textedit_save
+        from tacto.library import textedit_save
         step = textedit_save().bind(document='/tmp/a/note.txt', name='note.txt').steps[0]
         self.assertEqual('/tmp/a/note.txt', step.params['focused_document'])
 
@@ -208,13 +208,13 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
     def test_launcher_and_driver(self):
         launcher = (self.ROOT / 'launcher/tacto.swift').read_text()
         self.assertIn('"menu":             (["name", "path"], ["focused_document"]),', launcher)
-        driver = (self.ROOT / 'nlc/driver.py').read_text()
+        driver = (self.ROOT / 'tacto/driver.py').read_text()
         self.assertIn('elif name == "menu" and "focused_document" in action:', driver)
 
     def test_preparation_errors_show_only_closed_codes(self):
-        from nlc.flow import replay
-        from nlc.library import textedit_save
-        from nlc.existing_file_receipt import _refuse
+        from tacto.flow import replay
+        from tacto.library import textedit_save
+        from tacto.existing_file_receipt import _refuse
         class App:
             capabilities = {'action.menu.focused_document'}
             def observe(self, *a, **k):
@@ -248,7 +248,7 @@ class FocusedDocumentCapabilityGateTests(unittest.TestCase):
     """Without the helper-side check, nothing is sent (Codex review of 31955f0)."""
 
     def test_helper_driver_sends_nothing_without_the_capability(self):
-        from nlc.helper import HelperDriver
+        from tacto.helper import HelperDriver
         driver = HelperDriver.__new__(HelperDriver)
         driver.capabilities = {'action.menu', 'evidence.document_text'}
         sent = []
@@ -261,8 +261,8 @@ class FocusedDocumentCapabilityGateTests(unittest.TestCase):
                          (result.get('error'), result.get('effect')))
 
     def test_replay_refuses_before_input_without_the_capability(self):
-        from nlc.flow import replay
-        from nlc.library import textedit_save
+        from tacto.flow import replay
+        from tacto.library import textedit_save
         class Old:
             capabilities = {'action.menu', 'evidence.document_text'}
             acted = []
@@ -300,7 +300,7 @@ class FocusedDocumentSwiftTests(unittest.TestCase):
         tail = (root / 'tests/fixtures/focused_document_judge.swift.txt').read_text(encoding='utf-8')
         tail = tail.replace('DECOMPOSED', decomposed).replace('COMPOSED', composed)
         harness = 'import Foundation\nimport ApplicationServices\n' + code + tail
-        with tempfile.TemporaryDirectory(prefix='nlc-focused-doc-') as d:
+        with tempfile.TemporaryDirectory(prefix='tacto-focused-doc-') as d:
             src = Path(d) / 'main.swift'
             src.write_text(harness, encoding='utf-8')
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
@@ -331,7 +331,7 @@ class FocusedDocumentTimeoutTests(unittest.TestCase):
         pure = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,')]
         harness = ('import Foundation\nimport ApplicationServices\n' + pure + tail_fn +
                    (root / 'tests/fixtures/focused_document_timeout.swift.txt').read_text())
-        with tempfile.TemporaryDirectory(prefix='nlc-focused-timeout-') as d:
+        with tempfile.TemporaryDirectory(prefix='tacto-focused-timeout-') as d:
             src = Path(d) / 'main.swift'; src.write_text(harness, encoding='utf-8')
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)

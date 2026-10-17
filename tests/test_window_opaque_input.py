@@ -9,9 +9,9 @@ import sys
 import tempfile
 import unittest
 
-from nlc.native_window_payload import valid_window_text, window_input_problem, WINDOW_INPUT_CAPABILITIES
-from nlc.native_key_events import build_window_text
-from nlc.native_window_dispatch import dispatch_window_input, WindowDispatchFailure, UserInputState
+from tacto.native_window_payload import valid_window_text, window_input_problem, WINDOW_INPUT_CAPABILITIES
+from tacto.native_key_events import build_window_text
+from tacto.native_window_dispatch import dispatch_window_input, WindowDispatchFailure, UserInputState
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,7 +109,7 @@ class OpaqueDispatchTests(unittest.TestCase):
 
 class OpaqueHelperTests(unittest.TestCase):
     def driver(self):
-        from nlc.helper import HelperDriver
+        from tacto.helper import HelperDriver
         driver=HelperDriver.__new__(HelperDriver)
         driver.capabilities=set(WINDOW_INPUT_CAPABILITIES)
         driver._send=Mock(return_value={'type':'acted','input_route':'window_input'})
@@ -127,7 +127,7 @@ class OpaqueHelperTests(unittest.TestCase):
         self.assertEqual(action,msg['action'])
 
     def test_capability_and_parent_deadline_refuse_before_channel(self):
-        from nlc.model_budget import model_deadline
+        from tacto.model_budget import model_deadline
         import time
         driver=self.driver();action={'name':'window_input','element_index':0,'key':'Right'}
         with model_deadline(time.monotonic()-1):
@@ -174,7 +174,7 @@ for mode in ["success","stop","deadline","post","pointer","routing"] {
 }
 print("OPAQUE_SWIFT_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-swift-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-swift-') as directory:
             source=Path(directory)/'main.swift';binary=Path(directory)/'check';source.write_text(harness)
             built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
                 str(ROOT/'helper/WindowInput.swift'),str(ROOT/'helper/WindowDispatch.swift'),
@@ -201,7 +201,7 @@ var both=root;both["action"]=["name":"window_input","element_index":0,"key":"Tab
 var foreign=root;foreign["action"]=["name":"read","element_index":0];precondition(vetted(foreign) != nil)
 print("OPAQUE_LAUNCHER_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-schema-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-schema-') as directory:
             source=Path(directory)/'main.swift';source.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             ran=subprocess.run(['swift',str(source)],capture_output=True,text=True,timeout=60)
             self.assertEqual(0,ran.returncode,ran.stdout+ran.stderr)
@@ -210,7 +210,7 @@ print("OPAQUE_LAUNCHER_PASS")
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'native driver required')
 class OpaqueDriverTests(unittest.TestCase):
     def test_native_window_parameters_and_partial_effect_are_preserved(self):
-        from nlc.driver import Driver
+        from tacto.driver import Driver
         driver=Driver.__new__(Driver);window=object()
         obs=SimpleNamespace(target='fixture',pid=42,obs_id='owned',elements=[window])
         driver._latest={'fixture':obs};driver._last_action_at=0;driver._showing_control=Mock()
@@ -220,8 +220,8 @@ class OpaqueDriverTests(unittest.TestCase):
             self.assertEqual('not_started',driver.act('owned','fixture',action,risk_class=risk,approved=approved)['effect'])
         driver._perform.assert_not_called()
         del driver._perform
-        with patch('nlc.driver._attr',return_value='AXWindow'),patch.object(driver,'_window_action_binding',return_value=('binding',123,lambda:None)) as capture, \
-             patch('nlc.native_window_dispatch.dispatch_window_input') as dispatch:
+        with patch('tacto.driver._attr',return_value='AXWindow'),patch.object(driver,'_window_action_binding',return_value=('binding',123,lambda:None)) as capture, \
+             patch('tacto.native_window_dispatch.dispatch_window_input') as dispatch:
             dispatch.return_value={'input_route':'window_input','posted_events':2,'unverified':'observe_effect','reobserve_required':True}
             result=driver.act('owned','fixture',action,risk_class='preapproved',approved=True)
             self.assertEqual('acted',result['type'])
@@ -234,7 +234,7 @@ class OpaqueDriverTests(unittest.TestCase):
 
 class OpaqueTraceTests(unittest.TestCase):
     def test_recorded_input_cannot_become_live_window_authority(self):
-        from nlc.trace import Trace, TraceDriver
+        from tacto.trace import Trace, TraceDriver
         trace=Trace();trace.capabilities=list(WINDOW_INPUT_CAPABILITIES)
         trace.events=[{'kind':'act','request':{},'result':{'type':'acted'}}]
         driver=TraceDriver(trace)
@@ -245,7 +245,7 @@ class OpaqueTraceTests(unittest.TestCase):
 
 class OpaqueBindingTests(unittest.TestCase):
     def test_window_identity_and_geometry_are_rechecked_without_fictitious_ax_input(self):
-        import nlc.native_window_binding as binding
+        import tacto.native_window_binding as binding
         from tests.test_native_window_binding import Backend
         backend=Backend();backend.nodes['window']['AXSubrole']='AXStandardWindow'
         backend.require_ready=lambda *args:None
@@ -260,7 +260,7 @@ class OpaqueBindingTests(unittest.TestCase):
             binding.capture_binding('button',4,point_kind='window_input')
 
     def test_text_raw_payload_mismatch_is_rejected_even_if_appkit_reflection_matches(self):
-        from nlc.native_key_events import _MacBackend
+        from tacto.native_key_events import _MacBackend
         if not importlib.util.find_spec('AppKit'):self.skipTest('AppKit unavailable')
         backend=_MacBackend()
         with patch.object(backend,'unicode_text',return_value=(1,'x')),self.assertRaisesRegex(RuntimeError,'readback'):
@@ -269,7 +269,7 @@ class OpaqueBindingTests(unittest.TestCase):
 
 class OpaqueReceiptTests(unittest.TestCase):
     def test_partial_and_forged_receipts_are_not_receiving_evidence(self):
-        from nlc.protocol import window_input_reobservation
+        from tacto.protocol import window_input_reobservation
         action={'name':'window_input','element_index':0,'text':'A😀한글'}
         response={'type':'acted','input_route':'window_input','mechanism':'pid_window_events',
             'unverified':'observe_effect','reobserve_required':True,'posted_events':2,'window_id':17,'obs_id':'owned'}

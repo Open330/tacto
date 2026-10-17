@@ -9,12 +9,12 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from nlc import ask_provider
-from nlc.helper import InheritedHelperDriver
-from nlc.provider_images import encode_image, decode_image
-from nlc.provider_observation import capture_provider_calls
-from nlc.provider_result import ProviderResult, ProviderError
-from nlc.visual import VisualCapture, VisualError, query_visual
+from tacto import ask_provider
+from tacto.helper import InheritedHelperDriver
+from tacto.provider_images import encode_image, decode_image
+from tacto.provider_observation import capture_provider_calls
+from tacto.provider_result import ProviderResult, ProviderError
+from tacto.visual import VisualCapture, VisualError, query_visual
 
 PNG=b'\x89PNG\r\n\x1a\nprivate own pixels'
 ROOT=Path(__file__).resolve().parents[1]
@@ -63,7 +63,7 @@ class ImageRelayTests(unittest.TestCase):
             driver.ask_launcher_result.side_effect=TimeoutError('private failure') if status=='timeout' else None
             with patch.object(InheritedHelperDriver,'available',return_value=True), \
                  patch.object(InheritedHelperDriver,'__new__',return_value=driver), \
-                 patch('nlc.claude_result.claude_result') as direct, capture_provider_calls() as calls:
+                 patch('tacto.claude_result.claude_result') as direct, capture_provider_calls() as calls:
                 if status=='ok':
                     answer=query_visual(capture,'green?',provider='claude',model='requested')
                     self.assertEqual('green',answer['answer'])
@@ -80,8 +80,8 @@ class ImageRelayTests(unittest.TestCase):
         stdout=io.StringIO()
         with patch('sys.argv',['ask_provider','--image-envelope','--result-envelope','--provider','claude','--timeout','2']), \
              patch('sys.stdin',io.StringIO(body)),patch('sys.stdout',stdout), \
-             patch('nlc.claude_result.claude_result',return_value=result()) as claude, \
-             patch('nlc.authoring.ask_model_result') as text:
+             patch('tacto.claude_result.claude_result',return_value=result()) as claude, \
+             patch('tacto.authoring.ask_model_result') as text:
             self.assertEqual(0,ask_provider.main())
         claude.assert_called_once_with('own image question',model='requested',timeout=2,image_bytes=PNG)
         text.assert_not_called();self.assertEqual(10,json.loads(stdout.getvalue())['input_tokens'])
@@ -92,7 +92,7 @@ class ImageRelayTests(unittest.TestCase):
                               ('claude',{'prompt':'q','image':encode_image(PNG),'model':'--tool'})]:
             with patch('sys.argv',['ask_provider','--image-envelope','--result-envelope','--provider',provider]), \
                  patch('sys.stdin',io.StringIO(json.dumps(body))),patch('sys.stdout',io.StringIO()), \
-                 patch('sys.stderr',io.StringIO()),patch('nlc.claude_result.claude_result') as call:
+                 patch('sys.stderr',io.StringIO()),patch('tacto.claude_result.claude_result') as call:
                 self.assertEqual(1,ask_provider.main());call.assert_not_called()
 
     @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'),'Swift required')

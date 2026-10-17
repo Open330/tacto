@@ -274,7 +274,7 @@ Identifier에 존재 → 셀렉터 수정. (2) 리셋 버튼이 상태 의존적
 identifier**(`["AllClear","Clear"]`)로 표현, cardinality==1 유지. resolver policy가
 설계대로 작동함을 확인.
 
-**레시피 스키마 (예, `nlc/flow.py`):**
+**레시피 스키마 (예, `tacto/flow.py`):**
 ```jsonc
 {"name": "calc_12x34", "target": "com.apple.calculator",
  "steps": [
@@ -310,7 +310,7 @@ REPLAY (토큰 0)
   ContextBinding invariant 재검증 — "안전하다고 판단한 근거 X,Y,Z가 아직 참인가"
 ```
 
-핵심 규칙 (`nlc/contract.py` 구현·검증 완료):
+핵심 규칙 (`tacto/contract.py` 구현·검증 완료):
 - **모델은 risk level을 선언할 권한이 없다.** 계약(사실)만 쓰고 policy가 도출.
   계산기 AC = `delete + scope=entry + reversible` → **none** (예외 목록 아님).
   계정 삭제 = `delete + scope=account + irreversible` → confirm. 동일 AX 구조,
@@ -339,7 +339,7 @@ REPLAY (토큰 0)
 > `StandardInputView`만 노출해 같은 코드가 다르게 동작했다.
 
 Flow(레시피)는 이미 이식 가능한 IR이었지만, **실행 당시 화면이 어떻게 보였는지**의
-기록이 없었다. 이를 두 번째 IR로 분리한다 (`nlc/trace.py`):
+기록이 없었다. 이를 두 번째 IR로 분리한다 (`tacto/trace.py`):
 
 ```
 Flow JSON    무엇을 할지  — 셀렉터·계약·검증조건 (기존)
@@ -381,7 +381,7 @@ Trace JSON   무엇이 보였고 무엇이 일어났는지 — 관찰 트리·�
 ```
 Tacto (Python)            모델 루프·플로우·IR — OS 권한 없음
    ↕ IPC (Unix socket, L2 메시지 그대로)
-NLCHelper.app (Swift)   서명·공증된 LSUIElement
+TactoHelper.app (Swift)   서명·공증된 LSUIElement
                         접근성/화면기록 권한 보유, AX 읽기 + 이벤트 주입
                         조작 중 오버레이 + Esc 중단도 여기서
 ```
@@ -396,7 +396,7 @@ NLCHelper.app (Swift)   서명·공증된 LSUIElement
 **구현 완료 (2026-09-16).** `helper/TactoHelper.swift` + `helper/build.sh`.
 Command Line Tools 툴체인으로 빌드하므로 **Xcode 라이선스 동의가 불필요**하다
 (`/Library/Developer/CommandLineTools/usr/bin/swiftc`, SDK 명시). 서명까지 완료
-(TeamIdentifier 48H4RZNB97). 파이썬 쪽은 `nlc/helper.py`의 `HelperDriver`가
+(TeamIdentifier 48H4RZNB97). 파이썬 쪽은 `tacto/helper.py`의 `HelperDriver`가
 stdin/stdout JSON 한 줄씩으로 **동일한 L2 메시지**를 주고받는다 — 드라이버 교체만으로
 끝나며 프로토콜·IR·안전 게이트는 그대로다.
 
@@ -435,9 +435,9 @@ uv run tacto replay calc_multiply -p a=3 -p b=4 --helper
 
 | 단계 | 내용 | 재료 |
 |---|---|---|
-| **P0 프로토타입** ✅ 실기기 E2E PASS | macOS AX 드라이버(`nlc/driver.py`) + 결정론 재생(`nlc/flow.py`). 계산기 12×34를 **모델 토큰 0**으로 재생, 7스텝 유일 매칭, postcondition 408 검증. L2 프로토콜·D3 stale·D6 gate·cardinality resolver 전부 검증 | pyobjc(AXUIElement + CGEvent). 브라우저는 Playwright MCP 재사용 예정 |
-| **P1 신뢰성·안전** ✅ 구현됨 | precondition(enabled 재검증) + 구조화 postcondition(서브트리 field_equals) + monotonic deadline 조건 폴링(`wait_until`) + 안전 룰엔진(`nlc/safety.py`, §1.5 4단계 정규식 분류 + escalation-only merge). 실증: Delete 버튼 승인 없이 차단, 승인 시 진행 | §1.5 정책을 룰 엔진으로 이식 완료 |
-| **P2 NL 봇** ✅ 구현됨 | 자연어 에이전트(`nlc/agent.py`: 인텐트→플로우→플랜·내레이션→복구/게이트) + 플로우 저장소(`store.py`: 학습1회·재생다회 토큰0) + 온보딩(`onboard.py`) + 병렬(`parallel.py`) + 세션/capability(`session.py`) + CLI(`cli.py`). 신규 플로우 authoring만 모델 토큰 소비 | 로컬 결정론 재생; authoring은 Claude API 훅 |
+| **P0 프로토타입** ✅ 실기기 E2E PASS | macOS AX 드라이버(`tacto/driver.py`) + 결정론 재생(`tacto/flow.py`). 계산기 12×34를 **모델 토큰 0**으로 재생, 7스텝 유일 매칭, postcondition 408 검증. L2 프로토콜·D3 stale·D6 gate·cardinality resolver 전부 검증 | pyobjc(AXUIElement + CGEvent). 브라우저는 Playwright MCP 재사용 예정 |
+| **P1 신뢰성·안전** ✅ 구현됨 | precondition(enabled 재검증) + 구조화 postcondition(서브트리 field_equals) + monotonic deadline 조건 폴링(`wait_until`) + 안전 룰엔진(`tacto/safety.py`, §1.5 4단계 정규식 분류 + escalation-only merge). 실증: Delete 버튼 승인 없이 차단, 승인 시 진행 | §1.5 정책을 룰 엔진으로 이식 완료 |
+| **P2 NL 봇** ✅ 구현됨 | 자연어 에이전트(`tacto/agent.py`: 인텐트→플로우→플랜·내레이션→복구/게이트) + 플로우 저장소(`store.py`: 학습1회·재생다회 토큰0) + 온보딩(`onboard.py`) + 병렬(`parallel.py`) + 세션/capability(`session.py`) + CLI(`cli.py`). 신규 플로우 authoring만 모델 토큰 소비 | 로컬 결정론 재생; authoring은 Claude API 훅 |
 | **P3 평가** ✅ 5/5 PASS | `examples/eval.py`: task_success·determinism·safety_gate·resolver_honesty·safety_classifier. 확장 예정: 실사용 시나리오 30개 + OSWorld subset | verify-after-action 준수율, 게이트 정확도, 성공률 |
 
 **빌드 vs 재사용 판단**: 드라이버(L1)는 기존 자산 재사용이 옳다 — 브라우저는
@@ -457,7 +457,7 @@ codex와 공동조사(Apple 문서 + learn.chatgpt.com/docs/computer-use#locked-
 차단하며, 로컬 활동 감지 시 재잠금하는 **별도의 로그인/unlock 제품**이다. 재사용
 가능한 공개 API가 아니며, 서드파티가 하려면 authorization plugin 자체를 만들어야
 한다(entitlement 하나 추가 수준이 아님).
-- **채택 정책(구현됨, `nlc/session.py`)**: capability를 정직하게 분리 —
+- **채택 정책(구현됨, `tacto/session.py`)**: capability를 정직하게 분리 —
   `locked_gui_access=false`(기본), `trusted_unlock=provider_specific`,
   `headless_browser=backend_specific`. `preflight()`가 verdict를 반환:
   `ready` / `session_locked`(→ handoff) / `unknown_lock`(키 부재를 unlocked로
@@ -470,12 +470,12 @@ codex와 공동조사(Apple 문서 + learn.chatgpt.com/docs/computer-use#locked-
   않음(별도 VM의 unlocked guest는 다른 설계). 브라우저 업무는 headless
   Playwright 경로 우선 검토.
 
-### 5.2 권한 온보딩 (구현됨, `nlc/onboard.py`)
+### 5.2 권한 온보딩 (구현됨, `tacto/onboard.py`)
 타깃 유저에게 시스템 설정 권한 부여가 최대 이탈 지점. 마법사가 접근성(필수)·화면
 기록(선택)을 점검하고, 누락 시 **정확한 설정 창을 열고 한 문장**으로 안내(단계
 나열 금지). AX-tree 우선 설계라 화면기록은 선택으로 처리.
 
-### 5.3 병렬 조작 (구현됨, `nlc/parallel.py`)
+### 5.3 병렬 조작 (구현됨, `tacto/parallel.py`)
 AX 액션(`AXPress`·`AXValue`)은 요소를 직접 지정하고, CGEvent 호출은 프로세스
 락으로 직렬화한다. 실측된 2개 앱 동시 **관찰** 91ms는 입력 격리나 실행 중
 사용자 포커스 보존의 검증이 아니다. PID 이벤트 전달도 대상 앱 내부 focus와
@@ -483,15 +483,15 @@ AX 액션(`AXPress`·`AXValue`)은 요소를 직접 지정하고, CGEvent 호출
 있어 이를 제거하고 실제 비침해 실행을 검증하는 G0 작업을 진행한다.
 
 ### 5.4 확장 구현 완료 (2026-09-16)
-- **브라우저 백엔드**(`nlc/browser.py`) — Playwright + CDP `Accessibility.getFullAXTree`.
+- **브라우저 백엔드**(`tacto/browser.py`) — Playwright + CDP `Accessibility.getFullAXTree`.
   동일 L2 프로토콜(observe/act/wait_until)·동일 Flow/Selector/Postcondition으로
   웹 폼 결정론 재생 PASS. codex 가이드 반영: native AX / browser AX / DOM /
   Playwright locator는 **별도 ID 공간** — 별도 obs_id/인덱스, Flow는 backend 간
   비이식. web 값 검증은 whole-tree `contains`(값이 input 노드 하위에 안 들어감).
-- **음성 인터페이스**(`nlc/voice.py`) — macOS `say` TTS + 플러그형 STT(기본
+- **음성 인터페이스**(`tacto/voice.py`) — macOS `say` TTS + 플러그형 STT(기본
   타이핑 폴백). 확인 게이트를 음성 네/아니요로 해결(모호하면 안전 거부), 스텝
   내레이션을 음성 출력. 레이턴시는 "위험 한 줄 + 짧은 예/아니요"로 최소화.
-- **모델 기반 authoring**(`nlc/authoring.py`) — 미지의 인텐트를 만나면 대상 앱을
+- **모델 기반 authoring**(`tacto/authoring.py`) — 미지의 인텐트를 만나면 대상 앱을
   관찰하고 `muxa ask`(provider-agnostic)로 인텐트+AX트리→Flow를 생성, 셀렉터가
   트리에서 유일 해석되는지 검증 후 저장. **유일한 토큰 소비 경로**, 이후 재생은
   토큰 0. `Agent`에 훅으로 연결(unknown_task 시 자동 학습).
@@ -572,7 +572,7 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 만족하는 프로세스가 있는지** `SecCodeCheckValidity`로 확인한다. 없으면 즉시 종료한다.
 
 - 실증: 임의 프로세스가 도우미를 직접 실행 → `OSStatus -67050`으로 거부.
-  서명 런처를 통하면 정상 동작(`./launcher/nlc replay ... --helper` → 48).
+  서명 런처를 통하면 정상 동작(`./launcher/tacto replay ... --helper` → 48).
 - 조상 체인을 보는 이유: 도우미의 직속 부모는 런처가 띄운 파이썬이다. 중요한 성질은
   **서명된 런처의 자손인가**이며, 그 자손이 되려면 런처가 띄워야 하고 런처는 우리
   코드만 실행한다.
@@ -581,7 +581,7 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 명령을 중계하는 프록시라면 공격자가 그것을 실행해 다시 deputy로 쓴다. 그래서 런처는
 **스크립트 경로·인터프리터 재정의·eval 플래그를 받지 않고**, 고정된 인터프리터로
 고정된 모듈만 실행하며, 코드 주입에 쓰일 수 있는 환경변수(`PYTHONPATH`,
-`DYLD_INSERT_LIBRARIES`, `NLC_HELPER_TOKEN` 등)를 제거한다. 호출자가 런처를 통해
+`DYLD_INSERT_LIBRARIES`, `TACTO_HELPER_TOKEN` 등)를 제거한다. 호출자가 런처를 통해
 표현할 수 있는 것은 **Tacto 명령 표면(플로우)** 뿐이다.
 
 **여전히 닫히지 않는 것(정직하게).** 런처를 실행할 수 있는 사람은 플로우를 실행할 수
@@ -613,12 +613,12 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 
 ### 3.13 권한을 도우미에게 — 번들과 온보딩
 
-**`.app` 번들(구현 완료).** `helper/bundle.sh` 가 `NLC Helper.app`
+**`.app` 번들(구현 완료).** `helper/bundle.sh` 가 `Tacto Helper.app`
 (`ai.callabo.nlc.helper`, LSUIElement, 서명)을 만든다. 번들로 묶는 이유는 포장이
 아니라 **TCC가 클라이언트를 코드 서명으로 식별하고 목록에 번들 이름으로 표시**하기
 때문이다:
 
-- 시스템 설정 목록에 `python3.11` 이 아니라 **"NLC Helper"** 로 뜬다 — 사용자가
+- 시스템 설정 목록에 `python3.11` 이 아니라 **"Tacto Helper"** 로 뜬다 — 사용자가
   무엇을 허용하는지 판단할 수 있다.
 - 권한이 **재빌드에도 유지된다**(실측 확인). 경로가 아니라 서명으로 식별되므로.
 - `NSAccessibilityUsageDescription` 에 "조작 중 표시가 뜨고 Esc로 멈출 수 있다"는
@@ -637,7 +637,7 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 외부 검증이 §3.12의 경계에서 **실제 우회로**를 찾았다. 방향은 맞았지만 구현이
 새고 있었다.
 
-1. **`NLC_HELPER_REQUIREMENT` 환경변수 override** — 개발 편의로 둔 것이 치명적이었다.
+1. **`TACTO_HELPER_REQUIREMENT` 환경변수 override** — 개발 편의로 둔 것이 치명적이었다.
    런처가 이를 제거하지 않고 클라이언트가 환경을 그대로 넘기므로, 공격자가 통과하는
    requirement로 바꾸면 검사가 **권고로 전락**했다. → requirement를 **컴파일에 고정**.
 2. **`CommandLine.arguments[0]` 신뢰** — 이것은 실행 경로가 아니라 **호출자가 넘긴
@@ -700,7 +700,7 @@ observe/act 프로토콜이지 임의 명령이 아니며, 어떤 필드도 경�
 
 ### 3.16 broker를 런처 안으로 — 서명된 confused deputy 제거
 
-§3.15의 broker에는 결정적 결함이 있었다: **아무 로컬 프로세스나 `nlc-broker` 를
+§3.15의 broker에는 결정적 결함이 있었다: **아무 로컬 프로세스나 `tacto-broker` 를
 직접 실행하고 stdin으로 허용된 JSON을 넣으면** 도우미가 통과시켰다. 도우미는
 "이것이 broker 바이너리인가"만 물을 뿐 "이 broker가 Tacto로부터 권한을 받았는가"는
 묻지 않았기 때문이다. 좁은 프로토콜은 피해 범위를 줄일 뿐 **인증 경계를 만들지
@@ -709,9 +709,9 @@ observe/act 프로토콜이지 임의 명령이 아니며, 어떤 필드도 경�
 **해결: 중계를 런처 안으로 옮기고, 자식에게는 상속된 채널만 준다.**
 
 ```
-./launcher/nlc …            서명된 프로세스(= 신뢰 기점)
+./launcher/tacto …            서명된 프로세스(= 신뢰 기점)
    │  socketpair, fd 3 상속        ← 다른 방법으로는 얻을 수 없음
-   ├─ python -I -m nlc.cli         권한 없음, 주소도 모름
+   ├─ python -I -m tacto.cli         권한 없음, 주소도 모름
    └─ (검증 후 중계) ══소켓══>  helper   peer audit token 검증
 ```
 
@@ -745,7 +745,7 @@ requirement를 적용한다. 창을 좁혀 두었을 뿐(실행당 연결 1개, 
 |---|---|---|---|
 | 셸에서 직접 | true | false | `/usr/libexec/sshd-keygen-wrapper` |
 | `posix_spawn` | true | false | `/usr/libexec/sshd-keygen-wrapper` |
-| LaunchServices | false | **true** | `.../NLC Helper.app/.../NLCHelper` |
+| LaunchServices | false | **true** | `.../Tacto Helper.app/.../TactoHelper` |
 
 읽는 법은 이렇다. **TCC 는 요청한 프로세스가 아니라 그 실행이 귀속된 신원에
 묻는다.** spawn 된 자식은 자기를 spawn 한 쪽에 귀속되고, 여기서는 그게 사용자가
@@ -755,7 +755,7 @@ requirement를 적용한다. 창을 좁혀 두었을 뿐(실행당 연결 1개, 
 그래서 **Accessibility 는 지금까지 도우미의 권한이 아니었다.** 터미널의 권한을
 같은 귀속 규칙으로 빌려 쓰고 있었을 뿐이고, 서명된 전용 도우미로 권한을
 분리한다던 성질이 실제로는 성립하지 않았다. LaunchServices 로 옮기면서 그 대여가
-끊겼고, 이제 'NLC Helper' 에 직접 부여된 권한만 쓴다 — 원래 의도한 그대로다.
+끊겼고, 이제 'Tacto Helper' 에 직접 부여된 권한만 쓴다 — 원래 의도한 그대로다.
 
 **랑데부는 방향이 뒤집혔다.** LaunchServices 는 부모-자식 관계를 주지 않는다:
 상속된 디스크립터도, `ppid` 도, 종료 상태도 없다. 그래서 **런처가 먼저 listen**
@@ -833,7 +833,7 @@ CLOEXEC이며, 소유권이 바뀌어야 하면 연결을 폐기하고 새로 ac
 ### 3.18 계산기 밖으로 — 실기기에서만 드러나는 것들 (2026-09-16)
 
 `examples/scenarios.md` 의 30개는 **그럴듯하게 적은 것**이고, 이 절은 그중 실제로
-돌려본 것들에서 나온 기록이다. 검증된 레시피는 `nlc/library.py` 에만 둔다.
+돌려본 것들에서 나온 기록이다. 검증된 레시피는 `tacto/library.py` 에만 둔다.
 
 **메뉴 막대가 통째로 비어 있었다.** `_walk_windows` 는 AXWindow만 걷는다. 저장·복사·
 폴더 열기 같은 일상 명령은 창에 버튼이 없고 메뉴에만 있으므로, 그 어휘로는 **표현

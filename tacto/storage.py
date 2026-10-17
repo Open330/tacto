@@ -6,7 +6,7 @@ import tempfile
 
 def write_private(path: str, text: str) -> str:
     path = os.path.abspath(path)
-    fd, temporary = tempfile.mkstemp(prefix=".nlc-", dir=os.path.dirname(path))
+    fd, temporary = tempfile.mkstemp(prefix=".tacto-", dir=os.path.dirname(path))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(text)

@@ -9,9 +9,9 @@ and 4 → 13, 27 → 23 with decisions as the only model calls.
 import json
 import unittest
 
-from nlc.contract import Envelope, Resource, SafetyContract
-from nlc.flow import Capture, Flow, Selector, Step, every_step, replay
-from nlc.promote import Candidate, replays_the_walk, to_flow, with_decisions
+from tacto.contract import Envelope, Resource, SafetyContract
+from tacto.flow import Capture, Flow, Selector, Step, every_step, replay
+from tacto.promote import Candidate, replays_the_walk, to_flow, with_decisions
 
 PAD = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
                      resource=Resource(object_type="입력", scope="entry"))
@@ -131,7 +131,7 @@ class ReplayNestedTests(unittest.TestCase):
         self.assertEqual("7", inner.params["branches"]["p"][0].selector.desc)
 
     def test_a_learned_branch_is_kept_where_its_decision_lives(self):
-        from nlc.agent import Agent
+        from tacto.agent import Agent
         saved = []
         store = type("S", (), {"save": lambda s, f: saved.append(f)})()
         template = nested({"p": [press("B")]})

@@ -4,8 +4,8 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import patch
 
-from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-from nlc.flow import Flow, Selector, Step, replay
+from tacto.contract import ContextBinding, Resource, SafetyContract, issue_approval
+from tacto.flow import Flow, Selector, Step, replay
 
 
 class CalculatorFixture:
@@ -63,7 +63,7 @@ class DeletionEvidenceTests(unittest.TestCase):
 
     def test_evaluator_safety_gate_checks_dispatch_without_claiming_deletion(self):
         path = Path(__file__).resolve().parents[1] / 'examples/eval.py'
-        spec = importlib.util.spec_from_file_location('nlc_deletion_evaluator', path)
+        spec = importlib.util.spec_from_file_location('tacto_deletion_evaluator', path)
         evaluator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(evaluator)
         driver = CalculatorFixture()

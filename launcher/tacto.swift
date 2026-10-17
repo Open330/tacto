@@ -1,4 +1,4 @@
-// nlc — the signed entry point, the trust anchor, and the only thing that talks
+// tacto — the signed entry point, the trust anchor, and the only thing that talks
 // to the privileged helper.
 //
 // Three properties, each of which was missing at some point and put back after
@@ -21,7 +21,7 @@
 //    isolated so the caller's directory is not on sys.path, with an allowlisted
 //    environment and a fixed PATH.
 //
-// What running this still buys a caller is the NLC command surface — flows,
+// What running this still buys a caller is the Tacto command surface — flows,
 // which are declarative, policy-checked, shown on screen and interruptible —
 // not raw control of the accessibility API.
 
@@ -46,7 +46,9 @@ guard !exe.path.isEmpty else {
 }
 let root = exe.deletingLastPathComponent().deletingLastPathComponent()
 let python = root.appendingPathComponent(".venv/bin/python")
-let helperApp = root.appendingPathComponent("helper/NLC Helper.app")
+let canonicalHelper = root.appendingPathComponent("helper/Tacto Helper.app")
+let helperApp = FileManager.default.fileExists(atPath: canonicalHelper.path)
+    ? canonicalHelper : root.appendingPathComponent("helper/NLC Helper.app")
 
 guard FileManager.default.isExecutableFile(atPath: python.path) else {
     FileHandle.standardError.write(Data(
@@ -200,7 +202,7 @@ let maxPromptBytes = 400_000
 
 // Which providers a question may ask for. The child names one of these or
 // none; it never names a program, a path or an argument. Kept in step with
-// `nlc/authoring.py::PROVIDER_ORDER`.
+// `tacto/authoring.py::PROVIDER_ORDER`.
 let knownProviders: Set<String> = ["auto", "claude", "codex", "opencode", "cxweb"]
 
 @Sendable func isInt(_ v: Any) -> Bool {
@@ -710,12 +712,12 @@ var env: [String: String] = [:]
 let inherited = ProcessInfo.processInfo.environment
 for key in allowedEnv { if let v = inherited[key] { env[key] = v } }
 env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
-env["NLC_LAUNCHER"] = "1"
+env["TACTO_LAUNCHER"] = "1"
 
 // A private per-run socket inside a 0700 directory we just created: an attacker
 // cannot pre-bind a path they cannot predict or enter, which closes the
 // fake-server substitution a fixed /tmp name allowed.
-var template = Array("/tmp/nlc.XXXXXXXX".utf8CString)
+var template = Array("/tmp/tacto.XXXXXXXX".utf8CString)
 guard let dirC = mkdtemp(&template) else {
     FileHandle.standardError.write(Data("tacto: 임시 디렉터리 생성 실패\n".utf8)); exit(1)
 }
@@ -734,10 +736,10 @@ defer { unlink(rendezvousPath); rmdir(runDir) }
 //
 //   from a shell       responsible path = /usr/libexec/sshd-keygen-wrapper
 //   posix_spawned      responsible path = /usr/libexec/sshd-keygen-wrapper
-//   LaunchServices     responsible path = .../NLC Helper.app/.../NLCHelper
+//   LaunchServices     responsible path = .../Tacto Helper.app/.../TactoHelper
 //
 // Only the third is the helper's own identity, and only the third can use the
-// grant the user ticked against "NLC Helper". Accessibility was never affected,
+// grant the user ticked against "Tacto Helper". Accessibility was never affected,
 // which is why this went unnoticed: the two services do not attribute alike.
 //
 // What LaunchServices takes away is the parent-child relationship: no inherited
@@ -895,7 +897,7 @@ guard setsockopt(relayEnd, SOL_SOCKET, SO_NOSIGPIPE, &relayNoSigPipe,
 _ = fcntl(relayEnd, F_SETFD, FD_CLOEXEC)
 _ = fcntl(childEnd, F_SETFD, FD_CLOEXEC)
 
-env["NLC_HELPER_FD"] = "3"
+env["TACTO_HELPER_FD"] = "3"
 
 var actions: posix_spawn_file_actions_t?
 posix_spawn_file_actions_init(&actions)
@@ -912,7 +914,7 @@ posix_spawn_file_actions_addclose(&actions, childEnd)
 
 // -I (isolated): without it `python -m` puts the CALLER's working directory
 // first on sys.path, so a fixed module would not be fixed code.
-let childArgs = [python.path, "-I", "-B", "-m", "nlc.cli"] + Array(CommandLine.arguments.dropFirst())
+let childArgs = [python.path, "-I", "-B", "-m", "tacto.cli"] + Array(CommandLine.arguments.dropFirst())
 var cArgs = childArgs.map { strdup($0) } + [nil]
 var cEnv = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
 var childPID: pid_t = 0
@@ -1007,7 +1009,7 @@ func askModel(_ prompt: String, _ wantJSON: Bool, _ provider: String,
               timeout: Double = 420, image: [String: Any]? = nil, model: String? = nil) throws -> [String: Any]? {
     let proc = Process()
     proc.executableURL = python
-    proc.arguments = ["-I", "-B", "-m", "nlc.ask_provider", "--result-envelope", "--timeout", String(timeout)]
+    proc.arguments = ["-I", "-B", "-m", "tacto.ask_provider", "--result-envelope", "--timeout", String(timeout)]
         + (wantJSON ? ["--json"] : [])
         + (provider == "auto" ? [] : ["--provider", provider])
     proc.currentDirectoryURL = root
@@ -1046,7 +1048,7 @@ func askModel(_ prompt: String, _ wantJSON: Bool, _ provider: String,
 // Runs only while the child asks for it. The helper is started lazily, so a
 // command that never touches the screen never starts a privileged process.
 
-let relayQueue = DispatchQueue(label: "nlc.relay")
+let relayQueue = DispatchQueue(label: "tacto.relay")
 relayQueue.async {
     var fromChild = Data(), fromHelper = Data()
     var helperFD: Int32 = -1

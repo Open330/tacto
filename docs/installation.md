@@ -19,6 +19,8 @@ Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 �
 
 저장소 루트에서 wheel을 빌드하고 별도 환경에 설치할 수 있습니다.
 
+> **이름 충돌 주의.** 배포 이름은 `tacto-runtime`입니다. PyPI의 `tacto`는 관련 없는 촉각 시뮬레이터이며 같은 최상위 import 이름 `tacto`를 설치합니다. `pip install tacto`를 실행하지 말고, 그 패키지가 없는 별도 가상환경을 쓰세요. 한 환경에 둘 다 있으면 파일이 서로 덮어써지고 `import nlc`는 오류로 거부합니다.
+
 ```sh
 uv build --wheel
 python3 -m venv /tmp/tacto-client
@@ -36,14 +38,14 @@ python3 -m venv /tmp/tacto-client
 Linux에는 Chromium이 요구하는 시스템 라이브러리가 추가로 필요할 수 있습니다.
 Python 패키지 설치나 import 성공은 Chromium 실행 검증과 다릅니다. 현재
 일반 `tacto do` 명령은 macOS 앱 조작 경로이므로 브라우저용 CLI로 간주하지
-마십시오. 다른 운영체제에서는 `nlc.browser.BrowserDriver`를 Python API로
+마십시오. 다른 운영체제에서는 `tacto.browser.BrowserDriver`를 Python API로
 명시적으로 사용합니다. 이 경로는 사용자의 기존 Chrome/Safari 세션에
 자동 연결하지 않습니다.
 
 wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으로
 `FlowStore(path=...)`를 지정하면 그 경로를 사용하고, wheel 설치의 기본
-저장 경로는 `$XDG_DATA_HOME/nlc/flows` 또는
-`~/.local/share/nlc/flows`입니다. `XDG_DATA_HOME`은 절대 경로만 사용합니다.
+저장 경로는 `$XDG_DATA_HOME/tacto/flows` 또는
+`~/.local/share/tacto/flows`입니다. `XDG_DATA_HOME`은 절대 경로만 사용합니다.
 소스 checkout에 `pyproject.toml`과 `flows/`가 함께 있으면 기존 `flows/`를
 유지합니다. 설치된 `site-packages`에는 사용자 flow를 만들지 않습니다.
 
@@ -53,7 +55,7 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 특정 프로젝트 팀에 고정하지 않습니다. 빌드 도구가 선택한 인증서의 실제 팀으로
 런처·도우미를 서명하고, 실행 시 양쪽이 자신의 유효한 서명에서 읽은 팀과 상대의
 팀·프로그램 식별자를 비교합니다. 다른 팀·서명 없는 프로그램·ad-hoc 서명은 거부합니다.
-`NLC_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
+`TACTO_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
 별도로 준비한 Apple Silicon용 DMG는 Developer ID 서명·Apple 공증·Gatekeeper
 검사를 통과했습니다. [Release 페이지](https://github.com/Open330/tacto/releases)의
 첫 배포는 개발자 미리보기입니다. [Preview 1](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1)의 DMG를 다운로드한 사용자는
@@ -70,7 +72,7 @@ wheel 설치 과정에서 자동 실행하지 않습니다.
 ```sh
 uv sync
 # 필요한 경우 사용할 Apple 코드 서명 인증서를 명시합니다.
-# export NLC_SIGN_IDENTITY='사용할 코드 서명 identity'
+# export TACTO_SIGN_IDENTITY='사용할 코드 서명 identity'
 ./build.sh
 ./skill/install.sh
 ~/.local/bin/tacto doctor
@@ -78,12 +80,12 @@ uv sync
 ```
 
 런처는 자신의 위치를 기준으로 저장소 루트의 `.venv/bin/python`, `helper/`
-번들을 찾습니다. 이 디렉터리 배치를 유지해야 하며 `launcher/nlc` 파일만
+번들을 찾습니다. 이 디렉터리 배치를 유지해야 하며 `launcher/tacto` 파일만
 다른 경로로 복사하면 설치가 되지 않습니다. 코드 서명 identity가 없으면
 런처 빌드는 실패합니다. 도우미 파일을 wheel에 복사하거나 임의로 재서명해
 설치 문제를 우회하지 않습니다.
 
-wheel의 `tacto` console script는 Python CLI입니다. 서명된 `./launcher/nlc`와
+wheel의 `tacto` console script는 Python CLI입니다. 서명된 `./launcher/tacto`와
 같은 프로그램이 아니며 wheel만 설치해서 `--helper` 채널을 얻을 수는 없습니다.
 네이티브 `doctor`, `apps`, `observe`, `do`, `run`, `replay`에는 macOS 실행
 환경과 해당 경로의 권한이 필요합니다.
@@ -98,7 +100,7 @@ wheel의 `tacto` console script는 Python CLI입니다. 서명된 `./launcher/nl
 환경에 설치하는 검사는 `uv`가 준비된 환경에서 명시적으로 실행합니다.
 
 ```sh
-NLC_TEST_WHEEL_INSTALL=1 .venv/bin/python -m unittest discover -s tests -p test_installation.py -v
+TACTO_TEST_WHEEL_INSTALL=1 .venv/bin/python -m unittest discover -s tests -p test_installation.py -v
 ```
 
 이 검사는 macOS 접근성 모듈을 import하지 못하게 차단한 별도 프로세스에서
@@ -116,7 +118,7 @@ Claude/Codex의 Tacto 스킬을 이 checkout의 `skill/`에 연결합니다.
 연결이 모두 맞으면 exit0, 누락·오래된 연결·충돌이면 exit1입니다.
 backend 선택·코드 서명·권한·helper 실행은 이 링크 검사로 검증하지 않습니다.
 
-이 installer는 `launcher/nlc`가 없을 때 Python console script로 대체하지
+이 installer는 `launcher/tacto`가 없을 때 Python console script로 대체하지
 않습니다. 먼저 `uv sync && ./build.sh`로 native checkout을 준비합니다.
 다른 프로그램이나 스킬의 파일·심볼릭 링크는 보존하고 충돌을 보고합니다.
 기존 Tacto 스킬 복사본을 연결로 바꿀 때는 skills 폴더 밖, 그 상위 폴더의
@@ -140,7 +142,7 @@ Python으로 대체하지 않습니다. Python 직접 경로는 별도의 개발
 `tacto doctor --check`는 자체적으로 권한 경계를 확인합니다. `tacto eval`은
 시나리오별 backend를 선택하므로 signed 시나리오를 지정하고, `--helper`를
 평가 인자로 추가하지 않습니다. 스킬 예시와 실행 경로가 어긋날 때는 링크,
-backend flag, launcher가 사용하는 `.venv`의 실제 `nlc.cli` import 경로를
+backend flag, launcher가 사용하는 `.venv`의 실제 `tacto.cli` import 경로를
 함께 확인해야 합니다. 소스 checkout의 editable 설치라면 Python 변경은
 즉시 반영되며 Swift launcher/helper 변경에는 별도 재빌드가 필요합니다.
 
@@ -192,12 +194,12 @@ swiftc setup/main.swift setup/PermissionState.swift -o /tmp/tacto-setup
 
 Python과 네이티브 런타임을 포함하는 독립 실행 개발용 앱과 드래그 설치 이미지는
 다음 명령으로 만들 수 있습니다. 빌드된 native checkout과 Apple 발급 서명 인증서가
-필요합니다. `NLC_SIGN_IDENTITY`에는 `security find-identity -v -p codesigning`에서 확인한
+필요합니다. `TACTO_SIGN_IDENTITY`에는 `security find-identity -v -p codesigning`에서 확인한
 인증서 식별자를 지정합니다. 출력 경로는 아직 존재하지 않는 경로를 지정하세요.
 
 ```sh
 tacto_preview_dir="$(mktemp -d /private/tmp/tacto-preview.XXXXXX)"
-uv run python setup/build_standalone_preview.py --identity "$NLC_SIGN_IDENTITY" --output "$tacto_preview_dir/Tacto.app" --report "$tacto_preview_dir/standalone-report.json"
+uv run python setup/build_standalone_preview.py --identity "$TACTO_SIGN_IDENTITY" --output "$tacto_preview_dir/Tacto.app" --report "$tacto_preview_dir/standalone-report.json"
 uv run python setup/build_drag_preview.py --app "$tacto_preview_dir/Tacto.app" --output "$tacto_preview_dir/Tacto-preview.dmg" --report "$tacto_preview_dir/drag-report.json"
 ```
 
@@ -214,7 +216,7 @@ swiftc setup/PermissionState.swift setup/state-check.swift -o /tmp/tacto-setup-s
 /tmp/tacto-setup-state-check
 ```
 
-Tacto 설치는 `tacto`와 이전 `nlc` 명령을 같은 서명된 런처에 연결합니다.
+Tacto 설치는 `tacto`와 이전 `nlc` 명령을 같은 서명된 런처(`launcher/tacto`)에 연결합니다. Preview 1은 `launcher/nlc`를 사용했습니다.
 스킬 이름 전환과 저장 경로·권한 호환성은 [전환 안내](tacto-branding.md)를 확인하세요.
 
 ### 드래그로 권한용 앱 추가하기

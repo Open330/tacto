@@ -4,13 +4,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from nlc.contract import Envelope, Resource, SafetyContract
-from nlc.flow import Flow, Selector, Step, replay
-from nlc.general import run
-from nlc.helper import HelperDriver
-from nlc.outcome import DONE, Check, OutcomeSpec, spec_for, verify
-from nlc.promote import Candidate, candidate_from, to_flow
-from nlc.trace import Trace, TraceDriver, TracingDriver
+from tacto.contract import Envelope, Resource, SafetyContract
+from tacto.flow import Flow, Selector, Step, replay
+from tacto.general import run
+from tacto.helper import HelperDriver
+from tacto.outcome import DONE, Check, OutcomeSpec, spec_for, verify
+from tacto.promote import Candidate, candidate_from, to_flow
+from tacto.trace import Trace, TraceDriver, TracingDriver
 
 
 class Screen:
@@ -225,15 +225,15 @@ class ReviewRegressions(unittest.TestCase):
             self.assertNotIn("private user words", path.read_text())
 
     def test_provider_json_strings_can_contain_braces(self):
-        from nlc.authoring import _extract_json
+        from tacto.authoring import _extract_json
         self.assertEqual({"text": "}"}, _extract_json('```json\n{"text":"}"}\n```'))
 
     def test_failed_helper_capability_check_cannot_be_bypassed_by_reconstruction(self):
         from unittest.mock import patch
-        from nlc.helper import InheritedHelperDriver, HelperUnavailable
+        from tacto.helper import InheritedHelperDriver, HelperUnavailable
         pong = {'type':'pong','trusted':True,'capabilities':[]}
         with patch.object(InheritedHelperDriver,'_shared',None), \
-             patch.dict('os.environ',{'NLC_HELPER_FD':'123'}), \
+             patch.dict('os.environ',{'TACTO_HELPER_FD':'123'}), \
              patch('socket.socket'), \
              patch.object(InheritedHelperDriver,'_send',return_value=pong):
             for _ in range(2):
@@ -248,7 +248,7 @@ class ReviewRegressions(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / 'examples' / 'eval.py'
         # Import the harness against an inert driver; never load the native AX
         # backend merely to test reporting on Linux or a locked workstation.
-        with patch.dict('sys.modules', {'nlc.driver':SimpleNamespace(Driver=object)}):
+        with patch.dict('sys.modules', {'tacto.driver':SimpleNamespace(Driver=object)}):
             namespace = runpy.run_path(str(path), run_name='audit_evaluation')
         looked = [False]
         def pure_failure():
@@ -271,7 +271,7 @@ class ReviewRegressions(unittest.TestCase):
         import runpy
         from unittest.mock import patch
         path = Path(__file__).resolve().parents[1] / 'examples' / 'eval.py'
-        with patch.dict('sys.modules', {'nlc.driver': SimpleNamespace(Driver=object)}):
+        with patch.dict('sys.modules', {'tacto.driver': SimpleNamespace(Driver=object)}):
             namespace = runpy.run_path(str(path), run_name='audit_abort_evaluation')
         # Both scenarios that run in a FRESH launcher process. For either of
         # them these errors mean the run started broken — the abort latch did
@@ -284,7 +284,7 @@ class ReviewRegressions(unittest.TestCase):
             for error in ('aborted_by_user', 'helper_unavailable',
                           'protocol_error'):
                 with self.subTest(scenario=name, error=error), \
-                        patch('nlc.helper.InheritedHelperDriver') as driver:
+                        patch('tacto.helper.InheritedHelperDriver') as driver:
                     driver.available.return_value = True
                     driver.return_value.observe.return_value = {
                         'type': 'error', 'error': error,
@@ -300,7 +300,7 @@ class ReviewRegressions(unittest.TestCase):
         import runpy
         from unittest.mock import patch
         path = Path(__file__).resolve().parents[1] / 'examples' / 'eval.py'
-        with patch.dict('sys.modules', {'nlc.driver':SimpleNamespace(Driver=object)}):
+        with patch.dict('sys.modules', {'tacto.driver':SimpleNamespace(Driver=object)}):
             namespace = runpy.run_path(str(path), run_name='audit_corpus_evaluation')
         check = namespace['scenario_the_corpus_measures_tasks_not_properties']
         base = '잘못된 성공 보고율 0.0%\n범위 밖 효과 0.0%\n중복 효과 0.0%\n'

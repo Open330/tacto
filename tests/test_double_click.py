@@ -3,9 +3,9 @@ helper), or AXOpen where the element offers it. Like a bound key, a posted
 double click proves nothing by itself — replay must reobserve, never retry."""
 from dataclasses import replace
 import unittest
-from nlc.contract import Envelope, ContextBinding
-from nlc.flow import Flow, Step, Selector, Postcondition, replay, pin_params
-from nlc.protocol import ACTION_PARAMS, double_click_reobservation
+from tacto.contract import Envelope, ContextBinding
+from tacto.flow import Flow, Step, Selector, Postcondition, replay, pin_params
+from tacto.protocol import ACTION_PARAMS, double_click_reobservation
 
 POSTED = {'type': 'acted', 'input_route': 'window_bound_double_click', 'posted_events': 4,
           'unverified': 'observe_effect', 'reobserve_required': True}

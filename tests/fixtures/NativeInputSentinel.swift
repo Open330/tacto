@@ -56,16 +56,16 @@ final class SentinelDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegat
         editor.font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
         editor.string = "NLC sentinel 한글 😀\nHarmless text for caret preservation."
         editor.setSelectedRange(NSRange(location: 4, length: 0))
-        identify(editor, "nlc-sentinel-text")
+        identify(editor, "tacto-sentinel-text")
         editor.delegate = self
         editor.onStateChange = { [weak self] in self?.refreshState() }
         scroll.documentView = editor
         self.editor = editor
         window.contentView?.addSubview(scroll)
 
-        identify(caret, "nlc-sentinel-caret")
-        identify(keyCount, "nlc-sentinel-key-count")
-        identify(state, "nlc-sentinel-state")
+        identify(caret, "tacto-sentinel-caret")
+        identify(keyCount, "tacto-sentinel-key-count")
+        identify(state, "tacto-sentinel-state")
         caret.frame = NSRect(x: 20, y: 76, width: 540, height: 24)
         keyCount.frame = NSRect(x: 20, y: 46, width: 540, height: 24)
         state.frame = NSRect(x: 20, y: 16, width: 540, height: 24)

@@ -3,9 +3,9 @@ from dataclasses import replace
 import unittest
 from unittest.mock import Mock, patch
 
-from nlc.general import run
-from nlc.flow import Postcondition, Selector, replay, pin_params
-from nlc.promote import candidate_from, deployable, gate, to_flow
+from tacto.general import run
+from tacto.flow import Postcondition, Selector, replay, pin_params
+from tacto.promote import candidate_from, deployable, gate, to_flow
 import test_navigation_replay as fixture
 
 
@@ -68,10 +68,10 @@ class NavigationPromotionTests(unittest.TestCase):
             self.assertFalse(candidate.same_path_as(changed))
 
     def test_author_sees_actual_backend_capabilities(self):
-        from nlc.authoring import author
+        from tacto.authoring import author
         app = fixture.App()
         expected = fixture.NavigationReplayTests().flow()
-        with patch('nlc.authoring._attempt', return_value=expected) as attempt:
+        with patch('tacto.authoring._attempt', return_value=expected) as attempt:
             self.assertIs(author('navigate', app, target='fixture'), expected)
         prompt = attempt.call_args.args[0]
         self.assertIn('press_key.element_bound', prompt)

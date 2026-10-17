@@ -76,7 +76,7 @@ for mode in ["success", "identity", "context", "nodes", "deadline", "titlebar", 
 }
 print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-preparation-diagnostic-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-preparation-diagnostic-') as directory:
             script = Path(directory) / 'main.swift'
             script.write_text(harness)
             run = subprocess.run(['swift', str(script)], capture_output=True, text=True, timeout=60)
@@ -131,7 +131,7 @@ for mode in ["normal", "expired", "set_failure", "reset_failure"] {
 }
 print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-read-scope-counter-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-read-scope-counter-') as directory:
             path = Path(directory) / 'main.swift'; path.write_text(script)
             run = subprocess.run(['swift', str(path)], capture_output=True, text=True, timeout=60)
         self.assertEqual(0, run.returncode, run.stderr)

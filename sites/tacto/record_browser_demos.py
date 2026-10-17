@@ -14,8 +14,8 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from nlc.browser import BrowserDriver
-from nlc.flow import Flow, replay
+from tacto.browser import BrowserDriver
+from tacto.flow import Flow, replay
 
 GUIDE = r'''(() => {
  function install() {
@@ -133,7 +133,7 @@ def run(name, output, assets, *, definition=None, verify=None, approve=False, in
         page.wait_for_timeout(900)
         approvals={}
         if approve:
-            from nlc.agent import Agent
+            from tacto.agent import Agent
             approvals,blocked=Agent(driver=driver).authorize(flow,ask=lambda message:True)
             assert not blocked,blocked
         result=replay(driver,flow,approvals=approvals)

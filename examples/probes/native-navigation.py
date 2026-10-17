@@ -11,10 +11,10 @@ TARGET = 'ai.callabo.nlc.navigation-fixture'
 
 
 def main(driver, output, *, model_provider=None, require_selection=False):
-    from nlc.driver import Driver, _attr
-    from nlc.flow import Selector
-    from nlc.model_budget import model_deadline
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.driver import Driver, _attr
+    from tacto.flow import Selector
+    from tacto.model_budget import model_deadline
+    from tacto.input_audit_process import ProcessInputAudit
     from ApplicationServices import AXUIElementCreateApplication
     root = Path(__file__).resolve().parents[2]
     if type(require_selection) is not bool:
@@ -27,18 +27,18 @@ def main(driver, output, *, model_provider=None, require_selection=False):
               'transport': type(driver).__name__, 'actions': [], 'refusals': [],
               'model_provider_requested': model_provider, 'require_selection': require_selection}
     sources = ['tests/fixtures/NativeNavigationFixture.swift', 'examples/probes/native-navigation.py',
-        'nlc/driver.py', 'nlc/native_key_events.py', 'nlc/native_window_binding.py',
-        'nlc/native_window_dispatch.py', 'nlc/native_window_ready.py', 'nlc/general.py', 'nlc/flow.py', 'nlc/protocol.py',
-        'nlc/input_audit.py', 'nlc/input_audit_process.py', 'nlc/native_frontmost.py',
+        'tacto/driver.py', 'tacto/native_key_events.py', 'tacto/native_window_binding.py',
+        'tacto/native_window_dispatch.py', 'tacto/native_window_ready.py', 'tacto/general.py', 'tacto/flow.py', 'tacto/protocol.py',
+        'tacto/input_audit.py', 'tacto/input_audit_process.py', 'tacto/native_frontmost.py',
         'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/TactoHelper.swift',
-        'launcher/tacto.swift', 'nlc/helper.py', 'nlc/promote.py', 'nlc/authoring.py']
+        'launcher/tacto.swift', 'tacto/helper.py', 'tacto/promote.py', 'tacto/authoring.py']
     def source_hashes():
         return {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     report['source_hashes_before'] = source_hashes()
     child = None
     try:
         assert host_driver._resolve(TARGET, launch=False) is None, 'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-native-navigation-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-native-navigation-') as directory:
             bundle = Path(directory) / 'Navigation.app'
             binaries = bundle / 'Contents/MacOS'; binaries.mkdir(parents=True)
             binary = binaries / 'Navigation'
@@ -128,7 +128,7 @@ def main(driver, output, *, model_provider=None, require_selection=False):
                             refused(observe(), 'nav-A-first', 'Tab')
                     report['final'] = state()
                     assert 'downs=6 ups=6 routeErrors=0' in report['final']['nav-A-state']
-                    from nlc.general import run
+                    from tacto.general import run
                     plans = []
                     class OwnedNavigationDriver:
                         """Closed model probe: one Right on A-first, plus reads."""
@@ -152,7 +152,7 @@ def main(driver, output, *, model_provider=None, require_selection=False):
                     general_driver = OwnedNavigationDriver() if model_provider else driver
                     def planner(goal, candidates, history):
                         if model_provider:
-                            from nlc.ask import ask_here_paged
+                            from tacto.ask import ask_here_paged
                             for candidate in candidates:
                                 candidate['can'] = [value for value in candidate['can'] if value in ('press_key','read')]
                             answer = ask_here_paged(goal, candidates, history, provider=model_provider, max_pages=2)
@@ -176,8 +176,8 @@ def main(driver, output, *, model_provider=None, require_selection=False):
                     report['final'] = state()
                     assert 'downs=7 ups=7 routeErrors=0' in report['final']['nav-A-state']
                     assert 'downs=0 ups=0 routeErrors=0' in report['final']['nav-B-state']
-                    from nlc.flow import Flow, Step, Postcondition, replay, pin_params
-                    from nlc.contract import Envelope, ContextBinding
+                    from tacto.flow import Flow, Step, Postcondition, replay, pin_params
+                    from tacto.contract import Envelope, ContextBinding
                     field = Selector(role='TextArea', identifier='nav-A-first')
                     # Explicit owned-fixture reset, then replay the observed
                     # Right/read candidate. This is no retry or model step.
@@ -187,7 +187,7 @@ def main(driver, output, *, model_provider=None, require_selection=False):
                     assert reset.get('type') == 'acted' and reset.get('posted_events') == 2, reset
                     time.sleep(.12)
                     assert state()['nav-A-first'] == 'position=0'
-                    from nlc.promote import candidate_from, deployable
+                    from tacto.promote import candidate_from, deployable
                     candidate = candidate_from(general, TARGET, 'navigate once and read')
                     assert candidate is not None
                     promoted, reasons = deployable(candidate, 'owned-promoted-navigation', candidate.goal,

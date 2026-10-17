@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.native_frontmost import (
+from tacto.native_frontmost import (
     FrontmostUnavailable, ProcessSerialNumber, frontmost_pid,
 )
 
@@ -45,7 +45,7 @@ class Library:
 
 class FrontmostTests(unittest.TestCase):
     def run_native(self, library):
-        with patch('nlc.native_frontmost._load_library', return_value=library):
+        with patch('tacto.native_frontmost._load_library', return_value=library):
             return frontmost_pid()
 
     def test_exact_abi_and_repeated_foreground_read(self):
@@ -83,10 +83,10 @@ class FrontmostTests(unittest.TestCase):
     def test_missing_api_and_loader_failure_are_explicit(self):
         with self.assertRaises(FrontmostUnavailable):
             self.run_native(object())
-        with patch('nlc.native_frontmost.ctypes.CDLL', side_effect=OSError('absent')):
+        with patch('tacto.native_frontmost.ctypes.CDLL', side_effect=OSError('absent')):
             with self.assertRaises(FrontmostUnavailable):
                 frontmost_pid()
-        with patch('nlc.native_frontmost.sys.platform', 'linux'):
+        with patch('tacto.native_frontmost.sys.platform', 'linux'):
             with self.assertRaises(FrontmostUnavailable):
                 frontmost_pid()
 
@@ -108,16 +108,16 @@ class FrontmostTests(unittest.TestCase):
 class DriverForegroundTests(unittest.TestCase):
     def test_preparation_rechecks_foreground_after_settable_read_and_each_write(self):
         from types import SimpleNamespace
-        from nlc.driver import Driver, NotStarted
+        from tacto.driver import Driver, NotStarted
         driver = Driver.__new__(Driver)
         obs = SimpleNamespace(pid=123)
         for results, count in (([True, False], 0), ([True, True, False], 1)):
             with self.subTest(results=results), \
                  patch.object(Driver, '_frontmost', side_effect=results), \
-                 patch('nlc.driver._attr', return_value=False), \
-                 patch('nlc.driver.AXUIElementIsAttributeSettable', return_value=(0, True)), \
-                 patch('nlc.driver.AXUIElementSetAttributeValue', return_value=0) as write, \
-                 patch('nlc.driver._aborted_now', return_value=False):
+                 patch('tacto.driver._attr', return_value=False), \
+                 patch('tacto.driver.AXUIElementIsAttributeSettable', return_value=(0, True)), \
+                 patch('tacto.driver.AXUIElementSetAttributeValue', return_value=0) as write, \
+                 patch('tacto.driver._aborted_now', return_value=False):
                 with self.assertRaises(RuntimeError) as error:
                     driver._prepare_window(obs, object())
                 self.assertEqual(isinstance(error.exception, NotStarted), count == 0)
@@ -125,24 +125,24 @@ class DriverForegroundTests(unittest.TestCase):
 
     def test_failed_window_write_never_claims_not_started(self):
         from types import SimpleNamespace
-        from nlc.driver import Driver, NotStarted
+        from tacto.driver import Driver, NotStarted
         driver = Driver.__new__(Driver)
         with patch.object(Driver, '_frontmost', return_value=True), \
-             patch('nlc.driver._attr', return_value=False), \
-             patch('nlc.driver.AXUIElementIsAttributeSettable', return_value=(0, True)), \
-             patch('nlc.driver.AXUIElementSetAttributeValue', return_value=-25204) as write, \
-             patch('nlc.driver._aborted_now', return_value=False):
+             patch('tacto.driver._attr', return_value=False), \
+             patch('tacto.driver.AXUIElementIsAttributeSettable', return_value=(0, True)), \
+             patch('tacto.driver.AXUIElementSetAttributeValue', return_value=-25204) as write, \
+             patch('tacto.driver._aborted_now', return_value=False):
             with self.assertRaises(RuntimeError) as error:
                 driver._prepare_window(SimpleNamespace(pid=123), object())
             self.assertNotIsInstance(error.exception, NotStarted)
             self.assertEqual(write.call_count, 1)
 
     def test_cached_workspace_cannot_authorize_a_write(self):
-        from nlc.driver import Driver
-        with patch('nlc.native_frontmost.frontmost_pid', return_value=123):
+        from tacto.driver import Driver
+        with patch('tacto.native_frontmost.frontmost_pid', return_value=123):
             self.assertTrue(Driver._frontmost(123))
             self.assertFalse(Driver._frontmost(456))
-        with patch('nlc.native_frontmost.frontmost_pid', side_effect=FrontmostUnavailable('missing')):
+        with patch('tacto.native_frontmost.frontmost_pid', side_effect=FrontmostUnavailable('missing')):
             self.assertFalse(Driver._frontmost(123))
         for pid in (True, None, 0, -1, '123'):
             self.assertFalse(Driver._frontmost(pid))

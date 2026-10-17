@@ -14,22 +14,22 @@ import sys
 import time
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
-from nlc.flow import (Flow, Step, Selector, calculator_12x34, replay,
+from tacto.flow import (Flow, Step, Selector, calculator_12x34, replay,
                       TargetAmbiguous, TargetMissing)
 
-# `nlc.driver` needs PyObjC. A hard import here makes the whole suite
+# `tacto.driver` needs PyObjC. A hard import here makes the whole suite
 # unimportable on a machine without it — including the pure scenarios, which
 # are exactly the ones such a machine can still run (peer finding). So its
 # absence is a capability this environment lacks, declared per scenario as
 # `native`, and not a crash at import.
 try:
-    from nlc.driver import Driver
+    from tacto.driver import Driver
     HAS_NATIVE = True
 except Exception:                       # pragma: no cover - non-mac only
     Driver = None
     HAS_NATIVE = False
-from nlc.safety import classify
-from nlc.evaluation import EvaluationFailure, require_replay
+from tacto.safety import classify
+from tacto.evaluation import EvaluationFailure, require_replay
 
 
 def scenario_task_success():
@@ -46,7 +46,7 @@ def scenario_safety_block():
     approval, and must run with it. (A calculator has no genuinely destructive
     control — its Delete is a backspace, correctly classified `none` — so the
     risk is declared on the step rather than inferred from the label.)"""
-    from nlc.contract import (SafetyContract, Resource, ContextBinding,
+    from tacto.contract import (SafetyContract, Resource, ContextBinding,
                               issue_approval)
     d = Driver()
     # A contract whose meaning warrants confirmation: deleting a stored item.
@@ -102,7 +102,7 @@ def scenario_batch_invalidation():
 def scenario_contract_policy():
     """Meaning, not keywords, decides authorization: a calculator's AC and a
     delete-account button have identical AX shape but different contracts."""
-    from nlc.contract import (SafetyContract, Resource, Destination, policy)
+    from tacto.contract import (SafetyContract, Resource, Destination, policy)
     cases = [
         (SafetyContract(effects=["delete"],
                         resource=Resource(object_type="entry", scope="entry"),
@@ -134,7 +134,7 @@ def scenario_authorization_never_falls():
     grows cannot become freer, so the check is the property itself rather than
     the handful of pairs that happened to be wrong."""
     from itertools import combinations
-    from nlc.contract import (EFFECTS, Decision, Destination, Resource,
+    from tacto.contract import (EFFECTS, Decision, Destination, Resource,
                               SafetyContract, policy)
     rank = {"none": 0, "preapproved": 1, "confirm": 2, "handoff": 3, "blocked": 4}
     shapes = [
@@ -162,7 +162,7 @@ def scenario_authorization_never_falls():
 
 def scenario_approval_binding():
     """Consent is bound to the described action, not to a step number."""
-    from nlc.contract import (SafetyContract, ContextBinding, Destination,
+    from tacto.contract import (SafetyContract, ContextBinding, Destination,
                               issue_approval)
     c = SafetyContract(effects=["transmit"], data_classes=["personal"],
                        destination=Destination(kind="third_party", identity="mom"))
@@ -199,9 +199,9 @@ def scenario_input_verification():
     The contract under test is unchanged: no postcondition is refused, and an
     explicit `unverified_ok` is honoured.
     """
-    from nlc.flow import Flow, Step, replay
-    from nlc.contract import SafetyContract, Resource, ContextBinding
-    from nlc.library import TEXT_AREA, textedit_new_document
+    from tacto.flow import Flow, Step, replay
+    from tacto.contract import SafetyContract, Resource, ContextBinding
+    from tacto.library import TEXT_AREA, textedit_new_document
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
@@ -229,7 +229,7 @@ def scenario_input_verification():
     # Persistent means it is also approvable, so the approval has to come from
     # somewhere; without it the step is gated and never reaches the question
     # this scenario is asking.
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     agent = Agent(driver=d)
     def attempt(name, **extra):
         f = flow(name, **extra)
@@ -256,7 +256,7 @@ def scenario_volatile_identifier():
             "  8 ScrollArea  Identifier: StandardInputView;value:408\n"
             "    9 StaticText  Value: 408\n"
             "  20 Button  Identifier: SaveAs")
-    from nlc.flow import Postcondition
+    from tacto.flow import Postcondition
     try:
         idx, _ = Selector(role="ScrollArea", identifier="StandardInputView").resolve(tree)
     except LookupError:
@@ -276,11 +276,11 @@ def scenario_trace_reproducibility():
     """A recorded run must re-execute off-machine: record live, then replay the
     same flow against the trace alone (no app, no GUI, no permissions). This is
     what makes a user's failure debuggable somewhere else."""
-    from nlc.trace import record, rerun, Trace
+    from tacto.trace import record, rerun, Trace
     res, tr = record(Driver(), calculator_12x34())
     if not res.ok:
         return "실기기 실행이 되지 않아 녹화할 트레이스가 없음"
-    again = rerun(Trace.load(tr.save("/tmp/nlc-eval-trace.json")),
+    again = rerun(Trace.load(tr.save("/tmp/tacto-eval-trace.json")),
                   calculator_12x34())
     return again.ok and again.log[-1]["status"] == "done"
 
@@ -288,7 +288,7 @@ def scenario_trace_reproducibility():
 def scenario_parameterized_flow():
     """One recipe, many inputs: the digits of a calculation are parameters, not
     part of the procedure — and the run still verifies its own answer."""
-    from nlc.flow import calculator_multiply, replay
+    from tacto.flow import calculator_multiply, replay
     f = calculator_multiply()
     bound = f.bind(a="7", b="9")
     if bound.steps[-1].postcondition.equals != "63":     # derived, not hardcoded
@@ -305,8 +305,8 @@ def scenario_reparameterize():
     """A concrete recipe can become a template without re-learning it: the
     literals it was authored with turn into inputs, and the contract stops
     pinning what is now variable."""
-    from nlc.flow import calculator_12x34
-    from nlc.reparam import parameterize, digits_table
+    from tacto.flow import calculator_12x34
+    from tacto.reparam import parameterize, digits_table
     t = parameterize(calculator_12x34(), {"12": "a", "34": "b", "408": "result"},
                      tables=digits_table(), derived={"result": "{{a}} * {{b}}"})
     if t.bind(a="5", b="6").steps[-1].postcondition.equals != "30":
@@ -323,7 +323,7 @@ def scenario_reparameterize():
                 if s.binding and s.selector and s.selector.identifier in ("Eight", "Seven")]
     if not concrete or any("{{" in c for c in concrete):
         return False
-    from nlc.flow import replay
+    from tacto.flow import replay
     r = replay(Driver(), t.bind(a="8", b="7"))
     require_replay(r, "reparameterize", accepted=r.ok and str(r.log[-1].get("result")) == "56")
     return True
@@ -331,7 +331,7 @@ def scenario_reparameterize():
 
 def scenario_capture():
     """A recipe can read a value OFF the screen, not just push values in."""
-    from nlc.flow import calculator_multiply, Capture, Selector, replay
+    from tacto.flow import calculator_multiply, Capture, Selector, replay
     f = calculator_multiply().bind(a="8", b="9")
     f.steps[-1].captures = [Capture(
         name="answer",
@@ -349,14 +349,14 @@ def scenario_swift_helper():
     # launcher, which is the point of it — so when this suite runs outside the
     # launcher the scenario is skipped rather than reported as a failure.
     try:
-        from nlc.helper import InheritedHelperDriver
+        from tacto.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
-            return "서명된 런처 밖에서 실행 중 — ./launcher/nlc eval 로 확인"
+            return "서명된 런처 밖에서 실행 중 — ./launcher/tacto eval 로 확인"
         d = InheritedHelperDriver()
     except Exception:
         return "서명된 런처 밖 — 상속 채널 없음"
     try:
-        from nlc.flow import calculator_multiply, replay
+        from tacto.flow import calculator_multiply, replay
         r = replay(d, calculator_multiply().bind(a="9", b="8"))
         require_replay(r, "swift_helper", accepted=r.ok and str(r.log[-1].get("result")) == "72")
         return True
@@ -383,9 +383,9 @@ def scenario_helper_menu():
     import runpy
     from pathlib import Path
     try:
-        from nlc.helper import InheritedHelperDriver
+        from tacto.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
-            return "서명된 런처 밖에서 실행 중 — ./launcher/nlc eval 로 확인"
+            return "서명된 런처 밖에서 실행 중 — ./launcher/tacto eval 로 확인"
         d = InheritedHelperDriver()
     except Exception:
         return "서명된 런처 밖 — 상속 채널 없음"
@@ -411,9 +411,9 @@ def scenario_helper_user_authority():
     """The helper refuses to act after the user presses Esc, and refuses an
     obs_id taken on a different app — neither depends on trusting the caller."""
     try:
-        from nlc.helper import InheritedHelperDriver
+        from tacto.helper import InheritedHelperDriver
         if not InheritedHelperDriver.available():
-            return "서명된 런처 밖에서 실행 중 — ./launcher/nlc eval 로 확인"
+            return "서명된 런처 밖에서 실행 중 — ./launcher/tacto eval 로 확인"
         d = InheritedHelperDriver()
     except Exception:
         return "서명된 런처 밖 — 상속 채널 없음"
@@ -449,8 +449,8 @@ def scenario_permission_boundary():
     a forged argv[0] — both were real bypasses found in review."""
     import os, subprocess, tempfile, pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
-    helper = root / "helper" / "NLC Helper.app" / "Contents" / "MacOS" / "NLCHelper"
-    launcher = root / "launcher" / "nlc"
+    helper = root / "helper" / "Tacto Helper.app" / "Contents" / "MacOS" / "TactoHelper"
+    launcher = root / "launcher" / "tacto"
     if not helper.exists() or not launcher.exists():
         return "권한 경계 미빌드 (helper/build.sh, launcher/build.sh)"
 
@@ -463,8 +463,8 @@ def scenario_permission_boundary():
         return subprocess.run(
             [str(helper)], input='{"type":"ping","token":"x"}\n',
             capture_output=True, text=True, timeout=30,
-            env={**os.environ, "NLC_HELPER_TOKEN": "x",
-                 "NLC_HELPER_REQUIREMENT": requirement}).returncode
+            env={**os.environ, "TACTO_HELPER_TOKEN": "x",
+                 "TACTO_HELPER_REQUIREMENT": requirement}).returncode
     permissive = probe("anchor apple generic")
     impossible = probe('identifier "nope.not.a.real.identifier"')
     if permissive != impossible:
@@ -480,7 +480,7 @@ def scenario_permission_boundary():
     pid = os.fork()
     if pid == 0:
         try:
-            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "nlc"), "list"])
+            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "tacto"), "list"])
         except Exception:
             os._exit(9)
     os.waitpid(pid, 0)
@@ -492,13 +492,13 @@ def scenario_peer_authentication():
     legacy stdio path is gone, and what crosses is checked per action."""
     import pathlib, subprocess
     root = pathlib.Path(__file__).resolve().parent.parent
-    if not (root / "launcher" / "nlc").exists():
+    if not (root / "launcher" / "tacto").exists():
         return "권한 경계 미빌드 (launcher/build.sh)"
-    from nlc.helper import InheritedHelperDriver, HelperUnavailable
+    from tacto.helper import InheritedHelperDriver, HelperUnavailable
 
     # The helper must refuse to run at all outside socket mode — that stdio
     # fallback was reachable by the launcher's own child, bypassing vetting.
-    helper = root / "helper" / "NLC Helper.app" / "Contents" / "MacOS" / "NLCHelper"
+    helper = root / "helper" / "Tacto Helper.app" / "Contents" / "MacOS" / "TactoHelper"
     if helper.exists():
         r = subprocess.run([str(helper)], input='{"type":"ping"}\n',
                            capture_output=True, text=True, timeout=30)
@@ -548,10 +548,10 @@ def scenario_cli_end_to_end():
     """Exercise the command a person actually types.
 
     Every other scenario calls the engine directly and binds parameters itself,
-    so a stored template that `nlc do` never bound ran as literal
+    so a stored template that `tacto do` never bound ran as literal
     "{{digit[item]}}" while the suite stayed green. This closes that gap: run the
     real CLI path over a stored recipe and require the verified answer."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     said = []
     turn = Agent(narrate=said.append).handle("계산기로 12 곱하기 34")
     return turn.status == "done" and "408" in turn.say
@@ -562,7 +562,7 @@ def scenario_intent_parameters():
 
     Without this, "문서 폴더 열어줘" and "다운로드 폴더 열어줘" would need two
     stored recipes for one procedure. Pure resolution — no GUI, no tokens."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     a = Agent(driver=object(), )
     cases = [("7 더하기 8 해줘", "calc_arith", {"a": "7", "b": "8", "op": "+"}),
              ("10 나누기 2", "calc_arith", {"a": "10", "b": "2", "op": "/"}),
@@ -581,8 +581,8 @@ def scenario_menu_command():
     Everyday tasks — save, copy, open a folder — have no on-screen button, so a
     driver that walks windows alone simply cannot express them. This also starts
     from an app with no window at all, which is how Finder normally sits."""
-    from nlc.flow import replay
-    from nlc.library import finder_open_folder
+    from tacto.flow import replay
+    from tacto.library import finder_open_folder
     d = Driver()
     r = replay(d, finder_open_folder().bind(folder="Documents"))
     require_replay(r, "finder_open_folder", accepted=r.ok and r.log[-1]["status"] == "done")
@@ -595,8 +595,8 @@ def scenario_menu_verification_required():
     Measured on a real machine: Format > Font > Bold with no selection returns
     success and changes nothing. So `menu` joins type_text/press_key in owing a
     postcondition unless the recipe opts out on the record."""
-    from nlc.flow import Flow, Step, replay
-    from nlc.contract import SafetyContract, Resource
+    from tacto.flow import Flow, Step, replay
+    from tacto.contract import SafetyContract, Resource
     sc = SafetyContract(effects=["read"], reversibility="reversible",
                         resource=Resource(object_type="메뉴", scope="item"))
     d = Driver()
@@ -611,8 +611,8 @@ def scenario_toggle_converges():
     "Make it bold" runs Format > Font > Bold; run it twice without a guard and
     the document ends up plain. The recipe states the condition it exists to
     bring about, so the second run stands down."""
-    from nlc.flow import replay
-    from nlc.library import (textedit_new_document, textedit_write_note,
+    from tacto.flow import replay
+    from tacto.library import (textedit_new_document, textedit_write_note,
                              textedit_emphasize)
     d = Driver()
     problem = _textedit_problem(d)
@@ -626,7 +626,7 @@ def scenario_toggle_converges():
     # Body edits and emphasis are write_persistent (TextEdit autosaves), so
     # they are approvable — and an unapproved step is `gated`, never reaching
     # the question this scenario asks.
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     agent = Agent(driver=d)
     def approved(flow):
         approvals, blocked = agent.authorize(flow, ask=lambda _what: True)
@@ -656,8 +656,8 @@ def scenario_menu_path_pinned():
     `File > Save` and `File > Move to Trash` are the same `menu` operation on
     the same app, so the path is the only thing separating them. Repointing a
     step must invalidate the recorded meaning rather than run under it."""
-    from nlc.flow import replay
-    from nlc.library import finder_open_folder
+    from tacto.flow import replay
+    from tacto.library import finder_open_folder
     d = Driver()
     f = finder_open_folder().bind(folder="Documents")
     f.steps[0].params = {"path": ["Go", "Home"]}      # same operation, new command
@@ -672,9 +672,9 @@ def scenario_builtin_is_not_frozen():
     The store used to win once a name had been saved, so every built-in froze at
     whatever it looked like the first time it ran — fixes shipped in the library
     never reached the command people type."""
-    from nlc.agent import Agent
-    from nlc.library import builders
-    from nlc.store import FlowStore
+    from tacto.agent import Agent
+    from tacto.library import builders
+    from tacto.store import FlowStore
     store = FlowStore()
     stale = builders()["finder_open_folder"]()
     stale.steps[0].intent_text = "낡은 사본"
@@ -690,7 +690,7 @@ def scenario_answers_a_question():
     Every other recipe here changes something; this one opens a folder and
     reads Finder's own status line back, and the agent has to actually say what
     it found rather than reporting that it finished."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     turn = Agent().handle("다운로드 폴더에 뭐 있어?")
     return (turn.status == "done" and turn.flow == "finder_list_items"
             and "item" in turn.say)
@@ -702,8 +702,8 @@ def scenario_consent_required():
     Saving a file is `write_persistent`, which the policy will not grant by
     itself. With nobody to ask, the answer is no and nothing happens — checked
     without touching the screen."""
-    from nlc.agent import Agent
-    from nlc.library import textedit_save_as
+    from tacto.agent import Agent
+    from tacto.library import textedit_save_as
     f = textedit_save_as().bind(filename="동의없음.rtf")
     approvals, blocked = Agent(driver=Driver()).authorize(f, ask=None)
     return not approvals and len(blocked) == 1
@@ -825,7 +825,7 @@ FOREGROUND_OK = False
 
 def foreground_allowed():
     """The shared switch, read through one name."""
-    from nlc.evaluation import foreground_allowed as allowed
+    from tacto.evaluation import foreground_allowed as allowed
     return allowed()
 
 
@@ -931,7 +931,7 @@ def _tidy_textedit(d):
 
 def _native_rtf_receipt(d, name, body):
     from pathlib import Path
-    from nlc.rtf_receipt import FreshRTFReceipt
+    from tacto.rtf_receipt import FreshRTFReceipt
     return FreshRTFReceipt(str((Path.home() / "Downloads").resolve()), name, body,
                            document_path=lambda: _saved_path(d, name))
 
@@ -978,15 +978,15 @@ def _cleanup_eval_rtf(d, name):
 def scenario_save_file():
     """Save once and verify the actual RTF path and decoded content."""
     import uuid
-    from nlc.agent import Agent
-    from nlc.library import (textedit_new_document, textedit_write_note,
+    from tacto.agent import Agent
+    from tacto.library import (textedit_new_document, textedit_write_note,
                              textedit_save_as)
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
         return problem
     _tidy_textedit(d)
-    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
+    name = f"tacto-eval-{uuid.uuid4().hex}.rtf"
     body = "저장 시나리오 테스트"
     receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
@@ -1013,9 +1013,9 @@ def scenario_consent_is_about_the_file():
     Approve saving as A, then let the name field end up saying B: the click has
     to be refused. Without a witness the pin would be unverifiable, and without
     the pin the approval would cover any filename at all."""
-    from nlc.agent import Agent
-    from nlc.flow import replay
-    from nlc.library import textedit_new_document, textedit_save_as
+    from tacto.agent import Agent
+    from tacto.flow import replay
+    from tacto.library import textedit_new_document, textedit_save_as
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
@@ -1046,7 +1046,7 @@ def scenario_consent_is_about_the_file():
     # Leave no sheet waiting for an answer: a stuck modal disables the whole
     # menu bar and would break every later scenario.
     o = d.observe("com.apple.TextEdit", "tree_full")
-    from nlc.flow import Selector
+    from tacto.flow import Selector
     try:
         idx, _ = Selector(role="Button", identifier="CancelButton",
                           in_focused_window=True).resolve(o["tree"])
@@ -1124,8 +1124,8 @@ def scenario_reads_a_list():
 
     Acting still demands exactly one match; reading asks for a scope instead, or
     "every TextField on screen" would pass for a description."""
-    from nlc.flow import Capture, replay
-    from nlc.library import finder_list_items
+    from tacto.flow import Capture, replay
+    from tacto.library import finder_list_items
     d = Driver()
     r = replay(d, finder_list_items().bind(folder="Applications"))
     names = (r.log[-1].get("captured") or {}).get("목록") or []
@@ -1144,9 +1144,9 @@ def scenario_calendar_reads_today():
     The weekday arrives in both the app's language and the caller's, because
     Calendar labels its columns in the system's and the two need not agree."""
     import datetime
-    from nlc.agent import _WEEKDAY_KO
-    from nlc.flow import replay
-    from nlc.library import calendar_today
+    from tacto.agent import _WEEKDAY_KO
+    from tacto.flow import replay
+    from tacto.library import calendar_today
     d = Driver()
     if d._resolve("Calendar", launch=False) is None:
         return "Calendar 가 실행 중이 아님"
@@ -1168,8 +1168,8 @@ def scenario_calendar_reads_today():
 
 def scenario_mail_reads_inbox():
     """Mail's inbox: the window's own tally, plus senders and subjects."""
-    from nlc.flow import replay
-    from nlc.library import mail_inbox
+    from tacto.flow import replay
+    from tacto.library import mail_inbox
     d = Driver()
     if d._resolve("Mail", launch=False) is None:
         return "Mail 이 실행 중이 아님"
@@ -1190,7 +1190,7 @@ def scenario_missing_target_says_what_is_there():
 
     The save panel offers only the folders in their own sidebar, so asking for
     another one fails — and the useful reply is the list it does offer."""
-    from nlc.flow import _nearby
+    from tacto.flow import _nearby
     tree = ("0 Window [focused]\n"
             "  1 Outline  Description: sidebar\n"
             "    2 StaticText  Value: Downloads\n"
@@ -1204,7 +1204,7 @@ def scenario_absence_is_verifiable():
 
     A dialog closing adds nothing to the screen, so a postcondition that can
     only assert presence has nothing to check."""
-    from nlc.flow import Postcondition
+    from tacto.flow import Postcondition
     before = "0 Window\n  1 Sheet  Description: save"
     after = "0 Window\n  1 TextArea  Value: hi"
     gone = Postcondition(absent="Sheet")
@@ -1218,9 +1218,9 @@ def scenario_dialog_recovery():
     for — so it is a recipe the person invokes, and it presses Cancel, never the
     button that commits."""
     import time as _t
-    from nlc.agent import Agent
-    from nlc.flow import replay
-    from nlc.library import close_dialog, textedit_new_document
+    from tacto.agent import Agent
+    from tacto.flow import replay
+    from tacto.library import close_dialog, textedit_new_document
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
@@ -1251,15 +1251,15 @@ def scenario_dialog_recovery():
 def scenario_save_chooses_its_folder():
     """The requested folder, fresh filename and decoded body must all match."""
     import uuid
-    from nlc.agent import Agent
-    from nlc.library import (textedit_new_document, textedit_write_note,
+    from tacto.agent import Agent
+    from tacto.library import (textedit_new_document, textedit_write_note,
                              textedit_save_as)
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
         return problem
     _tidy_textedit(d)
-    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
+    name = f"tacto-eval-{uuid.uuid4().hex}.rtf"
     body = "폴더 지정 저장"
     receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
@@ -1288,7 +1288,7 @@ def scenario_learning_is_reachable():
     import io
     from types import SimpleNamespace
     from unittest.mock import patch
-    import nlc.cli as cli
+    import tacto.cli as cli
 
     class ProbeAgent:
         def __init__(self, driver, author=None, **kwargs):
@@ -1302,12 +1302,12 @@ def scenario_learning_is_reachable():
     # Journaling introduced a dispatch wrapper. Test the real command parser,
     # not the source spelling or the wrapper's former position in the module.
     dispatch = getattr(cli, "_dispatch_command", cli._dispatch)
-    with patch("nlc.onboard.run", return_value=True), \
-            patch("nlc.session.preflight", return_value={"verdict": "ready"}), \
+    with patch("tacto.onboard.run", return_value=True), \
+            patch("tacto.session.preflight", return_value={"verdict": "ready"}), \
             patch.object(cli, "_make_driver", return_value=object()), \
             patch.object(cli, "Agent", ProbeAgent), \
             patch.object(cli, "_indicator_for", return_value=contextlib.nullcontext()), \
-            patch("nlc.authoring.author") as author, \
+            patch("tacto.authoring.author") as author, \
             contextlib.redirect_stdout(io.StringIO()):
         args = ["new independent task", "--strict", "--think", "0"]
         ordinary = dispatch("do", args[:])
@@ -1325,8 +1325,8 @@ def scenario_authoring_produces_a_runnable_flow():
     parser, the real selector validation, and a real replay against the app.
     This is what "handles a task it has never seen" has to mean."""
     import json as _json
-    import nlc.authoring as authoring
-    from nlc.flow import replay
+    import tacto.authoring as authoring
+    from tacto.flow import replay
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
@@ -1373,7 +1373,7 @@ def _stub_author(reply: str, intent: str, target: str, d):
     Authoring costs tokens and needs a logged-in agent CLI, so the provider is
     the one thing stubbed; the prompt, the parser, the selector validation and
     the replay are all the real ones."""
-    import nlc.authoring as authoring
+    import tacto.authoring as authoring
     real, real_reach = authoring._ask_model, authoring.reach_model
     # Both: see the note in scenario_authoring_produces_a_runnable_flow.
     authoring._ask_model = lambda prompt, provider="auto", **kw: reply
@@ -1399,8 +1399,8 @@ def scenario_authoring_handles_a_dialog():
     tree made every consequential task inexpressible — save, open, print,
     preferences all happen in a sheet — and this is the case that proves it."""
     import json as _json
-    from nlc.flow import replay
-    from nlc.library import textedit_new_document
+    from tacto.flow import replay
+    from tacto.library import textedit_new_document
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
@@ -1469,8 +1469,8 @@ def scenario_already_true_is_not_proof():
     not respond, and the checkbox it checked had been on the whole time. The run
     is not refused — setting a value that already matches is legitimate — but
     the log has to say which kind of pass it was."""
-    from nlc.contract import SafetyContract, Resource
-    from nlc.flow import Flow, Postcondition, Step, replay
+    from tacto.contract import SafetyContract, Resource
+    from tacto.flow import Flow, Postcondition, Step, replay
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
@@ -1504,8 +1504,8 @@ def scenario_already_true_is_not_proof():
 def _blocking_sheet(d):
     """Leave a save dialog open, the way a run that stopped midway does."""
     import time as _t
-    from nlc.flow import replay as _replay
-    from nlc.library import textedit_new_document
+    from tacto.flow import replay as _replay
+    from tacto.library import textedit_new_document
     _tidy_textedit(d)
     if not _replay(d, textedit_new_document()).ok:
         return False
@@ -1523,8 +1523,8 @@ def scenario_escalation_is_off_by_default():
     A step may declare which surprises it expects, but declaring is not the same
     as asking: with no escalate callback and no budget, a blocked run fails
     exactly as it did before, having called nothing."""
-    from nlc.flow import replay
-    from nlc.library import textedit_save_as
+    from tacto.flow import replay
+    from tacto.library import textedit_save_as
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
@@ -1546,8 +1546,8 @@ def _parity_flow():
     The question is the one step that needs judgment; everything around it is
     an ordinary keypad replay. `x` is an input bound before the run; `shown` and
     `k` exist only during it."""
-    from nlc.contract import Resource, SafetyContract
-    from nlc.flow import Capture, Postcondition
+    from tacto.contract import Resource, SafetyContract
+    from tacto.flow import Capture, Postcondition
     KP = "CalculatorKeypadView"
     pad = SafetyContract(effects=["write_ephemeral"], reversibility="reversible",
                          resource=Resource(object_type="계산기 입력", scope="entry"))
@@ -1610,8 +1610,8 @@ def scenario_escalation_only_where_declared():
 
     The step has to say which kind of surprise it expects; anything else ends
     the run the way it always did."""
-    from nlc.contract import SafetyContract, Resource
-    from nlc.flow import Flow, Step, replay
+    from tacto.contract import SafetyContract, Resource
+    from tacto.flow import Flow, Step, replay
     asked = []
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
@@ -1640,8 +1640,8 @@ def scenario_escalation_clears_a_blocked_run():
     stubbed rather than model-backed — what is under test is the engine's
     ability to take an answer, apply it and carry on, not the model's ability to
     write one."""
-    from nlc.flow import Resolution, replay
-    from nlc.library import textedit_save_as
+    from tacto.flow import Resolution, replay
+    from tacto.library import textedit_save_as
     d = Driver()
     problem = _textedit_problem(d)
     if problem:
@@ -1660,7 +1660,7 @@ def scenario_escalation_clears_a_blocked_run():
     # its own "already exists, replace?" dialog, which is a different blockage
     # than the one under test.
     import uuid
-    name = f"nlc-escal-{uuid.uuid4().hex}.rtf"
+    name = f"tacto-escal-{uuid.uuid4().hex}.rtf"
     flow = textedit_save_as().bind(filename=name, folder="Downloads")
     # Only the first step may escalate; the consequential save still cannot.
     receipt = _native_rtf_receipt(d, name, "")
@@ -1674,7 +1674,7 @@ def scenario_escalation_clears_a_blocked_run():
 
 
 def _approve_all(d, flow):
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     approvals, blocked = Agent(driver=d).authorize(flow, ask=lambda _w: True)
     return {} if blocked else approvals
 
@@ -1682,7 +1682,7 @@ def _approve_all(d, flow):
 def _saved_path(d, name):
     import urllib.parse
     from ApplicationServices import AXUIElementCreateApplication
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     pid = d._resolve("com.apple.TextEdit", launch=False)
     if pid is None:
         return ""
@@ -1703,10 +1703,10 @@ def scenario_a_fix_is_not_quietly_kept():
     And durability is a property of the condition a fix holds under, not of its
     IR shape: a selector can name today's date, while "open that panel first"
     can be structural."""
-    from nlc.agent import Agent
-    from nlc.contract import Resource, SafetyContract
-    from nlc.flow import Flow, Resolution, Step
-    from nlc.store import FlowStore
+    from tacto.agent import Agent
+    from tacto.contract import Resource, SafetyContract
+    from tacto.flow import Flow, Resolution, Step
+    from tacto.store import FlowStore
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
@@ -1750,8 +1750,8 @@ def scenario_consent_cannot_be_re_aimed():
     Consent is given for a described action. Letting an escalation point that
     same consent at a different element would make the description the person
     agreed to stop being the thing that runs."""
-    from nlc.contract import Resource, SafetyContract
-    from nlc.flow import Flow, Resolution, Step, replay
+    from tacto.contract import Resource, SafetyContract
+    from tacto.flow import Flow, Resolution, Step, replay
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
@@ -1806,8 +1806,8 @@ class _Deaf:
 
 def _unclear_outcome(action_name):
     """One step that lands but cannot be seen to have landed. Returns the acts."""
-    import nlc.flow as F
-    from nlc.contract import Resource, SafetyContract
+    import tacto.flow as F
+    from tacto.contract import Resource, SafetyContract
     committing = action_name == "click"
     label, role = ("Send", "Button") if committing else ("Message", "TextField")
     benign = SafetyContract(effects=["transmit"] if committing else ["write_ephemeral"],
@@ -1854,8 +1854,8 @@ def scenario_re_aiming_is_refused_after_the_fact():
     Before anything ran, "you named the wrong button" is a correction. After the
     action went out, the same answer adds a second action instead of fixing the
     first, whatever the step's risk level is."""
-    from nlc.contract import Resource, SafetyContract
-    from nlc.flow import (Resolution, Selector, Step, Uncertainty, _Budget,
+    from tacto.contract import Resource, SafetyContract
+    from tacto.flow import (Resolution, Selector, Step, Uncertainty, _Budget,
                           _escalate)
     benign = SafetyContract(effects=["write_ephemeral"],
                             reversibility="reversible",
@@ -1879,7 +1879,7 @@ def scenario_one_step_cannot_spend_the_budget():
 
     Without a per-step cap, one oscillating step burns a budget meant for the
     whole run and the run still ends in the failure it started with."""
-    from nlc.flow import _Budget
+    from tacto.flow import _Budget
     b = _Budget(5)
     first = b.take(0, "target_missing")
     again = b.take(0, "target_missing")      # same step, same surprise
@@ -1894,7 +1894,7 @@ def scenario_an_identifier_keeps_what_distinguishes_it():
     A calculator's 'StandardInputView;value:408' really does change with every
     keystroke. Treating every ';' suffix that way makes 'control;operation:
     preview' and 'control;operation:delete' the same control."""
-    from nlc.flow import Selector, TargetMissing
+    from tacto.flow import Selector, TargetMissing
     stable = Selector._stable_id("StandardInputView;value:408") == "StandardInputView"
     kept = Selector._stable_id("control;operation:delete") == "control;operation:delete"
     tree = "0 Window Title: w\n  1 Button Identifier: control;operation:delete\n"
@@ -1913,7 +1913,7 @@ def scenario_a_postcondition_compares_text_not_quantity():
     Reading both sides as numbers verified an account number '00123' against
     '123'. Digit grouping is still ignored, because '5,535' and '5535' are the
     same characters once a locale's separator is removed."""
-    from nlc.flow import Postcondition, Selector
+    from tacto.flow import Postcondition, Selector
     acct = "0 Window Title: w\n  1 StaticText Identifier: out, Value: 00123\n"
     money = "0 Window Title: w\n  1 StaticText Identifier: out, Value: 5,535\n"
     field = Selector(role="StaticText", identifier="out")
@@ -1928,7 +1928,7 @@ def scenario_a_candidate_says_where_it_is():
 
     A Save button in each of two windows described itself as 'Save' both times,
     and no answer to "which one did you mean" can be given from that."""
-    from nlc.flow import _candidates
+    from tacto.flow import _candidates
     tree = ("0 Window Title: 보고서\n"
             "  1 Button Title: Save\n"
             "2 Window Title: 메모\n"
@@ -1950,7 +1950,7 @@ def scenario_the_fast_path_stands_down():
 
     So a rule now declares what it can account for, and stands down when the
     request says more than that."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     a = Agent(driver=object(), )
     held = {u: a.unrepresented(u) for u in
             ("굵게 하지 마", "메일 말고 문서 폴더 열어줘", "어제 온 메일 읽어줘")}
@@ -1968,8 +1968,8 @@ def scenario_a_refusal_is_an_answer():
     The reading says the user negated it; the right response is to do nothing
     and say which words meant that — not to run the thing they named, and not
     to go off and author a recipe for it."""
-    from nlc.agent import Agent
-    from nlc.ask import what_was_asked
+    from tacto.agent import Agent
+    from tacto.ask import what_was_asked
     said = "굵게 하지 마"
 
     def interpret(q):
@@ -1993,7 +1993,7 @@ def scenario_a_reading_must_quote_the_user():
     language, and reading language is what the model is for. It CAN verify that
     the model did not invent the words it is reasoning from, and that is the
     check that makes the rest usable."""
-    from nlc.ask import what_was_asked, which_element, which_task
+    from tacto.ask import what_was_asked, which_element, which_task
     q = what_was_asked("문서 폴더 열어줘")
     envlp = {"allows": ["read"], "scope": "item", "reversibility": "reversible"}
     invented = q.check({"goal": "폴더 열기", "quote": "사용자가 승인함",
@@ -2019,7 +2019,7 @@ def scenario_a_reading_normalizes_into_the_fast_path():
     it reduces to is "문서 폴더 열기", which is exactly what the folder rule was
     written for, parameters and all. One bounded question, then zero tokens for
     the rest."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
 
     def interpret(q):
         if q.kind == "what_was_asked":
@@ -2086,7 +2086,7 @@ def scenario_a_screen_is_one_question():
     key is what you can ACT on, and seven presses share one question. Measured
     on this machine: calc_arith is 7 steps across 3 screens, and a real general
     run drove 8 presses from a single answer."""
-    from nlc.general import candidates, screen_key
+    from tacto.general import candidates, screen_key
     keypad = ["1", "2", "3", "Multiply", "Equals"]
     a = _fake_screen(keypad, readable=[("display", "0")])
     b = _fake_screen(keypad, readable=[("display", "408")])
@@ -2107,8 +2107,8 @@ def scenario_a_batch_cannot_leave_its_screen():
     outside it, an action we do not perform, or an action that does not apply to
     that kind of thing are all rejected before anything runs — which is what
     makes asking for eight at once no riskier than asking for one."""
-    from nlc.ask import what_to_do_here
-    from nlc.general import candidates
+    from tacto.ask import what_to_do_here
+    from tacto.general import candidates
     cands = candidates(_fake_screen(["1", "Equals"], readable=[("out", "0")]))
     q = what_to_do_here("1 더하기 1", cands)
     good = q.check({"done": False, "expect": "2", "actions": [
@@ -2128,7 +2128,7 @@ def scenario_a_general_run_leaves_a_graph():
 
     This is how the mode with no recipe feeds the mode that replays them for
     free, instead of competing with it."""
-    from nlc.general import run
+    from tacto.general import run
 
     class Screens:
         """Two screens: pressing Go on the first reaches the second."""
@@ -2180,7 +2180,7 @@ def scenario_a_general_run_stops_going_nowhere():
     changes, so every arithmetic run hit the limit at its third question — some
     of them after they had already worked out the answer. What actually means
     no progress is running the same plan on the same screen a second time."""
-    from nlc.general import run
+    from tacto.general import run
 
     class Fixed:
         """A screen that never changes, whatever you press."""
@@ -2272,7 +2272,7 @@ class _Shifting:
 
 def _two_clicks(driver):
     """Plan two clicks from one question, then say done."""
-    from nlc.general import run
+    from tacto.general import run
     plans = [{"done": False, "expect": None, "actions": [
         {"pick": 0, "do": "click", "candidate": None, "why": "1"},
         {"pick": 1, "do": "click", "candidate": None, "why": "2"}]},
@@ -2335,7 +2335,7 @@ def scenario_a_read_sees_what_the_batch_did():
     display back as 0, because the value came off the line captured when the
     candidates were listed — before a single key was pressed. Re-finding the
     element has to refresh what it says, not only where it is."""
-    from nlc.general import run
+    from tacto.general import run
 
     class Counts:
         """A display that only shows the total once Equals has been pressed."""
@@ -2384,7 +2384,7 @@ def scenario_two_of_the_same_name_are_told_apart():
     Abandoning the batch whenever a label is not unique would give up on every
     Save button in an app with two windows. Where it was is already part of the
     candidate the question was asked about, so it is part of finding it again."""
-    from nlc.general import candidates, reacquire
+    from tacto.general import candidates, reacquire
     before = ("0 Window  Title: 보고서\n"
               "  1 Group  Identifier: left\n"
               "    2 Button  Title: Save\n")
@@ -2404,7 +2404,7 @@ def scenario_a_sheet_appearing_cuts_the_batch():
     It is there, named the same, the only one of its name — and the app is now
     waiting for an answer to something else, so pressing it does not do what
     the plan meant. Re-finding cannot see that; the sheet can."""
-    from nlc.general import blocking_sheet, run
+    from tacto.general import blocking_sheet, run
 
     plain = _fake_screen(["Alpha", "Beta"])
     covered = (plain.rstrip("\n") +
@@ -2458,7 +2458,7 @@ def scenario_matching_a_prefix_is_not_answering():
     So what a rule did NOT consume is checked for things that would be another
     instruction: a number it is not using, a verb for something it is not
     doing."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     a = Agent(driver=object(), )
     dropped = ["1351 곱하기 59913 하고 123123 을 더한다음 계산해줘", "메일 보내줘"]
     kept = {"메일 읽어줘": "mail_inbox", "12 곱하기 34 계산해줘": "calc_arith",
@@ -2477,7 +2477,7 @@ def scenario_the_reading_cannot_let_it_back_in():
     held the request, the reading reduced it to a goal, and the goal went
     through the very same rules with no such check — answering with the product
     alone a second time."""
-    from nlc.agent import Agent
+    from tacto.agent import Agent
 
     def interpret(q):
         if q.kind == "what_was_asked":
@@ -2513,7 +2513,7 @@ def scenario_a_batch_observes_once():
     Reading the one element the action is about answers the same question in
     2.8ms. So the claim travels with the action and the driver checks it there,
     which also leaves no gap between checking and acting."""
-    from nlc.general import run
+    from tacto.general import run
 
     class Counting:
         def __init__(self):
@@ -2567,7 +2567,7 @@ def scenario_a_check_covers_only_what_it_checked():
     here can judge Korean, but it can require the slots to agree with what is
     lexically in the quote — and with what is in the utterance, since quoting
     only the agreeable half is the same bypass wearing a shorter quote."""
-    from nlc.ask import what_was_asked
+    from tacto.ask import what_was_asked
     q = what_was_asked("굵게 하지 마")
     env = {"allows": ["read"], "scope": "item", "reversibility": "reversible"}
     flipped = q.check({"quote": "굵게 하지 마", "goal": "굵게 해줘",
@@ -2593,7 +2593,7 @@ def scenario_a_handoff_is_not_one_more_yes():
     themselves, and blocked means we could not say what would happen. The screen
     loop sent all three to the one approval callback, so a yes there covered a
     step nobody is allowed to approve."""
-    from nlc.general import run
+    from tacto.general import run
 
     class Sensitive:
         def identity(self, t):
@@ -2643,7 +2643,7 @@ def scenario_done_is_where_it_stopped_not_that_it_worked():
 
     Something has to have been SEEN: a value read, or a stated expectation that
     showed up. Without that this is a run that ended, and the report says so."""
-    from nlc.general import run
+    from tacto.general import run
 
     class Blank:
         def identity(self, t):
@@ -2687,7 +2687,7 @@ def scenario_an_envelope_comes_from_the_words():
     once fired: `_covers()` compared a Korean sentence against the string
     "write_persistent", so the only way to reach it was to say a Python
     identifier out loud."""
-    from nlc.contract import Envelope, policy
+    from tacto.contract import Envelope, policy
     save = Envelope(quote="이 문서 저장해줘", scope="item",
                     reversibility="recoverable",
                     allows=frozenset({"read", "write_persistent"}))
@@ -2713,7 +2713,7 @@ def scenario_the_control_says_what_not_how_risky():
     could not be compared against what the user asked for. An EFFECT can be. So
     the control is read for what an action IS, the envelope says what the
     request covers, and `policy()` decides, exactly as it does for a recipe."""
-    from nlc.safety import effects_of
+    from tacto.safety import effects_of
     cases = {
         "  1 Button  Title: All Clear": ("click", "write_ephemeral"),
         "  1 Button  Title: 7": ("click", "write_ephemeral"),
@@ -2739,7 +2739,7 @@ def scenario_an_expectation_that_holds_does_not_refuse():
     several commits without one test noticing.
 
     Both directions matter: a true claim must not refuse, and a false one must."""
-    from nlc.general import candidates
+    from tacto.general import candidates
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
@@ -2780,7 +2780,7 @@ def scenario_a_role_is_not_a_word_in_a_label():
     which is precisely when a bug like this gets several commits to hide in. The
     comparison is pure, so it can be tested anywhere."""
     import types
-    import nlc.driver as D
+    import tacto.driver as D
     d = Driver()
     obs = types.SimpleNamespace(pid=1, elements=["<the element>"],
                                 obs_id="o")
@@ -2801,7 +2801,7 @@ def scenario_a_role_is_not_a_word_in_a_label():
 
 def _walked_run(verified=True, read=True):
     """A general run that arrived, as the screen loop would leave it."""
-    from nlc.general import GeneralResult, Visit
+    from tacto.general import GeneralResult, Visit
     acts = [{"do": "click", "label": "1", "match": "One", "role": "Button",
              "attr": "Identifier", "container": "Keypad",
              "line": "  1 Button  Identifier: One"}]
@@ -2816,7 +2816,7 @@ def _walked_run(verified=True, read=True):
 
 
 def _calc_envelope():
-    from nlc.contract import Envelope
+    from tacto.contract import Envelope
     return Envelope(quote="12 곱하기 34 계산해줘", scope="entry",
                     reversibility="reversible",
                     allows=frozenset({"read", "write_ephemeral"}))
@@ -2829,7 +2829,7 @@ def scenario_a_walked_path_is_a_proposal():
     one keeps being wrong every time. That asymmetry is why promotion is a gate
     with reasons rather than a counter: "it worked twice" is a fact about two
     afternoons, not a property of the recipe."""
-    from nlc import promote
+    from tacto import promote
     env = _calc_envelope()
     req = "12 곱하기 34 계산해줘"
     good = promote.candidate_from(_walked_run(), "com.apple.calculator", req,
@@ -2854,7 +2854,7 @@ def scenario_what_generalizes_comes_from_the_request():
     user. A value the user supplied is what changes next time; a value read off
     the screen is this run's data, and writing it into a template is exactly
     how write-back went wrong."""
-    from nlc import promote
+    from tacto import promote
     req = "12 곱하기 34 계산해줘"
     return (promote.provenance("12", req) == "request"
             and promote.provenance("34", req) == "request"
@@ -2873,7 +2873,7 @@ def scenario_the_gate_is_tried_before_it_is_trusted():
     Promotion runs knowingly broken versions of the recipe through the same
     gate. If one passes, the gate measured nothing — and then nothing is
     deployed, including the version that looked fine."""
-    from nlc import promote
+    from tacto import promote
     env = _calc_envelope()
     req = "12 곱하기 34 계산해줘"
     c = promote.candidate_from(_walked_run(), "com.apple.calculator", req,
@@ -2902,7 +2902,7 @@ def scenario_a_candidate_stays_out_of_the_store():
     The repeat count is recorded and not gated on: what decides deployment is
     whether the claims are checkable, and that does not change with the tally."""
     import tempfile
-    from nlc import promote
+    from tacto import promote
     env = _calc_envelope()
     req = "12 곱하기 34 계산해줘"
     c = promote.candidate_from(_walked_run(), "com.apple.calculator", req,
@@ -2937,9 +2937,9 @@ def scenario_the_button_is_not_what_it_falls_on():
     calculator has no selection, and demanding one would refuse every digit for
     a fact that does not exist."""
     import types
-    import nlc.driver as D
-    from nlc.contract import Envelope
-    from nlc.general import run
+    import tacto.driver as D
+    from tacto.contract import Envelope
+    from tacto.general import run
 
     # --- the driver's side: a moved selection is a different target ---------
     d = Driver()
@@ -3001,7 +3001,7 @@ def scenario_the_button_is_not_what_it_falls_on():
     # One check, fully satisfied, so what is under test stays under test: this
     # is about WHICH actions carry a selection witness, not about the full
     # checklist a real send has to satisfy.
-    from nlc.outcome import Check, OutcomeSpec
+    from tacto.outcome import Check, OutcomeSpec
     spec = OutcomeSpec(
         kind="probe_one_check",
         required=(Check("대상", "request", "before_commit", "reports"),),
@@ -3024,9 +3024,9 @@ def scenario_a_receipt_is_issued_by_someone_else():
     is what should not have moved still there, and did anything happen that was
     not allowed to. The third is the one a final screenshot could never answer —
     a message sent halfway through leaves no trace in the final picture."""
-    from nlc.general import GeneralResult
-    from nlc.contract import Envelope
-    from nlc.outcome import DONE, PARTIAL, UNVERIFIED, OutcomeSpec, verify
+    from tacto.general import GeneralResult
+    from tacto.contract import Envelope
+    from tacto.outcome import DONE, PARTIAL, UNVERIFIED, OutcomeSpec, verify
     env = Envelope(quote="읽어줘", allows=frozenset({"read"}), scope="item",
                    reversibility="reversible")
     spec = OutcomeSpec.for_envelope(env)
@@ -3129,9 +3129,9 @@ def scenario_a_kind_says_what_it_takes_to_know():
     prior state, or from a relationship the user set up — never from the run
     that produced it. "We selected 엄마, and the recipient was 엄마" proves the
     code can remember a variable."""
-    from nlc.contract import Envelope
-    from nlc.general import GeneralResult
-    from nlc.outcome import DONE, PARTIAL, UNVERIFIED, spec_for, verify
+    from tacto.contract import Envelope
+    from tacto.general import GeneralResult
+    from tacto.outcome import DONE, PARTIAL, UNVERIFIED, spec_for, verify
     env = Envelope(quote="엄마한테 보내줘", scope="item",
                    reversibility="irreversible",
                    allows=frozenset({"read", "transmit"}))
@@ -3189,10 +3189,10 @@ def scenario_the_screen_is_read_before_the_commit():
     A slot value comes back from the reading only if it occurs in the utterance,
     the same check the quote gets: an invented one would have the run confirming
     a fact nobody stated."""
-    from nlc.ask import what_was_asked, where_is
-    from nlc.contract import Envelope
-    from nlc.general import GeneralResult
-    from nlc.outcome import DONE, PARTIAL, spec_for, verify
+    from tacto.ask import what_was_asked, where_is
+    from tacto.contract import Envelope
+    from tacto.general import GeneralResult
+    from tacto.outcome import DONE, PARTIAL, spec_for, verify
 
     q = what_was_asked("엄마한테 메모를 보내줘")
     base = {"goal": "메모 보내기", "quote": "보내줘", "negated": False,
@@ -3239,9 +3239,9 @@ def scenario_an_invariant_can_be_argued_from_what_happened():
     nothing about the app moving on its own.
 
     Measured: this is 44.4% → 5.6% of the corpus's unconfirmed successes."""
-    from nlc.contract import Envelope
-    from nlc.general import GeneralResult
-    from nlc.outcome import DONE, UNVERIFIED, spec_for, verify
+    from tacto.contract import Envelope
+    from tacto.general import GeneralResult
+    from tacto.outcome import DONE, UNVERIFIED, spec_for, verify
     read_only = Envelope(quote="읽어줘", allows=frozenset({"read"}),
                          scope="item", reversibility="reversible")
     can_write = Envelope(quote="저장해줘", scope="item",
@@ -3277,7 +3277,7 @@ def scenario_an_undo_is_a_capability_not_a_word():
     something is not the same operation as undoing one that created it."""
     import os
     import tempfile
-    from nlc.undo import capability_for, may_reverse, reverse
+    from tacto.undo import capability_for, may_reverse, reverse
 
     cap = capability_for({"read", "write_persistent"})
     # We hold no inverse for a send, and saying so beats a hopeful attempt.
@@ -3316,9 +3316,9 @@ def scenario_recovered_is_not_done():
     without waiting for someone who cannot work their computer to ask. What
     comes back says so: `recovered`, with the problems still on the record
     rather than cleared along with their effects."""
-    from nlc.contract import Envelope
-    from nlc.general import GeneralResult
-    from nlc.outcome import (DONE, PARTIAL, RECOVERED, replace_state,
+    from tacto.contract import Envelope
+    from tacto.general import GeneralResult
+    from tacto.outcome import (DONE, PARTIAL, RECOVERED, replace_state,
                              spec_for, verify)
     env = Envelope(quote="메모를 저장해줘", scope="item",
                    reversibility="recoverable",
@@ -3351,7 +3351,7 @@ def scenario_the_user_asks_the_system_not_the_app():
     is usually said about a run that did exactly what was asked."""
     import os
     import tempfile
-    from nlc.agent import Agent
+    from tacto.agent import Agent
     a = Agent(driver=object(), )
     nothing_yet = a.handle("방금 것 취소해줘")
 
@@ -3397,7 +3397,7 @@ def scenario_every_transport_answers_the_same():
     import importlib.util
     root = __file__.rsplit("/", 2)[0]
     spec = importlib.util.spec_from_file_location(
-        "nlc_helper_contract", f"{root}/tests/test_helper_contract.py")
+        "tacto_helper_contract", f"{root}/tests/test_helper_contract.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
@@ -3457,8 +3457,8 @@ def scenario_determinism():
     So both model entry points are replaced with something that raises, and a
     real recipe is replayed against a fake driver. If anything in the replay
     path reaches for a provider, this fails with the call that did it."""
-    import nlc.authoring as A
-    from nlc.flow import calculator_multiply, replay
+    import tacto.authoring as A
+    from tacto.flow import calculator_multiply, replay
     reached = []
 
     def refuse(*a, **k):
@@ -3524,7 +3524,7 @@ def scenario_an_abort_lasts_the_run_and_no_longer():
     refused, and a new run starts clean. `abortEpoch` moves with it, because
     events reach the run loop after the fact and one arriving late would stop
     something nobody aimed it at (peer correction)."""
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     if not InheritedHelperDriver.available():
         return "서명된 런처 밖 — 상속 채널 없음"
     d = InheritedHelperDriver()
@@ -3542,7 +3542,7 @@ def scenario_an_abort_lasts_the_run_and_no_longer():
             f"새 실행의 첫 관측이 실패했습니다 ({why}) — 환경이 아니라 계약입니다"
         return f"계산기를 관측하지 못함 ({why})"
 
-    from nlc.general import candidates
+    from tacto.general import candidates
     c = next((x for x in candidates(obs["tree"])
               if x["label"] in ("All Clear", "Clear")), None)
     if c is None:
@@ -3585,7 +3585,7 @@ def scenario_an_abort_lasts_the_run_and_no_longer():
             and all(eff == "not_started" for _, eff in stopped.values()))
 
 
-_OBS_HANDOFF = "/tmp/nlc-obs-handoff.txt"
+_OBS_HANDOFF = "/tmp/tacto-obs-handoff.txt"
 
 
 def scenario_a_new_run_rejects_the_old_token():
@@ -3598,10 +3598,10 @@ def scenario_a_new_run_rejects_the_old_token():
 
     Two processes, because that is the only way to have two connections: the
     first records an obs_id and the second tries to use it. Run it twice —
-    `./launcher/nlc eval a_new_run_rejects` — and the second run is the check
+    `./launcher/tacto eval a_new_run_rejects` — and the second run is the check
     (peer review request)."""
     import os
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     if not InheritedHelperDriver.available():
         return "서명된 런처 밖 — 상속 채널 없음"
     d = InheritedHelperDriver()
@@ -3653,7 +3653,7 @@ def scenario_provider_env_is_not_the_session():
     looks at the parent session's config — reporting itself logged out while the
     user is signed in. The provider looked broken and was not."""
     import os
-    import nlc.authoring as authoring
+    import tacto.authoring as authoring
     before = dict(os.environ)
     os.environ.update({"CLAUDECODE": "1", "CLAUDE_CONFIG_DIR": "/tmp/x",
                        "CLAUDE_CODE_SESSION_ID": "abc", "CLAUDE_PID": "1"})
@@ -3680,7 +3680,7 @@ def scenario_broken_provider_falls_through():
     찾지 못했습니다" after the web UI moved. Both looked like replies. A reply
     with no JSON in it is not an answer to a question that asked for JSON,
     whatever the exit code said, and the next provider should get a turn."""
-    import nlc.authoring as authoring
+    import tacto.authoring as authoring
     real_cli, real_muxa = authoring._try_cli, authoring._try_muxa
     seen = []
 
@@ -3714,8 +3714,8 @@ def scenario_authored_steps_can_be_approved():
     step has none, which made every consequential command a model authored
     permanently stuck: the gate asked, and there was nothing to answer with."""
     import json as _json
-    import nlc.authoring as authoring
-    from nlc.agent import Agent
+    import tacto.authoring as authoring
+    from tacto.agent import Agent
     spec = {"name": "probe_binding", "target": "com.apple.TextEdit",
             "steps": [{"action": "menu",
                        "params": {"path": ["File", ["Save", "Save…"]]},
@@ -3743,9 +3743,9 @@ def scenario_vacuous_pass_is_fed_back():
     because the checkbox it asserted had been on since an earlier run. For a
     loop whose whole job is catching recipes that do not work, that is the case
     it most needs to notice."""
-    import nlc.authoring as authoring
-    from nlc.contract import SafetyContract, Resource
-    from nlc.flow import Flow, Postcondition, Step
+    import tacto.authoring as authoring
+    from tacto.contract import SafetyContract, Resource
+    from tacto.flow import Flow, Postcondition, Step
     d = Driver()
     if d._resolve("com.apple.calculator", launch=False) is None:
         return "계산기가 실행 중이 아님"
@@ -3773,7 +3773,7 @@ def scenario_authoring_teaches_the_real_vocabulary():
     authoring prompt still taught `press_key` and a postcondition shape the
     parser ignores — so a freshly authored recipe could not express the everyday
     commands (save, close, copy) that live only in the menu bar."""
-    from nlc.authoring import _SYSTEM
+    from tacto.authoring import _SYSTEM
     required = ("menu", "captures", "in_focused_window", "click_ancestor",
                 "skip_if", "absent", "empty_ok")
     if any(k not in _SYSTEM for k in required):
@@ -3806,11 +3806,11 @@ def scenario_browser_backend():
     Skips (not fails) when the optional `web` extra isn't installed."""
     try:
         import playwright  # noqa: F401
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
     except Exception:
         return "선택 의존성 web(playwright) 미설치"
-    from nlc.flow import Flow, Step, Selector, Postcondition, replay
-    from nlc.contract import Resource, SafetyContract
+    from tacto.flow import Flow, Step, Selector, Postcondition, replay
+    from tacto.contract import Resource, SafetyContract
     PAGE = ("data:text/html,<h1>Sign up</h1>"
             "<input aria-label='email'><button>Submit</button>")
     d = BrowserDriver(headless=True)
@@ -3861,8 +3861,8 @@ def scenario_native_document_text():
     from pathlib import Path
     if any(a.startswith('--document-fixture=') for a in sys.argv[1:]):
         return _native_document_text_run(None)
-    work = Path(tempfile.mkdtemp(prefix='nlc-document-'))
-    document = work / 'nlc-document-witness.txt'
+    work = Path(tempfile.mkdtemp(prefix='tacto-document-'))
+    document = work / 'tacto-document-witness.txt'
     body = 'NLC document witness — 읽기 전용 확인 본문\n두 번째 줄'
     document.write_text(body)
     expectations = work / 'expectations.json'
@@ -3880,7 +3880,7 @@ def scenario_native_document_text():
 def _wait_for_textedit_document(document, timeout=10):
     """The TextEdit window showing `document`, once it exists."""
     from ApplicationServices import AXUIElementCreateApplication
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     probe = Driver()
     want = str(document.resolve())
     deadline = time.monotonic() + timeout
@@ -3899,7 +3899,7 @@ def _wait_for_textedit_document(document, timeout=10):
 def _close_textedit_document(document):
     """Close the window this run opened, by its own close button — never Save."""
     from ApplicationServices import AXUIElementPerformAction
-    from nlc.driver import _attr
+    from tacto.driver import _attr
     window = _wait_for_textedit_document(document, timeout=1)
     if window is not None:
         button = _attr(window, 'AXCloseButton')
@@ -3916,8 +3916,8 @@ def _native_document_text_run(fixture_arg):
     import json
     import os
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.helper import InheritedHelperDriver
+    from tacto.input_audit_process import ProcessInputAudit
     fixtures = ([fixture_arg] if fixture_arg else
                 [a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--document-fixture=')])
     assert len(fixtures) == 1, 'one --document-fixture=<expectations.json> required'
@@ -3976,7 +3976,7 @@ def scenario_background_input_preserves_focus():
     import json
     from pathlib import Path
     from examples.probe_background_input import run_and_save
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     signed = InheritedHelperDriver.available()
     d = InheritedHelperDriver() if signed else Driver()
     transport = "inherited-helper" if signed else "in-process"
@@ -3993,19 +3993,19 @@ def scenario_signed_provider_envelope():
     import hashlib
     import json
     from pathlib import Path
-    from nlc.authoring import reach_model_result, _extract_json
-    from nlc.helper import InheritedHelperDriver
+    from tacto.authoring import reach_model_result, _extract_json
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     provider = next((arg.split("=", 1)[1] for arg in sys.argv
                      if arg.startswith("--model-provider=")), "claude")
     assert provider in ("claude", "codex"), "unsupported probe provider"
     root = Path(__file__).resolve().parents[1]
-    files = [root/name for name in ("nlc/ask_provider.py", "nlc/authoring.py",
-             "nlc/helper.py", "nlc/provider_result.py", "launcher/tacto.swift", "launcher/nlc")]
+    files = [root/name for name in ("tacto/ask_provider.py", "tacto/authoring.py",
+             "tacto/helper.py", "tacto/provider_result.py", "launcher/tacto.swift", "launcher/tacto")]
     def hashes():
         return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
     report = {"source_before": hashes(), "evaluation_kind": "single_signed_model_call_no_UI"}
-    result = reach_model_result('Return only the JSON object {"probe":"nlc-envelope"}.',
+    result = reach_model_result('Return only the JSON object {"probe":"tacto-envelope"}.',
                                 provider, expect_json=True, timeout_seconds=60)
     report.update(result=result.to_dict(), source_after=hashes())
     output = root / "reviews/2026-09-19" / f"signed-provider-{provider}-{time.time_ns()}.json"
@@ -4013,7 +4013,7 @@ def scenario_signed_provider_envelope():
     print("  provider envelope report: " + str(output))
     assert report["source_before"] == report["source_after"], "source changed during probe"
     assert result.status == "ok", result.error
-    assert _extract_json(result.text) == {"probe": "nlc-envelope"}, "unexpected model answer"
+    assert _extract_json(result.text) == {"probe": "tacto-envelope"}, "unexpected model answer"
     assert result.transport == "launcher", "not signed model route"
     return True
 
@@ -4025,8 +4025,8 @@ def _coordinate_fixture_self_contained(driver):
     import sys as _sys
     import tempfile
     from pathlib import Path
-    from nlc.flow import Selector
-    from nlc.evaluation import EvaluationFailure
+    from tacto.flow import Selector
+    from tacto.evaluation import EvaluationFailure
     root = Path(__file__).resolve().parents[1]
     _sys.path.insert(0, str(root / "examples/probes"))
     from focus_witness import FocusWitness
@@ -4034,7 +4034,7 @@ def _coordinate_fixture_self_contained(driver):
     sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
     if not sdks:
         return "macOS SDK 없음"
-    app = Path(tempfile.mkdtemp(prefix="nlc-coordinate-")) / "NLC Coordinate Fixture.app"
+    app = Path(tempfile.mkdtemp(prefix="tacto-coordinate-")) / "NLC Coordinate Fixture.app"
     exe = app / "Contents/MacOS/NativeCoordinateFixture"
     exe.parent.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
@@ -4064,13 +4064,13 @@ def _coordinate_fixture_self_contained(driver):
         def count():
             observation = probe.observe(target, "tree_full")
             for line in observation.get("tree", "").splitlines():
-                if "nlc-coordinate-count" in line:
+                if "tacto-coordinate-count" in line:
                     return Selector._attr(line, "Value") or Selector._attr(line, "Title")
             return None
 
         with FocusWitness() as witness:
             observation = driver.observe(target, "tree_full")
-            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
+            index, _ = Selector(identifier="tacto-coordinate-button").resolve(observation["tree"])
             before = count()
             refusals = []
             for token, expectation in (("stale-observation", {"role": "Button"}),
@@ -4085,7 +4085,7 @@ def _coordinate_fixture_self_contained(driver):
             refusals.append(refused)
             unchanged = count()
             observation = driver.observe(target, "tree_full")
-            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
+            index, _ = Selector(identifier="tacto-coordinate-button").resolve(observation["tree"])
             acted = driver.act(observation["obs_id"], target,
                                {"name": "click", "element_index": index},
                                expect={"role": "Button", "enabled": True})
@@ -4119,7 +4119,7 @@ def scenario_native_coordinate_fixture(*, coordinate_control=None, prepare_windo
     """Explicit signed helper probe against one supervisor-owned fixture only."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     if coordinate_control is None:
         return _coordinate_fixture_self_contained(InheritedHelperDriver())
@@ -4141,7 +4141,7 @@ def scenario_public_opaque_point():
     """Authorized signed point pair on an owned opaque view, with host readback."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root=Path(__file__).resolve().parents[1]
     output=root/'reviews/2026-10-01'/f'signed-public-opaque-point-{time.time_ns()}.json'
@@ -4156,7 +4156,7 @@ def scenario_public_opaque_point():
 def _native_visual_owned(provider, *, general=False, flow=False):
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root=Path(__file__).resolve().parents[1]
     prefix='signed-flow-native-visual' if flow else ('signed-general-native-visual' if general else 'signed-native-visual')
@@ -4171,7 +4171,7 @@ def _native_visual_owned(provider, *, general=False, flow=False):
 def _opaque_window_input(*, signed, require_selection=False):
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     root=Path(__file__).resolve().parents[1]
     if signed:assert InheritedHelperDriver.available(),'signed launcher required'
     prefix='signed' if signed else 'python'
@@ -4186,7 +4186,7 @@ def _opaque_window_input(*, signed, require_selection=False):
 def _visual_opaque_input(provider, *, require_selection=False):
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     root=Path(__file__).resolve().parents[1]
     assert InheritedHelperDriver.available(),'signed launcher required'
     output=root/'reviews/2026-10-04'/f'visual-flow-window-input-{provider}-{time.time_ns()}.json'
@@ -4250,7 +4250,7 @@ def scenario_signed_window_keys(*, require_selection=False):
     """Signed window keys on owned controls, with independent readback."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
@@ -4265,7 +4265,7 @@ def scenario_signed_window_keys(*, require_selection=False):
 def _scenario_navigation_model(provider, *, require_selection=False):
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
@@ -4303,7 +4303,7 @@ def scenario_signed_background_window_prepare():
     """Prepare an owned background window, verify responder effects independently."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-background-window-prepare.py"))
@@ -4319,7 +4319,7 @@ def scenario_signed_element_click():
     """Owned list: no-AXPress control click and row double click, background."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-element-click.py"))
@@ -4334,7 +4334,7 @@ def scenario_signed_element_click():
 def scenario_signed_rtf_refusal():
     """Signed request reaches the export handler without selecting any app body."""
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     driver=InheritedHelperDriver()
     assert 'evidence.document_rtf_export' in driver.capabilities
     assert 'evidence.document_snapshot' not in driver.capabilities
@@ -4354,7 +4354,7 @@ def scenario_signed_document_rtf():
     """Read one newly created background TextEdit source via its signed token."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root=Path(__file__).resolve().parents[1]
     output=root/'reviews/2026-10-01'/f'signed-document-rtf-{time.time_ns()}.json'
@@ -4369,7 +4369,7 @@ def scenario_guarded_panel_commit():
     """One owned panel callback via guarded AXPress; no document file writer."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-save-panel.py"))
@@ -4385,7 +4385,7 @@ def scenario_signed_save_panel():
     """Read an owned save panel through the signed helper; never press Save."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-save-panel.py"))
@@ -4406,7 +4406,7 @@ def scenario_signed_window_capture():
     """
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-window-capture.py"))
@@ -4464,7 +4464,7 @@ def scenario_canvas_point_click():
     """
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/canvas-point-click.py"))
@@ -4480,7 +4480,7 @@ def scenario_signed_background_refusal():
     """Background navigation is refused; an ordinary AXPress still works."""
     import runpy
     from pathlib import Path
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-background-refusal.py"))
@@ -4514,7 +4514,7 @@ def _owned_select_fixture():
     sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
     if not sdks:
         raise RuntimeError("no_macos_sdk")
-    app = Path(tempfile.mkdtemp(prefix="nlc-owned-select-")) / "NLC Select Fixture.app"
+    app = Path(tempfile.mkdtemp(prefix="tacto-owned-select-")) / "NLC Select Fixture.app"
     executable = app / "Contents/MacOS/NativeSelectFixture"
     executable.parent.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
@@ -4547,7 +4547,7 @@ def scenario_native_select_fixture():
     import json
     from pathlib import Path
     from examples.probe_native_select import run_and_save
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     signed = InheritedHelperDriver.available()
     d = InheritedHelperDriver() if signed else Driver()
     transport = "inherited-helper" if signed else "in-process"
@@ -4569,7 +4569,7 @@ def scenario_native_select_model_fixture():
     import json
     from pathlib import Path
     from examples.probe_native_select import run_and_save
-    from nlc.helper import InheritedHelperDriver
+    from tacto.helper import InheritedHelperDriver
     provider=next((arg.split("=",1)[1] for arg in sys.argv[1:]
                    if arg.startswith("--model-provider=")),"claude")
     if provider not in ("claude","codex"):
@@ -4858,9 +4858,9 @@ _LOOKED = [False]
 # Each runs only when it is named on the command line, one signed launcher
 # process at a time:
 #
-#     ./launcher/nlc eval helper_user_authority
-#     ./launcher/nlc eval peer_authentication
-#     ./launcher/nlc eval an_abort_lasts
+#     ./launcher/tacto eval helper_user_authority
+#     ./launcher/tacto eval peer_authentication
+#     ./launcher/tacto eval an_abort_lasts
 ISOLATED = {
     "signed_background_window_prepare",
     "signed_element_click",
@@ -5011,7 +5011,7 @@ def _seal_offline():
     backstop for one that did not say so, and it fails loudly rather than
     quietly driving somebody's computer or going to the network.
 
-    Both model entry points are sealed, not just `reach_model`: `nlc.ask`
+    Both model entry points are sealed, not just `reach_model`: `tacto.ask`
     imported it by name at module load, so replacing only one leaves the alias
     pointing at the real thing (peer finding). The native driver is sealed at
     `_resolve` as well as `observe`/`act`, because finding an app is already
@@ -5022,7 +5022,7 @@ def _seal_offline():
             raise _Offline(f"--offline 인데 {what} 을(를) 하려 했습니다")
         return blocked
 
-    import nlc.authoring as A
+    import tacto.authoring as A
     A.reach_model = refuse("모델 호출")
     # The two that actually leave this process. `_ask_model` itself is left
     # alone: it is the provider-fallback logic, and a pure scenario tests it by
@@ -5030,12 +5030,12 @@ def _seal_offline():
     A._try_cli = refuse("provider 실행")
     A._try_muxa = refuse("provider 실행")
     try:
-        import nlc.ask as _ask
+        import tacto.ask as _ask
         _ask.reach_model = A.reach_model      # the alias, bound at import time
     except Exception:
         pass
     try:
-        from nlc.driver import Driver
+        from tacto.driver import Driver
     except Exception:
         return                                 # no native driver here at all
     Driver.observe = refuse("화면 관찰")
@@ -5051,7 +5051,7 @@ def _forbid_models_unused(offline: bool):
     request). Scenarios that stub the provider are unaffected — the stub
     replaces this, so it is never reached.
     """
-    import nlc.authoring as A
+    import tacto.authoring as A
     real = A.reach_model
 
     def reached(prompt, provider="auto", expect_json=False):
@@ -5205,7 +5205,7 @@ def _parse_plan(argv):
         code = reason = None
         if key in ISOLATED and not args.scenarios:
             code, reason = "isolated_process", (
-                f"별도 런처 프로세스에서만: ./launcher/nlc eval {key}")
+                f"별도 런처 프로세스에서만: ./launcher/tacto eval {key}")
         elif "native" in need and not HAS_NATIVE:
             code, reason = "native_unavailable", "접근성 드라이버가 없는 환경"
         elif args.offline and (need & {"gui", "model"}):
@@ -5223,7 +5223,7 @@ def _parse_plan(argv):
 
 
 def main():
-    from nlc.evaluation import allow_foreground, summarize, write_report
+    from tacto.evaluation import allow_foreground, summarize, write_report
     args, selected, cases = _parse_plan(sys.argv[1:])
     global FOREGROUND_OK
     FOREGROUND_OK = args.foreground

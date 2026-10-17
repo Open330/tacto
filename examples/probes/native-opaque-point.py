@@ -12,24 +12,24 @@ TARGET = 'ai.callabo.nlc.opaque-point-fixture'
 
 
 def main(output, *, public_driver=None, vision_provider=None, general_visual=False, flow_visual=False):
-    from nlc.driver import Driver, _attr
-    from nlc.flow import Selector
-    from nlc.native_window_binding import capture_binding
-    from nlc.native_window_dispatch import dispatch_point, WindowReadScope, WindowDispatchFailure
-    from nlc.native_process_identity import process_start_identity
-    from nlc.input_audit_process import ProcessInputAudit
+    from tacto.driver import Driver, _attr
+    from tacto.flow import Selector
+    from tacto.native_window_binding import capture_binding
+    from tacto.native_window_dispatch import dispatch_point, WindowReadScope, WindowDispatchFailure
+    from tacto.native_process_identity import process_start_identity
+    from tacto.input_audit_process import ProcessInputAudit
     from ApplicationServices import AXUIElementCopyActionNames, AXUIElementCopyElementAtPosition, AXUIElementCreateApplication
     root = Path(__file__).resolve().parents[2]
     sources = ['tests/fixtures/NativeOpaquePointFixture.swift', 'examples/probes/native-opaque-point.py',
-               'nlc/driver.py', 'nlc/native_window_binding.py', 'nlc/native_window_dispatch.py',
-               'nlc/native_mouse_events.py', 'nlc/native_process_identity.py', 'nlc/native_frontmost.py',
-               'nlc/input_audit_process.py', 'nlc/input_audit.py', 'nlc/helper.py',
+               'tacto/driver.py', 'tacto/native_window_binding.py', 'tacto/native_window_dispatch.py',
+               'tacto/native_mouse_events.py', 'tacto/native_process_identity.py', 'tacto/native_frontmost.py',
+               'tacto/input_audit_process.py', 'tacto/input_audit.py', 'tacto/helper.py',
                'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/TactoHelper.swift', 'launcher/tacto.swift',
-               'nlc/native_visual.py', 'nlc/native_visual_actions.py', 'nlc/visual.py', 'nlc/model_budget.py',
-               'nlc/codex_result.py', 'nlc/claude_result.py', 'nlc/provider_observation.py',
-               'nlc/ask_provider.py', 'nlc/provider_images.py', 'nlc/provider_result.py',
-               'nlc/general.py', 'nlc/general_visual.py', 'nlc/protocol.py', 'nlc/promote.py',
-               'nlc/contract.py', 'nlc/flow.py', 'nlc/safety.py', 'nlc/visual_replay.py']
+               'tacto/native_visual.py', 'tacto/native_visual_actions.py', 'tacto/visual.py', 'tacto/model_budget.py',
+               'tacto/codex_result.py', 'tacto/claude_result.py', 'tacto/provider_observation.py',
+               'tacto/ask_provider.py', 'tacto/provider_images.py', 'tacto/provider_result.py',
+               'tacto/general.py', 'tacto/general_visual.py', 'tacto/protocol.py', 'tacto/promote.py',
+               'tacto/contract.py', 'tacto/flow.py', 'tacto/safety.py', 'tacto/visual_replay.py']
     hashes = lambda: {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     report = {'passed':False, 'scope':'public authorized point' if public_driver else 'internal Python point pair',
               'source_hashes_before':hashes(), 'public_coordinate_capability_enabled':public_driver is not None,
@@ -47,7 +47,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3, max_samples=10000)
     try:
         assert driver._resolve(TARGET, launch=False) is None, 'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-point-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-point-') as directory:
             bundle = Path(directory)/'Opaque.app'; binaries = bundle/'Contents/MacOS'
             binaries.mkdir(parents=True); binary = binaries/'Opaque'
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors', str(root/sources[0]), '-o', str(binary)],
@@ -136,9 +136,9 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                         view=public_driver.observe(TARGET,'tree_full')
                         public_index=Selector(role='Window',title='NLC Opaque Point Fixture A').resolve(view['tree'])[0]
                         if vision_provider:
-                            from nlc.native_visual_actions import run_native_visual
-                            from nlc.visual import plan_visual
-                            from nlc.provider_observation import capture_provider_calls
+                            from tacto.native_visual_actions import run_native_visual
+                            from tacto.visual import plan_visual
+                            from tacto.provider_observation import capture_provider_calls
                             captures=[]
                             def verify(capture, history):
                                 artifact=Path(str(output)+f'.capture-{len(captures)}.png')
@@ -176,9 +176,9 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                             with capture_provider_calls() as calls:
                                 report['provider_calls']=calls
                                 if flow_visual:
-                                    from nlc.flow import Flow, Step, replay
-                                    from nlc.general_visual import NativeVisualScope
-                                    from nlc.contract import Envelope
+                                    from tacto.flow import Flow, Step, replay
+                                    from tacto.general_visual import NativeVisualScope
+                                    from tacto.contract import Envelope
                                     goal='Click once in the center of the green painted area.'
                                     scope=NativeVisualScope(Selector(role='Window',title='NLC Opaque Point Fixture A'),
                                         planner,authorize,verify,frozenset({'write_ephemeral'}),label='owned green opaque canvas')
@@ -195,9 +195,9 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                                     report['dispatch']=result.visual_history[0]['dispatch']
                                 elif general_visual:
                                     from dataclasses import asdict
-                                    from nlc.general import run
-                                    from nlc.general_visual import NativeVisualScope
-                                    from nlc.contract import Envelope
+                                    from tacto.general import run
+                                    from tacto.general_visual import NativeVisualScope
+                                    from tacto.contract import Envelope
                                     goal='Click once in the center of the green painted area.'
                                     scope=NativeVisualScope(Selector(role='Window',title='NLC Opaque Point Fixture A'),
                                         planner,authorize,verify,frozenset({'write_ephemeral'}),label='owned green opaque canvas')

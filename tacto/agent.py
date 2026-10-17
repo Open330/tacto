@@ -798,12 +798,12 @@ class Agent:
             name, values = match.name, match.params
             builder = builders().get(name)
             if builder is not None:
-                # A recipe that ships with NLC comes from the code, always. The
+                # A recipe that ships with Tacto comes from the code, always. The
                 # store used to win once a name had been saved, which froze
                 # every built-in at whatever it looked like the first time it
                 # ran — five of them were already stale against fixes made
-                # since. The saved copy is kept current so `nlc show` and
-                # `nlc list` still describe what actually runs; someone who
+                # since. The saved copy is kept current so `tacto show` and
+                # `tacto list` still describe what actually runs; someone who
                 # wants their own version saves it under a different name.
                 flow = builder()
                 if not self.store.has(name) or \
@@ -816,7 +816,7 @@ class Agent:
 
         # A stored recipe may be a template. Running it unbound sends
         # "{{digit[item]}}" to the screen as if it were a selector, which is how
-        # `nlc do` broke while the suite — which binds explicitly — stayed green.
+        # `tacto do` broke while the suite — which binds explicitly — stayed green.
         # The values come from the request itself, so "문서 폴더 열어줘" and
         # "다운로드 폴더 열어줘" are one recipe, not two.
         # A recipe promoted from an agent's walk recorded the screen as it was
@@ -1132,7 +1132,7 @@ class Agent:
     # nested under `detail` (e.g. the initial observe), so dig for it.
     _CAUSE = {
         "target_not_found": "그 앱을 찾지 못했어요. 앱이 켜져 있는지, 이름이 맞는지 확인해 주세요.",
-        "gui_session_unavailable": "지금은 화면에 접근할 수 없어요. tmux 안에서 실행 중이라면, tmux 밖 터미널에서 실행하거나 `reattach-to-user-namespace uv run nlc ...` 로 실행해 주세요.",
+        "gui_session_unavailable": "지금은 화면에 접근할 수 없어요. tmux 안에서 실행 중이라면, tmux 밖 터미널에서 실행하거나 `reattach-to-user-namespace uv run tacto ...` 로 실행해 주세요.",
         "no_window_content": "앱 창이 보이지 않아요. 화면 잠금을 풀고 창을 띄워 주세요.",
         "empty_tree": "앱 화면을 읽을 수 없어요. 창을 한 번 클릭해 주세요.",
         "target_missing": "화면에서 눌러야 할 항목을 찾지 못했어요. 화면이 예상과 다른 것 같아요.",

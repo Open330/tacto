@@ -173,9 +173,11 @@ uv sync
 <summary>설치 문제와 개발 버전의 반복 실행</summary>
 
 스킬을 찾지 못하면 에이전트 세션을 다시 열고 `./skill/install.sh --check`로 연결을 확인하세요.
-Python 배포 이름은 `tacto-runtime`이며 내부 import는 `nlc`를 유지합니다.
+Python 배포 이름은 `tacto-runtime`이며 기본 import는 `tacto`이며 `nlc`는 호환 계층입니다.
 Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습니다.
-기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 새 빌드의 권한용 앱은 **Tacto Helper**로 표시합니다. Preview 1·이전 설치의 **NLC Helper**는 실제 설치 이름대로 안내하며 서명 식별자와 내부 경로는 유지합니다.
+기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 새 빌드의 권한용 앱은 **Tacto Helper**로 표시합니다. Preview 1·이전 설치의 **NLC Helper**는 실제 설치 이름대로 안내합니다. 새 빌드는 helper 번들·실행 파일을 `helper/Tacto Helper.app/Contents/MacOS/TactoHelper`로, 실행기를 `launcher/tacto`로 옮겼습니다. 번들 식별자와 서명 요구조건(`ai.callabo.nlc.*`)은 그대로지만, Preview 1에서 허용한 권한이 이름이 바뀐 번들로 이어지는지는 실제 업그레이드에서 아직 확인하지 않았습니다. 업그레이드 뒤 권한 상태를 다시 확인하세요.
+
+> **Python 이름 충돌 주의.** 최상위 import 이름 `tacto`는 PyPI의 다른 패키지(촉각 센서 시뮬레이터)도 사용합니다. 이 프로젝트의 배포 이름은 `tacto-runtime`이며 별도 가상환경에 설치하세요. Tacto를 위해 `pip install tacto`를 실행하지 마세요. 두 패키지를 한 환경에 설치하면 서로의 파일을 덮어쓰며, 이때 `import nlc`는 `tacto-runtime`을 안내하는 오류로 거부합니다.
 선택적 Playwright backend는 별도 Chromium 페이지를 사용합니다.
 
 다음 batch·자동 수리 명령은 개발 checkout 기준이며 아직 기본 브랜치의 배포 기능이 아닙니다.

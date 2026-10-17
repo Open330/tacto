@@ -14,16 +14,16 @@ import secrets
 import subprocess
 import time
 
-from nlc.browser import BrowserDriver
-from nlc.provider_observation import capture_provider_calls
-from nlc.visual import capture_browser, query_visual, VisualError
+from tacto.browser import BrowserDriver
+from tacto.provider_observation import capture_provider_calls
+from tacto.visual import capture_browser, query_visual, VisualError
 
 
 def source_hashes():
     root = Path(__file__).resolve().parents[2]
     return {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
-            for name in ('nlc/codex_result.py', 'nlc/browser.py', 'nlc/visual.py',
-                         'nlc/provider_images.py', 'nlc/provider_observation.py',
+            for name in ('tacto/codex_result.py', 'tacto/browser.py', 'tacto/visual.py',
+                         'tacto/provider_images.py', 'tacto/provider_observation.py',
                          'examples/probes/browser-visual-score.py')}
 
 

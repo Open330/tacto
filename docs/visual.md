@@ -17,9 +17,9 @@ A local, disposable canvas example is available as `examples/probe_visual_task.p
 ```python
 from urllib.parse import quote
 from examples.probe_visual_task import PAGE
-from nlc.browser import BrowserDriver
-from nlc.visual import plan_visual
-from nlc.visual_actions import run_visual
+from tacto.browser import BrowserDriver
+from tacto.visual import plan_visual
+from tacto.visual_actions import run_visual
 
 driver = BrowserDriver()
 url = "data:text/html," + quote(PAGE)

@@ -19,7 +19,7 @@ cp FrontmostProcess.swift "$STAGE/FrontmostProcess.swift"
 cp SavePanelObservation.swift "$STAGE/SavePanelObservation.swift"
 cp WindowDispatch.swift "$STAGE/WindowDispatch.swift"
 
-SWIFT_ARGS=(-O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" "../SigningPolicy.swift" -o "$STAGE/nlc-helper")
+SWIFT_ARGS=(-O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" "../SigningPolicy.swift" -o "$STAGE/tacto-helper")
 case "${TACTO_ENABLE_EXPERIMENTAL_FOREGROUND:-0}" in
   0) ;;
   1)
@@ -33,8 +33,8 @@ esac
 
 "$SWIFTC" "${SWIFT_ARGS[@]}"
 
-nlc_select_identity
-nlc_sign "$STAGE/nlc-helper" "$NLC_HELPER_ID"
-nlc_warn_team_change nlc-helper "$STAGE/nlc-helper"
-mv "$STAGE/nlc-helper" nlc-helper
-echo "built and verified: $(pwd)/nlc-helper"
+tacto_select_identity
+tacto_sign "$STAGE/tacto-helper" "$TACTO_HELPER_ID"
+tacto_warn_team_change tacto-helper "$STAGE/tacto-helper"
+mv "$STAGE/tacto-helper" tacto-helper
+echo "built and verified: $(pwd)/tacto-helper"

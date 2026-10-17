@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(shutil.which('xcrun'), 'macOS Swift required')
 class WindowReadyBatchTests(unittest.TestCase):
     def run_swift(self, text):
-        with tempfile.TemporaryDirectory(prefix='nlc-ready-batch-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-ready-batch-') as directory:
             src = Path(directory) / 'main.swift'; binary = Path(directory) / 'probe'
             src.write_text(text)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(src),

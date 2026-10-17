@@ -7,7 +7,7 @@ parsing tolerates lines from helpers that still do."""
 import pathlib
 import unittest
 
-from nlc.flow import Selector, _same_role
+from tacto.flow import Selector, _same_role
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OLD = """0 Window  Title: KakaoTalk
@@ -34,7 +34,7 @@ class RoleTokenCommaTests(unittest.TestCase):
                 self.assertEqual("ShowMenu", Selector._attr(tree.splitlines()[3], "Secondary Actions"))
 
     def test_the_driver_puts_no_comma_after_a_bare_role(self):
-        driver = (ROOT / "nlc/driver.py").read_text()
+        driver = (ROOT / "tacto/driver.py").read_text()
         self.assertIn('("  " if not (label or disabled or selected) else ", ")', driver)
 
 

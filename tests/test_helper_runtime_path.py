@@ -2,12 +2,12 @@
 from pathlib import Path
 import tempfile
 import unittest
-from nlc.helper import _runtime_root
+from tacto.helper import _runtime_root
 
 class HelperRuntimePathTests(unittest.TestCase):
     def test_source_checkout_is_independent_of_interpreter_location(self):
         with tempfile.TemporaryDirectory() as folder:
-            root=Path(folder).resolve(); module=root/'source/nlc/helper.py'
+            root=Path(folder).resolve(); module=root/'source/tacto/helper.py'
             module.parent.mkdir(parents=True);module.touch()
             self.assertEqual(str(root/'source'),_runtime_root(module,root/'unrelated/.venv'))
 
@@ -15,9 +15,9 @@ class HelperRuntimePathTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             runtime=Path(folder).resolve()/'moved/Resources/runtime'
             environment=runtime/'.venv'
-            module=environment/'lib/python3.11/site-packages/nlc/helper.py'
+            module=environment/'lib/python3.11/site-packages/tacto/helper.py'
             module.parent.mkdir(parents=True);module.touch()
-            helper=runtime/'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+            helper=runtime/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
             helper.parent.mkdir(parents=True);helper.touch()
             self.assertEqual(str(runtime),_runtime_root(module,environment))
             helper.unlink()

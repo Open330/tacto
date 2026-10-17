@@ -9,11 +9,11 @@ import unittest
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from nlc.commit_evidence import evidence_error
-from nlc.contract import ContextBinding, Resource, SafetyContract, issue_approval
-from nlc.delivery_receipt import (DeliveredMessageReceipt, InboxDelivery, PendingDelivery,
+from tacto.commit_evidence import evidence_error
+from tacto.contract import ContextBinding, Resource, SafetyContract, issue_approval
+from tacto.delivery_receipt import (DeliveredMessageReceipt, InboxDelivery, PendingDelivery,
                                  InboxTemporarilyUnavailable)
-from nlc.flow import Flow, Selector, Step, replay
+from tacto.flow import Flow, Selector, Step, replay
 
 
 @unittest.skipUnless(importlib.util.find_spec('playwright'), 'optional Playwright required')
@@ -110,7 +110,7 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         self.thread.start()
         self.addCleanup(self.stop_server)
         self.origin = f'http://127.0.0.1:{self.server.server_port}'
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
         self.driver = BrowserDriver(headless=True)
         self.addCleanup(self.driver.close)
         self.driver.goto(self.origin + '/')

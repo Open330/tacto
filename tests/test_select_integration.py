@@ -1,6 +1,6 @@
 """Selection is planned from observed options and survives recipe promotion."""
 import unittest
-from nlc.ask import what_to_do_here
+from tacto.ask import what_to_do_here
 
 try:
     import playwright.sync_api
@@ -12,7 +12,7 @@ except ImportError:
 class SelectPlanner(unittest.TestCase):
     def test_replay_requires_option_label_before_any_observation(self):
         from unittest.mock import Mock
-        from nlc.flow import Flow, Step, replay
+        from tacto.flow import Flow, Step, replay
         for operation in ('select_option', 'select_custom_option'):
             flow = Flow(name='missing-label', target='page',
                         steps=[Step(action=operation, params={'value': 'opaque-value'})])
@@ -25,8 +25,8 @@ class SelectPlanner(unittest.TestCase):
                 Flow.from_json(flow.to_json())
 
     def test_promotion_rejects_changed_origin_and_unverified_focus(self):
-        from nlc.general import GeneralResult, Visit
-        from nlc.promote import candidate_from, to_flow, gate
+        from tacto.general import GeneralResult, Visit
+        from tacto.promote import candidate_from, to_flow, gate
         action = {'do':'press_key','key':'Tab','role':'TextField','attr':'Title',
                   'label':'name','match':'name','line':'1 TextField Title: name'}
         result = GeneralResult(ok=True,verified=True,
@@ -51,9 +51,9 @@ class SelectPlanner(unittest.TestCase):
 
     @unittest.skipUnless(WEB, 'optional playwright dependency not installed')
     def test_cross_origin_run_cannot_be_promoted_with_final_origin(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import run
-        from nlc.promote import candidate_from
+        from tacto.browser import BrowserDriver
+        from tacto.general import run
+        from tacto.promote import candidate_from
         d = BrowserDriver()
         self.addCleanup(d.close)
         d._page.route('**/*', lambda route: route.fulfill(content_type='text/html', body=(
@@ -73,10 +73,10 @@ class SelectPlanner(unittest.TestCase):
 
     @unittest.skipUnless(WEB, 'optional playwright dependency not installed')
     def test_general_select_reobserves_and_promoted_flow_replays(self):
-        from nlc.browser import BrowserDriver
-        from nlc.general import run
-        from nlc.promote import candidate_from, to_flow
-        from nlc.flow import replay
+        from tacto.browser import BrowserDriver
+        from tacto.general import run
+        from tacto.promote import candidate_from, to_flow
+        from tacto.flow import replay
         d = BrowserDriver()
         self.addCleanup(d.close)
         d.goto("data:text/html,<select aria-label='Delivery'><option value='slow'>Standard</option><option value='fast'>Express</option></select>")

@@ -36,15 +36,15 @@ def bundled_import_valid(data, runtime):
     try:
         root=runtime.resolve(strict=True)
         if type(data) is not dict or not all(isinstance(data.get(key),str)
-                and Path(data[key]).resolve(strict=True).is_relative_to(root) for key in ('nlc','prefix','helper')):
+                and Path(data[key]).resolve(strict=True).is_relative_to(root) for key in ('tacto','prefix','helper')):
             return False
-        helper = root/'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+        helper = root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
         return helper.is_file() and Path(data['helper']).resolve(strict=True) == helper.resolve(strict=True)
     except (OSError,RuntimeError,ValueError):return False
 
 
 def requirement(identifier, signed_reference=None):
-    reference = signed_reference or ROOT/'helper/NLC Helper.app'
+    reference = signed_reference or ROOT/'helper/Tacto Helper.app'
     result = subprocess.run(['codesign','-dv','--verbose=4',str(reference)],
                             capture_output=True,text=True,check=True)
     match = re.search(r'^TeamIdentifier=([A-Z0-9]{10})$', result.stderr, re.M)
@@ -72,7 +72,8 @@ def build(output, identity):
             'setup/PermissionState.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
             'docs/assets/tacto-menu-template.svg','helper/bundle.sh',
             'launcher/tacto.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
-            'helper/NLC Helper.app/Contents/MacOS/NLCHelper','helper/NLC Helper.app/Contents/Info.plist')]
+            'helper/Tacto Helper.app/Contents/MacOS/TactoHelper','helper/Tacto Helper.app/Contents/Info.plist')]
+        paths+=sorted((ROOT/'tacto').glob('*.py'))
         paths+=sorted((ROOT/'nlc').glob('*.py'))
         return {str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
     output=Path(output).absolute()
@@ -83,7 +84,7 @@ def build(output, identity):
     before=sources()
     report={'scope':'local_relocatable_developer_preview','architecture':platform.machine(),
             'notarized':False,'gui_launched':False,'installed':False,'macos_version':platform.mac_ver()[0]}
-    with tempfile.TemporaryDirectory(prefix='nlc-standalone-build-',dir=output.parent) as folder:
+    with tempfile.TemporaryDirectory(prefix='tacto-standalone-build-',dir=output.parent) as folder:
         app=Path(folder)/output.name;contents=app/'Contents';resources=contents/'Resources'
         resources.mkdir(parents=True);(contents/'MacOS').mkdir()
         runtime=resources/'runtime';runtime.mkdir()
@@ -95,6 +96,8 @@ def build(output, identity):
         site.mkdir(parents=True,exist_ok=True)
         shutil.copytree(ROOT/'.venv/lib'/('python'+version)/'site-packages',site,
                         dirs_exist_ok=True,symlinks=True,ignore=ignored)
+        if (site/'tacto').exists():shutil.rmtree(site/'tacto')
+        shutil.copytree(ROOT/'tacto',site/'tacto',ignore=ignored)
         if (site/'nlc').exists():shutil.rmtree(site/'nlc')
         shutil.copytree(ROOT/'nlc',site/'nlc',ignore=ignored)
         # Ship deterministic checked-hash bytecode before sealing the bundle.
@@ -108,14 +111,14 @@ def build(output, identity):
         shutil.copytree(ROOT/'skill',runtime/'skill',symlinks=False,ignore=ignored)
         shutil.copytree(ROOT/'docs',runtime/'docs',symlinks=False,ignore=ignored)
         (runtime/'helper').mkdir()
-        shutil.copytree(ROOT/'helper/NLC Helper.app',runtime/'helper/NLC Helper.app',symlinks=True)
-        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(runtime/'helper/NLC Helper.app')])
+        shutil.copytree(ROOT/'helper/Tacto Helper.app',runtime/'helper/Tacto Helper.app',symlinks=True)
+        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(runtime/'helper/Tacto Helper.app')])
         for path in runtime.rglob('*'):
             if path.is_symlink():
                 try:path.resolve(strict=True).relative_to(runtime.resolve())
                 except (ValueError,OSError):raise RuntimeError('runtime symlink escapes or is broken') from None
         (runtime/'launcher').mkdir()
-        launcher=runtime/'launcher/nlc'
+        launcher=runtime/'launcher/tacto'
         launcher_source=Path(folder)/'launcher-source';launcher_source.mkdir()
         shutil.copy2(ROOT/'launcher/tacto.swift',launcher_source/'main.swift')
         run(['swiftc','-O',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),'-o',str(launcher)])
@@ -125,21 +128,21 @@ def build(output, identity):
         # Native extensions/dylibs before the interpreter, all same identity.
         for path in sorted(native,key=lambda p:(p.parent.name=='bin',str(p))):sign(path,identity)
         report['native_runtime_files_signed']=len(native)
-        executable=contents/'MacOS/NLCSetup'
+        executable=contents/'MacOS/TactoSetup'
         for name in ('tacto-app.icns','tacto-logo.svg','tacto-menu-template.svg'):
             shutil.copy2(ROOT/'docs/assets'/name,resources/name)
         # The embedded permission holder keeps its identity and requirement,
         # but receives the same product icon instead of a generic application.
         import plistlib
-        helper_app=runtime/'helper/NLC Helper.app'
+        helper_app=runtime/'helper/Tacto Helper.app'
         helper_resources=helper_app/'Contents/Resources'
         helper_resources.mkdir(exist_ok=True)
         shutil.copy2(ROOT/'docs/assets/tacto-app.icns',helper_resources/'tacto-app.icns')
         helper_plist=helper_app/'Contents/Info.plist'
         helper_info=plistlib.loads(helper_plist.read_bytes())
         helper_info['CFBundleIconFile']='tacto-app.icns'
-        helper_info['CFBundleName']='NLC Helper'
-        helper_info['CFBundleDisplayName']='NLC Helper'
+        helper_info['CFBundleName']='Tacto Helper'
+        helper_info['CFBundleDisplayName']='Tacto Helper'
         helper_info['CFBundleDevelopmentRegion']='en'
         helper_info['LSHasLocalizedDisplayName']=True
         for language in ('en','ko'):
@@ -155,7 +158,7 @@ def build(output, identity):
         (contents/'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',
             'CFBundleIconFile':'tacto-app.icns',
-            'CFBundleExecutable':'NLCSetup','CFBundleIdentifier':'ai.callabo.nlc.setup.standalone.preview',
+            'CFBundleExecutable':'TactoSetup','CFBundleIdentifier':'ai.callabo.nlc.setup.standalone.preview',
             'CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1',
             'LSMinimumSystemVersion':platform.mac_ver()[0]}))
         (resources/'runtime.json').write_text(json.dumps({'bundledRoot':'runtime'}))
@@ -167,14 +170,17 @@ def build(output, identity):
     # Relocation happened after signing. Run no GUI command and write no caches.
     python=output/'Contents/Resources/runtime/.venv/bin/python'
     report['relocated_import']=json.loads(run([str(python),'-I','-B','-c',
-        'import nlc,nlc.helper,Foundation,Quartz,ApplicationServices,json,sys; print(json.dumps({"nlc":nlc.__file__,"prefix":sys.prefix,"helper":nlc.helper.HELPER}))'],cwd='/').stdout)
+        'import tacto,tacto.helper,Foundation,Quartz,ApplicationServices,json,sys; print(json.dumps({"tacto":tacto.__file__,"prefix":sys.prefix,"helper":tacto.helper.HELPER}))'],cwd='/').stdout)
     if not bundled_import_valid(report['relocated_import'],output/'Contents/Resources/runtime'):
         raise RuntimeError('runtime imported outside bundle')
+    run([str(python),'-I','-B','-m','tacto.cli','--help'],cwd='/')
     run([str(python),'-I','-B','-m','nlc.cli','--help'],cwd='/')
+    run([str(python),'-I','-B','-c',
+         'import tacto.flow,nlc.flow; assert tacto.flow is nlc.flow; assert tacto.flow.Flow is nlc.flow.Flow'],cwd='/')
     # Exercise the actual signed launcher, not only a Python -B probe. A
     # missing -B here used to pass packaging then invalidate its own signature.
     for _ in range(2):
-        run([str(output/'Contents/Resources/runtime/launcher/nlc'),'--help'],cwd='/')
+        run([str(output/'Contents/Resources/runtime/launcher/tacto'),'--help'],cwd='/')
         run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(output)])
     report['signature_preserved_after_launcher_runs']=True
     run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(output)])

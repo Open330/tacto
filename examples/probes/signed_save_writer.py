@@ -54,9 +54,9 @@ def remove_empty_preferences(path):
 
 def run(driver):
     from focus_witness import FocusWitness
-    from nlc.driver import Driver
-    from nlc.artifact_receipt import FreshFileReceipt
-    from nlc.commit_evidence import make_event,evidence_error
+    from tacto.driver import Driver
+    from tacto.artifact_receipt import FreshFileReceipt
+    from tacto.commit_evidence import make_event,evidence_error
     required={'evidence.save_panel','action.click.save_panel_guard'}
     if not required <= set(driver.capabilities):
         raise RuntimeError('save_writer_capability_unavailable')
@@ -74,7 +74,7 @@ def run(driver):
     preference_file=Path.home()/'Library/Preferences'/f'{TARGET}.plist'
     report['owned_preferences_empty_before']=True
     report['owned_preference_file_present_before']=preference_file.exists()
-    with tempfile.TemporaryDirectory(prefix='nlc-save-writer-',dir=Path.home()/'Library/Caches') as work:
+    with tempfile.TemporaryDirectory(prefix='tacto-save-writer-',dir=Path.home()/'Library/Caches') as work:
         work=Path(work).resolve();destination=work/'output';destination.mkdir(mode=0o700)
         binary=work/'NLC Save Writer.app/Contents/MacOS/NativeSaveWriterFixture'
         binary.parent.mkdir(parents=True)

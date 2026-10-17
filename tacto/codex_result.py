@@ -168,7 +168,7 @@ def codex_result(prompt: str, *, model: str | None = None,
             raise ValueError('model must be nonempty text')
         if process_observations is not None and type(process_observations) is not list:
             raise ValueError('process_observations must be a host-owned list')
-        with tempfile.TemporaryDirectory(prefix='nlc-codex-result-') as folder:
+        with tempfile.TemporaryDirectory(prefix='tacto-codex-result-') as folder:
             output = Path(folder) / 'final.txt'
             fd = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             os.close(fd)

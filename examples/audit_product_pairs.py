@@ -32,14 +32,14 @@ def audit(rows):
     for index, row in enumerate(rows):
         if (not isinstance(row, dict) or not isinstance(row.get('task'), str)
                 or not row['task'] or type(row.get('rep')) is not int or row['rep'] < 0
-                or row.get('arm') not in ('nlc', 'sky')):
+                or row.get('arm') not in ('tacto', 'sky')):
             invalid_rows.append(index)
             continue
         groups.setdefault((row['task'], row['rep']), []).append((index, row))
     pairs = []
     for (task, rep), group in sorted(groups.items()):
         issues = set()
-        nlcs = [r for i, r in group if r['arm'] == 'nlc']
+        nlcs = [r for i, r in group if r['arm'] == 'tacto']
         skies = [r for i, r in group if r['arm'] == 'sky']
         if len(nlcs) != 1 or len(skies) != 1:
             issues.add('missing_or_duplicate_arm')
@@ -77,7 +77,7 @@ def audit(rows):
             if type(row.get('timeout_seconds')) is not int or row['timeout_seconds'] <= 0:
                 issues.add('timeout_not_recorded')
         if len(nlcs) == len(skies) == 1:
-            nlc, sky = nlcs[0], skies[0]
+            tacto, sky = nlcs[0], skies[0]
             for key, reason in (
                     ('initial_frontmost_bundle', 'initial_frontmost_differs'),
                     ('oracle_contract', 'oracle_contract_differs'),
@@ -85,7 +85,7 @@ def audit(rows):
                     ('runtime_policy', 'runtime_policy_differs'),
                     ('background_constraint', 'runtime_constraint_differs'),
                     ('timeout_seconds', 'timeout_differs')):
-                if nlc.get(key) != sky.get(key):
+                if tacto.get(key) != sky.get(key):
                     issues.add(reason)
         pairs.append({'task': task, 'rep': rep, 'row_indices': [i for i, r in group],
                       'observed_outcomes': [{'arm': r['arm'], 'status': r.get('status'),
@@ -94,7 +94,7 @@ def audit(rows):
                       'issues': sorted(issues), 'same_conditions_verified': False,
                       'additional_evidence_required': ['independent_initial_task_state',
                                                        'serving_model_identity_and_configuration']})
-    return {'schema': 'nlc-sky-recorded-prerequisites-v1', 'rows': len(rows),
+    return {'schema': 'tacto-sky-recorded-prerequisites-v1', 'rows': len(rows),
             'invalid_row_indices': invalid_rows, 'pairs': pairs,
             'comparison_rates_computed': False,
             'scope': 'recorded_prerequisites_only_not_complete_condition_parity'}

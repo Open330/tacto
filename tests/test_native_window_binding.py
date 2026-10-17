@@ -3,7 +3,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from nlc import native_window_binding as binding
+from tacto import native_window_binding as binding
 
 
 class Backend:

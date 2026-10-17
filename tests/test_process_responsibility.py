@@ -1,7 +1,7 @@
 """Private API observations cannot become permission or identity proof."""
 import unittest
 from unittest.mock import Mock, patch
-from nlc.process_responsibility import observe_responsibility
+from tacto.process_responsibility import observe_responsibility
 
 
 class ProcessResponsibilityTests(unittest.TestCase):
@@ -15,8 +15,8 @@ class ProcessResponsibilityTests(unittest.TestCase):
                 Mock(proc_pidpath=self.path)]
 
     def call(self, libraries):
-        with patch('nlc.process_responsibility.sys.platform', 'darwin'), \
-             patch('nlc.process_responsibility.ctypes.CDLL', side_effect=libraries):
+        with patch('tacto.process_responsibility.sys.platform', 'darwin'), \
+             patch('tacto.process_responsibility.ctypes.CDLL', side_effect=libraries):
             return observe_responsibility(17)
 
     def test_consistent_live_samples_are_diagnostics_only(self):
@@ -54,11 +54,11 @@ class ProcessResponsibilityTests(unittest.TestCase):
         self.assertEqual('process_path_unavailable', result['error_code'])
 
     def test_invalid_pid_or_platform_never_loads_native_libraries(self):
-        with patch('nlc.process_responsibility.ctypes.CDLL') as load:
+        with patch('tacto.process_responsibility.ctypes.CDLL') as load:
             for pid in (True, False, 0, -1, '42', 2**31):
                 with self.subTest(pid=pid), self.assertRaises(ValueError):
                     observe_responsibility(pid)
-            with patch('nlc.process_responsibility.sys.platform', 'linux'):
+            with patch('tacto.process_responsibility.sys.platform', 'linux'):
                 result = observe_responsibility(42)
             self.assertEqual('unsupported_platform', result['error_code'])
         load.assert_not_called()

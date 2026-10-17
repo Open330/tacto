@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from nlc.helper import HelperDriver, InheritedHelperDriver
+from tacto.helper import HelperDriver, InheritedHelperDriver
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -65,7 +65,7 @@ class StatusTraceTests(unittest.TestCase):
     def test_live_wrapper_never_persists_absence_and_replay_refuses(self):
         from unittest.mock import Mock
         from types import SimpleNamespace
-        from nlc.trace import Trace, TracingDriver, TraceDriver
+        from tacto.trace import Trace, TracingDriver, TraceDriver
         reply={'type':'document_window_status','document_token':'own','state':'closed','same_process_verified':True}
         inner=SimpleNamespace(capabilities={'evidence.document_window_status'},
                               document_window_status=Mock(return_value=reply))

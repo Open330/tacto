@@ -2,7 +2,7 @@
 
 Found 2026-09-20 while verifying browsers: the outline was wired at two CLI
 commands and two signed-helper messages, so every other way in — a script
-holding a Driver, `nlc observe`, the whole evaluation suite, this session's own
+holding a Driver, `tacto observe`, the whole evaluation suite, this session's own
 browser and Calculator probes — drove somebody's machine with nothing on screen
 to say so. Asking each caller to remember is how it went missing; the driver
 owns it now.
@@ -19,7 +19,7 @@ from unittest.mock import patch
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC required')
 class ControlIndicatorTests(unittest.TestCase):
     def setUp(self):
-        from nlc import driver
+        from tacto import driver
         self.m = driver
         self.d = object.__new__(driver.Driver)
         self.d._indicate = True
@@ -45,8 +45,8 @@ class ControlIndicatorTests(unittest.TestCase):
         return Fake
 
     def show(self, pid, **kw):
-        import nlc.overlay
-        with patch.object(nlc.overlay, 'Indicator', self.fake_indicator(**kw)):
+        import tacto.overlay
+        with patch.object(tacto.overlay, 'Indicator', self.fake_indicator(**kw)):
             self.d._showing_control(pid)
 
     def test_touching_an_app_puts_the_outline_on_it(self):
@@ -83,10 +83,10 @@ class ControlIndicatorTests(unittest.TestCase):
         self.assertEqual(2, len(self.started))
 
     def test_failing_to_draw_never_takes_down_the_task(self):
-        import nlc.overlay
+        import tacto.overlay
         def explode(*a, **kw):
             raise RuntimeError('no window server')
-        with patch.object(nlc.overlay, 'Indicator', explode):
+        with patch.object(tacto.overlay, 'Indicator', explode):
             self.d._showing_control(4321)          # must not raise
         self.assertFalse(self.d.indicator()['showing'], 'and it says so')
 
@@ -124,7 +124,7 @@ class IndicatorLifetimeTests(unittest.TestCase):
     """The outline leaves on its own, because one that never does stops being read."""
 
     def test_the_child_is_told_the_heartbeat_and_the_deadline(self):
-        from nlc.overlay import Indicator
+        from tacto.overlay import Indicator
         seen = {}
         class Popen:
             pid = 999999
@@ -142,7 +142,7 @@ class IndicatorLifetimeTests(unittest.TestCase):
         self.assertIn('4321', seen['command'])
 
     def test_without_a_heartbeat_the_child_is_not_given_one(self):
-        from nlc.overlay import Indicator
+        from tacto.overlay import Indicator
         seen = {}
         class Popen:
             pid = 999999
@@ -156,7 +156,7 @@ class IndicatorLifetimeTests(unittest.TestCase):
             with Indicator(4321):
                 pass
         self.assertEqual(['4321'], [c for c in seen['command'] if c == '4321'])
-        self.assertEqual(['-I', '-B', '-m', 'nlc.overlay', '4321'], seen['command'][1:])
+        self.assertEqual(['-I', '-B', '-m', 'tacto.overlay', '4321'], seen['command'][1:])
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -182,12 +182,12 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         self.assertIn("func showControlIndicator(forPID", text)
 
     def test_the_python_indicator_shows_a_menu_bar_item(self):
-        text = (ROOT / "nlc/overlay.py").read_text()
+        text = (ROOT / "tacto/overlay.py").read_text()
         self.assertIn("statusItemWithLength_", text)
 
     def test_neither_draws_a_window_over_the_screen(self):
         for path, banned in (("helper/TactoHelper.swift", ("NSPanel(", "orderFrontRegardless")),
-                             ("nlc/overlay.py", ("NSPanel", "NSBezierPath"))):
+                             ("tacto/overlay.py", ("NSPanel", "NSBezierPath"))):
             text = (ROOT / path).read_text()
             for line in text.splitlines():
                 stripped = line.strip()
@@ -200,7 +200,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
     def test_no_collection_behaviour_survives_anywhere(self):
         # There is no panel to give a Space behaviour to. A reference to one is
         # the panel coming back.
-        for path in ("helper/TactoHelper.swift", "nlc/overlay.py"):
+        for path in ("helper/TactoHelper.swift", "tacto/overlay.py"):
             text = (ROOT / path).read_text()
             for line in text.splitlines():
                 stripped = line.strip()
@@ -296,7 +296,7 @@ let out: [String: Bool] = [
 ]
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix="nlc-windowless-") as directory:
+        with tempfile.TemporaryDirectory(prefix="tacto-windowless-") as directory:
             source = pathlib.Path(directory) / "main.swift"
             source.write_text(harness)
             result = subprocess.run(["swift", str(source)], capture_output=True, text=True, timeout=120)
@@ -373,7 +373,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
         # "something is happening" is not the same promise as "this app is
         # being driven", and the menu bar has room to say which.
         swift = (ROOT / "helper/TactoHelper.swift").read_text()
-        python = (ROOT / "nlc/overlay.py").read_text()
+        python = (ROOT / "tacto/overlay.py").read_text()
         self.assertIn("localizedName", swift)
         self.assertIn("localizedName", python)
 

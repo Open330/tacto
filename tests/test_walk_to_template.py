@@ -10,11 +10,11 @@ from contextlib import redirect_stdout
 from io import StringIO
 from unittest.mock import patch
 
-from nlc.contract import Envelope
-from nlc.flow import Flow
-from nlc.general import _place, menu_effect
-from nlc.promote import Candidate, _menu_check, deployable, parameters, to_flow
-from nlc.reparam import digits_table, parameterize
+from tacto.contract import Envelope
+from tacto.flow import Flow
+from tacto.general import _place, menu_effect
+from tacto.promote import Candidate, _menu_check, deployable, parameters, to_flow
+from tacto.reparam import digits_table, parameterize
 
 BEFORE = "\n".join([
     "0 Window  Title: Calculator [focused]",
@@ -90,11 +90,11 @@ class WalkToTemplateTests(unittest.TestCase):
         self.assertEqual(["4", "9"], [s.binding.desc for s in other.steps[1:3]])
 
     def test_promote_refuses_a_value_that_did_not_come_from_the_request(self):
-        from nlc import cli
+        from tacto import cli
         rec = {"blocked_by": [], "parameters": {"25": [1, 2]},
                "flow": json.loads(to_flow(walked(), "sqrt").to_json())}
-        with patch("nlc.promote.CandidateStore.get", return_value=rec), \
-             patch("nlc.cli.FlowStore") as store:
+        with patch("tacto.promote.CandidateStore.get", return_value=rec), \
+             patch("tacto.cli.FlowStore") as store:
             out = StringIO()
             with redirect_stdout(out):
                 code = cli.main(["promote", "sqrt", "-p", "5=n"])
@@ -103,11 +103,11 @@ class WalkToTemplateTests(unittest.TestCase):
         self.assertIn("부탁에서 온 값이 아닙니다", out.getvalue())
 
     def test_promote_saves_a_template_that_names_its_input(self):
-        from nlc import cli
+        from tacto import cli
         rec = {"blocked_by": [], "parameters": {"25": [1, 2]},
                "flow": json.loads(to_flow(walked(), "sqrt").to_json())}
-        with patch("nlc.promote.CandidateStore.get", return_value=rec), \
-             patch("nlc.cli.FlowStore") as store:
+        with patch("tacto.promote.CandidateStore.get", return_value=rec), \
+             patch("tacto.cli.FlowStore") as store:
             with redirect_stdout(StringIO()):
                 code = cli.main(["promote", "sqrt", "-p", "25=n"])
         self.assertEqual(0, code)
@@ -117,16 +117,16 @@ class WalkToTemplateTests(unittest.TestCase):
 
     def test_a_replay_says_the_answer_it_read(self):
         from types import SimpleNamespace
-        from nlc import cli
+        from tacto import cli
         done = SimpleNamespace(ok=True, log=[{"status": "ok", "captured": "12"},
                                              {"status": "done", "result": None,
                                               "captured": {"결과": "12"}}])
-        agent = patch("nlc.cli.Agent").start()
+        agent = patch("tacto.cli.Agent").start()
         self.addCleanup(patch.stopall)
         agent.return_value.authorize.return_value = ({}, [])
         agent.return_value.commit_adapter_hooks.return_value = {}
-        with patch("nlc.flow.replay", return_value=done), \
-             patch("nlc.cli._make_driver"), patch("nlc.cli._indicator_for"):
+        with patch("tacto.flow.replay", return_value=done), \
+             patch("tacto.cli._make_driver"), patch("tacto.cli._indicator_for"):
             out = StringIO()
             with redirect_stdout(out):
                 code = cli._run_flow(to_flow(walked(), "sqrt"), ["--yes"])
@@ -148,19 +148,19 @@ class ExplorationTests(unittest.TestCase):
         return [mode] if last else [mode, pick if used else menu, key("2", "Two")]
 
     def test_a_popup_nobody_used_is_left_out_and_kept_on_record(self):
-        from nlc.promote import without_exploration
+        from tacto.promote import without_exploration
         kept, explored = without_exploration(self.walk())
         self.assertEqual(["Mode"], [a["label"] for a in explored])
         self.assertEqual(["Scientific", "2"], [a["label"] for a in kept])
 
     def test_anything_less_than_all_the_evidence_keeps_the_step(self):
-        from nlc.promote import without_exploration
+        from tacto.promote import without_exploration
         for case in ({"used": True}, {"stayed": True}, {"changed": True}, {"last": True}):
             kept, explored = without_exploration(self.walk(**case))
             self.assertEqual([], explored, case)
 
     def test_screen_change_is_by_name(self):
-        from nlc.general import screen_change
+        from tacto.general import screen_change
         popup = BEFORE + "\n  9 MenuItem  Title: Scientific"
         self.assertEqual({"appeared": [["MenuItem", "Scientific"]], "vanished": [],
                           "changed": False}, screen_change(BEFORE, popup))
@@ -169,7 +169,7 @@ class ExplorationTests(unittest.TestCase):
 
 class WalkedRecipeBudgetTests(unittest.TestCase):
     def run_turn(self, flow, think):
-        from nlc.agent import Agent, Match
+        from tacto.agent import Agent, Match
         seen = {}
         agent = Agent(driver=object(), store=type("S", (), {
             "has": lambda s, n: True, "load": lambda s, n: flow, "list": lambda s: []})())
@@ -179,9 +179,9 @@ class WalkedRecipeBudgetTests(unittest.TestCase):
         agent.commit_adapter_hooks = lambda r: {}
         agent._report_what_it_asked = lambda f, r: None
         agent._to_turn = lambda f, r: r
-        with patch("nlc.agent.replay", side_effect=lambda *a, **k: seen.update(k)), \
-             patch("nlc.judge.model_judge", return_value=lambda why: None), \
-             patch("nlc.library.builders", return_value={}):
+        with patch("tacto.agent.replay", side_effect=lambda *a, **k: seen.update(k)), \
+             patch("tacto.judge.model_judge", return_value=lambda why: None), \
+             patch("tacto.library.builders", return_value={}):
             agent.handle("x", think=think)
         return seen["budget"]
 

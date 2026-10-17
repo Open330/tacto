@@ -2,7 +2,7 @@
 import importlib.util
 import unittest
 from unittest.mock import patch, Mock
-from nlc.helper import HelperDriver, InheritedHelperDriver
+from tacto.helper import HelperDriver, InheritedHelperDriver
 
 class MenuItemsTransportTests(unittest.TestCase):
     def test_transports_preserve_explicit_root_and_path(self):
@@ -13,7 +13,7 @@ class MenuItemsTransportTests(unittest.TestCase):
 
 class MenuItemsTraceTests(unittest.TestCase):
     def test_record_replay_preserves_path_and_rejects_divergence(self):
-        from nlc.trace import Trace, TracingDriver, TraceDriver
+        from tacto.trace import Trace, TracingDriver, TraceDriver
         trace=Trace()
         inner=Mock();inner.capabilities=['menu_items','menu_state']
         inner.menu_items.return_value={'type':'menu_items','path':[], 'items':[{'title':'Probe','path':['Probe'],'enabled':None,'has_submenu':True}], 'complete':True}
@@ -31,7 +31,7 @@ class MenuItemsTraceTests(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'),'PyObjC unavailable')
 class NativeMenuItemsTests(unittest.TestCase):
     def call(self, *, duplicate=False, enabled=True, changed=False, failed=False, missing=False, path=None):
-        from nlc import driver as m
+        from tacto import driver as m
         d=object.__new__(m.Driver)
         nodes={0:{'AXMenuBar':1},1:{'AXChildren':[2]},2:{'AXTitle':'Probe','AXRole':'AXMenuBarItem','AXChildren':[3],'AXEnabled':True},
                3:{'AXRole':'AXMenu','AXChildren':[4,5]},4:{'AXRole':'AXMenuItem','AXTitle':'Read','AXEnabled':enabled,'AXChildren':[]},
@@ -44,7 +44,7 @@ class NativeMenuItemsTests(unittest.TestCase):
              patch.object(m,'AXUIElementCopyAttributeValues',side_effect=lambda el,key,start,n,out:(0,nodes[el].get(key,[])[:n])), \
              patch.object(m,'AXUIElementSetMessagingTimeout',return_value=0), \
              patch.object(m,'CFGetTypeID',return_value=42), patch.object(m,'AXUIElementGetTypeID',return_value=42), \
-             patch('nlc.native_process_identity.process_start_identity',side_effect=[1,2] if changed else [1,1]), \
+             patch('tacto.native_process_identity.process_start_identity',side_effect=[1,2] if changed else [1,1]), \
              patch.object(m,'AXUIElementPerformAction') as dispatch:
             result=d.menu_items('fixture',path)
             dispatch.assert_not_called()

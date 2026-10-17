@@ -38,7 +38,7 @@ class ClaudeStreamDiagnosticTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_invalid_budget_and_existing_artifact_never_invoke_provider(self):
-        with tempfile.TemporaryDirectory() as folder, patch('nlc.claude_result.claude_result') as invoke:
+        with tempfile.TemporaryDirectory() as folder, patch('tacto.claude_result.claude_result') as invoke:
             path = Path(folder) / 'report.json'
             for kwargs in ({'requests': True}, {'requests': 5}, {'timeout': float('nan')},
                            {'timeout': float('inf')}, {'requests': 4, 'timeout': 40}):

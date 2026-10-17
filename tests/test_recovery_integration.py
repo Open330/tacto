@@ -12,7 +12,7 @@ except ImportError:
 @unittest.skipUnless(HAS_BROWSER, 'optional playwright dependency not installed')
 class RecoveryIntegrationTests(unittest.TestCase):
     def setUp(self):
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
         self.driver = BrowserDriver()
         self.addCleanup(self.driver.close)
 
@@ -24,7 +24,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         return {'do': operation, 'candidate': next(c for c in candidates if c['label'] == label)}
 
     def test_twelve_screen_wizard_finishes_only_after_independent_readback(self):
-        from nlc.general import run
+        from tacto.general import run
         self.page('''<button onclick="advance()">Next 1</button>
             <input aria-label="Result" value="pending" readonly>
             <script>window.steps=0; window.commits=0;
@@ -47,7 +47,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(result.asked, 14)
 
     def test_unexpected_modal_cuts_batch_then_replans_without_background_click(self):
-        from nlc.general import run
+        from tacto.general import run
         self.page('''<button onclick="document.querySelector('dialog').showModal()">Open overlay</button>
             <button onclick="window.clicks++">Increment</button>
             <dialog><button onclick="document.querySelector('dialog').close()">Close overlay</button></dialog>
@@ -71,7 +71,7 @@ class RecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(len(result.visits[0].actions), 1)
 
     def test_detached_target_in_batch_never_retargets_same_label_replacement(self):
-        from nlc.general import run
+        from tacto.general import run
         self.page('''<button onclick="document.querySelector('#victim').outerHTML=
           '<button id=victim onclick=window.clicks++>Increment</button>'">Replace control</button>
           <button id="victim" onclick="window.clicks++">Increment</button>
@@ -90,8 +90,8 @@ class RecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(len(result.visits[0].actions), 1)
 
     def test_origin_drift_is_observed_and_cannot_be_promoted_as_one_origin(self):
-        from nlc.general import run
-        from nlc.promote import candidate_from
+        from tacto.general import run
+        from tacto.promote import candidate_from
         def route(request):
             body = ('<button onclick="location.href=\'https://second.invalid/end\'">Next</button>'
                     if request.request.url.startswith('https://first.invalid/')
@@ -115,9 +115,9 @@ class RecoveryIntegrationTests(unittest.TestCase):
                                          target_identity=self.driver.identity()))
 
     def test_timeout_after_save_dispatch_never_retries_or_claims_done(self):
-        from nlc.contract import Envelope
-        from nlc.general import run
-        from nlc.outcome import spec_for, verify
+        from tacto.contract import Envelope
+        from tacto.general import run
+        from tacto.outcome import spec_for, verify
         self.page('''<input aria-label="location" value="/tmp">
             <input aria-label="filename" value="boundary.txt">
             <input aria-label="overwrite" value="">

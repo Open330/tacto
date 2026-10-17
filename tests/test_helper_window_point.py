@@ -1,7 +1,7 @@
 """The signed client refuses unapproved coordinates and preserves the deadline."""
 import unittest
 from unittest.mock import Mock, patch
-from nlc.helper import InheritedHelperDriver
+from tacto.helper import InheritedHelperDriver
 
 
 class HelperWindowPointTests(unittest.TestCase):
@@ -21,7 +21,7 @@ class HelperWindowPointTests(unittest.TestCase):
         driver.capabilities={'action.click_point'}
         driver._send=Mock(return_value={'type':'acted','unverified':'observe_effect'})
         action={'name':'click_point','element_index':0,'point':{'x':280,'y':120}}
-        with patch('nlc.helper.time.monotonic',return_value=100),patch('nlc.model_budget.remaining_model_seconds',return_value=2):
+        with patch('tacto.helper.time.monotonic',return_value=100),patch('tacto.model_budget.remaining_model_seconds',return_value=2):
             driver.act('owned','fixture',action,risk_class='preapproved',approved=True)
         driver._send.assert_called_once_with({'type':'act','obs_id':'owned','target':'fixture','action':action,
                                              'coordinate_authorized':True,'click_deadline_uptime':102})

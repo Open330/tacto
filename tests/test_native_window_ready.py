@@ -1,5 +1,5 @@
 import unittest
-from nlc.native_window_ready import require_window_ready, WindowNotReady
+from tacto.native_window_ready import require_window_ready, WindowNotReady
 
 class WindowReadyTests(unittest.TestCase):
     def setUp(self):

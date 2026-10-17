@@ -7,7 +7,7 @@
 ```bash
 .venv/bin/python examples/eval.py --offline --preview
 .venv/bin/python examples/eval.py --offline --report /tmp/tacto-offline.json
-./launcher/nlc eval background_menu_refusal --report /tmp/tacto-menu.json
+./launcher/tacto eval background_menu_refusal --report /tmp/tacto-menu.json
 ```
 
 마지막 명령은 소유한 배경 테스트 앱에서 메뉴 동작과 거절을 확인한다.
@@ -114,13 +114,13 @@ python examples/agent_acceptance.py --list           # 지금 상태에서 무�
 signed-launcher scenarios on the owned opaque canvas. They round-trip a Flow
 containing a named host scope, require a confirmed receiving event and A1/B0
 counters, retain metadata, and reject changed or inconclusive sampled input
-state. Run each separately (`./launcher/nlc eval flow_visual_fixed`). Fixed uses
+state. Run each separately (`./launcher/tacto eval flow_visual_fixed`). Fixed uses
 local color detection; the other two use the bounded image-provider relay.
 These Flow trials are a separate cohort from standalone/general image tests
 and do not establish actual-app or public-SDK parity.
 
 
-`./launcher/nlc eval signed_opaque_input` and `python_opaque_input` each run one
+`./launcher/tacto eval signed_opaque_input` and `python_opaque_input` each run one
 owned background canvas with no AX editable control. A host-authorized click
 selects its first responder; native window input then sends Right and three
 Unicode payloads (Korean/emoji, combining/ZWJ, and 64 UTF-16 units). Independent

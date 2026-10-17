@@ -5,7 +5,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from nlc import native_process_identity as identity
+from tacto import native_process_identity as identity
 
 
 class ProcessIdentityTests(unittest.TestCase):

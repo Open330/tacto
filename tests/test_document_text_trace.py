@@ -1,6 +1,6 @@
 """Live document evidence must never be represented as replayable trace data."""
 import unittest
-from nlc.trace import Trace, TracingDriver, TraceDriver
+from tacto.trace import Trace, TracingDriver, TraceDriver
 
 
 class DocumentTextTraceTests(unittest.TestCase):

@@ -1,7 +1,7 @@
 """Plans must fit the actions actually offered by the current driver."""
 import unittest
 
-from nlc.ask import NAVIGATION_KEYS, what_to_do_here
+from tacto.ask import NAVIGATION_KEYS, what_to_do_here
 
 
 class PlannerActions(unittest.TestCase):
@@ -44,7 +44,7 @@ class PlannerActions(unittest.TestCase):
             self.assertIsNone(self.plan({'do':'press_key','key':key}))
 
     def test_native_no_escape_capability_limits_prompt_and_validator(self):
-        from nlc.general import candidates
+        from tacto.general import candidates
         cs = candidates('0 TextField Title: name',
                         capabilities={'action.press_key','press_key.no_escape'})
         self.assertNotIn('Escape',cs[0]['navigation_keys'])
@@ -52,7 +52,7 @@ class PlannerActions(unittest.TestCase):
         self.assertIn('허용 키:',q.prompt)
         self.assertIsNone(q.check({'actions':[{'pick':0,'do':'press_key','key':'Escape'}]}))
         self.assertIsNotNone(q.check({'actions':[{'pick':0,'do':'press_key','key':'Tab'}]}))
-        from nlc.safety import effects_of
+        from tacto.safety import effects_of
         self.assertEqual({'write_ephemeral'}, effects_of(
             {'name':'press_key','key':'Tab'}, '1 Button Title: Send')[0])
 

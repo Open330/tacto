@@ -9,12 +9,12 @@ import time
 
 
 def main(driver, output):
-    from nlc.input_audit_process import ProcessInputAudit
-    from nlc.native_frontmost import frontmost_pid
+    from tacto.input_audit_process import ProcessInputAudit
+    from tacto.native_frontmost import frontmost_pid
     root=Path(__file__).resolve().parents[2]
     target='com.apple.TextEdit'
-    sources=['helper/TactoHelper.swift','nlc/helper.py','nlc/trace.py','launcher/tacto.swift',
-             'examples/probes/signed-document-rtf.py','nlc/input_audit_process.py','nlc/native_frontmost.py']
+    sources=['helper/TactoHelper.swift','tacto/helper.py','tacto/trace.py','launcher/tacto.swift',
+             'examples/probes/signed-document-rtf.py','tacto/input_audit_process.py','tacto/native_frontmost.py']
     def hashes():return {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     report={'passed':False,'scope':'new owned TextEdit RTF; signed range export; no save or edit',
             'source_sha256':hashes(),'owned_window_retained':False}

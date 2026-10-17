@@ -27,7 +27,7 @@ Claude peer가 코드와 AppKit 렌더링을 독립적으로 검토했습니다.
 
 - helper의 지역화된 표시 이름을 **Tacto Helper**로 제공합니다. Finder·Foundation에서
   실제 이름을 읽는 검사와 일본어 프로세스의 영어 fallback을 확인했습니다.
-- 내부 `NLC Helper.app` 경로와 기본 plist 이름은 Finder의 지역화 규칙 때문에 유지합니다.
+- 당시 내부 `NLC Helper.app` 경로와 기본 plist 이름은 Finder의 지역화 규칙 때문에 유지합니다.
   en/ko `InfoPlist.strings`가 사용자에게 보여줄 Tacto 이름을 제공합니다.
 - GUI와 doctor는 설치된 앱의 실제 이름을 안내합니다. 이전 설치나 macOS 캐시의
   NLC Helper 표시는 별도로 설명합니다. 설정 목록의 실제 행과 업그레이드 뒤
@@ -35,7 +35,7 @@ Claude peer가 코드와 AppKit 렌더링을 독립적으로 검토했습니다.
 - 실행 중 메뉴·권한 오류·런처 오류의 제품 표기를 Tacto로 통일했습니다.
 - 확정된 포인터 t 로고·앱 아이콘·웹 복사본을 같은 생성기 출력으로 맞췄습니다.
   이전 Git 이력은 병합하지 않고 필요한 자산 변경만 새 이력에 적용했습니다.
-- `nlc` Python 모듈·명령 별칭·Flow 경로·환경 변수와 `ai.callabo.nlc.*` 서명 식별자는
+- 당시 `nlc` Python 모듈·명령 별칭·Flow 경로·환경 변수와 `ai.callabo.nlc.*` 서명 식별자는
   호환성 때문에 유지합니다. 과거 벤치마크의 원래 이름과 수치도 바꾸지 않습니다.
 
 ## 확인한 범위와 남은 배포 작업
@@ -50,3 +50,5 @@ Claude peer가 코드와 AppKit 렌더링을 독립적으로 검토했습니다.
 
 **게시된 Preview 1 DMG는 이전 버전입니다.** 이번 UI·브랜딩 수정이 들어간 후보는
 새로 서명·공증하고 후보별 검증을 마친 뒤 별도 Release로 제공해야 합니다.
+
+후속 namespace 이전의 현재 경로·호환 범위는 [브랜딩 전환 안내](tacto-branding.md)를 확인하세요.

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nlc.visual import VisualCapture, VisualError, capture_browser, query_visual
+from tacto.visual import VisualCapture, VisualError, capture_browser, query_visual
 
 try:
     import playwright.sync_api
@@ -51,7 +51,7 @@ class VisualProvider(unittest.TestCase):
             self.assertEqual(b'\x89PNG\r\n\x1a\nprivate pixels', image.read_bytes())
             Path(argv[argv.index('--output-last-message') + 1]).write_text('{"answer":"blue square"}')
             return subprocess.CompletedProcess(argv, 0, self.events(Path(argv[argv.index('--output-last-message') + 1]).read_text()), '')
-        with patch('nlc.codex_result._run_codex', side_effect=run):
+        with patch('tacto.codex_result._run_codex', side_effect=run):
             result = query_visual(self.capture, 'What color?', model='chosen-model')
         self.assertEqual('blue square', result['answer'])
         self.assertEqual('visual_read', result['evidence_kind'])
@@ -60,7 +60,7 @@ class VisualProvider(unittest.TestCase):
         self.assertFalse(roots[0].exists())
 
     def test_unsupported_and_failed_provider_never_fallback(self):
-        with patch('nlc.codex_result._run_codex') as run:
+        with patch('tacto.codex_result._run_codex') as run:
             with self.assertRaisesRegex(VisualError, 'unsupported_visual_provider'):
                 query_visual(self.capture, 'read', provider='unsupported-provider')
             run.assert_not_called()
@@ -70,14 +70,14 @@ class VisualProvider(unittest.TestCase):
             self.assertEqual(1, run.call_count)
 
     def test_local_timeout_kills_process_group(self):
-        from nlc.visual import _run_visual
+        from tacto.visual import _run_visual
         from unittest.mock import MagicMock
         process = MagicMock()
         process.pid = 12345
         process.communicate.side_effect = subprocess.TimeoutExpired('codex', 1)
-        with patch('nlc.visual.subprocess.Popen') as popen, \
-             patch('nlc.visual.os.killpg') as killpg, \
-             patch('nlc.visual.os.name', 'posix'):
+        with patch('tacto.visual.subprocess.Popen') as popen, \
+             patch('tacto.visual.os.killpg') as killpg, \
+             patch('tacto.visual.os.name', 'posix'):
             popen.return_value.__enter__.return_value = process
             with self.assertRaises(subprocess.TimeoutExpired):
                 _run_visual(['codex'], input='read', timeout=1, cwd='/tmp')
@@ -91,7 +91,7 @@ class VisualProvider(unittest.TestCase):
         def run(argv, prompt, timeout):
             Path(argv[argv.index('--output-last-message') + 1]).write_text('{"answer":"ok","authorize":true}')
             return subprocess.CompletedProcess(argv, 0, self.events(Path(argv[argv.index('--output-last-message') + 1]).read_text()), '')
-        with patch('nlc.codex_result._run_codex', side_effect=run):
+        with patch('tacto.codex_result._run_codex', side_effect=run):
             with self.assertRaisesRegex(VisualError, 'invalid_visual_response'):
                 query_visual(self.capture, 'read')
 
@@ -99,7 +99,7 @@ class VisualProvider(unittest.TestCase):
 @unittest.skipUnless(WEB, 'optional playwright dependency not installed')
 class BrowserVisual(unittest.TestCase):
     def setUp(self):
-        from nlc.browser import BrowserDriver
+        from tacto.browser import BrowserDriver
         self.driver = BrowserDriver()
         self.addCleanup(self.driver.close)
         self.driver.goto("data:text/html,<canvas id='c' width='80' height='80'></canvas><script>c.getContext('2d').fillRect(0,0,80,80)</script>")
@@ -154,7 +154,7 @@ class BrowserVisual(unittest.TestCase):
 class VisualAnswerShapeTests(unittest.TestCase):
     """An invalid visual answer says how it was invalid — never what it said."""
     def test_each_malformation_has_its_own_closed_code(self):
-        from nlc.visual import VisualError, _visual_answer
+        from tacto.visual import VisualError, _visual_answer
         cases = {'```json\n{"answer":"x"}\n```': 'markdown_fence', 'not json': 'json_decode',
                  '[1]': 'root_not_object', '{"action":"stop"}': 'bare_action_object',
                  '{"answer":"x","why":"y"}': 'unexpected_keys',
@@ -168,7 +168,7 @@ class VisualAnswerShapeTests(unittest.TestCase):
 
     def test_the_prompt_shows_the_exact_envelope(self):
         import inspect
-        from nlc import visual
+        from tacto import visual
         self.assertIn('Do not use Markdown fences', inspect.getsource(visual))
         envelope = json.dumps({'answer': json.dumps({'action': 'stop'})})
         self.assertEqual({'action': 'stop'}, json.loads(visual._visual_answer(envelope)))

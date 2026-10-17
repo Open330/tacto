@@ -4,7 +4,7 @@ import argparse,json,re
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
 from record_browser_demos import run
-from nlc.flow import pin_params
+from tacto.flow import pin_params
 
 MARKDOWN='# Weekend plan\n\n## Saturday\n- Visit the museum\n- Meet friends at 2 pm\n\n**Bring a notebook.**\n'
 QUERY='is:issue state:open label:bug sort:comments-desc'

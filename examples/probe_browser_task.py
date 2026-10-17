@@ -26,9 +26,9 @@ def main():
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
-    from nlc.ask import ask, what_to_do_here
-    from nlc.browser import BrowserDriver
-    from nlc.general import run
+    from tacto.ask import ask, what_to_do_here
+    from tacto.browser import BrowserDriver
+    from tacto.general import run
 
     def emit(event, **fields):
         print(json.dumps(dict(event=event, **fields), ensure_ascii=False), flush=True)

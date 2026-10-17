@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from nlc.evaluation import require_replay
-from nlc.flow import ReplayResult
+from tacto.evaluation import require_replay
+from tacto.flow import ReplayResult
 
 ROOT = Path(__file__).resolve().parents[1]
 

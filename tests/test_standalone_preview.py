@@ -13,22 +13,22 @@ builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
 
 class StandalonePreviewTests(unittest.TestCase):
     def test_copy_excludes_editable_paths_caches_and_direct_url_metadata(self):
-        names=['__editable__.nlc.pth','__editable___finder.py','x.pth','direct_url.json','__pycache__','module.py','license.txt']
+        names=['__editable__.tacto.pth','__editable___finder.py','x.pth','direct_url.json','__pycache__','module.py','license.txt']
         kept=set(names)-set(builder.ignored('/owned',names))
         self.assertEqual({'module.py','license.txt'},kept)
 
     def test_import_origin_requires_existing_files_inside_bundle(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'runtime';root.mkdir();module=root/'module.py';module.write_text('')
-            helper=root/'helper/NLC Helper.app/Contents/MacOS/NLCHelper'
+            helper=root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
             helper.parent.mkdir(parents=True);helper.write_text('native fixture')
-            def receipt(nlc=module, native=helper):
-                return {'nlc':str(nlc),'prefix':str(root),'helper':str(native)}
+            def receipt(tacto=module, native=helper):
+                return {'tacto':str(tacto),'prefix':str(root),'helper':str(native)}
             self.assertTrue(builder.bundled_import_valid(receipt(),root))
             outside=Path(folder)/'outside.py';outside.write_text('')
             self.assertFalse(builder.bundled_import_valid(receipt(outside),root))
             self.assertFalse(builder.bundled_import_valid(receipt(native=outside),root))
-            self.assertFalse(builder.bundled_import_valid({'nlc':str(module),'prefix':str(root)},root))
+            self.assertFalse(builder.bundled_import_valid({'tacto':str(module),'prefix':str(root)},root))
             module.unlink();module.symlink_to(outside)
             self.assertFalse(builder.bundled_import_valid(receipt(),root))
             self.assertFalse(builder.bundled_import_valid(receipt(root/'missing'),root))

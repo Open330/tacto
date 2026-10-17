@@ -2,13 +2,13 @@ from dataclasses import replace
 import json
 from unittest.mock import Mock, patch
 import unittest
-from nlc.native_visual_actions import NativeVisualClickExecutor
-from nlc.native_window_payload import WINDOW_INPUT_CAPABILITIES
-from nlc.general_visual import NativeVisualScope
-from nlc.flow import Flow, Step, Selector, replay
-from nlc.contract import Envelope
-from nlc.general import run
-from nlc.visual import plan_native_input, VisualError
+from tacto.native_visual_actions import NativeVisualClickExecutor
+from tacto.native_window_payload import WINDOW_INPUT_CAPABILITIES
+from tacto.general_visual import NativeVisualScope
+from tacto.flow import Flow, Step, Selector, replay
+from tacto.contract import Envelope
+from tacto.general import run
+from tacto.visual import plan_native_input, VisualError
 from tests.test_native_visual_actions import shot
 from tests.test_general_visual import App
 
@@ -27,7 +27,7 @@ class VisualWindowInputTests(unittest.TestCase):
         return shot('input'+str(id(self))+str(self.counter))
     def execute(self,*,flow=False,scope=None):
         scope=scope or self.scope
-        with patch('nlc.general_visual.capture_window',side_effect=self.image),patch('nlc.native_visual_actions.capture_window',side_effect=self.image):
+        with patch('tacto.general_visual.capture_window',side_effect=self.image),patch('tacto.native_visual_actions.capture_window',side_effect=self.image):
             if flow:
                 step=Step('visual',params={'scope':'input','max_screens':3},intent_text='right then text',
                     safety=Envelope.minimal().contract_for({'write_ephemeral'},'owned input'))
@@ -75,7 +75,7 @@ class VisualInputExecutorTests(unittest.TestCase):
         self.counter=0
     def execute(self,proposal,*,authorize=lambda *args:True,fresh_change=None,cancelled=None):
         self.counter+=1;c=shot('executor'+str(id(self))+str(self.counter))
-        with patch('nlc.native_visual_actions.capture_window',return_value=replace(c,**(fresh_change or {}))):
+        with patch('tacto.native_visual_actions.capture_window',return_value=replace(c,**(fresh_change or {}))):
             return self.executor.input(c,proposal,authorize,cancelled=cancelled)
     def test_shapes_controls_and_nonliteral_authority_never_dispatch(self):
         for proposal in ({'action':'key','key':'Escape'},{'action':'text','text':'\n'},
@@ -91,7 +91,7 @@ class VisualInputExecutorTests(unittest.TestCase):
         self.assertFalse(self.app.calls)
     def test_capture_is_one_use_across_click_and_keyboard_even_after_uncertainty(self):
         c=shot('spent'+str(id(self)));self.app.reply['posted_events']=1
-        with patch('nlc.native_visual_actions.capture_window',return_value=c):
+        with patch('tacto.native_visual_actions.capture_window',return_value=c):
             event=self.executor.input(c,{'action':'text','text':'a'},lambda *args:True)
         self.assertEqual('unknown',event['effect'])
         self.assertEqual('capture_already_used',self.executor.click(c,{'action':'click','x':1,'y':1},lambda *args:True)['reason'])
@@ -107,11 +107,11 @@ class NativeInputPlannerTests(unittest.TestCase):
     def test_parser_only_accepts_host_input_kinds_and_bounded_payloads(self):
         proposals=[{'action':'key','key':'Right'},{'action':'text','text':'A😀한글'},{'action':'done'},{'action':'stop'}]
         for proposal in proposals:
-            with patch('nlc.visual.query_visual',return_value={'answer':json.dumps(proposal)}):
+            with patch('tacto.visual.query_visual',return_value={'answer':json.dumps(proposal)}):
                 self.assertEqual(proposal,plan_native_input(shot(),'owned'))
         for proposal in ({'action':'key','key':'cmd+s'},{'action':'text','text':'\n'},{'action':'click','x':1,'y':1},
                 {'action':'text','text':'a','approved':True},{'action':'text','text':'😀'*33}):
-            with patch('nlc.visual.query_visual',return_value={'answer':json.dumps(proposal)}),self.assertRaises(VisualError):
+            with patch('tacto.visual.query_visual',return_value={'answer':json.dumps(proposal)}),self.assertRaises(VisualError):
                 plan_native_input(shot(),'owned')
-        with patch('nlc.visual.query_visual',return_value={'answer':'{"action":"key","key":"Right"}'}),self.assertRaises(VisualError):
+        with patch('tacto.visual.query_visual',return_value={'answer':'{"action":"key","key":"Right"}'}),self.assertRaises(VisualError):
             plan_native_input(shot(),'owned',input_actions=frozenset({'text'}))

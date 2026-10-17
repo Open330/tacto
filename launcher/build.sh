@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and sign the nlc launcher — the only client the helper accepts.
+# Build and sign the tacto launcher — the only client the helper accepts.
 set -euo pipefail
 cd "$(dirname "$0")"
 . ../signing.sh
@@ -8,9 +8,9 @@ SDK=$(/bin/ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk | /usr/bin
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp tacto.swift "$STAGE/main.swift"
-"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" ../SigningPolicy.swift -o "$STAGE/nlc"
-nlc_select_identity
-nlc_sign "$STAGE/nlc" "$NLC_LAUNCHER_ID"
-nlc_warn_team_change nlc "$STAGE/nlc"
-mv "$STAGE/nlc" nlc
-echo "built and verified: $(pwd)/nlc"
+"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" ../SigningPolicy.swift -o "$STAGE/tacto"
+tacto_select_identity
+tacto_sign "$STAGE/tacto" "$TACTO_LAUNCHER_ID"
+tacto_warn_team_change tacto "$STAGE/tacto"
+mv "$STAGE/tacto" tacto
+echo "built and verified: $(pwd)/tacto"

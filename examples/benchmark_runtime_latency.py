@@ -1,7 +1,7 @@
 """Paired signed-runtime latency check in a disposable native app; no models.
 
-Example: python3 examples/benchmark_runtime_latency.py --baseline /path/to/nlc
-  --candidate /path/to/new/nlc --output /absolute/new/private-directory
+Example: python3 examples/benchmark_runtime_latency.py --baseline /path/to/tacto
+  --candidate /path/to/new/tacto --output /absolute/new/private-directory
 Both launchers must already have permission. This never installs or grants it.
 """
 import argparse
@@ -30,7 +30,7 @@ def code_hash(path):
 
 def manifest(launcher):
     runtime = launcher.parent.parent
-    packages = list((runtime/'.venv/lib').glob('python*/site-packages/nlc'))
+    packages = list((runtime/'.venv/lib').glob('python*/site-packages/tacto'))
     if len(packages) != 1:
         raise ValueError('one bundled package required')
     return {'python_sources': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -38,7 +38,7 @@ def manifest(launcher):
             'bytecode': {str(p.relative_to(runtime/'.venv')): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in sorted((runtime/'.venv').rglob('*.pyc'))},
             'launcher_cdhash': code_hash(launcher),
-            'helper_cdhash': code_hash(runtime/'helper/NLC Helper.app'),
+            'helper_cdhash': code_hash(runtime/'helper/Tacto Helper.app'),
             'python_cdhash': code_hash(runtime/'.venv/bin/python')}
 
 
@@ -99,7 +99,7 @@ def main():
     expected = ['driver.py', 'flow.py', 'general.py', 'helper.py', 'overlay.py'] if args.launcher_optimized else ['driver.py', 'flow.py', 'general.py', 'helper.py']
     bytecode_equal = set(before['baseline']['bytecode']) == set(before['candidate']['bytecode'])
     for name, digest in before['baseline']['bytecode'].items():
-        changed_module = ('/site-packages/nlc/__pycache__/' in '/'+name
+        changed_module = ('/site-packages/tacto/__pycache__/' in '/'+name
                           and Path(name).name.split('.', 1)[0]+'.py' in expected)
         if not changed_module and before['candidate']['bytecode'].get(name) != digest:
             bytecode_equal = False
@@ -145,7 +145,7 @@ def main():
         result = subprocess.run([str(launchers[arm]), *argv], stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, timeout=40)
         elapsed = time.monotonic()-began
-        helper = str(launchers[arm].parent.parent/'helper/NLC Helper.app/Contents/MacOS/NLCHelper')
+        helper = str(launchers[arm].parent.parent/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper')
         processes = subprocess.check_output(['ps', '-axo', 'comm='], text=True).splitlines()
         if any(line.strip() == helper for line in processes):
             raise ValueError('owned helper remains after command cleanup')

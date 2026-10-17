@@ -22,7 +22,7 @@ class CalculatorSetupTests(unittest.TestCase):
         witness=Witness();witness.activations=list(activations)
         with patch.object(comparison,'_driver',return_value=driver),patch.object(comparison,'_locked',return_value=locked),\
              patch.object(comparison,'_calc_display',return_value=display),patch.object(comparison,'_calc_mode',return_value=mode),\
-             patch('nlc.flow.Selector.resolve',return_value=(0,'owned')),patch.object(comparison.time,'sleep'),\
+             patch('tacto.flow.Selector.resolve',return_value=(0,'owned')),patch.object(comparison.time,'sleep'),\
              patch.dict(sys.modules,{'focus_witness':types.SimpleNamespace(FocusWitness=lambda:witness)}),\
              patch.object(comparison.subprocess,'run',return_value=subprocess.CompletedProcess([],launch_exit)) as launch,\
              patch.object(comparison.time,'monotonic',side_effect=[0,9] if expired else None,return_value=0):

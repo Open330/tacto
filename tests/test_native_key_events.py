@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import importlib.util
 import unittest
 from unittest.mock import patch
-from nlc.native_key_events import NAVIGATION, build_window_key
-from nlc.native_window_dispatch import dispatch_navigation, UserInputState, WindowDispatchFailure
+from tacto.native_key_events import NAVIGATION, build_window_key
+from tacto.native_window_dispatch import dispatch_navigation, UserInputState, WindowDispatchFailure
 
 
 class KeyBuilderTests(unittest.TestCase):
@@ -94,7 +94,7 @@ class NavigationDispatchTests(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec('CoreFoundation'), 'CoreFoundation unavailable')
 class TargetRoutingTests(unittest.TestCase):
     def test_actual_routing_checks_identity_ancestry_type_and_current_input(self):
-        from nlc.native_window_binding import _MacBackend, NativeWindowBindingError
+        from tacto.native_window_binding import _MacBackend, NativeWindowBindingError
         nodes = {'first': {'AXRole':'AXTextArea','AXParent':'window'},
                  'second': {'AXRole':'AXTextArea','AXParent':'window'},
                  'foreign': {'AXRole':'AXTextArea','AXParent':'other-window'},

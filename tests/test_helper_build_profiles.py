@@ -31,7 +31,7 @@ class HelperBuildProfiles(unittest.TestCase):
         self.assertNotIn('dispatchVroidDrag(',code)
 
     def test_default_built_helper_contains_no_foreground_drag_implementation(self):
-        path=ROOT/'helper/nlc-helper'
+        path=ROOT/'helper/tacto-helper'
         if not path.exists():self.skipTest('helper not built')
         result=subprocess.run(['nm',str(path)],capture_output=True,text=True)
         self.assertEqual(0,result.returncode,result.stderr)

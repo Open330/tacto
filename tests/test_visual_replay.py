@@ -4,10 +4,10 @@ from unittest.mock import Mock, patch
 import json
 import unittest
 
-from nlc.contract import Envelope
-from nlc.flow import Flow, Step, Selector, replay
-from nlc.general_visual import NativeVisualScope
-from nlc.model_budget import model_deadline
+from tacto.contract import Envelope
+from tacto.flow import Flow, Step, Selector, replay
+from tacto.general_visual import NativeVisualScope
+from tacto.model_budget import model_deadline
 from tests.test_general_visual import App
 from tests.test_native_visual_actions import shot
 
@@ -35,8 +35,8 @@ class VisualReplayTests(unittest.TestCase):
         return shot('flow'+str(id(self))+str(self.count))
 
     def execute(self, flow=None, scopes=None, **kwargs):
-        with patch('nlc.general_visual.capture_window', side_effect=self.image), \
-             patch('nlc.native_visual_actions.capture_window', side_effect=self.image):
+        with patch('tacto.general_visual.capture_window', side_effect=self.image), \
+             patch('tacto.native_visual_actions.capture_window', side_effect=self.image):
             return replay(self.app, flow or self.flow,
                 visual_scopes=scopes if scopes is not None else {'green':self.scope}, **kwargs)
 
@@ -133,8 +133,8 @@ class VisualReplayTests(unittest.TestCase):
         self.assertEqual(1, len(self.app.calls))
 
     def test_provider_call_metadata_is_retained(self):
-        from nlc.provider_observation import record_provider_result
-        from nlc.provider_result import ProviderResult
+        from tacto.provider_observation import record_provider_result
+        from tacto.provider_result import ProviderResult
         original = self.scope.planner
         def planner(*args):
             record_provider_result(ProviderResult(request_id='owned-test-1', requested_provider='owned-test', provider='owned-test', transport='fixture', model='fixed', status='ok', text='private test response', error=None, elapsed_seconds=0))

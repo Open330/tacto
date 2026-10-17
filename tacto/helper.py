@@ -20,6 +20,7 @@ import threading
 import os
 import subprocess
 import time
+from .environment import value as _environment_value
 
 def _runtime_root(module_file, prefix):
     """Locate either a source package or the fixed standalone .venv layout."""
@@ -27,9 +28,10 @@ def _runtime_root(module_file, prefix):
     package_root = Path(module_file).resolve().parent.parent
     environment = Path(prefix).resolve()
     runtime = environment.parent
-    helper = runtime / "helper/NLC Helper.app/Contents/MacOS/NLCHelper"
+    candidates = [runtime / "helper/Tacto Helper.app/Contents/MacOS/TactoHelper",
+                  runtime / "helper/NLC Helper.app/Contents/MacOS/NLCHelper"]
     if (environment.name == ".venv" and package_root.is_relative_to(environment)
-            and helper.is_file() and helper.resolve().is_relative_to(runtime)):
+            and any(helper.is_file() and helper.resolve().is_relative_to(runtime) for helper in candidates)):
         return str(runtime)
     return str(package_root)
 
@@ -38,12 +40,20 @@ import sys
 _ROOT = _runtime_root(__file__, sys.prefix)
 
 # Prefer the .app bundle: TCC identifies it by signature and lists it by name,
-# so the grant belongs to "NLC Helper" rather than to whatever the bare
+# so the grant belongs to "Tacto Helper" rather than to whatever the bare
 # executable happens to be called, and survives rebuilds of the same identity.
-_BUNDLED = os.path.join(_ROOT, "helper", "NLC Helper.app",
-                        "Contents", "MacOS", "NLCHelper")
-_BARE = os.path.join(_ROOT, "helper", "nlc-helper")
-HELPER = _BUNDLED if os.path.exists(_BUNDLED) else _BARE
+_BUNDLED = os.path.join(_ROOT, "helper", "Tacto Helper.app",
+                        "Contents", "MacOS", "TactoHelper")
+_BARE = os.path.join(_ROOT, "helper", "tacto-helper")
+_LEGACY_BUNDLED = os.path.join(_ROOT, "helper", "NLC Helper.app", "Contents", "MacOS", "NLCHelper")
+_LEGACY_BARE = os.path.join(_ROOT, "helper", "nlc-helper")
+def helper_candidates():
+    """Existing builds, ordered exactly as launcher selection (bundles first)."""
+    return [path for path in (_BUNDLED, _LEGACY_BUNDLED, _BARE, _LEGACY_BARE) if os.path.isfile(path)]
+
+
+HELPER = next((path for path in (_BUNDLED, _LEGACY_BUNDLED, _BARE, _LEGACY_BARE)
+               if os.path.isfile(path)), _BARE)
 
 
 def helper_display_name(path=None) -> str:
@@ -152,14 +162,14 @@ class InheritedHelperDriver:
     vets every message, and it passes this end of a socketpair as fd 3. There is
     no way to obtain this channel other than being the launcher's child."""
 
-    FD_ENV = "NLC_HELPER_FD"
+    FD_ENV = "TACTO_HELPER_FD"
     # One inherited descriptor means one channel. Wrapping it twice would give
     # two objects that each close the same fd, so the second user finds it gone.
     _shared = None
 
     @classmethod
     def available(cls) -> bool:
-        return os.environ.get(cls.FD_ENV) is not None
+        return _environment_value("HELPER_FD") is not None
 
     def __new__(cls):
         if cls._shared is None:
@@ -172,10 +182,10 @@ class InheritedHelperDriver:
             raise HelperUnavailable("모델 시간 초과로 권한 채널이 종료되었습니다")
         if getattr(self, "_ready", False):
             return                      # already connected on this channel
-        fd = os.environ.get(self.FD_ENV)
+        fd = _environment_value("HELPER_FD")
         if fd is None:
             raise HelperUnavailable(
-                "권한 채널이 없습니다 — 서명된 런처로 실행하세요:  ./launcher/nlc <명령>")
+                "권한 채널이 없습니다 — 서명된 런처로 실행하세요:  ./launcher/tacto <명령>")
         import socket as _s
         self._sock = _s.socket(fileno=int(fd))
         self._sock.setblocking(True)
@@ -378,7 +388,7 @@ class HelperDriver:
         # the helper even if it can execute the binary.
         import secrets
         self._token = secrets.token_hex(16)
-        env = dict(os.environ, NLC_HELPER_TOKEN=self._token)
+        env = dict(os.environ, TACTO_HELPER_TOKEN=self._token)
         self._proc = subprocess.Popen(
             [path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
@@ -397,9 +407,7 @@ class HelperDriver:
                 if self._proc.returncode == 3:
                     raise HelperUnavailable(
                         "도우미가 이 클라이언트를 거부했습니다. 서명된 런처를 통해 "
-                        "실행하세요:  ./launcher/nlc <명령> --helper\n"
-                        "  (개발 중이라면 NLC_HELPER_REQUIREMENT 로 요구조건을 바꿀 수 "
-                        "있습니다)") from None
+                        "실행하세요:  ./launcher/tacto <명령> --helper") from None
                 raise HelperUnavailable(f"도우미가 시작되지 못했습니다: {(err or '').strip()[:200]}")
             self.handshake = pong           # what the helper said about itself
             if not isinstance(pong, dict) or pong.get("type") != "pong":

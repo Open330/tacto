@@ -20,15 +20,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--provider', choices=['codex', 'claude'], required=True)
     args = parser.parse_args()
-    from nlc.ask import what_to_do_here
-    from nlc.authoring import _ask_model, _extract_json
-    from nlc.driver import Driver
-    from nlc.flow import Postcondition, Selector, replay
-    from nlc.general import run
-    from nlc.library import calc_arith
+    from tacto.ask import what_to_do_here
+    from tacto.authoring import _ask_model, _extract_json
+    from tacto.driver import Driver
+    from tacto.flow import Postcondition, Selector, replay
+    from tacto.general import run
+    from tacto.library import calc_arith
 
     def snapshot():
-        paths = sorted((ROOT / 'nlc').glob('*.py')) + [Path(__file__)]
+        paths = sorted((ROOT / 'tacto').glob('*.py')) + [Path(__file__)]
         return hashlib.sha256(b''.join(str(p.relative_to(ROOT)).encode() +
             hashlib.sha256(p.read_bytes()).digest() for p in paths)).hexdigest()
     before = snapshot()

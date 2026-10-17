@@ -9,7 +9,7 @@ from unittest.mock import patch
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC required')
 class WindowPreparationTests(unittest.TestCase):
     def setUp(self):
-        from nlc import driver
+        from tacto import driver
         self.m = driver
         self.d = object.__new__(driver.Driver)
         self.el = object()
@@ -94,7 +94,7 @@ class WindowPreparationTests(unittest.TestCase):
         self.assertEqual('not_started', result['effect'])
 
     def test_background_dispatch_effect_and_stop_propagate_through_act(self):
-        from nlc.native_window_dispatch import WindowDispatchFailure
+        from tacto.native_window_dispatch import WindowDispatchFailure
         for attempted, stopped in ((0,False),(1,False),(1,True)):
             with self.subTest(attempted=attempted,stopped=stopped), ExitStack() as stack:
                 stack.enter_context(patch.object(self.m,'_attr',return_value='AXWindow'))
@@ -108,14 +108,14 @@ class WindowPreparationTests(unittest.TestCase):
                 self.assertEqual(result['posted_or_attempted_events'],attempted)
 
     def test_background_context_rejects_observation_process_and_map_drift(self):
-        from nlc.native_window_dispatch import WindowDispatchFailure
+        from tacto.native_window_dispatch import WindowDispatchFailure
         self.obs.target = 'fixture'
         with ExitStack() as stack:
             stack.enter_context(patch.object(self.m,'_aborted_now',return_value=False))
             resolver = stack.enter_context(patch.object(self.d,'_resolve',return_value=42))
-            start = stack.enter_context(patch('nlc.native_process_identity.process_start_identity',return_value=123.0))
+            start = stack.enter_context(patch('tacto.native_process_identity.process_start_identity',return_value=123.0))
             binding = SimpleNamespace(_backend=SimpleNamespace(equal=lambda a,b:a is b))
-            stack.enter_context(patch('nlc.native_window_binding.capture_binding',return_value=binding))
+            stack.enter_context(patch('tacto.native_window_binding.capture_binding',return_value=binding))
             def dispatched(binding, **kwargs):
                 context = kwargs['context']
                 context()
@@ -133,7 +133,7 @@ class WindowPreparationTests(unittest.TestCase):
                 self.obs.elements = [self.el]
                 context()
                 raise WindowDispatchFailure('interrupted after post',attempted=1)
-            stack.enter_context(patch('nlc.native_window_dispatch.dispatch_preparation',side_effect=dispatched))
+            stack.enter_context(patch('tacto.native_window_dispatch.dispatch_preparation',side_effect=dispatched))
             with self.assertRaises(WindowDispatchFailure) as error:
                 self.d._prepare_background_window(self.obs,self.el)
             self.assertEqual(error.exception.attempted,1)
@@ -143,7 +143,7 @@ class WindowPreparationTests(unittest.TestCase):
 class UnpressableElementTests(unittest.TestCase):
     """An element that says it cannot be pressed is not clicked at instead."""
     def setUp(self):
-        from nlc import driver
+        from tacto import driver
         self.m = driver
         self.d = object.__new__(driver.Driver)
         self.el = object()

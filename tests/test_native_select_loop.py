@@ -3,10 +3,10 @@
 The fake driver does not validate AX menu lifetime; native integration tests do.
 """
 import unittest
-from nlc.ask import what_to_do_here
-from nlc.contract import Resource, SafetyContract
-from nlc.flow import Flow, Selector, Step, replay
-from nlc.general import run
+from tacto.ask import what_to_do_here
+from tacto.contract import Resource, SafetyContract
+from tacto.flow import Flow, Selector, Step, replay
+from tacto.general import run
 
 
 class Popup:
@@ -91,7 +91,7 @@ class NativeSelectLoopTests(unittest.TestCase):
 
     def test_opened_menu_error_is_not_retried_by_replay_recovery(self):
         from unittest.mock import patch
-        from nlc.flow import Resolution
+        from tacto.flow import Resolution
         class FailedSelection(Popup):
             def act(self, obs_id, target, action, **kwargs):
                 self.calls.append((obs_id,dict(action)))
@@ -103,7 +103,7 @@ class NativeSelectLoopTests(unittest.TestCase):
                   params={'option_label':'Beta'},on_uncertain=['action_failed'],
                   safety=SafetyContract(effects=['write_ephemeral'],
                     resource=Resource(scope='entry'),reversibility='reversible'))])
-        with patch('nlc.flow._run_fix') as recover:
+        with patch('tacto.flow._run_fix') as recover:
             result=replay(d,flow,budget=3,escalate=lambda why:Resolution(kind='recover',recovery='dismiss_dialog'))
         self.assertFalse(result.ok)
         self.assertEqual(1,len(d.calls))

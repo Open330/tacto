@@ -8,7 +8,7 @@ import re
 import sys
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0])
-from nlc.driver import Driver
+from tacto.driver import Driver
 
 TARGET = "com.apple.calculator"
 # Button labels as they appear in Calculator's AX tree (Korean or English UI).

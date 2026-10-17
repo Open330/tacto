@@ -3,8 +3,8 @@ agent can pass it to textedit_save; parsers stop values at it (2026-10-10)."""
 import pathlib
 import unittest
 
-from nlc.driver import _document_path, _line_attr
-from nlc.flow import Selector
+from tacto.driver import _document_path, _line_attr
+from tacto.flow import Selector
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LINE = "0 Window  Title: 노트.txt, Identifier: _NS:31, Document: /tmp/a/노트.txt [focused]"
@@ -51,7 +51,7 @@ class SyntaxParityTests(unittest.TestCase):
         import json, shutil, subprocess, tempfile
         if not shutil.which("swift"):
             self.skipTest("Swift required")
-        from nlc.native_document import document_url_syntax_path
+        from tacto.native_document import document_url_syntax_path
         swift = (ROOT / "helper/TactoHelper.swift").read_text()
         def fn(name):
             body = swift[swift.index(f"func {name}("):]
@@ -61,7 +61,7 @@ class SyntaxParityTests(unittest.TestCase):
         harness = ("import Foundation\n" + code + "\nlet cases = " + json.dumps(self.CASES) +
                    "\nlet out = cases.map { documentURLSyntaxPath($0) ?? \"<nil>\" }\n"
                    "print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)\n")
-        with tempfile.TemporaryDirectory(prefix="nlc-url-parity-") as d:
+        with tempfile.TemporaryDirectory(prefix="tacto-url-parity-") as d:
             src = pathlib.Path(d) / "main.swift"; src.write_text(harness, encoding="utf-8")
             run = subprocess.run(["swift", str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)

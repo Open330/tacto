@@ -105,7 +105,7 @@ every system call is not guaranteed. The helper keeps at most 32 panel tokens
 per connection. Native comparisons are repeated reads, with the same possible
 intermediate-change/ABA limitation as the Python reader.
 
-An isolated `./launcher/nlc eval signed_save_panel` probe creates its own
+An isolated `./launcher/tacto eval signed_save_panel` probe creates its own
 background NSSavePanel and never presses Save. Its initial RTF/off settings,
 changed Plain Text/on settings and filename agree with independent in-process
 host values. Stale observations, foreign panel tokens and old settings after

@@ -14,24 +14,24 @@ TITLE = 'NLC Opaque Input Fixture '
 
 
 def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixed", require_selection=False):
-    from nlc.driver import Driver, _attr
-    from nlc.flow import Selector
-    from nlc.input_audit_process import ProcessInputAudit
-    from nlc.native_window_binding import capture_binding
-    from nlc.native_window_payload import WINDOW_INPUT_CAPABILITIES
-    from nlc.protocol import window_input_reobservation
+    from tacto.driver import Driver, _attr
+    from tacto.flow import Selector
+    from tacto.input_audit_process import ProcessInputAudit
+    from tacto.native_window_binding import capture_binding
+    from tacto.native_window_payload import WINDOW_INPUT_CAPABILITIES
+    from tacto.protocol import window_input_reobservation
     root = Path(__file__).resolve().parents[2]
     sources = ['tests/fixtures/NativeOpaqueInputFixture.swift','examples/probes/native-opaque-input.py',
-        'nlc/driver.py','nlc/helper.py','nlc/native_window_payload.py','nlc/native_key_events.py',
-        'nlc/native_window_binding.py','nlc/native_window_dispatch.py','nlc/native_window_ready.py','nlc/native_frontmost.py',
-        'nlc/native_process_identity.py','nlc/input_audit.py','nlc/input_audit_process.py',
+        'tacto/driver.py','tacto/helper.py','tacto/native_window_payload.py','tacto/native_key_events.py',
+        'tacto/native_window_binding.py','tacto/native_window_dispatch.py','tacto/native_window_ready.py','tacto/native_frontmost.py',
+        'tacto/native_process_identity.py','tacto/input_audit.py','tacto/input_audit_process.py',
         'helper/TactoHelper.swift','helper/WindowInput.swift','helper/WindowDispatch.swift',
-        'helper/FrontmostProcess.swift','launcher/tacto.swift','nlc/protocol.py',
-        'nlc/native_visual.py','nlc/native_visual_actions.py','nlc/general_visual.py','nlc/general.py',
-        'nlc/flow.py','nlc/visual_replay.py','nlc/visual.py','nlc/provider_observation.py',
-        'nlc/provider_images.py','nlc/provider_result.py','nlc/model_budget.py',
-        'nlc/claude_result.py','nlc/codex_result.py','nlc/ask_provider.py',
-        'nlc/authoring.py']
+        'helper/FrontmostProcess.swift','launcher/tacto.swift','tacto/protocol.py',
+        'tacto/native_visual.py','tacto/native_visual_actions.py','tacto/general_visual.py','tacto/general.py',
+        'tacto/flow.py','tacto/visual_replay.py','tacto/visual.py','tacto/provider_observation.py',
+        'tacto/provider_images.py','tacto/provider_result.py','tacto/model_budget.py',
+        'tacto/claude_result.py','tacto/codex_result.py','tacto/ask_provider.py',
+        'tacto/authoring.py']
     hashes = lambda:{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     if type(visual_flow) is not bool or vision_provider not in ('fixed','codex','claude'):
         raise ValueError('explicit visual Flow and supported provider required')
@@ -45,7 +45,7 @@ def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixe
     try:
         assert WINDOW_INPUT_CAPABILITIES <= set(public_driver.capabilities),'opaque input capability absent'
         assert native._resolve(TARGET,launch=False) is None,'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-input-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-input-') as directory:
             bundle=Path(directory)/'OpaqueInput.app';binaries=bundle/'Contents/MacOS';binaries.mkdir(parents=True)
             binary=binaries/'OpaqueInput'
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors',str(root/sources[0]),'-o',str(binary)],
@@ -103,10 +103,10 @@ def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixe
                     assert wrong.get('effect')=='not_started' and wrong.get('posted_or_attempted_events',0)==0,wrong
                     assert state()==before,'a refused operation changed own canvas'
                     if visual_flow:
-                        from nlc.general_visual import NativeVisualScope
-                        from nlc.flow import Flow, Step, replay
-                        from nlc.contract import Envelope
-                        from nlc.visual import plan_native_input
+                        from tacto.general_visual import NativeVisualScope
+                        from tacto.flow import Flow, Step, replay
+                        from tacto.contract import Envelope
+                        from tacto.visual import plan_native_input
                         expected_text='A😀한글'
                         def receiving(capture,history):
                             current=state()

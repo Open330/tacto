@@ -1,7 +1,7 @@
 """Internal point input never activates, retries, or posts beyond a failed gate."""
 from types import SimpleNamespace
 import unittest
-from nlc.native_window_dispatch import dispatch_point, UserInputState, WindowDispatchFailure
+from tacto.native_window_dispatch import dispatch_point, UserInputState, WindowDispatchFailure
 
 
 class WindowPointDispatchTests(unittest.TestCase):

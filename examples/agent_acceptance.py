@@ -1,7 +1,7 @@
 """Agent acceptance: does NLC work for an agent that only has the skill?
 
 Every problem reported so far was invisible to the unit tests and the eval
-suite, because both run NLC from inside this checkout: the `nlc` command was
+suite, because both run NLC from inside this checkout: the `tacto` command was
 never installed (2026-09-28), a sandboxed agent was told to grant a permission
 it already had, and an agent reading Safari on a locked screen had to guess
 why it saw nothing. Each was found by an agent that had nothing but the skill.
@@ -44,21 +44,21 @@ class Case:
 
 CASES = [
     Case("finds_nlc", "workspace-write", "any",
-         "Use the nlc skill. Check whether the nlc command is installed and report its path. "
+         "Use the tacto skill. Check whether the tacto command is installed and report its path. "
          "Do not install anything.",
-         passes=r"\.local/bin/nlc"),
+         passes=r"\.local/bin/tacto"),
     Case("names_the_sandbox", "workspace-write", "any",
-         "Use the nlc skill. Run `nlc apps` and report what happened and why.",
+         "Use the tacto skill. Run `tacto apps` and report what happened and why.",
          passes=r"샌드박스|sandbox",
          fails=r"(grant|enable|켜)[^\n]{0,40}(Accessibility|손쉬운 사용)",
          agents=("codex",)),       # the seatbelt sandbox is Codex's
     Case("names_the_lock", "danger-full-access", "locked",
-         "Use the nlc skill. Read the title of the frontmost Safari window with NLC and report it. "
+         "Use the tacto skill. Read the title of the frontmost Safari window with NLC and report it. "
          "If you cannot, say exactly why.",
          passes=r"잠겨|잠금|locked",
          fails=r"(grant|enable|켜)[^\n]{0,40}(Accessibility|손쉬운 사용)"),
     Case("does_a_task", "danger-full-access", "unlocked",
-         "Use the nlc skill. With NLC, compute 12 times 12 in the Calculator app and report the "
+         "Use the tacto skill. With NLC, compute 12 times 12 in the Calculator app and report the "
          "result NLC verified.",
          passes=r"\b144\b"),
 ]
@@ -108,7 +108,7 @@ def run(case: Case, agent: str = "codex", timeout: int = 420) -> tuple[str, str]
     with tempfile.NamedTemporaryFile("r", suffix=".txt") as last:
         # The same environment NLC gives its own provider calls: a shell's
         # leftovers made `claude -p` answer "Not logged in" while logged in.
-        from nlc.authoring import _provider_env
+        from tacto.authoring import _provider_env
         proc = subprocess.run(command(agent, case, last.name), stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, timeout=timeout, cwd="/tmp",
                               env=_provider_env())

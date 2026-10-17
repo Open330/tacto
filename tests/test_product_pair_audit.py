@@ -25,7 +25,7 @@ class PairAuditTests(unittest.TestCase):
                 'initial_frontmost_bundle':'owned.sentinel', 'oracle_contract':'exact-v2',
                 'runtime_policy':'background-v2','background_constraint':'owned constraint',
                 'timeout_seconds':120}
-        self.rows = [dict(deepcopy(base), arm=arm) for arm in ('nlc', 'sky')]
+        self.rows = [dict(deepcopy(base), arm=arm) for arm in ('tacto', 'sky')]
 
     def pair(self):
         return module.audit(self.rows)['pairs'][0]

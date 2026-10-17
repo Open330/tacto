@@ -1,7 +1,7 @@
 """Read-only requests reject ambiguous values before reaching the helper."""
 from types import SimpleNamespace
 import unittest
-from nlc.helper import HelperDriver, InheritedHelperDriver
+from tacto.helper import HelperDriver, InheritedHelperDriver
 
 
 class HelperSavePanelTests(unittest.TestCase):
