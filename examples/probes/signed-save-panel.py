@@ -19,8 +19,8 @@ def main(driver, output, *, guarded_commit=False):
               'scope': ('owned NSSavePanel callback; guarded AXPress; no file writer'
                         if guarded_commit else 'owned NSSavePanel; read only; never Save'), 'steps': []}
     process = None
-    sources = ('helper/NLCHelper.swift', 'helper/SavePanelObservation.swift', 'nlc/helper.py',
-               'launcher/nlc.swift', 'examples/probes/signed-save-panel.py',
+    sources = ('helper/TactoHelper.swift', 'helper/SavePanelObservation.swift', 'nlc/helper.py',
+               'launcher/tacto.swift', 'examples/probes/signed-save-panel.py',
                'tests/fixtures/NativeSaveSettingsFixture.swift', 'nlc/input_audit_process.py')
     def hashes():
         return {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in sources}

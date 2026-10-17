@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(shutil.which('swift'), 'Swift required')
 class WindowPreparationDiagnosticsTests(unittest.TestCase):
     def test_actual_background_handler_phase_reason_and_effect(self):
-        source = (ROOT / 'helper/NLCHelper.swift').read_text()
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
         fn = source[source.index('func prepareBackgroundWindow('):]
         fn = fn[:fn.index('\n}\n') + 3]
         harness = '''import Foundation

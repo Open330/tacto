@@ -13,7 +13,7 @@ ROOT=Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'), 'macOS Swift required')
 class LauncherWindowKeyTests(unittest.TestCase):
     def test_save_panel_dispatch_token_only_on_exact_indexed_click(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         harness=r'''
 let root:[String:Any] = ["type":"act","obs_id":"owned","target":"fixture",
@@ -38,7 +38,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:requests.map { vett
         self.assertEqual(json.loads(result.stdout),[True]+[False]*12)
 
     def test_authorized_window_point_exact_shape_and_deadline(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         harness=r'''
 let root:[String:Any] = ["type":"act","obs_id":"owned","target":"fixture",
@@ -66,7 +66,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:requests.map { vett
         self.assertEqual(json.loads(result.stdout),[True]+[False]*13)
 
     def test_document_selectors_and_scoped_observe_are_explicit(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         harness=r'''
 let requests:[[String:Any]] = [
@@ -90,7 +90,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:requests.map { vett
         self.assertEqual(json.loads(result.stdout),[True,True]+[False]*7)
 
     def test_observed_index_navigation_only_exact_fields_and_deadline(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         harness=r'''
 let root: [String: Any] = ["type":"act","obs_id":"owned","target":"fixture",

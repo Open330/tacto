@@ -185,7 +185,7 @@ print("OPAQUE_SWIFT_PASS")
             self.assertIn('OPAQUE_SWIFT_PASS',ran.stdout)
 
     def test_actual_launcher_exact_payload_and_authorization(self):
-        code=(ROOT/'launcher/nlc.swift').read_text()
+        code=(ROOT/'launcher/tacto.swift').read_text()
         schema=code[code.index('let allowedTypes:'):code.index('// MARK: - Socket plumbing')]
         harness=r'''
 let root:[String:Any]=["type":"act","obs_id":"owned","target":"fixture","window_input_authorized":true,

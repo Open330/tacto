@@ -78,7 +78,7 @@ print("SWIFT_WINDOW_INPUT_PASS")
         The real function is extracted and run, so this cannot pass by testing
         a copy of the logic.
         """
-        source = (ROOT/'helper/NLCHelper.swift').read_text()
+        source = (ROOT/'helper/TactoHelper.swift').read_text()
         function = 'func prepareWindow(' + source.split('func prepareWindow(', 1)[1]
         function = function.split('\n}\n', 1)[0] + '\n}\n'
         function = function.replace('AXUIElementIsAttributeSettable(', 'fakeSettable(')

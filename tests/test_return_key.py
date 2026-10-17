@@ -141,7 +141,7 @@ class ReturnProtocolTests(unittest.TestCase):
 
 class HelperReturnBoundaryTests(unittest.TestCase):
     """Source checks: the helper's own scoping of Return."""
-    swift = (ROOT / 'helper/NLCHelper.swift').read_text()
+    swift = (ROOT / 'helper/TactoHelper.swift').read_text()
     window_input = (ROOT / 'helper/WindowInput.swift').read_text()
     dispatch = (ROOT / 'helper/WindowDispatch.swift').read_text()
 
@@ -200,7 +200,7 @@ class HelperReturnJudgementTests(unittest.TestCase):
     """The helper's real returnTargetRefusal, run against a fake AX read."""
 
     def test_cases(self):
-        swift = (ROOT / 'helper/NLCHelper.swift').read_text()
+        swift = (ROOT / 'helper/TactoHelper.swift').read_text()
         code = ('typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)\n'
                 + swift[swift.index('// AXRead: see WindowInput.swift.'):swift.index('// Keys that only move the focus ring.')])
         harness = r'''

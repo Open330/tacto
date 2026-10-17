@@ -126,8 +126,8 @@ FAIL/TIMEOUT/INVALID가 있으면1, 그 밖의 미실행·비교 제외가 있�
 
 ## 외형 설정 읽기 실제 재실행
 
-`reviews/2026-10-10/product-comparison-20261010-155619.jsonl`: NLC1/1·Sky1/1
-oracle PASS, 양쪽 Light. NLC42.3초/입력149159/캐시126848/출력458,
+`reviews/2026-10-10/product-comparison-20261010-155619.jsonl`: Tacto1/1·Sky1/1
+oracle PASS, 양쪽 Light. Tacto42.3초/입력149159/캐시126848/출력458,
 Sky53.9초/입력118828/캐시104960/출력366. 이는 원시 usage이며 비용으로
 환산하지 않는다. Codex CLI0.161.0을 사용했으며 실제 serving model은 미관측이다.
 
@@ -146,8 +146,8 @@ Dark/Auto 설정, 반복 성공률, 지연·비용 우위나 전체 제품 동�
 
 `reviews/2026-10-10/product-comparison-20261010-160030.jsonl`: 신규 private
 directory의 소유 `.txt` 문서로 `textedit-save-exact-utf8-v2`를 양쪽1회 실행했다.
-NLC1/1·Sky1/1 PASS, 각 행에서 disk_exact=true/window_exact=true이며 자체
-문서 cleanup은 completed다. NLC41.2초/입력168253/캐시152704/출력450,
+Tacto1/1·Sky1/1 PASS, 각 행에서 disk_exact=true/window_exact=true이며 자체
+문서 cleanup은 completed다. Tacto41.2초/입력168253/캐시152704/출력450,
 Sky49.5초/입력204135/캐시195968/출력804. 입력/cache를 비용으로 환산하지 않는다.
 
 양쪽 manifest SHA256은
@@ -171,9 +171,9 @@ Sky49.5초/입력204135/캐시195968/출력804. 입력/cache를 비용으로 환
 
 ## Finder 새 폴더 재실행: 실패 유지
 
-`reviews/2026-10-10/product-comparison-20261010-160542.jsonl`은 NLC0/1,
+`reviews/2026-10-10/product-comparison-20261010-160542.jsonl`은 Tacto0/1,
 Sky1/1이다. Sky44.9초에 `untitled folder` 한 개가 실제 directory로 확인됐고,
-NLC165.7초 뒤 `children=[]`로 실패했다. 양쪽 process exit0이며 CLI도
+Tacto165.7초 뒤 `children=[]`로 실패했다. 양쪽 process exit0이며 CLI도
 전체 실패를 exit1로 반환했다. 자기 시험 폴더 cleanup은 양쪽 folder_removed다.
 
 Tacto 최종 응답은 New Folder disabled와 창 준비 timeout을 보고했다. 이는 모델의
@@ -186,7 +186,7 @@ Full SHA256은 양쪽 before/after 모두
 source_changed=false, comparison_eligible=true, 전후 lock=false다.
 이 flag는 환경/소스 검사를 뜻하며 완전한 초기 상태 동등성을 인증하지 않는다.
 초기 전경은 Sky `godot#75802`, Tacto Finder로 달랐으므로 동일 초기 상태의
-성능 비교라고 주장하지 않는다. activation은 Sky3건, NLC1건으로 원인 미확정이다.
+성능 비교라고 주장하지 않는다. activation은 Sky3건, Tacto1건으로 원인 미확정이다.
 
 Tacto 원시 input603060/cache555776/output2139, Sky input205396/cache186624/
 output668이다. 반복 준비에 든 실제 요청량을 보존하며 비용으로 환산하지 않는다.
@@ -320,8 +320,8 @@ new session은 POSIX 그룹 정리 범위이며 TCC/asid 분리 증거가 아니
 실행했다. 원시 owner-only 기록은
 `../reviews/2026-10-10/product-comparison-20261010-195603.jsonl`이다.
 두 arm 모두 독립 defaults 기반 oracle의 Light와 일치하고 process exit0,
-source manifest 전후·두 arm 사이 일치, activations[]였다. NLC46.3초,
-Sky40.8초다. CLI telemetry 입력/캐시/출력은 NLC214245/194048/611,
+source manifest 전후·두 arm 사이 일치, activations[]였다. Tacto46.3초,
+Sky40.8초다. CLI telemetry 입력/캐시/출력은 Tacto214245/194048/611,
 Sky159423/150016/620이다. 실제 serving model/비용은 관측하지 않았다.
 `calls`는 인식한 tool item event 수이며 고유 invocation 수가 아니다.
 Tacto shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
@@ -515,7 +515,7 @@ private empty fixture를 열고 정확한 경로만 ask에 전달했다. 원시�
 
 두 arm 모두 초기 empty/complete body, 정확한 기대 본문, process exit0,
 cleanup completed/closed_observed/artifact_removed=true를 확인했다.
-NLC64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/cleanup
+Tacto64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/cleanup
 시간을 포함하지 않는다. Tacto는 global_window_still_present 한 번, Sky는
 세 번 뒤 closed로 읽혔다. 이 횟수는 창 해제 타이밍의 진단이며 계층 성능
 지표로 사용하지 않는다. close를 반복하지 않고 readonly poll만 했다.
@@ -523,7 +523,7 @@ NLC64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/
 서로 같고 전후 stable이다. 이 witness는 agent 실행만 관측하므로 setup/cleanup
 전체 activation 또는 pointer/typing 보존을 주장하지 않는다.
 
-CLI telemetry 입력/cache/출력은 NLC311178/282368/1370,
+CLI telemetry 입력/cache/출력은 Tacto311178/282368/1370,
 Sky140453/129280/559다. calls(shell:nlc14/node_repl:js12)는 tool item event
 수이며 고유 invocation 수나 실행 layer의 완전한 attestation이 아니다.
 이 usage는 nested provider 전체 비용이 아니며 actual serving model/cost는
@@ -551,7 +551,7 @@ signed 실행과 정확한 receiving 증거를 연결하는 것이다.
 A paired local benchmark compares the 91a48a0 runtime with predicate-first
 verification and helper-cleanup improvements. Both arms use the same current
 standalone builder with checked-hash precompiled bytecode. Common `.pyc` paths
-and hashes must match; only the five declared changed NLC modules are exempt.
+and hashes must match; only the five declared changed Tacto modules are exempt.
 The helper and Python CDHashes match; the changed launcher is explicit.
 
 | Measurement | Baseline | Candidate |

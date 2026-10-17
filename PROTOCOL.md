@@ -393,7 +393,7 @@ NLCHelper.app (Swift)   서명·공증된 LSUIElement
 **지금 당장의 완화책(구현됨):** `tacto doctor`가 공유 인터프리터에 권한이 부여되는
 상황을 감지해 경고한다. 사용자가 Allow를 누르기 전에 그 범위를 알아야 한다.
 
-**구현 완료 (2026-09-16).** `helper/NLCHelper.swift` + `helper/build.sh`.
+**구현 완료 (2026-09-16).** `helper/TactoHelper.swift` + `helper/build.sh`.
 Command Line Tools 툴체인으로 빌드하므로 **Xcode 라이선스 동의가 불필요**하다
 (`/Library/Developer/CommandLineTools/usr/bin/swiftc`, SDK 명시). 서명까지 완료
 (TeamIdentifier 48H4RZNB97). 파이썬 쪽은 `nlc/helper.py`의 `HelperDriver`가
@@ -567,7 +567,7 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 
 ### 3.12 서명된 `tacto` — 경계가 실제로 닫힌 지점
 
-**구현 완료.** `launcher/nlc.swift`(서명, `identifier ai.callabo.nlc`, Team
+**구현 완료.** `launcher/tacto.swift`(서명, `identifier ai.callabo.nlc`, Team
 `48H4RZNB97`)가 유일한 클라이언트이고, 도우미는 시작 시 **조상 체인에 이 요구조건을
 만족하는 프로세스가 있는지** `SecCodeCheckValidity`로 확인한다. 없으면 즉시 종료한다.
 

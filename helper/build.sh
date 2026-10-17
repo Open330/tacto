@@ -12,7 +12,7 @@ SDK=$(/bin/ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk | /usr/bin
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
-cp NLCHelper.swift "$STAGE/main.swift"
+cp TactoHelper.swift "$STAGE/main.swift"
 cp PeerAuth.swift  "$STAGE/PeerAuth.swift"
 cp WindowInput.swift "$STAGE/WindowInput.swift"
 cp FrontmostProcess.swift "$STAGE/FrontmostProcess.swift"

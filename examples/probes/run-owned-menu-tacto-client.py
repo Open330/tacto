@@ -1,4 +1,4 @@
-"""NLC equivalent of the five Sky menu comparison operations, owned fixture only."""
+"""Tacto equivalent of the five Sky menu comparison operations, owned fixture only."""
 import json
 import re
 from pathlib import Path

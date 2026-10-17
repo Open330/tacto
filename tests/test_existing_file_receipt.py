@@ -196,7 +196,7 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
         self.assertEqual('/tmp/a/note.txt', step.params['focused_document'])
 
     def test_helper_checks_focused_and_main_windows_canonically(self):
-        swift = (self.ROOT / 'helper/NLCHelper.swift').read_text()
+        swift = (self.ROOT / 'helper/TactoHelper.swift').read_text()
         body = swift[swift.index('func focusedDocumentMismatch('):]
         body = body[:body.index('\n}\n')]
         for needed in ('kAXFocusedWindowAttribute as String, kAXMainWindowAttribute as String',
@@ -206,7 +206,7 @@ class FocusedDocumentBoundaryTests(unittest.TestCase):
         self.assertLess(case.index('focusedDocumentMismatch'), case.index('AXUIElementPerformAction(item'))
 
     def test_launcher_and_driver(self):
-        launcher = (self.ROOT / 'launcher/nlc.swift').read_text()
+        launcher = (self.ROOT / 'launcher/tacto.swift').read_text()
         self.assertIn('"menu":             (["name", "path"], ["focused_document"]),', launcher)
         driver = (self.ROOT / 'nlc/driver.py').read_text()
         self.assertIn('elif name == "menu" and "focused_document" in action:', driver)
@@ -292,7 +292,7 @@ class FocusedDocumentSwiftTests(unittest.TestCase):
         if not shutil.which('swift'):
             self.skipTest('Swift required')
         root = Path(__file__).resolve().parents[1]
-        swift = (root / 'helper/NLCHelper.swift').read_text()
+        swift = (root / 'helper/TactoHelper.swift').read_text()
         start = swift.index("/// \"\" when the app's focused and main windows both show `want`")
         code = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,')]
         composed = '/d/' + '노트' + '.txt'
@@ -324,7 +324,7 @@ class FocusedDocumentTimeoutTests(unittest.TestCase):
         if not shutil.which('swift'):
             self.skipTest('Swift required')
         root = Path(__file__).resolve().parents[1]
-        swift = (root / 'helper/NLCHelper.swift').read_text()
+        swift = (root / 'helper/TactoHelper.swift').read_text()
         start = swift.index("/// \"\" when the app's focused and main windows both show `want`")
         tail_fn = swift[swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,'):]
         tail_fn = tail_fn[:tail_fn.index('\n}\n') + 3]

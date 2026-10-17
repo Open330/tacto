@@ -71,7 +71,7 @@ def build(output, identity):
         paths=[ROOT/name for name in ('setup/build_standalone_preview.py','setup/main.swift',
             'setup/PermissionState.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
             'docs/assets/tacto-menu-template.svg','helper/bundle.sh',
-            'launcher/nlc.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
+            'launcher/tacto.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
             'helper/NLC Helper.app/Contents/MacOS/NLCHelper','helper/NLC Helper.app/Contents/Info.plist')]
         paths+=sorted((ROOT/'nlc').glob('*.py'))
         return {str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
@@ -117,7 +117,7 @@ def build(output, identity):
         (runtime/'launcher').mkdir()
         launcher=runtime/'launcher/nlc'
         launcher_source=Path(folder)/'launcher-source';launcher_source.mkdir()
-        shutil.copy2(ROOT/'launcher/nlc.swift',launcher_source/'main.swift')
+        shutil.copy2(ROOT/'launcher/tacto.swift',launcher_source/'main.swift')
         run(['swiftc','-O',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),'-o',str(launcher)])
         sign(launcher,identity,'ai.callabo.nlc',requirement('ai.callabo.nlc'))
         run(['codesign','--verify','-R='+requirement('ai.callabo.nlc'),str(launcher)])

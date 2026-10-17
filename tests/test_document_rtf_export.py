@@ -65,7 +65,7 @@ class ExportChannelTests(unittest.TestCase):
 @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'),'macOS Swift required')
 class ExportSwiftTests(unittest.TestCase):
     def test_launcher_requires_token_and_exact_read_only_fields(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         checks=r'''
 let root:[String:Any]=["type":"document_rtf_export","target":"com.apple.TextEdit","document_token":"token"]
@@ -87,7 +87,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:requests.map{vetted
         self.assertEqual(json.loads(result.stdout),[True]+[False]*13)
 
     def test_actual_handler_export_stability_identity_budgets_and_timeout(self):
-        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        source=(ROOT/'helper/TactoHelper.swift').read_text()
         handler=source[source.index('func documentRTFExport('):source.index('func documentWindowForToken(')]
         harness=r'''
 import Foundation

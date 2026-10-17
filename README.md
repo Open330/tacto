@@ -68,7 +68,7 @@ Authoring, judgment, and repair still cost model tokens. Automatic selector repa
 <details>
 <summary>What if the interface changes or completion is uncertain?</summary>
 
-The development repair path passes only relevant candidates for supported static-selector failures. It resumes after verified checkpoints without blindly resending actions that may already have completed. It does not recover every UI change or crash. [Repair scope](docs/nlc-auto-repair-2026-10-14.md).
+The development repair path passes only relevant candidates for supported static-selector failures. It resumes after verified checkpoints without blindly resending actions that may already have completed. It does not recover every UI change or crash. [Repair scope](docs/tacto-auto-repair-2026-10-14.md).
 
 During native execution, the menu bar shows `● Tacto`; press Esc to stop. The persistent GUI settings item, **Tacto 설정**, reopens settings and does not indicate a running task.
 
@@ -82,13 +82,13 @@ The same 11-step Flow ran five times with different inputs in our own macOS test
 
 [17-second walkthrough](sites/tacto/dist/assets/demos/workflow-guided.mp4) · [Unannotated recording](sites/tacto/dist/assets/demos/workflow-replay.mp4) · [Capture conditions](docs/tacto-recorded-demos-2026-10-15.md)
 
-A separate development test completed ten jobs with zero replay-time model calls. Another repaired two changed buttons in one job using two model calls. These are dedicated test-app results, not a reliability guarantee for every business app. [Complex scenarios](docs/nlc-complex-scenarios-2026-10-14.md) · [TextEdit comparison](docs/benchmark-records.md#정확한-textedit-저장-상태의-실제-비교).
+A separate development test completed ten jobs with zero replay-time model calls. Another repaired two changed buttons in one job using two model calls. These are dedicated test-app results, not a reliability guarantee for every business app. [Complex scenarios](docs/tacto-complex-scenarios-2026-10-14.md) · [TextEdit comparison](docs/benchmark-records.md#정확한-textedit-저장-상태의-실제-비교).
 
 <a id="getting-started"></a>
 
 ## Get started
 
-**Developer preview for Apple Silicon Macs. Formerly NLC.**
+**Developer preview for Apple Silicon Macs.**
 
 [Download Preview 1](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
 
@@ -140,7 +140,7 @@ These commands belong to the development checkout, not the main-branch release:
 
 ## Less repeated reasoning
 
-**A development-version comparison observed 53.5% fewer total input tokens with Tacto (then NLC) than Sky.** Three independent fresh-conversation pairs matched the requested model, reasoning effort, and initial state of the test app.
+**A development-version comparison observed 53.5% fewer total input tokens with Tacto than Sky.** Three independent fresh-conversation pairs matched the requested model, reasoning effort, and initial state of the test app.
 
 | Metric | Tacto | Sky |
 | :--- | ---: | ---: |
@@ -148,7 +148,7 @@ These commands belong to the development checkout, not the main-branch release:
 | Total input tokens | **201,447** | 433,312 |
 | Mean time | **42.10 sec** | 46.17 sec |
 
-This is a small sample. Tacto was slower in one case; it is not universally faster. [Full methodology and results](docs/nlc-matched-comparison-2026-10-14.md).
+This is a small sample. Tacto was slower in one case; it is not universally faster. [Full methodology and results](docs/tacto-matched-comparison-2026-10-14.md).
 
 <details>
 <summary>Cache, output, and repeated-Flow results</summary>
@@ -161,7 +161,7 @@ This is a small sample. Tacto was slower in one case; it is not universally fast
 - Separate 11-step test-app scenarios: **13/13 normal completions**, **5/5 expected stops**, two button repairs in one job.
 - Ten normal repeats in that separate test used **zero model calls**.
 
-[Complex scenario results](docs/nlc-complex-scenarios-2026-10-14.md)
+[Complex scenario results](docs/tacto-complex-scenarios-2026-10-14.md)
 
 </details>
 
@@ -239,9 +239,9 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 - [model deadlines](docs/model-deadlines.md)
 - [native visual](docs/native-visual.md)
 - [native window input](docs/native-window-input.md)
-- [Tacto automatic repair — scope and limits](docs/nlc-auto-repair-2026-10-14.md)
-- [Tacto complex scenario validation](docs/nlc-complex-scenarios-2026-10-14.md)
-- [Tacto and Sky matched comparison](docs/nlc-matched-comparison-2026-10-14.md)
+- [Tacto automatic repair — scope and limits](docs/tacto-auto-repair-2026-10-14.md)
+- [Tacto complex scenario validation](docs/tacto-complex-scenarios-2026-10-14.md)
+- [Tacto and Sky matched comparison](docs/tacto-matched-comparison-2026-10-14.md)
 - [provider envelope](docs/provider-envelope.md)
 - [recipes](docs/recipes.md)
 - [rtf receipts](docs/rtf-receipts.md)
@@ -254,4 +254,4 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 ---
 
 **Tacto** · Local execution. Reusable computer use.<br>
-Developer preview · Formerly NLC · Proprietary license
+Developer preview · Proprietary license

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swift'), 'macOS Swift required')
 class HelperDocumentSelectorSwiftTests(unittest.TestCase):
     def test_selected_path_excludes_foreign_bodies_and_token_rejects_path_drift(self):
-        source = (ROOT / 'helper/NLCHelper.swift').read_text()
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
         section = source[source.index('enum DocumentError:'):source.index('struct PinnedSavePanel {')]
         start = section.index('func documentProcessIdentity(')
         end = section.index('/// Checked before every AX read', start)

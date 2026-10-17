@@ -13,7 +13,7 @@ ROOT=Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'), 'macOS Swift required')
 class HelperWindowKeyTests(unittest.TestCase):
     def test_actual_cf_boolean_index_guard_and_navigation_whitelist(self):
-        helper=(ROOT/'helper/NLCHelper.swift').read_text()
+        helper=(ROOT/'helper/TactoHelper.swift').read_text()
         branch=helper[helper.index('    case "press_key":'):helper.index('    case "scroll":',helper.index('    case "press_key":'))]
         source=(ROOT/'helper/WindowInput.swift').read_text()
         keys=source[source.index('func nativeNavigationKey('):source.index('func buildNativeWindowKey(')]  # includes nativeSubmitKey

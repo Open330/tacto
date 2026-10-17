@@ -96,7 +96,12 @@ class FrontmostTests(unittest.TestCase):
         pid = frontmost_pid()
         self.assertIs(type(pid), int)
         self.assertGreater(pid, 0)
-        os.kill(pid, 0)
+        try:
+            os.kill(pid, 0)
+        except PermissionError:
+            # EPERM still proves the PID exists; a foreground system process
+            # need not permit this user to signal it. No signal is sent.
+            pass
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'native driver requires macOS')

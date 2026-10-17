@@ -991,7 +991,7 @@ def source_manifest():
     not silently omitted; package/fixture changes and binary rebuilds matter.
     """
     import hashlib
-    fixed = ["skill/SKILL.md", "launcher/nlc", "launcher/nlc.swift",
+    fixed = ["skill/SKILL.md", "launcher/nlc", "launcher/tacto.swift",
              "helper/nlc-helper", "helper/NLC Helper.app/Contents/MacOS/NLCHelper",
              "helper/NLC Helper.app/Contents/Info.plist", "signing.sh",
              "pyproject.toml", "uv.lock"]

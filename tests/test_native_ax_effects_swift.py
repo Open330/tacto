@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('xcrun'), 'Swift macOS SDK required')
 class SwiftAXEffectTests(unittest.TestCase):
     def test_actual_classifier_marks_uncertain_errors_unknown(self):
-        source = (ROOT/'helper/NLCHelper.swift').read_text()
+        source = (ROOT/'helper/TactoHelper.swift').read_text()
         match = re.search(r'^func axActionFailureEffect\(_ error: AXError\) -> String \{\n.*?^\}',
                           source, re.M | re.S)
         self.assertIsNotNone(match)

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('xcrun'), 'macOS Swift required')
 class NativeSavePanelSwiftTests(unittest.TestCase):
     def test_launcher_accepts_panel_fields_only_for_panel_reads(self):
-        source = (ROOT / 'launcher/nlc.swift').read_text()
+        source = (ROOT / 'launcher/tacto.swift').read_text()
         protocol = source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         protocol += source[source.index('@Sendable func modelTimeout('):source.index('enum ModelProcessError:')]
         harness = '''

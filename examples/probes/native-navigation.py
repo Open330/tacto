@@ -30,8 +30,8 @@ def main(driver, output, *, model_provider=None, require_selection=False):
         'nlc/driver.py', 'nlc/native_key_events.py', 'nlc/native_window_binding.py',
         'nlc/native_window_dispatch.py', 'nlc/native_window_ready.py', 'nlc/general.py', 'nlc/flow.py', 'nlc/protocol.py',
         'nlc/input_audit.py', 'nlc/input_audit_process.py', 'nlc/native_frontmost.py',
-        'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/NLCHelper.swift',
-        'launcher/nlc.swift', 'nlc/helper.py', 'nlc/promote.py', 'nlc/authoring.py']
+        'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/TactoHelper.swift',
+        'launcher/tacto.swift', 'nlc/helper.py', 'nlc/promote.py', 'nlc/authoring.py']
     def source_hashes():
         return {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     report['source_hashes_before'] = source_hashes()

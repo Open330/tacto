@@ -56,7 +56,7 @@ class InputRoutingSourceTests(unittest.TestCase):
 
     def test_signed_input_has_no_global_post_activation_or_pointer_warp(self):
         """Window preparation has one PID post boundary; global input is absent."""
-        source = (ROOT / 'helper/NLCHelper.swift').read_text()
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
         # Comments explain why these are absent, so only real code counts.
         code = '\n'.join(line for line in source.splitlines()
                          if not line.lstrip().startswith(('//', '///')))
@@ -74,7 +74,7 @@ class InputRoutingSourceTests(unittest.TestCase):
             # One LaunchServices open, for open_folder, that may not activate
             # (2026-10-08): Finder shows the folder, the person keeps focus.
             opens = code.count('NSWorkspace.shared.open(')
-            if path.name == 'NLCHelper.swift':
+            if path.name == 'TactoHelper.swift':
                 self.assertEqual(opens, 1, 'only open_folder may open through LaunchServices')
                 case = code[code.index('case "open_folder":'):code.index('case "select_option":')]
                 self.assertIn('NSWorkspace.shared.open(', case)

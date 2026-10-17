@@ -22,7 +22,7 @@ class MenuTransportTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('xcrun'), 'Swift unavailable')
     def test_actual_swift_reader_rejects_unknown_state_stop_and_replacement(self):
-        source = (ROOT/'helper/NLCHelper.swift').read_text()
+        source = (ROOT/'helper/TactoHelper.swift').read_text()
         reader = source[source.index('func readMenuState('):source.index('func handle(')]
         traversal = source[source.index('@Sendable func menuChildren('):source.index('/// Bring an app forward')]
         harness = '''import Foundation
@@ -136,7 +136,7 @@ print(String(data:data,encoding:.utf8)!)
 
     @unittest.skipUnless(shutil.which('xcrun'), 'Swift unavailable')
     def test_actual_swift_action_guard_rejects_nonboolean_enabled(self):
-        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        source=(ROOT/'helper/TactoHelper.swift').read_text()
         start=source.index('        guard let enabled = attr(item',source.index('    case "menu":'))
         end=source.index('        let menuError =',start)
         guard=source[start:end]
@@ -155,7 +155,7 @@ print(String(data:data,encoding:.utf8)!)
 
     @unittest.skipUnless(shutil.which('xcrun'), 'Swift unavailable')
     def test_launcher_schema_does_not_widen_other_requests(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         script='import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+'''
 let valid: [String:Any] = ["type":"menu_state","target":"fixture","path":["Probe","Command"]]

@@ -51,7 +51,7 @@ class OpenFolderTests(unittest.TestCase):
         self.assertEqual([True, False], app.asked[:2])
 
     def test_helper_scope(self):
-        swift = (ROOT / 'helper/NLCHelper.swift').read_text()
+        swift = (ROOT / 'helper/TactoHelper.swift').read_text()
         case = swift[swift.index('    case "open_folder":'):swift.index('    case "select_option":')]
         for needed in ('target.lowercased() == "com.apple.finder"', 'raw.hasPrefix("/")',
                        'isDirectory.boolValue', 'kind.isPackage == false', 'kind.isApplication != true',
@@ -61,7 +61,7 @@ class OpenFolderTests(unittest.TestCase):
         self.assertNotIn('"unverified"', case)   # the flow's postcondition decides
 
     def test_launcher_accepts_only_an_absolute_path(self):
-        launcher = (ROOT / 'launcher/nlc.swift').read_text()
+        launcher = (ROOT / 'launcher/tacto.swift').read_text()
         self.assertIn('"open_folder":      (["name", "path"], []),', launcher)
         self.assertIn('if name == "open_folder" {', launcher)
         self.assertIn('text.hasPrefix("/")', launcher)

@@ -1082,7 +1082,7 @@ def _capability_lists_agree(_d):
     """
     import re
     from nlc.driver import Driver
-    swift = pathlib.Path(__file__).resolve().parents[1] / "helper" / "NLCHelper.swift"
+    swift = pathlib.Path(__file__).resolve().parents[1] / "helper" / "TactoHelper.swift"
     text = swift.read_text(encoding="utf-8")
     block = text.split("let helperCapabilities: [String] = [", 1)[1].split("]", 1)[0]
     # Comments are prose, not data. A comment that quoted a capability name to

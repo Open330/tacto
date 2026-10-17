@@ -100,7 +100,7 @@ class MenuItemsTransportTests(unittest.TestCase):
             return json.loads(run.stdout)
 
     def test_listing_actual_reader_complete_unknown_duplicate_and_bounds(self):
-        source = (ROOT/'helper/NLCHelper.swift').read_text()
+        source = (ROOT/'helper/TactoHelper.swift').read_text()
         reader = source[source.index('func readMenuState('):source.index('func handle(')]
         traversal = source[source.index('@Sendable func menuChildren('):source.index('/// Bring an app forward')]
         rows = self.run_swift(SHIM + traversal + reader + r'''
@@ -133,7 +133,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf
             'invalid_menu_path','invalid_menu_path'])
 
     def test_launcher_root_listing_only(self):
-        source = (ROOT/'launcher/nlc.swift').read_text()
+        source = (ROOT/'launcher/tacto.swift').read_text()
         schema = source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         rows = self.run_swift('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n' + schema + r'''
 let root: [String: Any] = ["type":"menu_items", "target":"fixture", "path":[]]

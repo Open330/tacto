@@ -10,7 +10,7 @@ import unittest
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'), 'macOS Swift required')
 class SwiftDocumentReferenceTests(unittest.TestCase):
     def test_real_reference_rename_delete_and_strict_path_parity(self):
-        source = (Path(__file__).resolve().parents[1] / 'helper/NLCHelper.swift').read_text()
+        source = (Path(__file__).resolve().parents[1] / 'helper/TactoHelper.swift').read_text()
         functions = source[source.index('func documentURLPath('):source.index('/// True is an NSNumber')]
         harness = r'''
 import Foundation

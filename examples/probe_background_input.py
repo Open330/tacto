@@ -29,7 +29,7 @@ def run_probe(driver, *, transport, require_selection=False):
                   selection_observation_required=require_selection,
                   measurement='sampled preservation AND independent target readback',
                   proves_no_intermediate_change=False)
-    paths = ['examples/probe_background_input.py', 'nlc/driver.py', 'helper/NLCHelper.swift', 'helper/nlc-helper',
+    paths = ['examples/probe_background_input.py', 'nlc/driver.py', 'helper/TactoHelper.swift', 'helper/nlc-helper',
              'nlc/input_audit.py', 'nlc/input_audit_process.py']
     report['source_hashes'] = {p:hashlib.sha256((ROOT/p).read_bytes()).hexdigest()
                                for p in paths if (ROOT/p).is_file()}

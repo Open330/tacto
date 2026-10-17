@@ -13,7 +13,7 @@ def main(driver, output):
     from nlc.native_frontmost import frontmost_pid
     root=Path(__file__).resolve().parents[2]
     target='com.apple.TextEdit'
-    sources=['helper/NLCHelper.swift','nlc/helper.py','nlc/trace.py','launcher/nlc.swift',
+    sources=['helper/TactoHelper.swift','nlc/helper.py','nlc/trace.py','launcher/tacto.swift',
              'examples/probes/signed-document-rtf.py','nlc/input_audit_process.py','nlc/native_frontmost.py']
     def hashes():return {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     report={'passed':False,'scope':'new owned TextEdit RTF; signed range export; no save or edit',

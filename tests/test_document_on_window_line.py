@@ -28,7 +28,7 @@ class DocumentOnWindowLineTests(unittest.TestCase):
             self.assertIsNone(_document_path(bad), bad)
 
     def test_helper_renders_it_for_windows_only(self):
-        swift = (ROOT / "helper/NLCHelper.swift").read_text()
+        swift = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn('if role == kAXWindowRole as String, let doc = str(el, "AXDocument")', swift)
         self.assertIn('let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/")', swift)
         self.assertIn('precomposedStringWithCanonicalMapping', swift)
@@ -52,7 +52,7 @@ class SyntaxParityTests(unittest.TestCase):
         if not shutil.which("swift"):
             self.skipTest("Swift required")
         from nlc.native_document import document_url_syntax_path
-        swift = (ROOT / "helper/NLCHelper.swift").read_text()
+        swift = (ROOT / "helper/TactoHelper.swift").read_text()
         def fn(name):
             body = swift[swift.index(f"func {name}("):]
             return body[:body.index("\n}\n") + 3]

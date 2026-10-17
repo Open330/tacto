@@ -86,7 +86,7 @@ class TimeoutChannelTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swiftc'),'macOS Swift required')
     def test_extracted_swift_bounds_stdin_stdout_and_process_wait(self):
-        source=(Path(__file__).resolve().parents[1]/'launcher/nlc.swift').read_text()
+        source=(Path(__file__).resolve().parents[1]/'launcher/tacto.swift').read_text()
         start=source.index('@Sendable func modelTimeout(')
         end=source.index('\nfunc askModel(',start)
         block=source[start:end]

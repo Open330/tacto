@@ -26,7 +26,7 @@ class SelectedMarkerTests(unittest.TestCase):
         self.assertEqual(136, idx)
 
     def test_both_backends_render_it_only_for_true(self):
-        swift = (ROOT / "helper/NLCHelper.swift").read_text()
+        swift = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn('(attr(el, kAXSelectedAttribute as String) as? Bool) == true', swift)
         self.assertIn('(selected ? " [selected]" : "")', swift)
         driver = (ROOT / "nlc/driver.py").read_text()

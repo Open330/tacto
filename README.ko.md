@@ -94,7 +94,7 @@ Markdown은 나머지 예제가 남는 부분 수정입니다. 모든 사례가 
 | 버튼 변경 후 이어서 실행 | 변경된 계산·검토 버튼을 해당 단계에서 수리하고 계속 실행 | 자체 테스트 앱의 한 작업에서 버튼 2개 수리 후 완료, 모델 호출 2회 |
 
 [TextEdit 실행 기록](docs/benchmark-records.md#정확한-textedit-저장-상태의-실제-비교) ·
-[반복·복구 실행 기록](docs/nlc-complex-scenarios-2026-10-14.md) ·
+[반복·복구 실행 기록](docs/tacto-complex-scenarios-2026-10-14.md) ·
 [사례를 보여주는 랜딩페이지](sites/tacto/README.md)
 
 문서 저장은 단회 관측이고, 반복·복구는 개발 버전의 자체 앱에서 검증했습니다.
@@ -119,7 +119,7 @@ Tacto는 실행할 때 대상을 새 관찰에서 찾고 결과 조건을 검사
 
 개발 버전의 자동 수리는 지원되는 정적 선택자 실패에 대해 필요한 후보만 에이전트에 전달합니다.
 확인된 checkpoint 이후부터 재개하며, 이미 완료됐을 수 있는 동작은 그대로 다시 보내지 않습니다.
-모든 UI 변화나 crash를 복구하는 기능은 아닙니다. [자동 개입의 지원 범위](docs/nlc-auto-repair-2026-10-14.md)
+모든 UI 변화나 crash를 복구하는 기능은 아닙니다. [자동 개입의 지원 범위](docs/tacto-auto-repair-2026-10-14.md)
 
 네이티브 실행 중에는 메뉴 막대에 `● Tacto`가 표시되며 Esc로 중단할 수 있습니다.
 GUI의 상시 메뉴 막대 아이콘은 **Tacto 설정**입니다. 설정 창을 다시 열 때 쓰며, 작업 중이라는 표시는 아닙니다.
@@ -130,7 +130,7 @@ GUI의 상시 메뉴 막대 아이콘은 **Tacto 설정**입니다. 설정 창�
 
 ## 첫 작업 시작하기
 
-**macOS 개발자 미리보기**입니다. NLC가 Tacto로 이름을 바꿨습니다.
+**macOS 개발자 미리보기**입니다.
 README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드는 현재 주로 한국어입니다.
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
@@ -191,7 +191,7 @@ Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습�
 
 ## 반복 추론을 줄이면 무엇이 달라질까요?
 
-**개발 버전의 Tacto(측정 당시 NLC)·Sky 비교에서 전체 입력 토큰 53.5% 감소를 관측했습니다.**
+**개발 버전의 Tacto·Sky 비교에서 전체 입력 토큰 53.5% 감소를 관측했습니다.**
 같은 요청 모델·추론 강도와 테스트 앱의 초기 상태를 맞춘 독립 새 대화 3쌍의 결과입니다.
 
 | 지표 | Tacto | Sky |
@@ -201,7 +201,7 @@ Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습�
 | 평균 시간 | **42.10초** | 46.17초 |
 
 작은 표본의 관측값입니다. 모든 작업에서 더 빠르다는 뜻은 아니며 한 케이스에서는 Sky가 더 빨랐습니다.
-[측정 조건과 전체 결과 →](docs/nlc-matched-comparison-2026-10-14.md)
+[측정 조건과 전체 결과 →](docs/tacto-matched-comparison-2026-10-14.md)
 
 <details>
 <summary>캐시·출력·복잡한 Flow 재사용 결과</summary>
@@ -216,7 +216,7 @@ Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습�
 - 별도의 11단계 테스트 앱: 정상 작업 **13/13 완료**, 기대 중단 **5/5**, 한 작업에서 버튼 2개 수리.
 - 해당 테스트의 정상 10회 반복은 모델 호출 **0회**. 실제 업무 앱 전체의 성공률을 대신하지 않습니다.
 
-[복잡한 시나리오 결과](docs/nlc-complex-scenarios-2026-10-14.md)
+[복잡한 시나리오 결과](docs/tacto-complex-scenarios-2026-10-14.md)
 
 </details>
 
@@ -294,9 +294,9 @@ python3 sites/tacto/serve.py
 - [모델 호출의 시간 예산](docs/model-deadlines.md)
 - [Native window image reads](docs/native-visual.md)
 - [네이티브 창별 입력의 현재 지원 범위](docs/native-window-input.md)
-- [Flow의 자동 에이전트 개입](docs/nlc-auto-repair-2026-10-14.md)
-- [복잡한 11단계 작업과 실패 시나리오 검증](docs/nlc-complex-scenarios-2026-10-14.md)
-- [같은 요청 조건에서 Tacto·Sky 비교](docs/nlc-matched-comparison-2026-10-14.md)
+- [Flow의 자동 에이전트 개입](docs/tacto-auto-repair-2026-10-14.md)
+- [복잡한 11단계 작업과 실패 시나리오 검증](docs/tacto-complex-scenarios-2026-10-14.md)
+- [같은 요청 조건에서 Tacto·Sky 비교](docs/tacto-matched-comparison-2026-10-14.md)
 - [Signed provider 응답](docs/provider-envelope.md)
 - [실행 기록에서 워크플로로 — 판단은 필요한 곳에만](docs/recipes.md)
 - [Native RTF save receipts](docs/rtf-receipts.md)
@@ -309,4 +309,4 @@ python3 sites/tacto/serve.py
 ---
 
 **Tacto** · Local execution. Reusable computer use.<br>
-Developer preview · Formerly NLC · Proprietary license
+Developer preview · Proprietary license

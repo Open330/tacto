@@ -51,7 +51,11 @@ class CLIProvider(unittest.TestCase):
         modules = {'nlc.onboard':SimpleNamespace(run=lambda **kw:True),
                    'nlc.session':SimpleNamespace(preflight=lambda:{'verdict':'ready'}, sandboxed=lambda:False, SANDBOXED='',
                                                  KeepAwake=contextlib.nullcontext)}
-        with patch.dict('sys.modules',modules), patch.object(cli,'Agent',Host), \
+        # Relative `from . import onboard` can use the parent package's cached
+        # attribute, so isolate both import surfaces regardless of test order.
+        with patch.dict('sys.modules',modules), \
+             patch('nlc.onboard',modules['nlc.onboard'],create=True), \
+             patch.object(cli,'Agent',Host), \
              patch.object(cli,'_make_driver',return_value=driver), \
              patch.object(cli,'_indicator_for',return_value=contextlib.nullcontext()), \
              patch('nlc.ask.ask',return_value=None) as ask, \

@@ -64,7 +64,7 @@ crash/journal 재개를 보장하는 결과는 아니다. Sky 비교는 별도�
 
 ## Peer 검토 후 보강
 
-독립 검토·수정 합의（개발 checkout의 로컬 기록: `nlc-peer-review-2026-10-14.md`）에서 패킷 저장 수명,
+독립 검토·수정 합의（개발 checkout의 로컬 기록: `tacto-peer-review-2026-10-14.md`）에서 패킷 저장 수명,
 결과 검증 없는 오학습, 원본 반복 단계 검사, 활성화 관찰, 선택 후보 node 일치,
 consequential binding 이전을 보강했다. 성공한 자동 수리의 중간 패킷은 저장하지
 않고 terminal 실패만 저장한다. suffix 실패의 index는 원본 template 기준이다.
@@ -75,6 +75,6 @@ consequential binding 이전을 보강했다. 성공한 자동 수리의 중간 
 지원하지 않는다. 시계·커서 등 AX tree가 변하는 UI도 정확한 tree 일치
 조건 때문에 중단될 수 있다. 지원 범위를 넓힌다는 의미로 해석하지 않는다.
 
-후속 [복잡한 시나리오 검증](nlc-complex-scenarios-2026-10-14.md)에서는
+후속 [복잡한 시나리오 검증](tacto-complex-scenarios-2026-10-14.md)에서는
 속성 없는 빈 Group과 volatile index의 변화만 좁게 구분해 연속 수리를 보강했다.
 현재 checkpoint 비교 규칙과 추가 peer 승인은 해당 문서에 기록했다.

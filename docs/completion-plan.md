@@ -27,7 +27,7 @@
   이는 해당14과제 cohort의 결과다. 명시 manifest 멤버십은 모든 의존성의 폐쇄를
   증명하지 않으며, 전체 기능 완료나 동시 사용자 입력 보존을 증명하지 않는다.
 - `../reviews/2026-10-09/product-comparison-20261009-184154.jsonl`: 16행,
-  NLC3/8·Sky8/8. Tacto 실패는 textedit_save_owned1건, finder_new_folder2건,
+  Tacto3/8·Sky8/8. Tacto 실패는 textedit_save_owned1건, finder_new_folder2건,
   appearance_mode2건. 모든 프로세스 exit0이지만 독립 oracle 실패는 실패다.
   후속 appearance 재실행은 별도 source cohort로 다루며 이 실패를 지우지 않는다.
 - 실제 전체 로그 `../reviews/2026-10-10-unit-tests-62.log`, `../reviews/2026-10-10-unit-tests-63.log`: 각각1219 tests, skipped2, 실행1217개.
@@ -112,7 +112,7 @@ comparison_eligible 분리, 잠금 뒤 cleanup 금지, filter/reps 검증 및 �
 총52개 회귀 통과. 새 report는0600으로 생성한다.
 
 `reviews/2026-10-10/product-comparison-20261010-155619.jsonl`에서 외형 읽기를
-Tacto와 Sky 각각 실제1회 실행해 양쪽 PASS(Light)를 확인했다. NLC42.3초,
+Tacto와 Sky 각각 실제1회 실행해 양쪽 PASS(Light)를 확인했다. Tacto42.3초,
 Sky53.9초, 동일 manifest이며 activation0건이다. 이 기록은 실제 모델·GUI
 실행이다. 정확한 저장·Finder 생성·Dark/Auto·동시 사용자 입력은 검증하지 않았다.
 시행1회로 속도/비용 우위나 범용 성공률을 주장하지 않는다.
@@ -121,8 +121,8 @@ Sky53.9초, 동일 manifest이며 activation0건이다. 이 기록은 실제 모
 ### G7 정확한 저장 상태 실제 시행
 
 `reviews/2026-10-10/product-comparison-20261010-160030.jsonl`에서 새 소유
-문서를 사용해 NLC1/1·Sky1/1의 exact UTF-8 파일/본문 일치와 자체 문서
-정리를 확인했다. NLC41.2초, Sky49.5초, 동일 frozen manifest다. 처음의
+문서를 사용해 Tacto1/1·Sky1/1의 exact UTF-8 파일/본문 일치와 자체 문서
+정리를 확인했다. Tacto41.2초, Sky49.5초, 동일 frozen manifest다. 처음의
 배경 Save disabled 관측이나 이전 저장 실패를 삭제하지 않는다. 이번 성공은
 정확한 최종 상태이며 명시 Save 인과 증명/반복 안정성 완료가 아니다.
 
@@ -162,7 +162,7 @@ Finder 원인 확인과 구현 개선·실제 반복은 여전히 남아 있다.
 
 ### 진단 transport와 Finder 단독 시행
 
-`reviews/2026-10-10/product-comparison-20261010-162643.jsonl`: NLC1/1,
+`reviews/2026-10-10/product-comparison-20261010-162643.jsonl`: Tacto1/1,
 256초 뒤 `untitled folder` 한 개를 독립 oracle로 확인했다. source_changed=false,
 cleanup folder_removed다. input1421307/cache1333120/output3800이며 raw usage다.
 초기 Finder, activation9건의 원인은 미확정이다. 같은 백본의 시행1회이며
@@ -508,7 +508,7 @@ model/configuration은 증명하지 못하므로 same_conditions_verified=false�
 유지하고 비교 성공률·성능 수치를 계산하지 않는다.
 
 실제 기존 네 cohort를 감사해 appearance/save의 초기 전경 누락, Finder의
-초기 전경 차이, NLC-only 후속을 확인했다. 결과와 각 입력 SHA256은
+초기 전경 차이, Tacto-only 후속을 확인했다. 결과와 각 입력 SHA256은
 `../reviews/2026-10-10/product-pair-prerequisites-audit.json`에 보존한다.
 새 pair 감사7개와 비교 provenance/소유 oracle/세션 검사를 합친 초기47개는
 0.236초에 통과했다. 교정한 로그인·malformed 지표와 기존 eval 환경 검사를
@@ -660,8 +660,8 @@ agent_transport_failed/failed로 남긴다. transport 실패를 미실행으로 
 실행했다. 원시 owner-only 기록은
 `../reviews/2026-10-10/product-comparison-20261010-195603.jsonl`이다.
 두 arm 모두 독립 defaults 기반 oracle의 Light와 일치하고 process exit0,
-source manifest 전후·두 arm 사이 일치, activations[]였다. NLC46.3초,
-Sky40.8초다. CLI telemetry 입력/캐시/출력은 NLC214245/194048/611,
+source manifest 전후·두 arm 사이 일치, activations[]였다. Tacto46.3초,
+Sky40.8초다. CLI telemetry 입력/캐시/출력은 Tacto214245/194048/611,
 Sky159423/150016/620이다. 실제 serving model/비용은 관측하지 않았다.
 `calls`는 인식한 tool item event 수이며 고유 invocation 수가 아니다.
 Tacto shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
@@ -862,7 +862,7 @@ private empty fixture를 열고 정확한 경로만 ask에 전달했다. 원시�
 
 두 arm 모두 초기 empty/complete body, 정확한 기대 본문, process exit0,
 cleanup completed/closed_observed/artifact_removed=true를 확인했다.
-NLC64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/cleanup
+Tacto64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/cleanup
 시간을 포함하지 않는다. Tacto는 global_window_still_present 한 번, Sky는
 세 번 뒤 closed로 읽혔다. 이 횟수는 창 해제 타이밍의 진단이며 계층 성능
 지표로 사용하지 않는다. close를 반복하지 않고 readonly poll만 했다.
@@ -870,7 +870,7 @@ NLC64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracle/
 서로 같고 전후 stable이다. 이 witness는 agent 실행만 관측하므로 setup/cleanup
 전체 activation 또는 pointer/typing 보존을 주장하지 않는다.
 
-CLI telemetry 입력/cache/출력은 NLC311178/282368/1370,
+CLI telemetry 입력/cache/출력은 Tacto311178/282368/1370,
 Sky140453/129280/559다. calls(shell:nlc14/node_repl:js12)는 tool item event
 수이며 고유 invocation 수나 실행 layer의 완전한 attestation이 아니다.
 이 usage는 nested provider 전체 비용이 아니며 actual serving model/cost는
@@ -988,11 +988,11 @@ legacy custom cleanup gate를 전역으로 제거하지 않았다. chain wrapper
 fixture evidence를 기록하도록 setup identity 대신 cleanup identity를 사용한다.
 
 owner-only `../reviews/2026-10-10/product-comparison-20261010-214334.jsonl`에서
-실제 Sky/NLC Save가 각각49.6/45.1초에 PASS였다. 두 arm 모두 exact disk와
+실제 Sky/Tacto Save가 각각49.6/45.1초에 PASS였다. 두 arm 모두 exact disk와
 본문, 초기 빈 문서, signed close/부재/삭제 및 cleanup completed를 기록했다.
 agent 구간 초기 frontmost=System Settings, activation=[]였다. source prefix
 b930dd980e0e가 두 arm 전후 stable이다. CLI input/cache/output은
-Sky188422/178944/723, NLC132725/105472/933다. tool item event 수는
+Sky188422/178944/723, Tacto132725/105472/933다. tool item event 수는
 Sky node_repl:js16, Tacto shell:nlc12/shell:other2이며 고유 호출 수가 아니다.
 실제 serving model/cost, nested provider 총 비용, typing/caret/pointer 보존,
 Sky descendant/TCC graph, 완전한 초기 UI는 미검증이다. 비교 제외와 command
@@ -1007,7 +1007,7 @@ signed observe의 target_not_found 및 NSRunningApplication count0로 Calculator
 자동 종료하거나 포커스를 복원하지 않으며 left_running boolean을 남긴다.
 
 `../reviews/2026-10-10/product-comparison-20261010-214831.jsonl`의 실제 chain은
-NLC44.2초/Sky40.8초 모두 FAIL이었다. Tacto는 CLI에서 정확한 TextEdit 문서
+Tacto44.2초/Sky40.8초 모두 FAIL이었다. Tacto는 CLI에서 정확한 TextEdit 문서
 경로로 관측을 제한할 수 없다고 중단했고, Sky는 background 입력과 입력 보존
 지원 여부를 확인하지 못해 중단했다. 두 문서 본문은 빈 상태였고 signed cleanup
 completed/artifact removed, activation 없음, source stable이었다. Tacto setup은

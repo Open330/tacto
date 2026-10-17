@@ -11,7 +11,7 @@ import unittest
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'), 'macOS Swift required')
 class SwiftSelectionIdentityTests(unittest.TestCase):
     def test_live_identity_many_controls_and_vanished_control(self):
-        source = (Path(__file__).resolve().parents[1] / 'helper/NLCHelper.swift').read_text()
+        source = (Path(__file__).resolve().parents[1] / 'helper/TactoHelper.swift').read_text()
         function = re.search(r'^func rereadSelection\(.*?^\}', source, re.M | re.S).group()
         support = '''
 import Foundation

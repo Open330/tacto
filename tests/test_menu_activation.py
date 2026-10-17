@@ -131,7 +131,7 @@ class MenuActivationTests(unittest.TestCase):
         self.assertEqual(['postcondition_timeout'], asked)
 
     def test_helper_watches_for_it_after_the_press(self):
-        swift = (ROOT / 'helper/NLCHelper.swift').read_text()
+        swift = (ROOT / 'helper/TactoHelper.swift').read_text()
         case = swift[swift.index('    case "menu":'):swift.index('    case "select_option":')]
         self.assertIn('if !wasFront {', case)
         self.assertIn('if isFrontmost(pid: p) { activated = true; break }', case)
@@ -140,7 +140,7 @@ class MenuActivationTests(unittest.TestCase):
     def test_open_folder_asks_through_the_bounded_request(self):
         # The stop/deadline check is inside openFolderBounded, right before the
         # request (run for real in tests/test_open_folder_swift.py).
-        swift = (ROOT / 'helper/NLCHelper.swift').read_text()
+        swift = (ROOT / 'helper/TactoHelper.swift').read_text()
         case = swift[swift.index('    case "open_folder":'):swift.index('    case "select_option":')]
         self.assertEqual(1, case.count('NSWorkspace.shared.open('))
         self.assertIn('switch openFolderBounded(deadline: deadline, stopped: { abortState.isStopped }', case)

@@ -42,7 +42,7 @@ class StatusChannelTests(unittest.TestCase):
             self.assertNotIn('PRIVATE',str(result))
 
     def test_status_local_failure_strings_keep_their_closed_reason_mapping(self):
-        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        source=(ROOT/'helper/TactoHelper.swift').read_text()
         handler=source[source.index('func documentWindowStatus('):source.index('func documentRTFExport(')]
         thrown=set(re.findall(r'DocumentError\.fail\("([^"\n]+)"\)',handler))
         mapping=handler[handler.index('let codes = '):]
@@ -88,7 +88,7 @@ class StatusSwiftTests(unittest.TestCase):
         return result.stdout.strip()
 
     def test_launcher_exact_readonly_status_fields(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         checks=r'''
 let request:[String:Any]=["type":"document_window_status","target":"com.apple.TextEdit","document_token":"own"]
@@ -102,7 +102,7 @@ print("VET_PASS")
         self.assertEqual('VET_PASS',self.execute('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw:Any?)->Double? {1}\n'+schema+checks))
 
     def test_actual_status_handler_absence_drift_error_and_no_body_access(self):
-        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        source=(ROOT/'helper/TactoHelper.swift').read_text()
         handler=source[source.index('func documentWindowStatus('):source.index('func documentRTFExport(')]
         harness=r'''
 import Foundation

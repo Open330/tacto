@@ -471,7 +471,7 @@ def main() -> int:
     all_cases = cases()
     if limit:
         all_cases = all_cases[:limit]
-    print(f"NLC 작업 성공률 — {len(all_cases)}건"
+    print(f"Tacto 작업 성공률 — {len(all_cases)}건"
           f"{' (실제 모델)' if use_model else ' (대역 판단자)'}")
     print("=" * 62)
     verdicts = []

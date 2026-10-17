@@ -17,7 +17,7 @@ class HelperBuildProfiles(unittest.TestCase):
         self.assertNotIn('experimental/',initial)
 
     def test_default_helper_source_has_no_unguarded_foreground_dispatch(self):
-        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        source=(ROOT/'helper/TactoHelper.swift').read_text()
         enabled=True;default=[]
         for line in source.splitlines():
             if line=='#if TACTO_EXPERIMENTAL_FOREGROUND':enabled=False

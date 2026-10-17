@@ -163,7 +163,7 @@ class ScreenRecordingLineTests(unittest.TestCase):
         self.assertIn(os.path.basename(os.path.realpath(sys.executable)), c.fix_hint)
 
     def test_the_helper_reports_screen_capture_in_its_handshake(self):
-        source = (ROOT / "helper" / "NLCHelper.swift").read_text()
+        source = (ROOT / "helper" / "TactoHelper.swift").read_text()
         self.assertIn('"screen_capture": CGPreflightScreenCaptureAccess()', source)
 
 

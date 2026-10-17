@@ -97,7 +97,7 @@ class ImageRelayTests(unittest.TestCase):
 
     @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'),'Swift required')
     def test_actual_launcher_rejects_noncanonical_images_and_wrong_routes(self):
-        source=(ROOT/'launcher/nlc.swift').read_text()
+        source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
         requests=[{'type':'ask','prompt':'own question','provider':'claude','image':encode_image(PNG),'model':'requested'}]
         for provider in ('auto','opencode','/bin/tool'):

@@ -13,8 +13,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LAUNCHER = (ROOT / "launcher/nlc.swift").read_text()
-HELPER = (ROOT / "helper/NLCHelper.swift").read_text()
+LAUNCHER = (ROOT / "launcher/tacto.swift").read_text()
+HELPER = (ROOT / "helper/TactoHelper.swift").read_text()
 
 
 class HowTheHelperIsStarted(unittest.TestCase):

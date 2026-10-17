@@ -177,7 +177,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
     """
 
     def test_the_helper_shows_a_menu_bar_item(self):
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn("NSStatusBar.system.statusItem(withLength:", text)
         self.assertIn("func showControlIndicator(forPID", text)
 
@@ -186,7 +186,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         self.assertIn("statusItemWithLength_", text)
 
     def test_neither_draws_a_window_over_the_screen(self):
-        for path, banned in (("helper/NLCHelper.swift", ("NSPanel(", "orderFrontRegardless")),
+        for path, banned in (("helper/TactoHelper.swift", ("NSPanel(", "orderFrontRegardless")),
                              ("nlc/overlay.py", ("NSPanel", "NSBezierPath"))):
             text = (ROOT / path).read_text()
             for line in text.splitlines():
@@ -200,7 +200,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
     def test_no_collection_behaviour_survives_anywhere(self):
         # There is no panel to give a Space behaviour to. A reference to one is
         # the panel coming back.
-        for path in ("helper/NLCHelper.swift", "nlc/overlay.py"):
+        for path in ("helper/TactoHelper.swift", "nlc/overlay.py"):
             text = (ROOT / path).read_text()
             for line in text.splitlines():
                 stripped = line.strip()
@@ -211,7 +211,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
     def test_the_indicator_still_gates_every_action(self):
         # The point of it is that a caller cannot act invisibly. Losing the
         # outline must not lose that.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertGreaterEqual(text.count("ensureVisibleControl(forPID: p"), 4)
         self.assertIn("indicator_unavailable", text)
 
@@ -221,7 +221,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         # promise the person can see this happening cannot rest on that, so the
         # refusal hangs on the capture stream, whose indicator is the system's
         # own and took a slot ahead of the chevron rather than behind it.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         body = text[text.index("func ensureVisibleControl("):]
         body = body[:body.index("\n}\n")]
         self.assertIn("guard ensureControlStream(forPID: pid) else", body)
@@ -249,7 +249,7 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         import json, shutil, subprocess, tempfile
         if not shutil.which("xcrun"):
             self.skipTest("macOS Swift required")
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         code = text[text.index("/// True only when AXWindows was read successfully and is empty — or, for"):
                     text.index("func appSaysItHasNoWindows(")]
         harness = r'''
@@ -308,7 +308,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
                           "list unreadable": False, "list malformed": False}, json.loads(result.stdout))
 
     def test_only_menu_requests_may_use_the_windowless_gate(self):
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         calls = [line.strip() for line in text.splitlines()
                  if "ensureVisibleControl(forPID: p" in line]
         self.assertEqual(sorted(calls), sorted([
@@ -323,7 +323,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
         # indicator meaning "NLC is looking" was looking at every other window
         # the person had open (user report, 2026-09-21). The indicator may not
         # cost more than what it announces.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         body = text[text.index("func ensureControlStream(forPID"):]
         body = body[:body.index("\n}\n")]
         self.assertIn("SCContentFilter(desktopIndependentWindow:", body)
@@ -337,7 +337,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
     def test_the_stream_follows_the_window_it_is_about(self):
         # A run that moves to another window must move the indicator with it,
         # or it reports capture of something we stopped touching.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn("controlStreamWindow", text)
         body = text[text.index("func ensureControlStream(forPID"):]
         body = body[:body.index("\n}\n")]
@@ -349,7 +349,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
         # Since 2026-10-09 the refusal says WHICH gate refused: the Screen
         # Recording advice is given only when the stream could not start; a
         # menu-bar item that is not on screen says that instead (june-mba).
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         body = text[text.index("func indicatorRefusal("):]
         body = body[:body.index("\n}\n")]
         self.assertIn("화면 기록 에서", body)
@@ -363,7 +363,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
         # frames are dropped and the stream is small and slow. A sink that
         # started keeping frames would be taking more of someone's screen than
         # the indicator promises.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         sink = text[text.index("final class DiscardingSink"):]
         sink = sink[:sink.index("\n}\n")]
         self.assertNotIn("append", sink)
@@ -372,7 +372,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
     def test_it_names_the_app_being_driven(self):
         # "something is happening" is not the same promise as "this app is
         # being driven", and the menu bar has room to say which.
-        swift = (ROOT / "helper/NLCHelper.swift").read_text()
+        swift = (ROOT / "helper/TactoHelper.swift").read_text()
         python = (ROOT / "nlc/overlay.py").read_text()
         self.assertIn("localizedName", swift)
         self.assertIn("localizedName", python)
@@ -391,12 +391,12 @@ class TheIndicatorCanBeActedOn(unittest.TestCase):
     """
 
     def test_the_indicator_has_a_menu(self):
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn("func controlMenu(for appName: String?) -> NSMenu", text)
         self.assertIn("item.menu = controlMenu(for: who)", text)
 
     def test_the_menu_names_what_is_being_driven(self):
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         body = text[text.index("func controlMenu(for appName"):]
         body = body[:body.index("\n}\n")]
         self.assertIn("appName.map", body)
@@ -404,7 +404,7 @@ class TheIndicatorCanBeActedOn(unittest.TestCase):
     def test_stopping_goes_through_the_one_abort_everything_consults(self):
         # Not a second flag. Every action already asks `abortState`, and a
         # menu that set its own would be a second answer to one question.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         body = text[text.index("@objc func stopNow(_ sender: Any?)"):]
         body = body[:body.index("\n    }\n")]
         self.assertIn("abortState.stopNow()", body)
@@ -414,7 +414,7 @@ class TheIndicatorCanBeActedOn(unittest.TestCase):
         # run it was aimed at ended. A click on an indicator that only exists
         # during this run cannot be stale, and manufacturing a timestamp to
         # pass that test would be asking a question whose answer is known.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn("func stopNow() {", text)
         body = text[text.index("@objc func stopNow(_ sender: Any?)"):]
         body = body[:body.index("\n    }\n")]
@@ -425,7 +425,7 @@ class TheIndicatorCanBeActedOn(unittest.TestCase):
         # before a global declared further down would have been initialised —
         # the trap that silently ate the logger's output earlier today. A
         # type's static is created on first use.
-        text = (ROOT / "helper/NLCHelper.swift").read_text()
+        text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn("static let shared = ControlMenuTarget()", text)
         for line in text.splitlines():
             stripped = line.strip()

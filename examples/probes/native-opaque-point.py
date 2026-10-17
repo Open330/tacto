@@ -24,7 +24,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                'nlc/driver.py', 'nlc/native_window_binding.py', 'nlc/native_window_dispatch.py',
                'nlc/native_mouse_events.py', 'nlc/native_process_identity.py', 'nlc/native_frontmost.py',
                'nlc/input_audit_process.py', 'nlc/input_audit.py', 'nlc/helper.py',
-               'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/NLCHelper.swift', 'launcher/nlc.swift',
+               'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/TactoHelper.swift', 'launcher/tacto.swift',
                'nlc/native_visual.py', 'nlc/native_visual_actions.py', 'nlc/visual.py', 'nlc/model_budget.py',
                'nlc/codex_result.py', 'nlc/claude_result.py', 'nlc/provider_observation.py',
                'nlc/ask_provider.py', 'nlc/provider_images.py', 'nlc/provider_result.py',

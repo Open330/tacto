@@ -19,8 +19,8 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-HELPER = (ROOT / "helper/NLCHelper.swift").read_text()
-LAUNCHER = (ROOT / "launcher/nlc.swift").read_text()
+HELPER = (ROOT / "helper/TactoHelper.swift").read_text()
+LAUNCHER = (ROOT / "launcher/tacto.swift").read_text()
 DRIVER = (ROOT / "nlc/driver.py").read_text()
 
 

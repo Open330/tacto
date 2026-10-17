@@ -42,7 +42,7 @@ class SubroleParsing(unittest.TestCase):
 @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'),'macOS Swift required')
 class SubroleSwift(unittest.TestCase):
     def test_actual_mismatch_refuses_changed_missing_disabled_close_control(self):
-        source=(ROOT/'helper/NLCHelper.swift').read_text()
+        source=(ROOT/'helper/TactoHelper.swift').read_text()
         handler=source[source.index('func mismatch('):source.index('/// The same normalization',source.index('func mismatch('))]
         harness=r'''
 import Foundation

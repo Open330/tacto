@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('xcrun'), 'macOS Swift required')
 class HelperSaveDocumentSwiftTests(unittest.TestCase):
     def test_document_token_scope_freshness_and_mid_read_stop(self):
-        source = (ROOT / 'helper/NLCHelper.swift').read_text()
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
         pins = source[source.index('struct PinnedSavePanel {'):source.index('func saveDirectoryResource(')]
         handler = source[source.index('func readSavePanel('):source.index('// Read-only: resolve only a running process', source.index('func readSavePanel('))]
         harness = r'''

@@ -1,4 +1,4 @@
-// NLCHelper — the process that holds the OS permissions.
+// TactoHelper — the process that holds the OS permissions.
 //
 // Why this exists (PROTOCOL.md §3.8): macOS TCC identifies a client by its
 // binary, and a virtualenv's `python` is normally a symlink to a SHARED
@@ -6,7 +6,7 @@
 // every script run with that interpreter — demonstrated on this machine, where
 // an unrelated /tmp script read other apps' windows. A signed, single-purpose
 // helper is identified by its code signature instead, so the grant belongs to
-// NLC alone, survives updates, and keeps OS privilege out of the model loop
+// Tacto alone, survives updates, and keeps OS privilege out of the model loop
 // (decision D8: the agent that talks to a model must not hold the permissions).
 //
 // It speaks the same L2 protocol the Python driver already speaks — one JSON

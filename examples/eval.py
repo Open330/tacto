@@ -4001,7 +4001,7 @@ def scenario_signed_provider_envelope():
     assert provider in ("claude", "codex"), "unsupported probe provider"
     root = Path(__file__).resolve().parents[1]
     files = [root/name for name in ("nlc/ask_provider.py", "nlc/authoring.py",
-             "nlc/helper.py", "nlc/provider_result.py", "launcher/nlc.swift", "launcher/nlc")]
+             "nlc/helper.py", "nlc/provider_result.py", "launcher/tacto.swift", "launcher/nlc")]
     def hashes():
         return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
     report = {"source_before": hashes(), "evaluation_kind": "single_signed_model_call_no_UI"}
@@ -4130,7 +4130,7 @@ def scenario_native_coordinate_fixture(*, coordinate_control=None, prepare_windo
         probe = runpy.run_path(str(root / "examples/probes/probe-menu-unresponsive.py"))
         probe["signed_client"](InheritedHelperDriver(), control)
         return True
-    client = runpy.run_path(str(root / "examples/probes/run-owned-menu-nlc-client.py"))
+    client = runpy.run_path(str(root / "examples/probes/run-owned-menu-tacto-client.py"))
     client["main"](driver=InheritedHelperDriver(), control_dir=control, coordinate_only=True,
                    prepare_window=prepare_window, general_prepare=general_prepare,
                    test_abort=coordinate_abort, model_provider=coordinate_model)

@@ -51,8 +51,8 @@ class ShellDefinition(unittest.TestCase):
 
 class SwiftAcceptancePredicates(unittest.TestCase):
     def test_both_peers_use_shared_signature_derived_policy(self):
-        for name,variable,identifier in [('helper/NLCHelper.swift','clientRequirement',LAUNCHER_ID),
-                                         ('launcher/nlc.swift','helperRequirement',HELPER_ID)]:
+        for name,variable,identifier in [('helper/TactoHelper.swift','clientRequirement',LAUNCHER_ID),
+                                         ('launcher/tacto.swift','helperRequirement',HELPER_ID)]:
             code=(ROOT/name).read_text()
             self.assertIn(f'let {variable} = TactoSigning.peerRequirement(identifier: "{identifier}")',code)
         for name in ['launcher/build.sh','helper/build.sh']:

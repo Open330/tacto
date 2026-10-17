@@ -38,7 +38,7 @@ class WindowListing(unittest.TestCase):
     def test_signed_filter_preserves_the_same_dialog_cases(self):
         # Compile the actual production filter with fake attribute reads. No AX,
         # helper connection, app launch, screen read or UI input is involved.
-        source = (ROOT / 'helper/NLCHelper.swift').read_text()
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
         start = source.index('    return byRole.enumerated().filter', source.index('func realWindows('))
         end = source.index('\n}', start)
         body = source[start:end]

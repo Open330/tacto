@@ -130,7 +130,7 @@ class LauncherVettingSourceTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(ROOT, 'launcher/nlc.swift')) as stream:
+        with open(os.path.join(ROOT, 'launcher/tacto.swift')) as stream:
             cls.source = stream.read()
 
     def test_document_text_is_an_allowed_type(self):
@@ -159,7 +159,7 @@ class HelperSourceTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(ROOT, 'helper/NLCHelper.swift')) as stream:
+        with open(os.path.join(ROOT, 'helper/TactoHelper.swift')) as stream:
             cls.source = stream.read()
 
     def test_tokens_are_bounded_and_reset_per_connection(self):

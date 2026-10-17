@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swift'), 'macOS Swift required')
 class SavePanelDispatchSwiftTests(unittest.TestCase):
     def test_actual_guard_bindings_single_use_and_uncertain_dispatch(self):
-        source = (ROOT / 'helper/NLCHelper.swift').read_text()
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
         guard = source[source.index('func validateSavePanelDispatch('):source.index('func readSavePanel(')]
         click = source[source.index('    case "click":', source.index('func act(')):
                        source.index('    case "set_value":', source.index('func act('))]

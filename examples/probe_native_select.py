@@ -23,7 +23,7 @@ def run_probe(driver):
               'caret_preservation_verified': False, 'proves_no_intermediate_change': False}
     paths = [Path(__file__), ROOT/'tests/fixtures/NativeSelectFixture.swift',
              ROOT/'nlc/driver.py', ROOT/'nlc/input_audit.py', ROOT/'nlc/input_audit_process.py',
-             ROOT/'helper/NLCHelper.swift', ROOT/'helper/nlc-helper', ROOT/'launcher/nlc']
+             ROOT/'helper/TactoHelper.swift', ROOT/'helper/nlc-helper', ROOT/'launcher/nlc']
     report['source_hashes'] = {str(p.relative_to(ROOT)):hashlib.sha256(p.read_bytes()).hexdigest()
                                for p in paths if p.is_file()}
     try:
@@ -119,7 +119,7 @@ def run_model_probe(driver, *, provider):
     report={'passed':False,'target':TARGET,'provider':provider,'plans':[],
             'evaluation_kind':'real_model_owned_appkit','caret_preservation_verified':False}
     paths=sorted((ROOT/'nlc').glob('*.py'))+[Path(__file__),
-        ROOT/'helper/NLCHelper.swift', ROOT/'helper/WindowInput.swift',
+        ROOT/'helper/TactoHelper.swift', ROOT/'helper/WindowInput.swift',
         ROOT/'helper/nlc-helper', ROOT/'helper/NLC Helper.app/Contents/MacOS/NLCHelper',
         ROOT/'launcher/nlc', ROOT/'tests/fixtures/NativeSelectFixture.swift']
     def sources():
