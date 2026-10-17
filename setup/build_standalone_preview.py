@@ -138,6 +138,15 @@ def build(output, identity):
         helper_plist=helper_app/'Contents/Info.plist'
         helper_info=plistlib.loads(helper_plist.read_bytes())
         helper_info['CFBundleIconFile']='tacto-app.icns'
+        helper_info['CFBundleName']='NLC Helper'
+        helper_info['CFBundleDisplayName']='NLC Helper'
+        helper_info['CFBundleDevelopmentRegion']='en'
+        helper_info['LSHasLocalizedDisplayName']=True
+        for language in ('en','ko'):
+            localized=helper_resources/(language+'.lproj')
+            localized.mkdir(exist_ok=True)
+            (localized/'InfoPlist.strings').write_bytes(plistlib.dumps({
+                'CFBundleName':'Tacto Helper','CFBundleDisplayName':'Tacto Helper'}))
         helper_plist.write_bytes(plistlib.dumps(helper_info))
         sign(helper_app,identity,'ai.callabo.nlc.helper',requirement('ai.callabo.nlc.helper'))
         run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(helper_app)])

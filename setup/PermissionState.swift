@@ -188,3 +188,18 @@ func setupRuntimeRoot(_ config: [String:String], resources: URL) -> URL? {
 func permissionApp(_ permission: Permission, helper: URL, setupApp: URL, bundledRuntime: Bool) -> URL {
     permission == .screen && bundledRuntime ? setupApp : helper
 }
+
+/// Show the actual installed bundle's name, including a genuine legacy build.
+func permissionAppName(_ app: URL) -> String {
+    if FileManager.default.fileExists(atPath: app.path) {
+        let shown = FileManager.default.displayName(atPath: app.path)
+        return shown.hasSuffix(".app") ? String(shown.dropLast(4)) : shown
+    }
+    let bundle = Bundle(url: app)
+    for key in ["CFBundleDisplayName", "CFBundleName"] {
+        if let name = bundle?.object(forInfoDictionaryKey: key) as? String, !name.isEmpty {
+            return name
+        }
+    }
+    return app.deletingPathExtension().lastPathComponent
+}

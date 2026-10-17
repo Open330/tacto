@@ -23,6 +23,8 @@ import os
 import ImageIO
 import UniformTypeIdentifiers
 
+let permissionHolderName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Tacto Helper"
+
 /// Say something where it can still be heard.
 ///
 /// LaunchServices hands a launched app no stdout and no stderr, so everything
@@ -2391,8 +2393,8 @@ func showControlIndicator(forPID pid: pid_t) -> Bool {
 /// The indicator's menu: what is being driven, and a way to stop it.
 func controlMenu(for appName: String?) -> NSMenu {
     let menu = NSMenu()
-    let what = appName.map { "NLC이 \($0) 을(를) 조작하고 있습니다" }
-        ?? "NLC이 이 화면을 조작하고 있습니다"
+    let what = appName.map { "Tacto가 \($0) 을(를) 조작하고 있습니다" }
+        ?? "Tacto가 이 화면을 조작하고 있습니다"
     let header = NSMenuItem(title: what, action: nil, keyEquivalent: "")
     header.isEnabled = false
     menu.addItem(header)
@@ -2587,7 +2589,7 @@ func indicatorRefusal(_ what: String = "") -> [String: Any] {
         advice = "메뉴바에 '● Tacto' 표시를 만들지 못했습니다."
     default:
         advice = "화면 기록 표시를 시작하지 못했습니다. 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 "
-               + "'NLC Helper' 가 켜져 있는지 확인해 주세요."
+               + "'\(permissionHolderName)' 가 켜져 있는지 확인해 주세요."
     }
     return ["type": "error", "error": "indicator_unavailable", "effect": "not_started",
             "reason": reason,
@@ -2730,7 +2732,7 @@ func captureWindow(_ obsID: String, _ target: String,
     }
 
     guard ensureVisibleControl(forPID: p) else {
-        return refuse("indicator_unavailable", "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 'NLC Helper' 를 켜주세요")
+        return refuse("indicator_unavailable", "조작 표시를 켤 수 없어 중단했습니다 — 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 '\(permissionHolderName)' 를 켜주세요")
     }
 
     // ScreenCaptureKit answers asynchronously; the wait is bounded and a late
@@ -2763,12 +2765,12 @@ func captureWindow(_ obsID: String, _ target: String,
             || failure.lowercased().contains("permission") {
             return ["type": "error", "error": "screen_capture_permission_missing",
                     "effect": "not_started", "detail": failure,
-                    "grant_holder": "NLC Helper",
+                    "grant_holder": permissionHolderName,
                     "helper_preflight": preflight,
                     "helper_binary": Bundle.main.executablePath ?? "unknown",
                     "helper_bundle_id": Bundle.main.bundleIdentifier ?? "none",
                     "fix": "시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 "
-                         + "'NLC Helper' 를 켜주세요"]
+                         + "'\(permissionHolderName)' 를 켜주세요"]
         }
         return refuse("visual_read_failed", failure)
     }
@@ -4962,7 +4964,7 @@ if !AXIsProcessTrusted() {
     respond(["type": "error", "error": "accessibility_permission_missing",
              "detail": "System Settings > Privacy & Security > Accessibility "
                        + "(macOS 27: Device Control and Data Access) 에서 "
-                       + "'NLC Helper' 를 켜주세요"])
+                       + "'\(permissionHolderName)' 를 켜주세요"])
 }
 
 // MARK: - Socket mode (peer-authenticated)

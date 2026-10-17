@@ -153,7 +153,7 @@ class ScreenRecordingLineTests(unittest.TestCase):
         from nlc.onboard import _screen_recording_for
         c = _screen_recording_for(self.check(), {"built": True, "trusted": True, "screen_capture": True})
         self.assertTrue(c.ok)
-        self.assertIn("NLC Helper", c.title)
+        self.assertIn("Tacto Helper", c.title)
 
     def test_otherwise_the_interpreter_is_named(self):
         import os, sys

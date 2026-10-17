@@ -109,7 +109,7 @@ uv sync
 ~/.local/bin/tacto doctor
 ```
 
-Follow `doctor` to grant macOS permissions to NLC Helper. Then ask Claude or Codex:
+Follow `doctor` and the app’s “permission holder” label to grant macOS permissions to **Tacto Helper** (Preview 1 and older builds: **NLC Helper**). Then ask Claude or Codex:
 
 > Use the Tacto skill to calculate 12 × 34 in Calculator and verify the result.<br>
 > Save it as a parameterized Flow so I can run it again with different inputs.
@@ -125,7 +125,7 @@ Replay a saved Flow:
 <details>
 <summary>Installation notes and development-only commands</summary>
 
-If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; internal imports remain `nlc`. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported; the permission entry is still **NLC Helper**.
+If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; internal imports remain `nlc`. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported; new builds display **Tacto Helper**, while Preview 1 and older installs may display **NLC Helper**. The signed identity and legacy internal paths remain compatible.
 
 These commands belong to the development checkout, not the main-branch release:
 
@@ -213,6 +213,7 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 <details>
 <summary>All guides and validation records</summary>
 
+- [GUI, branding, and independent review](docs/tacto-gui-review-2026-10-17.md)
 - [tacto visual identity](docs/tacto-visual-identity.md)
 - [tacto landing engineering 2026 10 15](docs/tacto-landing-engineering-2026-10-15.md)
 - [tacto recorded demos 2026 10 15](docs/tacto-recorded-demos-2026-10-15.md)
@@ -238,9 +239,9 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 - [model deadlines](docs/model-deadlines.md)
 - [native visual](docs/native-visual.md)
 - [native window input](docs/native-window-input.md)
-- [nlc auto repair 2026 10 14](docs/nlc-auto-repair-2026-10-14.md)
-- [nlc complex scenarios 2026 10 14](docs/nlc-complex-scenarios-2026-10-14.md)
-- [nlc matched comparison 2026 10 14](docs/nlc-matched-comparison-2026-10-14.md)
+- [Tacto automatic repair — scope and limits](docs/nlc-auto-repair-2026-10-14.md)
+- [Tacto complex scenario validation](docs/nlc-complex-scenarios-2026-10-14.md)
+- [Tacto and Sky matched comparison](docs/nlc-matched-comparison-2026-10-14.md)
 - [provider envelope](docs/provider-envelope.md)
 - [recipes](docs/recipes.md)
 - [rtf receipts](docs/rtf-receipts.md)

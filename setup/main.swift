@@ -1,6 +1,8 @@
 import AppKit
 
 private let contentWidth: CGFloat = 656
+private let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy)
+private var mainWidth: CGFloat { contentWidth + 64 + scrollerWidth }
 private let mutedText = adaptive(NSColor(srgbRed: 0.30, green: 0.33, blue: 0.31, alpha: 1),
                                  NSColor(srgbRed: 0.77, green: 0.80, blue: 0.78, alpha: 1))
 private let successText = adaptive(NSColor(srgbRed: 0.12, green: 0.40, blue: 0.23, alpha: 1),
@@ -29,6 +31,17 @@ class SurfaceStack: NSStackView {
 /// A top-anchored document keeps the heading visible when the window shrinks.
 final class DocumentStack: SurfaceStack {
     override var isFlipped: Bool { true }
+}
+
+/// Balance the side margins when the optional vertical scroller is hidden.
+final class CenteredClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        if let documentView, documentView.frame.width < rect.width {
+            rect.origin.x = (documentView.frame.width - rect.width) / 2
+        }
+        return rect
+    }
 }
 
 /// The helper's icon, draggable as its file URL into a System Settings list.
@@ -100,14 +113,14 @@ final class PermissionRow: SurfaceStack {
         action.widthAnchor.constraint(equalToConstant: 118).isActive = true
         action.setAccessibilityLabel("\(permission.title) 설정 열기")
         completed.widthAnchor.constraint(equalToConstant: 118).isActive = true
-        completed.alignment = .center
+        completed.alignment = .right
         let actions = NSStackView(views: [action, completed])
         actions.orientation = .vertical; actions.alignment = .centerX
         addArrangedSubview(status); addArrangedSubview(text); addArrangedSubview(actions)
         widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
     }
     func showApp(_ app: URL) {
-        detail.stringValue = "허용할 앱: " + app.lastPathComponent
+        detail.stringValue = "허용할 앱: " + permissionAppName(app)
         detail.toolTip = permission.location
     }
     required init?(coder: NSCoder) { nil }
@@ -151,6 +164,11 @@ final class AccessoryPanel: NSPanel {
     let dropArrow = NSImageView()
     var dropHeight: NSLayoutConstraint!
     let dropWhere = label("", size: 12, width: 204)
+    let dropHint = label("앱 이름과 스위치가 줄지어 있는 목록의 빈 곳이나 행 사이에 놓으세요.", size: 11, color: mutedText, width: 204)
+    var document: DocumentStack!
+    var scroll: NSScrollView!
+    var reviewScreen: CGRect?
+    var reposition: (() -> Void)?
     var alternative: NSStackView!
     var helpButton: NSButton!
     init(helper: URL) {
@@ -159,6 +177,7 @@ final class AccessoryPanel: NSPanel {
                    styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
                    backing: .buffered, defer: false)
         title = "Tacto 권한 도우미"
+        backgroundColor = canvas
         level = .floating; hidesOnDeactivate = false; isReleasedWhenClosed = false
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         icon.helperURL = helper
@@ -166,7 +185,7 @@ final class AccessoryPanel: NSPanel {
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.widthAnchor.constraint(equalToConstant: 80).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 80).isActive = true
-        icon.setAccessibilityLabel("Tacto 권한용 앱 NLC Helper. 이 아이콘을 설정 창의 앱 목록으로 끌어다 놓으세요.")
+        icon.setAccessibilityLabel("Tacto 권한용 앱. 이 아이콘을 설정 창의 앱 목록으로 끌어다 놓으세요.")
         icon.toolTip = "이 아이콘을 누른 채 설정 창의 앱 목록으로 옮긴 뒤 놓으세요."
         name.alignment = .center
         let source = label("1. 이 앱 아이콘을 끌어오세요", size: 13, weight: .semibold, width: 268)
@@ -174,7 +193,9 @@ final class AccessoryPanel: NSPanel {
         dropArrow.image = symbol("arrow.left", coral, size: 24)
         dropArrow.widthAnchor.constraint(equalToConstant: 24).isActive = true
         dropArrow.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        let dropBox = SurfaceStack(views: [dropArrow, dropWhere])
+        let dropText = NSStackView(views: [dropWhere, dropHint])
+        dropText.orientation = .vertical; dropText.alignment = .leading; dropText.spacing = 6
+        let dropBox = SurfaceStack(views: [dropArrow, dropText])
         dropBox.orientation = .horizontal; dropBox.alignment = .centerY; dropBox.spacing = 8
         dropBox.edgeInsets = NSEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
         dropHeight = dropBox.heightAnchor.constraint(greaterThanOrEqualToConstant: 64)
@@ -199,13 +220,21 @@ final class AccessoryPanel: NSPanel {
         alternative = NSStackView(views: [reveal, copy, fallback])
         alternative.orientation = .vertical; alternative.alignment = .centerX; alternative.spacing = 8
         alternative.isHidden = true
-        let stack = SurfaceStack(views: [heading, source, icon, name, identity, dropBox, steps, helpButton, alternative, approval, state])
+        let stack = DocumentStack(views: [heading, source, icon, name, identity, dropBox, steps, helpButton, alternative, approval, state])
         stack.wantsLayer = true; stack.fill = canvas
         stack.orientation = .vertical; stack.alignment = .centerX; stack.spacing = 14
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
-        contentView = stack
-        stack.layoutSubtreeIfNeeded()
-        setContentSize(stack.fittingSize)
+        document = stack
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.widthAnchor.constraint(equalToConstant: 300).isActive = true
+        scroll = NSScrollView()
+        scroll.contentView = CenteredClipView()
+        scroll.drawsBackground = true; scroll.backgroundColor = canvas
+        scroll.contentView.drawsBackground = false
+        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .legacy; scroll.documentView = stack
+        contentView = scroll
+        fitContent()
     }
     @objc func toggleHelp() {
         alternative.isHidden.toggle()
@@ -213,8 +242,21 @@ final class AccessoryPanel: NSPanel {
         fitContent()
     }
     func fitContent() {
-        contentView?.layoutSubtreeIfNeeded()
-        if let view = contentView { setContentSize(view.fittingSize) }
+        guard let document, let scroll else { return }
+        let top = frame.maxY
+        let screen = reviewScreen ?? self.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            ?? CGRect(x: 0, y: 0, width: 1280, height: 800)
+        document.layoutSubtreeIfNeeded()
+        let size = document.fittingSize
+        document.setFrameSize(size)
+        let chrome = frame.height - (contentView?.frame.height ?? 0)
+        setContentSize(NSSize(width: size.width + scrollerWidth, height: min(size.height, screen.height - chrome - 24)))
+        let x = max(screen.minX + 12, min(frame.minX, screen.maxX - frame.width - 12))
+        let y = max(screen.minY + 12, min(top - frame.height, screen.maxY - frame.height - 12))
+        setFrameOrigin(NSPoint(x: x, y: y))
+        scroll.contentView.scroll(to: .zero)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        reposition?()
     }
     @objc func revealHelper() {
         NSWorkspace.shared.activateFileViewerSelecting([app])
@@ -235,18 +277,18 @@ final class AccessoryPanel: NSPanel {
         self.app = app
         icon.helperURL = app
         icon.image = NSWorkspace.shared.icon(forFile: app.path)
-        icon.setAccessibilityLabel("\(app.lastPathComponent). 이 아이콘을 옆 시스템 설정 창의 앱 목록으로 끌어다 놓으세요.")
-        name.stringValue = app.lastPathComponent
+        icon.setAccessibilityLabel("\(permissionAppName(app)). 이 아이콘을 옆 시스템 설정 창의 앱 목록으로 끌어다 놓으세요.")
+        name.stringValue = permissionAppName(app)
         identity.stringValue = permission == .control
-            ? "Tacto의 앱 조작 도우미입니다. 설정에는 NLC Helper로 표시됩니다."
+            ? "Tacto의 앱 조작 도우미입니다. 이전 설치는 설정에 NLC Helper로 남아 있을 수 있어요."
             : "이 Tacto 앱에 화면 기록을 허용합니다. 같은 앱이 있으면 스위치만 켜세요."
         dropWhere.stringValue = permission == .screen
             ? "2. 옆의 ‘시스템 설정’ 창\n위쪽 ‘화면 및 시스템 오디오 기록’의 앱 목록 안에 놓으세요."
             : "2. 옆의 ‘시스템 설정’ 창\n‘손쉬운 사용 / Device Control and Data Access’의 앱 목록 안에 놓으세요."
         dropWhere.invalidateIntrinsicContentSize()
-        dropHeight.constant = dropWhere.fittingSize.height + 24
-        steps.stringValue = "앱 이름과 스위치가 줄지어 있는 목록의 빈 곳이나 행 사이에 놓으세요.\n3. ‘\(app.deletingPathExtension().lastPathComponent)’ 옆 스위치를 켜세요."
-        heading.stringValue = "\(permission == .control ? "1 / 2" : "2 / 2") · \(permission.title) 권한 켜기"
+        dropHeight.constant = dropWhere.fittingSize.height + dropHint.fittingSize.height + 30
+        steps.stringValue = "3. ‘\(permissionAppName(app))’ 옆 스위치를 켜세요."
+        heading.stringValue = "\(permission.title) 권한 켜기"
         state.stringValue = "스위치가 켜지면 자동으로 확인합니다."
         alternative.isHidden = true
         helpButton.title = "드래그가 안 되나요? 다른 방법 보기"
@@ -280,6 +322,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let message = label("", size: 12, color: mutedText, width: contentWidth - 32)
     let badge = label("확인 중", size: 12, weight: .semibold)
     let badgeIcon = NSImageView()
+    let scopeInfo = label("별도 설치 위치를 사용합니다. 기존 에이전트의 연결 위치와 다를 수 있어요.", size: 11, color: mutedText, width: contentWidth - 32)
     let connectionInfo = label("", size: 12, color: mutedText, width: contentWidth - 32)
     var connection: AgentConnection = .missing
     var installing = false
@@ -352,6 +395,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = canvas
         panel = AccessoryPanel(helper: helper)
+        panel.reposition = { [weak self] in if self?.panel.isVisible == true { self?.placeAccessory() } }
         let stack = DocumentStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
         stack.wantsLayer = true
@@ -359,15 +403,17 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         contentStack = stack
         stack.translatesAutoresizingMaskIntoConstraints = false
         let scroll = NSScrollView()
-        scroll.drawsBackground = false; scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
+        scroll.contentView = CenteredClipView()
+        scroll.drawsBackground = true; scroll.backgroundColor = canvas
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true; scroll.scrollerStyle = .legacy
         scroll.documentView = stack
         scroll.contentView.drawsBackground = false
         stack.widthAnchor.constraint(equalToConstant: contentWidth + 64).isActive = true
         window.contentView = scroll
         scrollView = scroll
-        window.contentMinSize = NSSize(width: contentWidth + 64, height: 520)
-        window.contentMaxSize = NSSize(width: contentWidth + 64, height: 2000)
+        window.contentMinSize = NSSize(width: mainWidth, height: 520)
+        window.contentMaxSize = NSSize(width: mainWidth, height: 2000)
         let logo = NSImageView()
         let assets = snapshotAssets ?? root.appendingPathComponent("docs/assets")
         let asset = Bundle.main.url(forResource: "tacto-app", withExtension: "icns")
@@ -395,7 +441,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
         refreshButton = NSButton(title: "상태 새로고침", target: self, action: #selector(refreshAll))
         refreshButton.bezelStyle = .rounded; refreshButton.controlSize = .small
-        let permissionHeader = NSStackView(views: [label("1. Mac 권한", size: 13, weight: .semibold), NSView(), refreshButton])
+        let permissionHeader = NSStackView(views: [label("1. Mac 권한", size: 15, weight: .semibold), NSView(), refreshButton])
         permissionHeader.orientation = .horizontal; permissionHeader.alignment = .centerY
         permissionHeader.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(permissionHeader)
@@ -412,22 +458,19 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let connectionHeader = NSStackView(views: [label("2. 에이전트 연결", size: 15, weight: .semibold), NSView(), connectButton])
         connectionHeader.orientation = .horizontal; connectionHeader.alignment = .centerY
         connectionHeader.widthAnchor.constraint(equalToConstant: contentWidth - 32).isActive = true
-        let scope = ProcessInfo.processInfo.environment
-        let custom = ["TACTO_BIN_DIR", "NLC_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
-        let scopeNote = custom ? "앱에 전달된 설치 위치 기준입니다. 셸에서 사용하는 위치와 다를 수 있어요."
-            : "기본 설치 위치 기준입니다. 셸에서 별도 경로에 설치했다면 기존 연결을 계속 쓸 수 있어요."
         let connection = SurfaceStack(views: [connectionHeader, connectionInfo,
-            label(scopeNote, size: 11, color: mutedText, width: contentWidth - 32), message])
+            scopeInfo, message])
         connection.orientation = .vertical; connection.alignment = .leading; connection.spacing = 8
         connection.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         connection.wantsLayer = true; connection.layer?.cornerRadius = 12
+        connection.layer?.borderWidth = 1
         connection.fill = .controlBackgroundColor
         connection.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(connection)
         stack.setCustomSpacing(18, after: connection)
         exampleButton = NSButton(title: "첫 요청 복사", target: self, action: #selector(copyFirstRequest))
         exampleButton.bezelStyle = .rounded
-        let example = NSStackView(views: [label("3. 새 대화에서 시작하세요", size: 13, weight: .semibold), NSView(), exampleButton])
+        let example = NSStackView(views: [label("3. 새 대화에서 시작하세요", size: 15, weight: .semibold), NSView(), exampleButton])
         example.orientation = .horizontal; example.alignment = .centerY
         example.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(example)
@@ -438,7 +481,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let size = stack.fittingSize
         stack.setFrameSize(size)
         let available = (NSScreen.main?.visibleFrame.height ?? 840) - 80
-        window.setContentSize(NSSize(width: size.width, height: min(size.height, available)))
+        window.setContentSize(NSSize(width: mainWidth, height: min(size.height, available)))
         scroll.contentView.scroll(to: .zero)
     }
 
@@ -455,7 +498,8 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         message.isHidden = message.stringValue.isEmpty
         connectButton.isEnabled = !checkInFlight && !installing && (connection == .conflict || (known && state.ready && connection != .current))
         refreshButton.isEnabled = !checkInFlight && !installing
-        badge.stringValue = !known || checkInFlight ? "권한 확인 중" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
+        badge.stringValue = checkInFlight || (!known && notice == nil) ? "권한 확인 중"
+            : !known ? "권한 확인 실패" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
         badgeIcon.image = symbol(known && state.ready ? "checkmark.circle.fill" : "circle", known && state.ready ? .systemGreen : mutedText, size: 13)
         badge.textColor = known && state.ready ? successText : mutedText
         if !installing {
@@ -474,6 +518,12 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 connectionInfo.stringValue = "명령 또는 스킬 위치에 다른 파일이 있어요. 기존 파일을 보호하고 있습니다."
             }
         }
+        if connection == .missing && !installing && !state.ready {
+            connectionInfo.stringValue = known ? "두 권한을 켜면 Claude Code · Codex에 연결할 수 있어요." : "먼저 ‘상태 새로고침’으로 권한을 확인해 주세요."
+        }
+        let scope = ProcessInfo.processInfo.environment
+        let custom = ["TACTO_BIN_DIR", "NLC_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
+        scopeInfo.isHidden = !(custom && (connection == .missing || connection == .other))
         connectButton.isHidden = connection == .current && !installing
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
@@ -620,7 +670,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         try? FileManager.default.removeItem(at: directory); reportDirectory = nil
         checkInFlight = false
         known = state.refresh(data, expected: "ai.callabo.nlc.helper")
-        notice = known ? nil : "권한 상태를 확인하지 못했어요. ‘설정 열기’를 눌러 다시 확인하세요. 계속 실패하면 Tacto를 닫고 다시 열어 주세요."
+        notice = known ? nil : "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요. 계속 실패하면 Tacto를 닫고 다시 열어 주세요."
         if let watching = watch, state.granted(watching.permission) { endWatch(granted: true); return }
         render()
     }
@@ -728,9 +778,15 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func renderSnapshot(_ request: (URL, SetupState, Permission?)) {
         let (directory, snapshotState, waiting) = request
-        helper = URL(fileURLWithPath: "/Applications/NLC Helper.app")   // offscreen fixture only
+        helper = URL(fileURLWithPath: "/Applications/Tacto Helper.app")   // offscreen fixture only
+        if let i = CommandLine.arguments.firstIndex(of: "--helper-fixture"), i + 1 < CommandLine.arguments.count {
+            helper = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+        }
         bundledRuntime = CommandLine.arguments.contains("--standalone")
         setupApp = URL(fileURLWithPath: "/Applications/Tacto.app")
+        if let i = CommandLine.arguments.firstIndex(of: "--setup-app-fixture"), i + 1 < CommandLine.arguments.count {
+            setupApp = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+        }
         root = URL(fileURLWithPath: "/nonexistent")
         if let i = CommandLine.arguments.firstIndex(of: "--brand-assets"), i + 1 < CommandLine.arguments.count {
             snapshotAssets = URL(fileURLWithPath: CommandLine.arguments[i + 1])
@@ -746,15 +802,22 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--show-help") { panel.toggleHelp() }
         if CommandLine.arguments.contains("--check-failed") {
             known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
-            notice = "권한 상태를 확인하지 못했어요. ‘설정 열기’를 눌러 다시 확인하세요."
+            notice = "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요."
         }
         render()
-        if CommandLine.arguments.contains("--compact") { window.setContentSize(NSSize(width: contentWidth + 64, height: 520)) }
+        if CommandLine.arguments.contains("--compact") { window.setContentSize(NSSize(width: mainWidth, height: 520)) }
         assert(connectButton.isEnabled == (known && state.ready && connection != .current))
         assert(!applicationShouldTerminateAfterLastWindowClosed(NSApp))
         assert(panel.icon.helperURL == appFor(permission))
         assert((panel.icon.draggingItem()?.item as? NSURL) == appFor(permission) as NSURL)
-        assert(panel.frame.height > 400)
+        for height: CGFloat in [700, 800, 900] {
+            panel.reviewScreen = CGRect(x: 0, y: 0, width: 1280, height: height)
+            panel.fitContent()
+            assert(panel.reviewScreen!.contains(panel.frame), "Accessory panel outside screen")
+        }
+        panel.reviewScreen = CommandLine.arguments.contains("--compact")
+            ? CGRect(x: 0, y: 0, width: 1280, height: 700) : nil
+        panel.fitContent()
         // Check actual AppKit layout, including labels inside nested cards.
         var clipped: [String] = []
         func inspect(_ view: NSView) {
@@ -771,6 +834,16 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--compact") {
             assert(scrollView.documentView!.frame.height > scrollView.contentSize.height)
             scrollView.contentView.scroll(to: .zero)
+        }
+        for scroll in [scrollView!, panel.scroll!] {
+            scroll.tile()
+            let overflows = scroll.documentView!.frame.height > scroll.contentSize.height + 1
+            assert(scroll.verticalScroller!.isHidden != overflows, "Incorrect scrollbar visibility")
+            let bounds = scroll.contentView.constrainBoundsRect(scroll.contentView.bounds)
+            if scroll.documentView!.frame.width < bounds.width {
+                assert(abs(bounds.minX + (bounds.width - scroll.documentView!.frame.width) / 2) < 1,
+                       "Unbalanced document margins")
+            }
         }
         func save(_ view: NSView, _ name: String) {
             view.layoutSubtreeIfNeeded()

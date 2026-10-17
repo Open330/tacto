@@ -41,7 +41,7 @@ func executablePath() -> String {
 
 let exe = URL(fileURLWithPath: executablePath()).resolvingSymlinksInPath()
 guard !exe.path.isEmpty else {
-    FileHandle.standardError.write(Data("nlc: 실행 경로를 확인하지 못했습니다\n".utf8))
+    FileHandle.standardError.write(Data("tacto: 실행 경로를 확인하지 못했습니다\n".utf8))
     exit(2)
 }
 let root = exe.deletingLastPathComponent().deletingLastPathComponent()
@@ -50,7 +50,7 @@ let helperApp = root.appendingPathComponent("helper/NLC Helper.app")
 
 guard FileManager.default.isExecutableFile(atPath: python.path) else {
     FileHandle.standardError.write(Data(
-        "nlc: \(python.path) 이 없습니다. `uv sync` 를 먼저 실행하세요.\n".utf8))
+        "tacto: \(python.path) 이 없습니다. `uv sync` 를 먼저 실행하세요.\n".utf8))
     exit(2)
 }
 
@@ -717,7 +717,7 @@ env["NLC_LAUNCHER"] = "1"
 // fake-server substitution a fixed /tmp name allowed.
 var template = Array("/tmp/nlc.XXXXXXXX".utf8CString)
 guard let dirC = mkdtemp(&template) else {
-    FileHandle.standardError.write(Data("nlc: 임시 디렉터리 생성 실패\n".utf8)); exit(1)
+    FileHandle.standardError.write(Data("tacto: 임시 디렉터리 생성 실패\n".utf8)); exit(1)
 }
 let runDir = String(cString: dirC)
 let rendezvousPath = runDir + "/rendezvous.sock"
@@ -841,20 +841,20 @@ var helperRunning: NSRunningApplication?
 /// descriptor, or nil with the reason already written to stderr.
 @Sendable func startHelper() -> Int32? {
     guard let listener = openRendezvous() else {
-        FileHandle.standardError.write(Data("nlc: 랑데부 소켓을 열지 못했습니다\n".utf8))
+        FileHandle.standardError.write(Data("tacto: 랑데부 소켓을 열지 못했습니다\n".utf8))
         return nil
     }
     defer { close(listener) }
     guard let app = launchHelper() else {
         FileHandle.standardError.write(Data(
-            "nlc: \(helperApp.path) 을 열지 못했습니다\n".utf8))
+            "tacto: \(helperApp.path) 을 열지 못했습니다\n".utf8))
         return nil
     }
     helperRunning = app
     guard let conn = acceptWithin(listener, seconds: 20) else {
         app.forceTerminate()
         helperRunning = nil
-        FileHandle.standardError.write(Data("nlc: 도우미가 연결해 오지 않았습니다\n".utf8))
+        FileHandle.standardError.write(Data("tacto: 도우미가 연결해 오지 않았습니다\n".utf8))
         return nil
     }
     if let why = rendezvousAccepted(conn, expecting: app) {
@@ -868,9 +868,9 @@ var helperRunning: NSRunningApplication?
         app.forceTerminate()
         helperRunning = nil
         FileHandle.standardError.write(Data((vanished
-            ? "nlc: 도우미가 연결 직후 종료했습니다 — 이유는 다음에서 확인하세요:\n"
+            ? "tacto: 도우미가 연결 직후 종료했습니다 — 이유는 다음에서 확인하세요:\n"
               + "    log show --last 2m --predicate 'subsystem == \"ai.callabo.nlc\"'\n"
-            : "nlc: \(why)\n").utf8))
+            : "tacto: \(why)\n").utf8))
         return nil
     }
     return conn
@@ -880,7 +880,7 @@ var helperRunning: NSRunningApplication?
 
 var pair: [Int32] = [0, 0]
 guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else {
-    FileHandle.standardError.write(Data("nlc: 채널 생성 실패\n".utf8)); exit(1)
+    FileHandle.standardError.write(Data("tacto: 채널 생성 실패\n".utf8)); exit(1)
 }
 let relayEnd = pair[0], childEnd = pair[1]
 // A model deadline deliberately closes the child channel. A late reply must
@@ -888,7 +888,7 @@ let relayEnd = pair[0], childEnd = pair[1]
 var relayNoSigPipe: Int32 = 1
 guard setsockopt(relayEnd, SOL_SOCKET, SO_NOSIGPIPE, &relayNoSigPipe,
                  socklen_t(MemoryLayout<Int32>.size)) == 0 else {
-    FileHandle.standardError.write(Data("nlc: 채널 종료 처리 설정 실패\n".utf8)); exit(1)
+    FileHandle.standardError.write(Data("tacto: 채널 종료 처리 설정 실패\n".utf8)); exit(1)
 }
 // CLOEXEC on both ends: without it the relay end leaks into the helper we spawn
 // later, and any exec inherits a channel that was authenticated for someone else.
@@ -921,7 +921,7 @@ posix_spawn_file_actions_destroy(&actions)
 cArgs.forEach { free($0) }; cEnv.forEach { free($0) }
 close(childEnd)
 guard spawned == 0 else {
-    FileHandle.standardError.write(Data("nlc: 실행 실패\n".utf8)); exit(1)
+    FileHandle.standardError.write(Data("tacto: 실행 실패\n".utf8)); exit(1)
 }
 
 // MARK: - Asking a model, out here

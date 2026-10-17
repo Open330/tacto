@@ -353,7 +353,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
         body = text[text.index("func indicatorRefusal("):]
         body = body[:body.index("\n}\n")]
         self.assertIn("화면 기록 에서", body)
-        self.assertIn("'NLC Helper' 가 켜져 있는지", body)
+        self.assertIn("'\\(permissionHolderName)' 가 켜져 있는지", body)
         self.assertIn('case "menu_item_not_on_screen":', body)
         self.assertIn('"reason": reason', body)
         self.assertEqual(3, text.count("return indicatorRefusal("))

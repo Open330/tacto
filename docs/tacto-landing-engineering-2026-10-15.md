@@ -1,6 +1,7 @@
 # Landing page verification — 2026-10-15
 
-The logo and wordmark use an open return stroke and a coral touch dot. The
+On this date the logo and wordmark used an open return stroke and a coral touch
+dot; the pointer *t* replaced them on 2026-10-17. The
 [visual identity guide](tacto-visual-identity.md) records the alternatives,
 construction, minimum sizes and reusable SVG assets.
 

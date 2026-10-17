@@ -8,6 +8,7 @@ pane and gives one plain-language instruction — never a wall of steps.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 
@@ -59,9 +60,10 @@ def _screen_recording_for(c: "Check", helper: dict) -> "Check":
     """
     from dataclasses import replace
     if helper.get("built"):
+        name = helper.get("screen_name") or helper.get("name") or "Tacto Helper"
         return replace(c, ok=helper.get("screen_capture") is True,
-                       title="화면 읽기 권한(화면 기록) — 'NLC Helper'",
-                       fix_hint="목록에서 'NLC Helper' 를 켜주세요. 창 이미지가 필요한 기능에서만 씁니다.")
+                       title=f"화면 읽기 권한(화면 기록) — '{name}'",
+                       fix_hint=f"목록에서 '{name}' 를 켜주세요. 창 이미지가 필요한 기능에서만 씁니다.")
     import os, sys
     name = os.path.basename(os.path.realpath(sys.executable))
     return replace(c, fix_hint=f"목록에서 '{name}' 을(를) 켜주세요. 창 이미지가 필요한 기능에서만 씁니다.")
@@ -97,8 +99,9 @@ def run(interactive: bool = True, narrate=print) -> bool:
     for c in check_all():
         if c.key == "accessibility" and helper.get("built"):
             from dataclasses import replace
-            c = replace(c, ok=helper_covers, title="앱 조작 권한 — 'NLC Helper'",
-                        fix_hint="목록에서 'NLC Helper'를 켜주세요. 파이썬에는 권한이 필요 없습니다.")
+            name = helper.get("name") or "Tacto Helper"
+            c = replace(c, ok=helper_covers, title=f"앱 조작 권한 — '{name}'",
+                        fix_hint=f"목록에서 '{name}'를 켜주세요. 파이썬에는 권한이 필요 없습니다.")
         if c.key == "screen_recording":
             c = _screen_recording_for(c, helper)
         if c.ok:
@@ -184,9 +187,19 @@ def helper_status() -> dict:
     other script on the machine also uses.
     """
     import os
-    from .helper import HELPER
+    from .helper import HELPER, helper_display_name
     out = {"built": os.path.exists(HELPER), "path": HELPER, "trusted": None,
-           "bundled": HELPER.endswith("Contents/MacOS/NLCHelper")}
+           "bundled": HELPER.endswith("Contents/MacOS/NLCHelper"),
+           "name": helper_display_name()}
+    from pathlib import Path
+    binary = Path(HELPER).resolve()
+    # Fixed standalone layout only; never infer this from a loose '.app' substring.
+    for parent in binary.parents:
+        if parent.name == "runtime" and parent.parent.name == "Resources" and parent.parent.parent.name == "Contents":
+            outer = parent.parent.parent.parent
+            if outer.suffix == ".app":
+                out["screen_name"] = helper_display_name(outer / "Contents/MacOS/NLCSetup")
+                break
     if not out["built"]:
         return out
     try:
@@ -223,7 +236,7 @@ def run_helper_onboarding(narrate=print, *, interactive=True) -> bool:
         narrate("✕ 도우미가 아직 빌드되지 않았어요:")
         narrate("    helper/build.sh && helper/bundle.sh && launcher/build.sh")
         return False
-    name = "NLC Helper" if st["bundled"] else os.path.basename(st["path"])
+    name = st.get("name") or ("Tacto Helper" if st["bundled"] else os.path.basename(st["path"]))
     if st["trusted"]:
         narrate(f"✓ '{name}' 에 권한이 있어요. 파이썬에는 권한이 필요 없습니다.")
         return True

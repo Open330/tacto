@@ -46,6 +46,42 @@ _BARE = os.path.join(_ROOT, "helper", "nlc-helper")
 HELPER = _BUNDLED if os.path.exists(_BUNDLED) else _BARE
 
 
+def helper_display_name(path=None) -> str:
+    """Name the installed permission holder; do not mislabel a legacy bundle."""
+    import plistlib
+    from pathlib import Path
+    binary = Path(HELPER if path is None else path)
+    if binary.is_file() and binary.parent.name == "MacOS":
+        try:
+            from Foundation import NSFileManager
+            name = str(NSFileManager.defaultManager().displayNameAtPath_(str(binary.parent.parent.parent)))
+            return name[:-4] if name.endswith(".app") else name
+        except ImportError:
+            pass
+    if binary.parent.name == "MacOS" and binary.parent.parent.name == "Contents":
+        try:
+            contents = binary.parent.parent
+            with (contents / "Info.plist").open("rb") as stream:
+                info = plistlib.load(stream)
+            # Both shipped locales use the same product name. Keep the legacy
+            # base name matching the filename so Finder also localizes it.
+            localized = contents / "Resources/en.lproj/InfoPlist.strings"
+            if localized.is_file():
+                with localized.open("rb") as stream:
+                    names = plistlib.load(stream)
+                if isinstance(names, dict):
+                    info = {**info, **names}
+            if not isinstance(info, dict):
+                return "Tacto Helper"
+            for key in ("CFBundleDisplayName", "CFBundleName"):
+                name = info.get(key)
+                if isinstance(name, str) and name.strip():
+                    return name
+        except (OSError, ValueError, TypeError):
+            pass
+    return "Tacto Helper"
+
+
 def _unhide_target(target: str) -> bool:
     """Unhide `target` without activating it; True if its windows came back."""
     try:
@@ -160,7 +196,7 @@ class InheritedHelperDriver:
             if not pong.get("trusted"):
                 raise HelperUnavailable(
                     "도우미에 접근성 권한이 없습니다 — "
-                    "시스템 설정에서 'NLC Helper' 를 켜주세요")
+                    f"시스템 설정에서 '{helper_display_name()}' 를 켜주세요")
             caps = set(pong.get("capabilities") or ())
             missing = REQUIRED_CAPABILITIES - caps
             if missing:
@@ -371,7 +407,7 @@ class HelperDriver:
             if not pong.get("trusted"):
                 raise HelperUnavailable(
                     "도우미에 접근성 권한이 없습니다 — 시스템 설정 > 개인정보 보호 및 "
-                    "보안 > 손쉬운 사용 에서 'NLC Helper' 를 켜주세요 "
+                    f"보안 > 손쉬운 사용 에서 '{helper_display_name()}' 를 켜주세요 "
                     "(macOS 27 에서는 'Device Control and Data Access')")
         except BaseException:
             self.close()

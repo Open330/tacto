@@ -3,7 +3,7 @@
 #
 # TCC identifies a client by code signature, and it lists it by bundle name. A
 # bare binary shows up in System Settings as whatever the executable is called;
-# a bundle shows up as "NLC Helper" with its own identity, keeps its grant
+# a bundle shows up as "Tacto Helper" with its own identity, keeps its grant
 # across rebuilds of the same signature, and is what a user can reason about
 # when deciding whether to allow it.
 set -euo pipefail
@@ -24,6 +24,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleName</key>            <string>NLC Helper</string>
   <key>CFBundleDisplayName</key>     <string>NLC Helper</string>
+  <key>CFBundleDevelopmentRegion</key> <string>en</string>
+  <key>LSHasLocalizedDisplayName</key> <true/>
   <key>CFBundleIconFile</key>        <string>tacto-app.icns</string>
   <key>CFBundleIdentifier</key>      <string>ai.callabo.nlc.helper</string>
   <key>CFBundleExecutable</key>      <string>NLCHelper</string>
@@ -38,6 +40,20 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# The base name matches the retained filename; Finder then uses the localized
+# product name. Bundle ID, executable, path and designated requirement stay put.
+for language in en ko; do
+  mkdir -p "$APP/Contents/Resources/$language.lproj"
+  cat > "$APP/Contents/Resources/$language.lproj/InfoPlist.strings" <<'NAMES'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>Tacto Helper</string>
+<key>CFBundleDisplayName</key><string>Tacto Helper</string>
+</dict></plist>
+NAMES
+done
 
 cp nlc-helper "$APP/Contents/MacOS/NLCHelper"
 

@@ -156,7 +156,7 @@ uv sync
 ~/.local/bin/tacto doctor
 ```
 
-`doctor` 안내에 따라 NLC Helper의 macOS 권한을 허용한 뒤, Claude 또는 Codex에 요청하세요.
+`doctor`와 앱의 ‘허용할 앱’ 안내에 따라 **Tacto Helper**(Preview 1·이전 빌드는 **NLC Helper**)의 macOS 권한을 허용한 뒤, Claude 또는 Codex에 요청하세요.
 
 > Tacto 스킬로 계산기에서 12 × 34를 계산하고 결과를 확인해줘.<br>
 > 같은 작업을 다시 쓸 수 있도록 매개변수가 있는 Flow로 저장해줘.
@@ -175,7 +175,7 @@ uv sync
 스킬을 찾지 못하면 에이전트 세션을 다시 열고 `./skill/install.sh --check`로 연결을 확인하세요.
 Python 배포 이름은 `tacto-runtime`이며 내부 import는 `nlc`를 유지합니다.
 Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습니다.
-기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. macOS 권한 목록의 **NLC Helper**도 같은 실행 경계입니다.
+기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 새 빌드의 권한용 앱은 **Tacto Helper**로 표시합니다. Preview 1·이전 설치의 **NLC Helper**는 실제 설치 이름대로 안내하며 서명 식별자와 내부 경로는 유지합니다.
 선택적 Playwright backend는 별도 Chromium 페이지를 사용합니다.
 
 다음 batch·자동 수리 명령은 개발 checkout 기준이며 아직 기본 브랜치의 배포 기능이 아닙니다.
@@ -268,6 +268,7 @@ python3 sites/tacto/serve.py
 <details>
 <summary><strong>문서 찾아보기</strong></summary>
 
+- [GUI·브랜딩 독립 검토와 수정 결과](docs/tacto-gui-review-2026-10-17.md)
 - [로고·시각 아이덴티티](docs/tacto-visual-identity.md)
 - [랜딩페이지 개선·검증](docs/tacto-landing-engineering-2026-10-15.md)
 - [실제 촬영 영상·스크린샷](docs/tacto-recorded-demos-2026-10-15.md)
