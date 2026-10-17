@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class IsolatedSkillInstallTests(unittest.TestCase):
     def setUp(self):
-        work = tempfile.TemporaryDirectory(prefix='nlc-install-test-')
+        work = tempfile.TemporaryDirectory(prefix='tacto-install-test-')
         self.addCleanup(work.cleanup)
         self.root = Path(os.path.realpath(work.name)) / 'checkout with spaces'
         self.home = Path(os.path.realpath(work.name)) / 'fresh user'
@@ -19,7 +19,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         (self.root / 'skill').mkdir(parents=True)
         self.script = self.root / 'skill/install.sh'
         shutil.copyfile(ROOT / 'skill/install.sh', self.script)
-        (self.root / 'skill/SKILL.md').write_text('---\nname: nlc\n---\nfixture\n')
+        (self.root / 'skill/SKILL.md').write_text('---\nname: tacto\n---\nfixture\n')
         (self.root / 'launcher').mkdir()
         # Tests link ownership and discovery only, not cryptographic signing.
         self.entry = self.root / 'launcher/tacto'
@@ -80,6 +80,17 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         self.assertEqual(str(other), os.readlink(self.bin / 'nlc'))
         self.assertEqual('unrelated', other.read_text())
 
+    def test_legacy_launcher_pattern_does_not_authorize_foreign_skill(self):
+        old = self.home/'foreign checkout'
+        (old/'skill').mkdir(parents=True)
+        (old/'skill/SKILL.md').write_text('---\nname: unrelated\n---\n')
+        self.bin.mkdir(parents=True)
+        link=self.bin/'nlc';link.symlink_to(old/'launcher/nlc')
+        installed=self.run_script()
+        self.assertEqual(1,installed.returncode)
+        self.assertEqual(str(old/'launcher/nlc'),os.readlink(link))
+        self.assertFalse((self.bin/'tacto').exists())
+
     def test_unrelated_and_broken_skill_links_are_preserved_and_reported(self):
         foreign = self.home / 'foreign-skill'
         foreign.mkdir()
@@ -110,14 +121,20 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         (old / 'skill').mkdir(parents=True)
         (old / 'skill/SKILL.md').write_text('---\nname: nlc\n---\nold\n')
         self.bin.mkdir(parents=True)
-        (self.bin / 'nlc').symlink_to(old / 'launcher/tacto')
         destination = self.home / '.codex/skills/tacto'
         destination.parent.mkdir(parents=True)
         destination.symlink_to(old / 'skill')
-        installed = self.run_script()
-        self.assertEqual(0, installed.returncode, installed.stdout + installed.stderr)
-        self.assertEqual(str(self.entry), os.readlink(self.bin / 'nlc'))
-        self.assertEqual(str(self.root / 'skill'), os.readlink(destination))
+        for previous_entry in ('launcher/nlc', 'launcher/tacto', '.venv/bin/nlc', '.venv/bin/tacto'):
+            with self.subTest(previous_entry=previous_entry):
+                for command in ('nlc', 'tacto'):
+                    link=self.bin/command
+                    if link.is_symlink():link.unlink()
+                    link.symlink_to(old/previous_entry)
+                installed = self.run_script()
+                self.assertEqual(0, installed.returncode, installed.stdout + installed.stderr)
+                for command in ('nlc', 'tacto'):
+                    self.assertEqual(str(self.entry), os.readlink(self.bin/command))
+                self.assertEqual(str(self.root / 'skill'), os.readlink(destination))
 
     def test_unknown_or_extra_arguments_and_help_do_not_install(self):
         for args in (('--typo',), ('--check', 'extra'), ('--help', 'extra')):
