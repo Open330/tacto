@@ -8,7 +8,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
     />
-    <meta name="theme-color" content="#f6f4ed" />
+    <meta name="theme-color" content="#f8fafc" />
     <meta
       name="description"
       content="Claude와 Codex가 사용자를 대신해 앱 화면을 읽고 버튼을 누르고 내용을 입력하도록. Tacto로 컴퓨터 조작(computer use)을 연결하고 작업 흐름을 재사용하세요."
@@ -38,7 +38,7 @@
         ></a
       >
       <nav aria-label="주요 메뉴">
-        <a href="#use-cases">사용 사례</a><a href="#evidence">검증 결과</a
+        <a href="#workflow-library">사용 사례</a><a href="#evidence">검증 결과</a
         ><a href="#start"
           >시작하기
           <svg
@@ -68,133 +68,62 @@
     <main id="main" tabindex="-1">
       <section class="hero wrap">
         <div class="hero-copy">
-          <div class="eyebrow">
-            <span class="signal"></span> BROWSER + MACOS · 에이전트의 컴퓨터
-            조작
-          </div>
-          <h1>매번 하던 앱 작업,<br /><span>말로 맡기고 다시 쓰세요.</span></h1>
-          <p class="hero-description">
-            웹에서 정보를 찾고 양식을 채우는 일부터,<br />Mac 앱의 반복
-            작업까지.
-          </p>
-          <p class="hero-support">
-            Tacto는 에이전트가 브라우저와 Mac 앱을 읽고 클릭·입력하도록
-            연결합니다. 작업 순서를 저장해 같은 일을 할 때 다시 실행합니다.
-          </p>
+          <div class="eyebrow"><span class="signal"></span> YOUR APPS. YOUR AGENT. YOUR TIME BACK.</div>
+          <h1>앱을 오가며 하던 일,<br /><span>한 번 맡기고 반복하세요.</span></h1>
+          <p class="hero-description">찾고, 옮겨 적고, 다시 확인하는 일.<br />에이전트가 직접 앱을 조작하도록 연결하세요.</p>
+          <p class="hero-support">Tacto는 Claude·Codex가 브라우저와 Mac 앱에서 수행한 작업 순서를 저장합니다. 다음 작업에는 바뀐 값으로 다시 실행하고, 막힌 단계에는 에이전트가 개입합니다.</p>
           <div class="hero-actions">
-            <a class="button primary" href="#browser-examples"
-              >실제 실행 영상 보기
-              <svg
-                class="ui-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a
-            ><a class="button secondary" href="#start"
-              >설치 방법 보기
-              <svg
-                class="ui-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-down"></use></svg
-            ></a>
+            <a class="button primary" href="#workflow-library">어떤 일을 맡길 수 있나요 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-down"></use></svg></a>
+            <a class="button secondary" href="#start">Tacto 설치하기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a>
           </div>
-          <div class="compatibility">
-            <span>WORKS WITH</span
-            ><b
-              ><img
-                class="agent-icon"
-                src="assets/claude-icon.png"
-                width="24"
-                height="24"
-                alt=""
-                aria-hidden="true"
-                decoding="async"
-              />
-              Claude</b
-            ><b
-              ><img
-                class="agent-icon"
-                src="assets/codex-icon.png"
-                width="24"
-                height="24"
-                alt=""
-                aria-hidden="true"
-                decoding="async"
-              />
-              Codex</b
-            ><span class="compatibility-note"
-              >macOS · 로컬 실행 · Developer ID 서명·Apple 공증 미리보기 v0.1.0-preview.2</span
-            >
+          <div class="compatibility"><span>WORKS WITH</span><b><img class="agent-icon" src="assets/claude-icon.png" width="24" height="24" alt="" />Claude</b><b><img class="agent-icon" src="assets/codex-icon.png" width="24" height="24" alt="" />Codex</b><span class="compatibility-note">macOS · 로컬 실행 · 서명·공증된 Preview 2</span></div>
+        </div>
+        <aside class="hero-value" aria-label="Tacto의 작업 재사용 방식">
+          <span class="value-kicker">LESS REPETITION. MORE DONE.</span>
+          <h2>매번 새로 설명하지 않아도<br />같은 절차를 다시.</h2>
+          <div class="value-line"><span>01</span><div><strong>처음에는 에이전트와 함께</strong><p>내 앱에서 작업하고, 순서와 결과 조건을 저장합니다.</p></div></div>
+          <div class="value-line"><span>02</span><div><strong>다음에는 바뀐 값만</strong><p>조회 기간·대상·입력값을 바꿔 같은 Flow를 재사용합니다.</p></div></div>
+          <div class="value-line"><span>03</span><div><strong>막힌 곳에서만 다시 판단</strong><p>화면이나 조건이 달라지면 에이전트가 실패 단계를 검토합니다.</p></div></div>
+          <a href="#evidence">재사용 측정 결과 보기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a>
+        </aside>
+      </section>
+
+      <section class="workflow-library wrap" id="workflow-library" aria-labelledby="workflow-heading">
+        <div class="section-label">WORK YOU WOULD ACTUALLY DELEGATE</div>
+        <div class="workflow-heading"><h2 id="workflow-heading">여러 앱의 반복 작업을,<br />하나의 흐름으로.</h2><p>여러 화면을 오가며 반복하는 일을 골랐습니다.<br />업무 설계와 실제 조작 검증을 구분해 살펴보세요.</p></div>
+        <div class="workflow-studio" id="task-carousel" aria-label="반복 업무 시나리오" aria-roledescription="캐러셀">
+          <div class="workflow-rail" role="group" aria-label="업무 시나리오 선택">
+            <button type="button" disabled data-workflow="triage" aria-pressed="true"><span class="workflow-number">01 / ENGINEERING</span><strong>주간 이슈 점검</strong><span>흩어진 이슈를 검토 대기 목록으로</span></button>
+            <button type="button" disabled data-workflow="expenses" aria-pressed="false"><span class="workflow-number">02 / FINANCE</span><strong>월말 증빙 정리</strong><span>파일 수집부터 누락·중복 확인까지</span></button>
+            <button type="button" disabled data-workflow="support" aria-pressed="false"><span class="workflow-number">03 / CUSTOMER OPS</span><strong>고객 문의 검토</strong><span>주문 확인과 답변 초안을 한 흐름으로</span></button>
+            <button type="button" disabled data-workflow="backoffice" aria-pressed="false"><span class="workflow-number">04 / OPERATIONS</span><strong>백오피스 반복 입력</strong><span>행 단위 입력과 저장 결과 대조</span></button>
+          </div>
+          <div class="workflow-content">
+            <div class="carousel-toolbar" hidden><span class="carousel-position">업무 설계 <span id="carousel-count">1 / 4</span></span><button type="button" id="carousel-rotation">자동 넘김 멈추기</button></div>
+            <div class="scenario-status">시나리오 설계 · 전체 실행 미검증</div>
+            <h3 id="workflow-title">다음 회의 전에, 검토할 이슈만 모아두세요.</h3>
+            <p class="workflow-request" id="workflow-request">“이번 주 열린 버그를 찾아 이전 목록과 비교하고, 새로 확인할 이슈를 정리해줘.”</p>
+            <ol class="workflow-steps" id="workflow-steps">
+              <li><span>GitHub</span><strong>대상 저장소에서 열린 버그 검색</strong></li>
+              <li><span>이전 검토 목록</span><strong>이미 검토한 항목과 새 항목 대조</strong></li>
+              <li><span>검토용 목록</span><strong>이슈 링크·댓글 수·확인할 점 정리</strong></li>
+            </ol>
+            <div class="workflow-result"><span>기대 결과</span><p id="workflow-result">다음 회의에서 바로 열어볼 이슈 목록. 우선순위와 담당자는 사람이 결정합니다.</p></div>
+            <div class="workflow-repeat"><span>다음 실행</span><p id="workflow-repeat">저장소와 조회 조건을 바꿔 같은 점검 절차를 재사용하는 설계입니다.</p></div>
+            <div class="workflow-recording">
+              <figure class="hero-real-media">
+                <video controls playsinline preload="none" poster="assets/demos/browser-github-poster.png" width="1280" height="800" aria-label="GitHub 실제 실행: 열린 버그 필터 · 댓글순 정렬">
+                  <source src="assets/demos/browser-github.mp4" type="video/mp4" />
+                  <track kind="captions" src="assets/demos/browser-github.ko.vtt" srclang="ko" label="한국어" default />
+                  <a href="assets/demos/browser-github.mp4">실행 영상 다운로드</a>
+                </video>
+                <figcaption><span class="recording-badge" id="carousel-evidence-kind">실제 웹사이트 · GitHub</span><strong id="carousel-title">실제 녹화: 검색·필터·정렬 단계</strong><p id="carousel-description">열린 버그를 댓글순으로 정렬하고 결과 25개를 확인했습니다. 이전 목록 대조·검토 목록 생성은 이 영상에 포함되지 않습니다.</p><a id="carousel-detail" href="#example-github">검증 범위와 원본 보기</a></figcaption>
+              </figure>
+            </div>
+            <div class="carousel-navigation" hidden><p>녹화에는 안내 포인터가 포함됩니다. 웹 영상은 별도 Chromium에서 촬영했습니다.</p><div class="carousel-arrows"><button type="button" id="carousel-prev" aria-label="이전 업무">이전</button><button type="button" id="carousel-next" aria-label="다음 업무">다음</button></div></div>
           </div>
         </div>
-        <div class="hero-visual" aria-label="Tacto의 실제 브라우저 실행 영상">
-          <div class="visual-top">
-            <span class="tiny-square"></span> 말로 요청한 일이 앱 안에서
-            이루어집니다<span class="live">실행 영상</span>
-          </div>
-          <div class="agent-row">
-            <div class="agent-chip">
-              <img
-                class="agent-icon"
-                src="assets/claude-icon.png"
-                width="24"
-                height="24"
-                alt=""
-                aria-hidden="true"
-                decoding="async"
-              />
-              Claude
-            </div>
-            <span class="or">or</span>
-            <div class="agent-chip">
-              <img
-                class="agent-icon"
-                src="assets/codex-icon.png"
-                width="24"
-                height="24"
-                alt=""
-                aria-hidden="true"
-                decoding="async"
-              />
-              Codex
-            </div>
-          </div>
-          <figure class="hero-real-media" id="task-carousel" aria-label="Tacto 실제 실행 사례" aria-roledescription="캐러셀">
-            <div class="carousel-toolbar" hidden>
-              <span class="carousel-position">실제 실행 <span id="carousel-count">1 / 6</span></span>
-              <button type="button" id="carousel-rotation">자동 넘김 멈추기</button>
-            </div>
-            <video controls playsinline preload="none" poster="assets/demos/native-textedit-poster.png" width="1280" height="800" aria-label="TextEdit 실제 실행: 문서와 디스크 내용 일치">
-              <source src="assets/demos/native-textedit.mp4" type="video/mp4" />
-              <track kind="captions" src="assets/demos/native-textedit.ko.vtt" srclang="ko" label="한국어" default />
-              <a href="assets/demos/native-textedit.mp4">실행 영상 다운로드</a>
-            </video>
-            <figcaption>
-              <strong id="carousel-title">“워크숍 준비 메모를 작성하고 저장해줘.”</strong>
-              <p id="carousel-description">TextEdit · 메모 입력 후 별도 저장 단계에서 디스크 내용 일치 확인. 자동으로 끝까지 완료한 사례는 아닙니다.</p>
-              <p class="carousel-disclosure">실제 실행 녹화 · 안내 포인터 포함 · 웹 영상은 별도 Chromium에서 촬영</p>
-              <a id="carousel-detail" href="#example-textedit">이 사례의 결과·검증 범위 보기</a>
-            </figcaption>
-            <div class="carousel-navigation" hidden>
-              <div class="carousel-arrows">
-                <button type="button" id="carousel-prev" aria-label="이전 사례">이전</button>
-                <button type="button" id="carousel-next" aria-label="다음 사례">다음</button>
-              </div>
-              <div class="carousel-choices" role="group" aria-label="맡기고 싶은 작업 선택">
-                <button type="button" data-case="textedit" aria-pressed="true">문서 작성</button>
-                <button type="button" data-case="finder" aria-pressed="false">파일 정렬</button>
-                <button type="button" data-case="translate" aria-pressed="false">번역</button>
-                <button type="button" data-case="markdown" aria-pressed="false">문서 서식</button>
-                <button type="button" data-case="units" aria-pressed="false">단위 변환</button>
-                <button type="button" data-case="wikipedia" aria-pressed="false">정보 검색</button>
-              </div>
-            </div>
-          </figure>
-        </div>
+        <p class="scenario-note">위 업무는 활용 방향을 설명하는 설계 예시입니다. 녹화는 표시된 일부 조작만 검증하며, 계정 연결·여러 앱 간 연계·전체 업무 완료를 증명하지 않습니다.</p>
       </section>
 
       <section
@@ -202,14 +131,14 @@
         id="use-cases"
         aria-labelledby="use-cases-title"
       >
-        <div class="section-label">실제 앱 실행 영상과 결과</div>
+        <div class="section-label">THE EVIDENCE BEHIND THE ACTIONS</div>
         <div class="cases-heading">
           <h2 id="use-cases-title">
-            실제 실행을 보고,<br />어떤 일을 맡길지 판단하세요.
+            실제로 검증한 조작은<br />여기까지입니다.
           </h2>
           <p>
-            요청 문장은 이해를 돕기 위한 예시입니다. 아래 결과는 실행 기록에서
-            확인한 범위만 표시했습니다.
+            아래는 완성된 업무 템플릿이 아니라, 각 앱에서 수행한 조작과 결과의 기록입니다.
+            단순 문서 생성보다 앱 간 작업 연결을 다음 검증 과제로 삼고 있습니다.
           </p>
         </div>
         <div class="browser-examples" id="browser-examples">
@@ -218,7 +147,7 @@
               >실행 영상 10개 · 실제 앱·사이트 8개 + 공개 테스트 2개</span
             >
             <h3>
-              문서부터 파일, 번역, 검색까지.<br />내가 맡길 일을 골라보세요.
+              실제 앱·사이트에서 촬영한<br />조작 단위 검증 기록.
             </h3>
             <p>
               자체 테스트 앱 밖에서 수행한 작업들입니다. 요청 문장은 설명용이며,

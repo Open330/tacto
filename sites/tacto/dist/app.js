@@ -203,39 +203,67 @@
     });
   });
 
-  // Reuse the gallery's recording metadata; never preload all carousel videos.
+  // Workflow designs are separate from the evidence clips, which only verify
+  // individual actions. Switching scenarios never starts video playback.
   const carousel = document.getElementById("task-carousel");
   if (carousel) {
+    const workflows = {
+      triage: {
+        title: "다음 회의 전에, 검토할 이슈만 모아두세요.",
+        request: "“이번 주 열린 버그를 찾아 이전 목록과 비교하고, 새로 확인할 이슈를 정리해줘.”",
+        steps: [["GitHub", "대상 저장소에서 열린 버그 검색"], ["이전 검토 목록", "이미 검토한 항목과 새 항목 대조"], ["검토용 목록", "이슈 링크·댓글 수·확인할 점 정리"]],
+        result: "다음 회의에서 바로 열어볼 이슈 목록. 우선순위와 담당자는 사람이 결정합니다.",
+        repeat: "저장소와 조회 조건을 바꿔 같은 점검 절차를 재사용하는 설계입니다.",
+        evidence: "github", kind: "실제 웹사이트 · GitHub", label: "실제 녹화: 검색·필터·정렬 단계",
+        scope: "열린 버그를 댓글순으로 정렬하고 결과 25개를 확인했습니다. 이전 목록 대조·검토 목록 생성은 이 영상에 포함되지 않습니다.",
+      },
+      expenses: {
+        title: "월말마다, 증빙을 찾는 일부터 반복하지 않도록.",
+        request: "“이번 달 증빙 파일을 모아 정산표와 대조하고, 빠진 항목과 중복 후보를 표시해줘.”",
+        steps: [["브라우저 · 다운로드", "지정한 서비스에서 증빙 파일 수집"], ["Finder · 스프레드시트", "날짜·거래처·금액을 정산표와 대조"], ["검토용 폴더", "누락·중복 후보와 원본 파일 연결"]],
+        result: "원본을 찾아볼 수 있는 정산 검토표. 불분명한 금액·중복 후보는 검토 대상으로 남깁니다.",
+        repeat: "대상 월과 증빙 폴더를 바꿔 재사용하는 설계입니다. 자동 제출은 포함하지 않습니다.",
+        evidence: "finder", kind: "실제 Mac 앱 · Finder", label: "실제 녹화: 파일 목록 정렬 단계",
+        scope: "촬영용 폴더의 파일 5개를 종류·이름으로 정렬했습니다. 증빙 다운로드·정보 추출·정산표 대조는 아직 검증하지 않았습니다.",
+      },
+      support: {
+        title: "문의 내용과 주문 화면을 오가는 시간을 줄이세요.",
+        request: "“배송 문의를 분류하고 주문 상태를 확인한 다음, 답변 초안을 검토할 수 있게 준비해줘.”",
+        steps: [["문의함", "배송·교환 등 요청 내용 분류"], ["주문 관리 화면", "주문 번호와 현재 처리 상태 대조"], ["답변 초안", "고객 언어로 답변 준비 · 전송 전 검토"]],
+        result: "주문 근거가 연결된 답변 초안. 주문이 일치하지 않거나 정책 판단이 필요하면 검토 대상으로 남깁니다.",
+        repeat: "새 문의 묶음에 같은 확인 절차를 적용하는 설계입니다. 고객에게 자동 전송하는 기능을 시연한 것은 아닙니다.",
+        evidence: "translate", kind: "실제 웹사이트 · Google Translate", label: "실제 녹화: 번역 입력·결과 확인 단계",
+        scope: "영어 예문 입력 뒤 한국어 결과를 확인했습니다. 전송 단계의 완료 증명은 미확정이며, 문의함·주문 조회·답장 저장은 검증하지 않았습니다.",
+      },
+      backoffice: {
+        title: "여러 행을 옮겨 적는 일에도, 확인 절차를 함께.",
+        request: "“검토된 CSV의 항목을 관리자 화면에 입력하고, 저장된 값이 원본과 같은지 확인해줘.”",
+        steps: [["CSV · 스프레드시트", "필수 값·중복 항목을 먼저 확인"], ["관리자 화면", "각 행의 값을 대응하는 입력란에 등록"], ["저장 결과", "원본과 대조 · 실패한 행은 별도 표시"]],
+        result: "행별 처리 결과와 확인이 필요한 항목. 저장 여부가 불분명한 행은 재등록 전에 상태부터 검토합니다.",
+        repeat: "입력 파일을 바꿔 같은 필드 매핑을 재사용하는 설계입니다. 실제 서비스별 연동 검증은 별도로 필요합니다.",
+        evidence: "form", kind: "공개 테스트 사이트 · Selenium", label: "테스트 녹화: 입력란·선택 항목 조작",
+        scope: "공개 테스트 폼의 입력·선택 조작만 촬영했습니다. 제출하지 않았으며 실제 관리자 서비스·CSV 연계·일괄 저장 완료를 증명하지 않습니다.",
+      },
+    };
     const video = carousel.querySelector("video");
     const start = carousel.querySelector(".video-start");
-    const choices = [...carousel.querySelectorAll("[data-case]")];
+    const choices = [...carousel.querySelectorAll("[data-workflow]")];
     const rotation = document.getElementById("carousel-rotation");
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const descriptions = {
-      textedit: "TextEdit · 메모 입력 후 별도 저장 단계에서 디스크 내용 일치 확인. 자동으로 끝까지 완료한 사례는 아닙니다.",
-      finder: "Finder · 촬영용 폴더의 파일 5개를 종류별·이름순으로 정렬. 파일 이동·삭제는 하지 않았습니다.",
-      translate: "Google Translate · 영어 예문 입력 후 한국어 결과 표시 확인. 전송 단계의 완료 증명은 미확정입니다.",
-      markdown: "Markdown Live Preview · 예제 앞부분을 수정해 제목·목록·굵은 글씨 렌더링 확인. 전체 문서 저장 사례는 아닙니다.",
-      units: "UnitConverters.net · 3.5미터를 11.482939633피트로 변환하고 별도 계산식과 대조했습니다.",
-      wikipedia: "Wikipedia · 서울을 검색하고 History 항목으로 이동했습니다.",
-    };
-    let index = 0;
-    let rotating = !motion.matches;
-    let hovering = false;
-    let timer;
+    const wideScreen = window.matchMedia("(min-width: 901px)");
+    let index = 0, rotating = !motion.matches && wideScreen.matches, hovering = false, timer;
     const updateRotation = () => {
       rotation.textContent = rotating ? "자동 넘김 멈추기" : "자동 넘김 시작하기";
       clearTimeout(timer);
       if (rotating && !hovering && !document.hidden && video.paused &&
           (!carousel.contains(document.activeElement) || document.activeElement === rotation)) {
-        timer = setTimeout(() => { show(index + 1); }, 8000);
+        timer = setTimeout(() => show(index + 1), 12000);
       }
     };
     function show(next) {
       index = (next + choices.length) % choices.length;
-      const key = choices[index].dataset.case;
-      const card = document.getElementById(`example-${key}`);
-      const recording = card.querySelector("video");
+      const item = workflows[choices[index].dataset.workflow];
+      const recording = document.querySelector(`#example-${item.evidence} video`);
       video.pause();
       video.controls = false;
       video.poster = recording.poster;
@@ -243,28 +271,36 @@
       video.querySelector("source").src = recording.querySelector("source").src;
       video.querySelector("track").src = recording.querySelector("track").src;
       video.querySelector("a").href = recording.querySelector("source").src;
-      // load() would fetch media on some browsers despite preload=none.
-      // Changing src while preload=none resets playback without eager downloads.
       video.src = recording.querySelector("source").src;
       start.hidden = false;
       start.setAttribute("aria-label", `영상 재생: ${recording.getAttribute("aria-label")}`);
-      document.getElementById("carousel-title").textContent = card.querySelector("blockquote").textContent.trim();
-      document.getElementById("carousel-description").textContent = descriptions[key];
-      document.getElementById("carousel-detail").href = `#example-${key}`;
+      for (const [id, value] of Object.entries({
+        "workflow-title": item.title, "workflow-request": item.request,
+        "workflow-result": item.result, "workflow-repeat": item.repeat,
+        "carousel-evidence-kind": item.kind, "carousel-title": item.label,
+        "carousel-description": item.scope,
+      })) document.getElementById(id).textContent = value;
+      document.getElementById("workflow-steps").replaceChildren(...item.steps.map(([app, task]) => {
+        const row = document.createElement("li");
+        const label = document.createElement("span");
+        const text = document.createElement("strong");
+        label.textContent = app; text.textContent = task; row.append(label, text);
+        return row;
+      }));
+      document.getElementById("carousel-detail").href = `#example-${item.evidence}`;
       document.getElementById("carousel-count").textContent = `${index + 1} / ${choices.length}`;
       choices.forEach((choice, i) => choice.setAttribute("aria-pressed", String(i === index)));
       updateRotation();
     }
-    choices.forEach((choice, i) => choice.addEventListener("click", () => {
-      rotating = false;
-      show(i);
-    }));
+    choices.forEach((choice, i) => {
+      choice.disabled = false;
+      choice.addEventListener("click", () => { rotating = false; show(i); });
+    });
     document.getElementById("carousel-prev").addEventListener("click", () => { rotating = false; show(index - 1); });
     document.getElementById("carousel-next").addEventListener("click", () => { rotating = false; show(index + 1); });
     rotation.addEventListener("click", () => { rotating = !rotating; updateRotation(); });
     carousel.addEventListener("mouseenter", () => { hovering = true; updateRotation(); });
     carousel.addEventListener("mouseleave", () => { hovering = false; updateRotation(); });
-    // Keyboard focus permanently pauses automatic rotation until explicitly restarted.
     carousel.addEventListener("focusin", (event) => {
       if (event.target === rotation) clearTimeout(timer);
       else { rotating = false; updateRotation(); }
@@ -273,6 +309,7 @@
     video.addEventListener("play", () => { rotating = false; updateRotation(); });
     document.addEventListener("visibilitychange", updateRotation);
     motion.addEventListener("change", () => { if (motion.matches) rotating = false; updateRotation(); });
+    wideScreen.addEventListener("change", () => { if (!wideScreen.matches) rotating = false; updateRotation(); });
     carousel.querySelector(".carousel-toolbar").hidden = false;
     carousel.querySelector(".carousel-navigation").hidden = false;
     updateRotation();

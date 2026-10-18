@@ -7,14 +7,14 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
 
-def audit(url, output, axe_source=None):
+def audit(url, output, axe_source=None, browser_executable=None):
     output.mkdir(parents=True, exist_ok=True)
     output.chmod(0o700)
     checks = {}
     errors, requests, accessibility = [], [], {}
     origin = urlsplit(url)
     with sync_playwright() as runtime:
-        browser = runtime.chromium.launch()
+        browser = runtime.chromium.launch(executable_path=browser_executable)
         context = browser.new_context(viewport={'width': 1440, 'height': 1000})
         page = context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -43,21 +43,10 @@ def audit(url, output, axe_source=None):
         checks['case_screenshots'] = page.locator('.case-source').evaluate_all(
             '(items)=>items.length===11&&items.every(e=>e.href.endsWith(".png"))')
         checks['seven_browser_examples'] = page.locator('.everyday-case video[width="1280"]').count() == 7
-        checks['hero_has_real_video'] = page.locator('.hero-visual video source').count() == 1
-
-        checks['six_carousel_choices'] = page.locator('#task-carousel [data-case]').count() == 6
-        for task in ['textedit', 'finder', 'translate', 'markdown', 'units', 'wikipedia']:
-            page.locator('[data-case="'+task+'"]').click()
-            checks['carousel_'+task] = page.evaluate('''task => {
-                const hero = document.querySelector('#task-carousel video');
-                const source = document.querySelector('#example-'+task+' video source');
-                return hero.src === source.src &&
-                    document.querySelector('#carousel-detail').getAttribute('href') === '#example-'+task;
-            }''', task)
-        page.locator('[data-case="textedit"]').click()
+        checks['workflow_has_real_video'] = page.locator('#task-carousel video source').count() == 1
 
         checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
-            '(items)=>items.length===6&&items.every(e=>e.complete&&e.naturalWidth>0)')
+            '(items)=>items.length===4&&items.every(e=>e.complete&&e.naturalWidth>0)')
         checks['no_placeholder_icon_glyphs'] = page.evaluate(
             r'!/[' + '✳⌘↗↓↳↔∅✓↻■⌁' + r']/.test(document.body.innerText)')
         checks['vector_icons_render'] = page.locator('svg.ui-icon use').evaluate_all(
@@ -72,6 +61,19 @@ def audit(url, output, axe_source=None):
         checks['skip_link_first'] = page.locator('.skip').evaluate('(e)=>e===document.activeElement')
         page.keyboard.press('Enter')
         checks['skip_focuses_main'] = page.evaluate('document.activeElement.id==="main"')
+
+        checks['four_workflow_choices'] = page.locator('#task-carousel [data-workflow]').count() == 4
+        for task, evidence in [('triage', 'github'), ('expenses', 'finder'),
+                               ('support', 'translate'), ('backoffice', 'form')]:
+            page.locator('[data-workflow="'+task+'"]').click()
+            checks['workflow_'+task] = page.evaluate('''evidence => {
+                const video = document.querySelector('#task-carousel video');
+                const source = document.querySelector('#example-'+evidence+' video source');
+                return video.src === source.src &&
+                    document.querySelector('#carousel-detail').getAttribute('href') === '#example-'+evidence &&
+                    document.querySelector('.scenario-status').textContent.includes('전체 실행 미검증');
+            }''', evidence)
+        page.locator('[data-workflow="triage"]').click()
 
         for name, status in [('repair', 'CHECKED CONTINUATION'),
                              ('stop', 'STOPPED · NO RESEND'), ('replay', 'VERIFIED REPLAY')]:
@@ -119,6 +121,10 @@ def audit(url, output, axe_source=None):
             checks['agent_'+agent] = page.locator('#agent-label').inner_text() == agent
         for key in ['install-command', 'doctor-command', 'agent-prompt', 'demo-command']:
             button = page.locator('[data-copy="'+key+'"]')
+            button.evaluate('''button => {
+                for (let node = button.parentElement; node; node = node.parentElement)
+                    if (node.tagName === 'DETAILS') node.open = true;
+            }''')
             button.click()
             checks['copy_'+key] = (page.evaluate('window.__copied') == page.locator('#'+key).inner_text().strip()
                 and page.locator('.clipboard-fallback').count() == 0
@@ -176,7 +182,7 @@ def audit(url, output, axe_source=None):
         checks['nojs_all_ten_cases'] = fallback.locator('.everyday-case:visible').count()==10
         checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===12&&items.every(e=>e.controls)')
         checks['nojs_example_complete'] = fallback.locator('#demo-lines').inner_text().endswith('결과 조건 검증 완료')
-        checks['nojs_install_present'] = 'github.com/Open330/tacto.git' in fallback.locator('#install-command').inner_text()
+        checks['nojs_install_present'] = fallback.locator('#start a[href*="/releases/download/"][href$=".dmg"]').is_visible()
         checks['nojs_controls_disabled'] = fallback.locator('[data-copy="install-command"]').is_disabled()
         fallback.locator('.faq-items summary').first.click()
         checks['nojs_faq_works'] = fallback.locator('.faq-items details').first.get_attribute('open') is not None
@@ -201,8 +207,9 @@ def main():
     parser.add_argument('--url',default='http://127.0.0.1:8787')
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--axe',type=Path,help='Local axe.min.js; omit to skip automated axe checks')
+    parser.add_argument('--browser-executable', help='Optional local Chromium executable for QA')
     args=parser.parse_args()
-    passed=audit(args.url,args.output,args.axe.read_text() if args.axe else None)
+    passed=audit(args.url,args.output,args.axe.read_text() if args.axe else None,args.browser_executable)
     raise SystemExit(0 if passed else 1)
 
 
