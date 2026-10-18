@@ -203,6 +203,81 @@
     });
   });
 
+  // Reuse the gallery's recording metadata; never preload all carousel videos.
+  const carousel = document.getElementById("task-carousel");
+  if (carousel) {
+    const video = carousel.querySelector("video");
+    const start = carousel.querySelector(".video-start");
+    const choices = [...carousel.querySelectorAll("[data-case]")];
+    const rotation = document.getElementById("carousel-rotation");
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const descriptions = {
+      textedit: "TextEdit · 메모 입력 후 별도 저장 단계에서 디스크 내용 일치 확인. 자동으로 끝까지 완료한 사례는 아닙니다.",
+      finder: "Finder · 촬영용 폴더의 파일 5개를 종류별·이름순으로 정렬. 파일 이동·삭제는 하지 않았습니다.",
+      translate: "Google Translate · 영어 예문 입력 후 한국어 결과 표시 확인. 전송 단계의 완료 증명은 미확정입니다.",
+      markdown: "Markdown Live Preview · 예제 앞부분을 수정해 제목·목록·굵은 글씨 렌더링 확인. 전체 문서 저장 사례는 아닙니다.",
+      units: "UnitConverters.net · 3.5미터를 11.482939633피트로 변환하고 별도 계산식과 대조했습니다.",
+      wikipedia: "Wikipedia · 서울을 검색하고 History 항목으로 이동했습니다.",
+    };
+    let index = 0;
+    let rotating = !motion.matches;
+    let hovering = false;
+    let timer;
+    const updateRotation = () => {
+      rotation.textContent = rotating ? "자동 넘김 멈추기" : "자동 넘김 시작하기";
+      clearTimeout(timer);
+      if (rotating && !hovering && !document.hidden && video.paused &&
+          (!carousel.contains(document.activeElement) || document.activeElement === rotation)) {
+        timer = setTimeout(() => { show(index + 1); }, 8000);
+      }
+    };
+    function show(next) {
+      index = (next + choices.length) % choices.length;
+      const key = choices[index].dataset.case;
+      const card = document.getElementById(`example-${key}`);
+      const recording = card.querySelector("video");
+      video.pause();
+      video.controls = false;
+      video.poster = recording.poster;
+      video.setAttribute("aria-label", recording.getAttribute("aria-label"));
+      video.querySelector("source").src = recording.querySelector("source").src;
+      video.querySelector("track").src = recording.querySelector("track").src;
+      video.querySelector("a").href = recording.querySelector("source").src;
+      // load() would fetch media on some browsers despite preload=none.
+      // Changing src while preload=none resets playback without eager downloads.
+      video.src = recording.querySelector("source").src;
+      start.hidden = false;
+      start.setAttribute("aria-label", `영상 재생: ${recording.getAttribute("aria-label")}`);
+      document.getElementById("carousel-title").textContent = card.querySelector("blockquote").textContent.trim();
+      document.getElementById("carousel-description").textContent = descriptions[key];
+      document.getElementById("carousel-detail").href = `#example-${key}`;
+      document.getElementById("carousel-count").textContent = `${index + 1} / ${choices.length}`;
+      choices.forEach((choice, i) => choice.setAttribute("aria-pressed", String(i === index)));
+      updateRotation();
+    }
+    choices.forEach((choice, i) => choice.addEventListener("click", () => {
+      rotating = false;
+      show(i);
+    }));
+    document.getElementById("carousel-prev").addEventListener("click", () => { rotating = false; show(index - 1); });
+    document.getElementById("carousel-next").addEventListener("click", () => { rotating = false; show(index + 1); });
+    rotation.addEventListener("click", () => { rotating = !rotating; updateRotation(); });
+    carousel.addEventListener("mouseenter", () => { hovering = true; updateRotation(); });
+    carousel.addEventListener("mouseleave", () => { hovering = false; updateRotation(); });
+    // Keyboard focus permanently pauses automatic rotation until explicitly restarted.
+    carousel.addEventListener("focusin", (event) => {
+      if (event.target === rotation) clearTimeout(timer);
+      else { rotating = false; updateRotation(); }
+    });
+    carousel.addEventListener("focusout", () => setTimeout(updateRotation, 0));
+    video.addEventListener("play", () => { rotating = false; updateRotation(); });
+    document.addEventListener("visibilitychange", updateRotation);
+    motion.addEventListener("change", () => { if (motion.matches) rotating = false; updateRotation(); });
+    carousel.querySelector(".carousel-toolbar").hidden = false;
+    carousel.querySelector(".carousel-navigation").hidden = false;
+    updateRotation();
+  }
+
   const filters = document.querySelector(".example-filters");
   const cases = [...document.querySelectorAll(".everyday-case")];
   if (filters && cases.length) {

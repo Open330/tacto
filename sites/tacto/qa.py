@@ -45,6 +45,17 @@ def audit(url, output, axe_source=None):
         checks['seven_browser_examples'] = page.locator('.everyday-case video[width="1280"]').count() == 7
         checks['hero_has_real_video'] = page.locator('.hero-visual video source').count() == 1
 
+        checks['six_carousel_choices'] = page.locator('#task-carousel [data-case]').count() == 6
+        for task in ['textedit', 'finder', 'translate', 'markdown', 'units', 'wikipedia']:
+            page.locator('[data-case="'+task+'"]').click()
+            checks['carousel_'+task] = page.evaluate('''task => {
+                const hero = document.querySelector('#task-carousel video');
+                const source = document.querySelector('#example-'+task+' video source');
+                return hero.src === source.src &&
+                    document.querySelector('#carousel-detail').getAttribute('href') === '#example-'+task;
+            }''', task)
+        page.locator('[data-case="textedit"]').click()
+
         checks['product_icons_loaded'] = page.locator('.agent-icon').evaluate_all(
             '(items)=>items.length===6&&items.every(e=>e.complete&&e.naturalWidth>0)')
         checks['no_placeholder_icon_glyphs'] = page.evaluate(

@@ -163,39 +163,36 @@
               Codex
             </div>
           </div>
-          <figure class="hero-real-media">
-            <video
-              controls
-              playsinline
-              preload="none"
-              poster="assets/demos/browser-wikipedia-preview.png"
-              width="1280"
-              height="800"
-              aria-label="Wikipedia에서 서울을 검색하고 History 항목으로 이동하는 실제 브라우저 촬영 영상"
-            >
-              <source
-                src="assets/demos/browser-wikipedia.mp4"
-                type="video/mp4"
-              />
-              <track
-                kind="captions"
-                src="assets/demos/browser-wikipedia.ko.vtt"
-                srclang="ko"
-                label="한국어"
-                default
-              />
-              <a href="assets/demos/browser-wikipedia.mp4"
-                >실행 영상 다운로드</a
-              >
+          <figure class="hero-real-media" id="task-carousel" aria-label="Tacto 실제 실행 사례" aria-roledescription="캐러셀">
+            <div class="carousel-toolbar" hidden>
+              <span class="carousel-position">실제 실행 <span id="carousel-count">1 / 6</span></span>
+              <button type="button" id="carousel-rotation">자동 넘김 멈추기</button>
+            </div>
+            <video controls playsinline preload="none" poster="assets/demos/native-textedit-poster.png" width="1280" height="800" aria-label="TextEdit 실제 실행: 문서와 디스크 내용 일치">
+              <source src="assets/demos/native-textedit.mp4" type="video/mp4" />
+              <track kind="captions" src="assets/demos/native-textedit.ko.vtt" srclang="ko" label="한국어" default />
+              <a href="assets/demos/native-textedit.mp4">실행 영상 다운로드</a>
             </video>
             <figcaption>
-              <strong>검색부터 원하는 항목까지, 실제 웹사이트에서.</strong>
-              <p>
-                Wikipedia의 서울 검색·History 항목 이동. 안내 포인터가 포함된
-                별도 Chromium·Python API 실행입니다.
-              </p>
-              <a href="#browser-examples">실제 앱·웹 사례 10개 보기</a>
+              <strong id="carousel-title">“워크숍 준비 메모를 작성하고 저장해줘.”</strong>
+              <p id="carousel-description">TextEdit · 메모 입력 후 별도 저장 단계에서 디스크 내용 일치 확인. 자동으로 끝까지 완료한 사례는 아닙니다.</p>
+              <p class="carousel-disclosure">실제 실행 녹화 · 안내 포인터 포함 · 웹 영상은 별도 Chromium에서 촬영</p>
+              <a id="carousel-detail" href="#example-textedit">이 사례의 결과·검증 범위 보기</a>
             </figcaption>
+            <div class="carousel-navigation" hidden>
+              <div class="carousel-arrows">
+                <button type="button" id="carousel-prev" aria-label="이전 사례">이전</button>
+                <button type="button" id="carousel-next" aria-label="다음 사례">다음</button>
+              </div>
+              <div class="carousel-choices" role="group" aria-label="맡기고 싶은 작업 선택">
+                <button type="button" data-case="textedit" aria-pressed="true">문서 작성</button>
+                <button type="button" data-case="finder" aria-pressed="false">파일 정렬</button>
+                <button type="button" data-case="translate" aria-pressed="false">번역</button>
+                <button type="button" data-case="markdown" aria-pressed="false">문서 서식</button>
+                <button type="button" data-case="units" aria-pressed="false">단위 변환</button>
+                <button type="button" data-case="wikipedia" aria-pressed="false">정보 검색</button>
+              </div>
+            </div>
           </figure>
         </div>
       </section>

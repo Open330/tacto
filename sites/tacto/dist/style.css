@@ -2085,3 +2085,26 @@ button:disabled {
 .everyday-case .video-shell {
   margin-top: auto;
 }
+
+/* A fixed media frame keeps task changes from moving the rest of the page. */
+#task-carousel video { aspect-ratio: 8 / 5; object-fit: contain; height: auto; }
+#task-carousel figcaption { min-height: 174px; padding-bottom: 12px; }
+.carousel-toolbar, .carousel-arrows { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.carousel-toolbar { padding: 0 0 12px; font-size: 12px; color: #33402e; }
+.carousel-position { font-weight: 600; }
+#carousel-count { margin-left: 8px; font-variant-numeric: tabular-nums; }
+#task-carousel button { border: 1px solid #b9c4b1; border-radius: 7px; background: #fff; color: #263121; padding: 9px 12px; font: inherit; cursor: pointer; min-height: 44px; }
+#task-carousel button:hover { background: #edf2e8; }
+#task-carousel button[aria-pressed="true"] { background: #263b25; border-color: #263b25; color: #fff; }
+#task-carousel button:focus-visible { outline: 3px solid #506d38; outline-offset: 3px; }
+.carousel-navigation { padding-bottom: 20px; }
+.carousel-arrows { justify-content: flex-end; margin-bottom: 10px; }
+.carousel-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 12px; }
+.hero-real-media figcaption .carousel-disclosure { font-size: 11px; color: #53614b; }
+.carousel-toolbar[hidden], .carousel-navigation[hidden] { display: none; }
+@media (max-width: 480px) {
+  #task-carousel figcaption { min-height: 200px; }
+  #task-carousel button { padding: 8px; }
+}
+
+#carousel-title { display: block; font-size: 16px; line-height: 1.6; }
