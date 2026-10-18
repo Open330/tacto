@@ -127,7 +127,7 @@
               />
               Codex</b
             ><span class="compatibility-note"
-              >macOS · 로컬 실행 · 소스 빌드로 설치하는 개발 버전</span
+              >macOS · 로컬 실행 · Developer ID 서명·Apple 공증 미리보기 v0.1.0-preview.2</span
             >
           </div>
         </div>
@@ -1335,9 +1335,22 @@
         <div class="onboarding-heading">
           <h2>시작은 한 번.<br />다음은 반복.</h2>
           <p>
-            현재 macOS 네이티브 버전은 소스 빌드로 제공합니다. Python 3.11+, uv,
-            Xcode Command Line Tools, Apple 발급 코드 서명 인증서가 필요합니다.
+            Tacto 미리보기 v0.1.0-preview.2는 Developer ID 서명과 Apple 공증을 통과한
+            Apple Silicon용 DMG입니다. 지금은 비공개 저장소라 접근 권한이 있는 사용자만 받을 수
+            있습니다. macOS 27.0.1 · Apple Silicon에서만 확인했습니다.
           </p>
+          <div>
+            <a class="button primary" href="https://github.com/Open330/tacto/releases/download/v0.1.0-preview.2/Tacto-0.1.0-preview.2-arm64.dmg"
+              >Tacto-0.1.0-preview.2-arm64.dmg 받기
+              <svg
+                class="ui-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+            ></a>
+          </div>
         </div>
         <div
           class="agent-picker"
@@ -1383,31 +1396,14 @@
           <li>
             <span class="step-number">01</span>
             <div>
-              <h3>런타임과 스킬 설치</h3>
+              <h3>Tacto 앱 설치</h3>
               <p>
-                Apple 발급 코드 서명 인증서가 있는 개발 환경에서 빌드하고 스킬을
-                연결합니다. 일반 사용자용 서명 배포는 아직 제공하지 않습니다.
+                DMG를 열고 Tacto를 Applications 폴더로 끌어다 놓은 뒤, Applications에서
+                Tacto를 엽니다. 읽기 전용 DMG 안에서 바로 열면 먼저 옮기라는 안내가
+                나옵니다.
               </p>
-              <div class="install-command">
-                <button
-                  type="button"
-                  disabled
-                  class="icon-button"
-                  data-copy="install-command"
-                >
-                  복사
-                </button>
-                <pre><code id="install-command">git clone https://github.com/Open330/tacto.git
-cd tacto
-uv sync
-./build.sh
-./skill/install.sh</code></pre>
-              </div>
-              <a
-                href="https://github.com/Open330/tacto/blob/main/docs/installation.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                >설치 요구 사항과 서명 설정
+              <a href="https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2" target="_blank" rel="noopener noreferrer"
+                >v0.1.0-preview.2 릴리스 노트 (저장소 접근 권한 필요)
                 <svg
                   class="ui-icon"
                   aria-hidden="true"
@@ -1416,16 +1412,53 @@ uv sync
                 >
                   <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
               ></a>
+              <details>
+                <summary>개발자용: 소스에서 직접 빌드</summary>
+                <p>
+                  Python 3.11+, uv, Xcode Command Line Tools와 Apple 발급 코드 서명
+                  인증서가 필요합니다. 일반 사용에는 DMG를 권장합니다.
+                </p>
+                <div class="install-command">
+                  <button
+                    type="button"
+                    disabled
+                    class="icon-button"
+                    data-copy="install-command"
+                  >
+                    복사
+                  </button>
+                  <pre><code id="install-command">git clone https://github.com/Open330/tacto.git
+cd tacto
+uv sync
+./build.sh
+./skill/install.sh</code></pre>
+                </div>
+                <a
+                  href="https://github.com/Open330/tacto/blob/main/docs/installation.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >설치 요구 사항과 서명 설정
+                  <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+              </details>
             </div>
           </li>
           <li>
             <span class="step-number">02</span>
             <div>
-              <h3>macOS 권한 확인</h3>
+              <h3>macOS 권한 두 개 켜기</h3>
               <p>
-                앱의 ‘허용할 앱’과 <code>tacto doctor</code> 안내를 확인하세요.
-                앱 조작은 Tacto Helper(Preview 1·이전 버전은 NLC Helper),
-                독립 앱의 화면 기록은 Tacto에 허용합니다.
+                Tacto 창의 ‘1. Mac 권한’에서 각 항목의 ‘설정 열기’를 누르고, 옆에 뜨는
+                안내대로 앱 조작은 <strong>Tacto Helper</strong>, 화면 기록은
+                <strong>Tacto</strong>에 허용합니다. 이전 미리보기(Preview 1의 NLC
+                Helper)를 쓰던 Mac이라면 새 앱의 권한 상태를 다시 확인하세요. 3단계에서
+                에이전트를 연결한 뒤에는 터미널에서 아래 명령으로도 확인할 수 있습니다.
               </p>
               <div class="inline-command">
                 <code id="doctor-command">~/.local/bin/tacto doctor</code
@@ -1444,10 +1477,11 @@ uv sync
           <li>
             <span class="step-number">03</span>
             <div>
-              <h3><span id="agent-label">Claude</span>에서 Tacto 시작하기</h3>
+              <h3><span id="agent-label">Claude</span>에 연결하고 시작하기</h3>
               <p>
-                앱을 준비하고 아래 요청을 에이전트에게 전달하세요. 실제 요청에
-                맞는 앱·작업으로 바꿔도 됩니다.
+                두 권한이 켜지면 Tacto 창의 ‘에이전트에 연결’을 눌러 Claude Code와
+                Codex에 명령과 스킬을 연결합니다. 그다음 새 대화에서 아래 요청을
+                전달하세요. 실제 요청에 맞는 앱·작업으로 바꿔도 됩니다.
               </p>
               <div class="prompt-card">
                 <p id="agent-prompt">
@@ -1472,8 +1506,8 @@ uv sync
                 </button>
               </div>
               <p class="small-note">
-                설치 후 에이전트가 스킬을 찾지 못하면 세션을 다시 열고
-                <code>./skill/install.sh --check</code>로 연결을 확인하세요.
+                에이전트가 스킬을 찾지 못하면 대화 세션을 다시 열고, Tacto 창의
+                ‘2. 에이전트 연결’ 상태를 확인하세요.
               </p>
             </div>
           </li>
@@ -1552,10 +1586,13 @@ uv sync
               </svg>
             </summary>
             <p>
-              아직 아닙니다. 현재 네이티브 버전은 소스 빌드·프로젝트 팀 코드
-              서명·macOS 권한 설정이 필요합니다. Python wheel만 설치해서 서명된
-              macOS helper를 사용할 수는 없습니다. 현재 상태는 working
-              prototype입니다.
+              거의 그렇습니다. Developer ID로 서명한 미리보기 DMG를 Applications로
+              옮겨 열고, macOS 권한 두 개를 켠 뒤 앱에서 에이전트를 연결하면
+              됩니다. 다만 지금은 저장소 접근 권한이 있는 사용자에게만 제공하는
+              미리보기이며, macOS 27.0.1 · Apple Silicon에서만 확인했습니다. 권한이
+              없는 새 Mac에서의 첫 설치와 Intel Mac·Windows는 아직 확인하지
+              않았습니다. Python wheel만 설치해서 서명된 macOS helper를 사용할
+              수는 없습니다. 현재 상태는 working prototype입니다.
             </p>
           </details>
         </div>

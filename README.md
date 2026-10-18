@@ -14,7 +14,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -88,11 +88,11 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 ## Get started
 
-**Developer preview for Apple Silicon Macs.**
+**Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download Preview 1](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
+[Download Preview 2](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
 
-This is an early preview, **not a stable release**. It was prepared on macOS 27.0.1. Fresh-Mac installation, other macOS versions, and real GUI/permission checks with the new distribution-signing team are not yet verified. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
+This is an early preview, **not a stable release**. The repository and downloads currently require GitHub access permission. Installation, permissions, Claude/Codex connection and a same-team app update were verified on the build Mac. Fresh-Mac installation, other macOS versions and the full stable-release task/beta checks remain unverified. Windows and Intel Mac builds are not provided. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
 
 Under the previous development signature, Finder and Safari completed 40 tasks. The first 20 TextEdit saves required the user to bring the app forward; all 20 retries then passed. Those initial failures remain in the record. These results are not unattended 60/60 success or approval of the newly signed DMG. [Release evidence and remaining checks](docs/release-readiness.md) · [Installation details](docs/installation.md).
 

@@ -135,11 +135,11 @@ README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드�
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[Preview 1 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1) · Apple Silicon · 개발자 미리보기(정식 안정 버전 아님).
+[Preview 2 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
-새 배포 서명으로의 실제 권한·GUI 작업, 새 Mac 설치와 베타 검증은 남아 있습니다.
+현재 저장소와 다운로드는 GitHub 접근 권한이 필요합니다. 빌드 Mac에서 설치·권한·Claude/Codex 연결과 같은 서명 팀의 앱 업데이트를 확인했습니다. 새 Mac 설치·다른 macOS 버전·정식 출시용 실제 작업과 베타 검증은 남아 있습니다. Windows·Intel Mac 빌드는 제공하지 않습니다.
 기존 개발용 서명에서의 실제 앱 검증은 Finder·Safari 40회 성공, TextEdit 저장은 사용자가 앱을 앞으로 가져온 뒤 재시도 20/20 성공입니다.
 최초 저장 실패 20회도 유지하며, 이 결과를 새 DMG의 무인 실행 성공으로 간주하지 않습니다.
 [출시 검증 현황](docs/release-readiness.md) · [설치 범위와 제한](docs/installation.md)

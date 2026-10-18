@@ -58,11 +58,9 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 `TACTO_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
 별도로 준비한 Apple Silicon용 DMG는 Developer ID 서명·Apple 공증·Gatekeeper
 검사를 통과했습니다. [Release 페이지](https://github.com/Open330/tacto/releases)의
-첫 배포는 개발자 미리보기입니다. [Preview 1](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.1)의 DMG를 다운로드한 사용자는
+첫 배포는 개발자 미리보기입니다. [Preview 2](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2)의 DMG를 다운로드한 사용자는
 `Tacto.app`을 `Applications`로 드래그하고 앱을 열어 권한·명령·스킬 연결 안내를
-따릅니다. 사용자 자신의 개발용 인증서는 필요하지 않습니다. 새 서명 팀의 실제
-권한·GUI 작업과 새 Mac 설치는 아직 검증하지 않았으므로 일반 공개 출시로
-간주하지 않습니다. 자세한 근거는 [출시 기준](release-readiness.md)을 확인하세요.
+따릅니다. 사용자 자신의 개발용 인증서는 필요하지 않습니다. macOS 27.0.1의 Apple Silicon 빌드 Mac에서 실제 설치·권한·연결·같은 팀 업데이트를 확인했습니다. 새 Mac과 다른 macOS 버전은 미검증이며 Windows·Intel Mac 빌드는 없습니다. 현재 비공개 다운로드에는 GitHub 접근 권한이 필요합니다. 자세한 근거는 [출시 기준](release-readiness.md)을 확인하세요.
 Python 코어·별도 Chromium은 위 wheel 설치 범위에서 사용할 수 있습니다.
 
 아래는 소스 설치 경로입니다. 저장소 루트에서 다음 순서로
@@ -205,8 +203,7 @@ uv run python setup/build_drag_preview.py --app "$tacto_preview_dir/Tacto.app" -
 
 두 빌더는 앱을 실행하거나 설치하거나 권한을 변경하지 않습니다. DMG는 앱과
 Applications 링크를 포함합니다. 실제 독립 앱 빌드·서명·이동 후 import 검사와
-DMG 체크섬 검증은 통과했지만, **공증과 새 Mac에서의 Gatekeeper·권한 설정·드래그
-설치는 아직 검증하지 않았습니다**. 일반 사용자 배포 완료를 의미하지 않습니다.
+DMG 체크섬 검증을 수행합니다. **로컬 빌더는 공증을 제출하지 않습니다.** 별도로 공증한 배포본의 상태는 위 릴리스 안내를 확인하세요. 새 Mac에서의 Gatekeeper·권한 설정·드래그 설치는 아직 미검증이며, 로컬 빌드 성공만으로 일반 사용자 배포 완료를 뜻하지 않습니다.
 [수정·검증 결과](tacto-native-release-fixes-2026-10-16.md)를 참고하세요.
 
 GUI를 열지 않고 권한 상태의 오류·준비 완료 조건, 감지 시간 제한, 도우미 창 배치를 검사할 수 있습니다.
