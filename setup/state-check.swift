@@ -65,6 +65,22 @@ import Foundation
   assert(flipped == CGRect(x: 10, y: 200, width: 700, height: 600))
   print("Accessory placement: right, left, inside, clamped, flipped PASS")
 
+  // Settings may not exist yet; a Touch ID/password dialog is never an anchor.
+  let mainWindow = SettingsWindowCandidate(id: 10, bounds: CGRect(x: 100, y: 100, width: 700, height: 600))
+  let password = SettingsWindowCandidate(id: 11, bounds: CGRect(x: 300, y: 200, width: 440, height: 260))
+  assert(settingsMainWindow([], anchoredID: nil) == nil)
+  assert(settingsMainWindow([password], anchoredID: nil) == nil)
+  assert(settingsMainWindow([password, mainWindow], anchoredID: nil)?.id == 10)
+  let largeModal = SettingsWindowCandidate(id: 12, bounds: CGRect(x: 0, y: 0, width: 800, height: 650))
+  assert(settingsMainWindow([largeModal, mainWindow], anchoredID: 10)?.id == 10)
+  assert(settingsMainWindow([password, largeModal], anchoredID: 10) == nil)
+  let moved = SettingsWindowCandidate(id: 10, bounds: CGRect(x: 500, y: 300, width: 700, height: 600))
+  assert(settingsMainWindow([password, moved], anchoredID: 10)?.bounds == moved.bounds)
+  let reopened = SettingsWindowCandidate(id: 20, bounds: mainWindow.bounds)
+  assert(settingsMainWindow([reopened], anchoredID: 10)?.id == 20)
+  assert(settingsMainWindow([password, reopened], anchoredID: 10) == nil)
+  print("Settings anchor: delayed window, password-only, modal front, lost anchor and movement PASS")
+
   // Real isolated filesystem layouts: readiness must follow the installed
   // links, including another version, partial installs and foreign files.
   let fm = FileManager.default

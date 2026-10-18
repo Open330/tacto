@@ -379,6 +379,9 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var watch: PermissionWatch?
     var watchTimer: Timer?
     var placeTimer: Timer?
+    var settingsAnchorID: CGWindowID?
+    var settingsWindowSeen = false
+    let settingsWaitHint = "시스템 설정 창을 찾지 못했어요. Dock에서 시스템 설정을 열어 주세요."
     var checkInFlight = false
     var pollTimer: Timer?
     var reportDirectory: URL?
@@ -613,13 +616,16 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         let permission = row.permission
         notice = nil
-        NSWorkspace.shared.open(permission.settingsURL)
+        panel.orderOut(nil)
+        settingsAnchorID = nil
+        settingsWindowSeen = false
+        if !NSWorkspace.shared.open(permission.settingsURL) { notice = settingsWaitHint }
         panel.show(for: permission, app: appFor(permission))
         watch = PermissionWatch(permission: permission, started: Date())
         render()
-        placeTimer?.invalidate(); placeAccessory()
-        // System Settings may take a moment to appear and can be moved.
-        placeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.placeAccessory() }
+        placeTimer?.invalidate()
+        // Configure offscreen, then show only after the Settings main window exists.
+        placeTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in self?.placeAccessory() }
         watchTimer?.invalidate()
         watchTimer = Timer.scheduledTimer(withTimeInterval: PermissionWatch.interval, repeats: true) { [weak self] _ in
             guard let self, let watch = self.watch else { return }
@@ -630,9 +636,14 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func placeAccessory() {
         guard let settings = settingsWindowFrame() else {
-            if !panel.isVisible { panel.center(); panel.orderFrontRegardless() }
+            panel.orderOut(nil)
+            if !settingsWindowSeen, let watch, Date().timeIntervalSince(watch.started) >= 3, notice == nil {
+                notice = settingsWaitHint; render()
+            }
             return
         }
+        settingsWindowSeen = true
+        if notice == settingsWaitHint { notice = nil; render() }
         let screen = NSScreen.screens.first(where: { $0.frame.intersects(settings) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame ?? settings
         panel.setFrameOrigin(accessoryOrigin(settings: settings, panel: panel.frame.size, screen: screen))
@@ -640,20 +651,25 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if !panel.isVisible { panel.orderFrontRegardless() }
     }
 
-    /// System Settings' frontmost window, from the window list. Bounds and
+    /// System Settings' stable full-size window, ignoring authentication dialogs.
+    /// Bounds and
     /// owner need no Screen Recording grant; window titles would.
     func settingsWindowFrame() -> CGRect? {
         guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systempreferences").first,
               let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
                 as? [[String: Any]],
               let primary = NSScreen.screens.first?.frame.height else { return nil }
-        for entry in list where (entry[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier
-            && (entry[kCGWindowLayer as String] as? Int) == 0 {
-            guard let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
-                  let rect = CGRect(dictionaryRepresentation: bounds), rect.width > 200 else { continue }
-            return cocoaRect(fromWindowList: rect, primaryHeight: primary)
+        let candidates: [SettingsWindowCandidate] = list.compactMap { entry in
+            guard (entry[kCGWindowOwnerPID as String] as? pid_t) == app.processIdentifier,
+                  (entry[kCGWindowLayer as String] as? Int) == 0,
+                  let number = entry[kCGWindowNumber as String] as? UInt32,
+                  let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds) else { return nil }
+            return SettingsWindowCandidate(id: number, bounds: rect)
         }
-        return nil
+        guard let selected = settingsMainWindow(candidates, anchoredID: settingsAnchorID) else { return nil }
+        settingsAnchorID = selected.id
+        return cocoaRect(fromWindowList: selected.bounds, primaryHeight: primary)
     }
 
     func endWatch(granted: Bool) {

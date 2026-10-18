@@ -203,3 +203,20 @@ func permissionAppName(_ app: URL) -> String {
     }
     return app.deletingPathExtension().lastPathComponent
 }
+
+
+/// Select the full Settings window, not a small authentication dialog. Once
+/// chosen, keep its window number while a modal window moves to the front.
+struct SettingsWindowCandidate {
+    let id: UInt32
+    let bounds: CGRect
+}
+func settingsMainWindow(_ candidates: [SettingsWindowCandidate], anchoredID: UInt32?) -> SettingsWindowCandidate? {
+    let windows = candidates.filter { $0.bounds.width >= 500 && $0.bounds.height >= 400 }
+    if let anchoredID {
+        if let pinned = windows.first(where: { $0.id == anchoredID }) { return pinned }
+        // Reopened Settings gets a new number. Wait out any small modal first.
+        if candidates.contains(where: { $0.bounds.width < 500 || $0.bounds.height < 400 }) { return nil }
+    }
+    return windows.max { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height }
+}
