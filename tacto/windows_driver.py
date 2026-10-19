@@ -179,13 +179,13 @@ class WindowsDriver:
         self._latest.clear()
 
     # --------------------------------------------------------- observation
-    def _walk(self, obs, element, depth, *, front=False):
+    def _walk(self, obs, element, depth, *, front=False, read=None):
         if depth > MAX_TREE_DEPTH or obs.visited >= MAX_TREE_NODES:
             obs.truncated = True
             return
         obs.visited += 1
         try:
-            props = self._backend.props(element)
+            props = read[0](element)
         except Exception:  # an element can vanish mid-walk; never guess its content
             obs.truncated = True
             return
@@ -213,12 +213,12 @@ class WindowsDriver:
             obs.lines.append(f"{'  ' * depth}{index} {role}{readonly}"
                              + (f"  {label}" if label else "") + disabled + selected + focused)
         try:
-            children = self._backend.children(element)
+            children = read[1](element)
         except Exception:
             obs.truncated = True
             return
         for child in children[:MAX_CHILDREN_PER_NODE]:
-            self._walk(obs, child, depth + 1)
+            self._walk(obs, child, depth + 1, read=read)
         if len(children) > MAX_CHILDREN_PER_NODE:
             obs.truncated = True
 
@@ -243,7 +243,11 @@ class WindowsDriver:
         # Real windows first: a popup host listed on its own is then already
         # shown inside its owner, where it belongs.
         for position in sorted(range(len(windows)), key=lambda i: kinds[i] != "Window"):
-            self._walk(obs, windows[position], 0, front=position == front)
+            try:
+                root, props, children = self._backend.walker(windows[position])
+            except Exception:
+                root, props, children = windows[position], self._backend.props, self._backend.children
+            self._walk(obs, root, 0, front=position == front, read=(props, children))
         if obs.truncated:
             obs.lines.append("… (트리 일부만 표시)")
         if not windows:

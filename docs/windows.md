@@ -52,9 +52,15 @@ with an interactive logon instead.
   modal window in the target process (UIA `WindowIsModal`). An expectation the
   driver cannot check — selection digests, or a modal state it cannot read —
   refuses the step (`target_changed`, `not_started`) instead of passing it.
-- Each element's properties are read in one cached UIA round trip, and the
-  app's windows are found with `EnumWindows` rather than by asking every
-  app's UIA provider, which a single slow app turned into seconds.
+- Each window's whole subtree, with every property the tree shows, is read
+  in one cached UIA call (falling back to a live walk if the app refuses the
+  cache), and the app's windows are found with `EnumWindows` rather than by
+  asking every app's UIA provider, which a single slow app turned into
+  seconds. Settings observes in about 0.03 s.
+- A window made of thousands of native child windows is slow however it is
+  read: a test form with 1,500 Win32 buttons took about 3 s, almost all of it
+  the system proxy listing those windows. At most 400 children of one element
+  and 5,000 elements in all are shown, and the tree says when it is cut.
 - Windows 11 menus open as separate popup windows that UIA also shows inside
   their owner; each popup is shown once, inside its window.
 - A UIA call that fails while observing returns `observation_unavailable`

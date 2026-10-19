@@ -45,6 +45,9 @@ class Backend:
     def children(self, element):
         return element.kids
 
+    def walker(self, window):
+        return window, self.props, self.children
+
     def descendants(self, element):
         out = []
         for child in element.kids:
@@ -182,6 +185,11 @@ class WindowsDriverTests(unittest.TestCase):
         self.assertTrue(obs["tree"].startswith('0 Window  Title: "Untitled - Notepad" [focused]'), obs["tree"])
         index = self.index(obs, title="Save as", in_focused_window=True)
         self.assertEqual("acted", self.act(obs, "click", element_index=index)["type"])
+
+    def test_an_uncachable_window_is_walked_live(self):
+        cached = self.observe()["tree"]
+        self.backend.walker = lambda window: (_ for _ in ()).throw(OSError("cache refused"))
+        self.assertEqual(cached, self.observe()["tree"])
 
     def test_tree_uses_engine_roles_and_attributes(self):
         tree = self.observe()["tree"]

@@ -140,6 +140,12 @@ class UIABackend:
         for prop in CACHED:
             self._cache.AddProperty(prop)
         self._cache.TreeScope = TREE_SCOPE_ELEMENT
+        # A whole window in one call. Win32 controls answer each property
+        # call through a proxy, so walking them one by one took ~9 ms a node.
+        self._tree_cache = self._uia.CreateCacheRequest()
+        for prop in CACHED:
+            self._tree_cache.AddProperty(prop)
+        self._tree_cache.TreeScope = TREE_SCOPE_SUBTREE
 
     def _windows_by_pid(self):
         """{pid: [top window handles]}, front first, from one Win32 pass.
@@ -206,12 +212,32 @@ class UIABackend:
             raise PatternUnavailable(name)
         return raw.QueryInterface(interface)
 
+    def walker(self, window):
+        """(root, props, children) for one window, read in a single call.
+
+        The cached elements stay live references, so an observed element can
+        still be acted on. If the subtree cannot be cached, walk it live.
+        """
+        try:
+            root = window.BuildUpdatedCache(self._tree_cache)
+        except (comtypes.COMError, ValueError):
+            return window, self.props, self.children
+        return root, self._read, self._cached_children
+
+    def _cached_children(self, element):
+        found = element.GetCachedChildren()
+        # NULL, not an empty array, when the element has no children.
+        return [found.GetElement(i) for i in range(found.Length)] if found else []
+
     def props(self, element):
         """Current properties in one cross-process round trip."""
         try:
             cached = element.BuildUpdatedCache(self._cache)
         except (comtypes.COMError, ValueError):
             return {"control_type": None, "runtime_id": None, "pid": None, "patterns": set()}
+        return self._read(cached)
+
+    def _read(self, cached):
         def value(prop):
             try:
                 return cached.GetCachedPropertyValue(prop)
