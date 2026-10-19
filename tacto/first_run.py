@@ -3,7 +3,7 @@ import time
 import math
 from .app_launch import launch_app
 from .document_label import window_attributes, window_flag
-from .flow import Flow, Step, Selector, Postcondition, replay, pin_params
+from .flow import Flow, Step, Selector, Postcondition, replay, pin_params, _replay_observation
 from .contract import SafetyContract, Resource, ContextBinding
 from .agent import Agent
 from .library import textedit_new_document
@@ -57,13 +57,18 @@ def _windows(observation):
 def run_first_task(driver, *, launch=launch_app, execute=replay):
     started = time.monotonic()
     def result(status, stage, **extra):
+        if status == 'failed':
+            extra.setdefault('repeat_write', False)
         return dict(type='first_run', status=status, stage=stage,
                     seconds=round(time.monotonic() - started, 3),
                     model_calls=0, save_command_sent=False, **extra)
     launched = launch(TARGET)
     if launched.get('type') != 'app_launch':
-        return result('failed', 'launch', error=launched.get('error', 'launch_failed'))
-    before = driver.observe(TARGET, 'tree_full', require_window=False, window_identity=True)
+        return result('failed', 'launch', error=launched.get('error', 'launch_failed'),
+                      effect=launched.get('effect', 'unknown'), repeat_write=False)
+    # Share replay's transport/malformed-read handling; never retry an input
+    # because a later observation failed.
+    before = _replay_observation(driver.observe, TARGET, 'tree_full', require_window=False, window_identity=True)
     if before.get('type') != 'observation' or before.get('truncated'):
         return result('failed', 'observe', error=before.get('error', 'incomplete_observation'))
     try:
@@ -75,9 +80,10 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
     created = execute(driver, textedit_new_document())
     if not created.ok:
         return result('failed', 'new_document', error='new_document_not_verified')
-    after = driver.observe(TARGET, 'tree_full', window_identity=True)
+    after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
     if after.get('type') != 'observation' or after.get('truncated'):
-        return result('failed', 'new_document_identity', error='incomplete_observation')
+        return result('failed', 'new_document_identity',
+                      error=after.get('error', 'incomplete_observation'), repeat_write=False)
     try:
         after_owner, windows, _ = _windows(after)
     except ValueError as exc:
@@ -131,7 +137,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
     if not written.ok and not allowed:
         return result('failed', 'write', error=failures[0].get('error', 'write_failed') if failures else 'write_failed',
                       repeat_write=False)
-    fresh = driver.observe(TARGET, 'tree_full', window_identity=True)
+    fresh = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
     try:
         fresh_owner, fresh_windows, _ = _windows(fresh)
         verified_window = fresh_windows.get(new_id)
@@ -142,7 +148,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
                                  attribute='Value', equals=TEXT.replace('\n', '\\n'))
     if (fresh.get('type') != 'observation' or fresh.get('truncated') or fresh_owner != owner
             or verified_window is None or not visible_text.check(verified_window['tree'])):
-        return result('failed', 'verify', error='text_not_verified', repeat_write=False)
+        return result('failed', 'verify', error=fresh.get('error', 'text_not_verified'), repeat_write=False)
     title = verified_window['attrs'].get('Title')
     return result('text_verified', 'complete', target=TARGET, window_title=title, window_id=new_id,
                   text=TEXT, persistent_commit_verified=False,

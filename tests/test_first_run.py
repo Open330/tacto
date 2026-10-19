@@ -58,6 +58,7 @@ class FirstRunTests(unittest.TestCase):
                 r, _, execute = self.run_case(after=after)
                 self.assertEqual('failed', r['status'])
                 self.assertEqual(1, execute.call_count)
+                self.assertIs(False, r['repeat_write'])
 
     def test_missing_or_truncated_observation_and_failed_new_stop_before_writing(self):
         for before in [dict(type='error', error='target_not_found'), observation(OLD, truncated=True)]:
@@ -139,3 +140,27 @@ class WindowIdentityTransportTests(unittest.TestCase):
         self.assertEqual('window_identity_unavailable', driver.observe('com.apple.TextEdit', window_identity=True)['error'])
         self.assertEqual('invalid_window_identity_request', driver.observe('com.apple.TextEdit', window_identity=1)['error'])
         driver._send.assert_not_called()
+
+
+class FirstRunReadFailureTests(unittest.TestCase):
+    def test_each_transport_read_failure_reports_stage_without_repeating_input(self):
+        for failure_index, stage, executions in ((0, 'observe', 0), (1, 'new_document_identity', 1), (2, 'verify', 2)):
+            for invalid in (OSError('PRIVATE user content'), None, {'type':'observation','tree':None}):
+                with self.subTest(index=failure_index, invalid=invalid):
+                    reads = [observation(OLD), observation(OLD+NEW), observation(OLD+DONE)]
+                    reads[failure_index] = invalid
+                    driver=Mock();driver.observe.side_effect=reads
+                    execute=Mock(return_value=SimpleNamespace(ok=True, log=[]))
+                    result=run_first_task(driver, launch=lambda _:dict(type='app_launch'), execute=execute)
+                    self.assertEqual(('failed',stage,'observation_unavailable'),
+                                     (result['status'],result['stage'],result['error']))
+                    self.assertEqual(executions, execute.call_count)
+                    self.assertNotIn('PRIVATE', str(result))
+                    self.assertFalse(result['save_command_sent'])
+
+    def test_uncertain_launch_is_not_retried_or_followed_by_new_document(self):
+        driver=Mock();execute=Mock();launch=Mock(return_value=dict(type='error',error='launch_timeout',effect='unknown'))
+        result=run_first_task(driver, launch=launch, execute=execute)
+        self.assertEqual('unknown',result['effect'])
+        self.assertFalse(result['repeat_write'])
+        launch.assert_called_once();driver.observe.assert_not_called();execute.assert_not_called()

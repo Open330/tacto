@@ -80,3 +80,37 @@ class AppLaunchTests(unittest.TestCase):
         b = Backend(); b.request['error'] = 'denied'
         self.assertEqual('launch_failed', self.run_launch(b)['error'])
         self.assertEqual(1, b.starts)
+
+    def test_native_setup_lookup_and_poll_errors_are_short_without_retry(self):
+        for name in ('session_ready', 'resolve', 'running'):
+            b = Backend()
+            setattr(b, name, Mock(side_effect=OSError('PRIVATE native path')))
+            with self.subTest(name=name):
+                result = self.run_launch(b)
+                self.assertEqual('native_launch_unavailable', result['error'])
+                self.assertEqual('not_started', result['effect'])
+                self.assertNotIn('PRIVATE', str(result))
+                self.assertEqual(0, b.starts)
+
+    def test_dispatch_or_later_poll_exception_keeps_unknown_effect_and_never_resends(self):
+        class FailingStart(Backend):
+            def start(self, path):
+                self.starts += 1
+                raise OSError('PRIVATE dispatch detail')
+        class FailingPump(Backend):
+            def pump(self, seconds):
+                raise RuntimeError('PRIVATE runloop detail')
+        for b in (FailingStart(), FailingPump()):
+            with self.subTest(backend=type(b).__name__):
+                r = self.run_launch(b)
+                self.assertEqual(('launch_failed', 'unknown', 1), (r['error'], r['effect'], b.starts))
+                self.assertNotIn('PRIVATE', str(r))
+
+    def test_missing_callback_receipt_does_not_relaunch(self):
+        b = Backend(); b.request = None; b.finish = False
+        r = self.run_launch(b, timeout=.1)
+        self.assertEqual(('launch_timeout', 'unknown', 1), (r['error'], r['effect'], b.starts))
+
+    def test_interruption_is_not_converted_to_an_ordinary_failure(self):
+        b = Backend(); b.start = Mock(side_effect=KeyboardInterrupt)
+        with self.assertRaises(KeyboardInterrupt): self.run_launch(b)

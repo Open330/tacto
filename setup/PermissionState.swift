@@ -14,16 +14,60 @@ func firstRunAgents(home: URL, environment: [String: String],
                     executable: (String) -> Bool = {
                         FileManager.default.isExecutableFile(atPath: $0)
                             && ((try? URL(fileURLWithPath: $0).resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
+                    },
+                    listDirectory: (String) -> [String] = {
+                        (try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? []
                     }) -> [FirstRunAgent] {
     let paths = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         + [home.appendingPathComponent(".local/bin").path,
            home.appendingPathComponent(".npm-global/bin").path,
            home.appendingPathComponent(".volta/bin").path,
            "/opt/homebrew/bin", "/usr/local/bin"]
+        + nodeManagerBins(home: home, environment: environment, listDirectory: listDirectory)
     return [("Claude Code", "claude"), ("Codex", "codex")].compactMap { name, command in
         guard let folder = paths.first(where: { $0.hasPrefix("/") && executable(URL(fileURLWithPath: $0).appendingPathComponent(command).path) }) else { return nil }
         return FirstRunAgent(name: name, executable: URL(fileURLWithPath: folder).appendingPathComponent(command))
     }
+}
+
+/// Node version managers keep each version's CLIs in its own bin directory,
+/// which a GUI app's PATH never contains. One directory level is listed per
+/// manager (no recursion, no shell), newest version first.
+func nodeManagerBins(home: URL, environment: [String: String],
+                     listDirectory: (String) -> [String]) -> [String] {
+    func version(_ name: String) -> [Int] {
+        name.drop(while: { $0 == "v" }).split(separator: ".").map { Int($0) ?? -1 }
+    }
+    func newestFirst(_ root: String, _ suffix: String) -> [String] {
+        listDirectory(root).filter { !$0.hasPrefix(".") }
+            .sorted { version($1).lexicographicallyPrecedes(version($0)) }
+            .map { "\(root)/\($0)/\(suffix)" }
+    }
+    let nvm = environment["NVM_DIR"].flatMap { $0.hasPrefix("/") ? $0 : nil }
+        ?? home.appendingPathComponent(".nvm").path
+    var fnmRoots = [home.appendingPathComponent("Library/Application Support/fnm").path,
+                    home.appendingPathComponent(".local/share/fnm").path,
+                    home.appendingPathComponent(".fnm").path]
+    if let custom = environment["FNM_DIR"], custom.hasPrefix("/") { fnmRoots.insert(custom, at: 0) }
+    return newestFirst(nvm + "/versions/node", "bin")
+        + fnmRoots.flatMap { newestFirst($0 + "/node-versions", "installation/bin") }
+}
+
+/// What the first-run button may do after a Terminal session was opened.
+/// The launcher deleting itself only says the session started; nothing here
+/// observes, or claims, that the agent finished the task.
+enum FirstRunStart: Equatable {
+    case idle             // nothing pending; the button may start a session
+    case opening          // Terminal has the launcher; it has not run yet
+    case handedOff        // the launcher ran and removed itself
+}
+
+let firstRunHold: TimeInterval = 20
+
+func firstRunStartState(startedAt: Date?, launcherExists: Bool, now: Date,
+                        hold: TimeInterval = firstRunHold) -> FirstRunStart {
+    guard let startedAt, now.timeIntervalSince(startedAt) < hold, now >= startedAt else { return .idle }
+    return launcherExists ? .opening : .handedOff
 }
 
 func firstRunShellQuote(_ value: String) -> String {
@@ -32,8 +76,13 @@ func firstRunShellQuote(_ value: String) -> String {
 
 /// Start a fresh, normal interactive CLI: no resume, permission bypass,
 /// model overrides or noninteractive tool approval flags.
+/// The agent's own bin directory goes first on PATH: an npm-installed CLI
+/// starts with `#!/usr/bin/env node`, and that node lives beside it.
 func firstRunCommand(agent: FirstRunAgent, prompt: String, directory: URL) -> String {
-    "#!/bin/zsh\ncd -- \(firstRunShellQuote(directory.path)) || exit 1\nrm -- \"$0\"\nexec \(firstRunShellQuote(agent.executable.path)) \(firstRunShellQuote(prompt))\n"
+    let bin = agent.executable.deletingLastPathComponent().path
+    return "#!/bin/zsh\ncd -- \(firstRunShellQuote(directory.path)) || exit 1\nrm -- \"$0\"\n"
+        + "export PATH=\(firstRunShellQuote(bin))\"${PATH:+:$PATH}\"\n"
+        + "exec \(firstRunShellQuote(agent.executable.path)) \(firstRunShellQuote(prompt))\n"
 }
 
 /// Inspect the command/skill links the installer owns; never run or change them.

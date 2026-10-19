@@ -395,6 +395,17 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var agentPicker: NSPopUpButton!
     var startFirstRunButton: NSButton!
     var startingFirstRun = false
+    // A launched session holds the button briefly (firstRunStartState); the
+    // hold always ends, so the button never stays disabled.
+    var firstRunStartedAt: Date?
+    var firstRunLauncher: URL?
+    var firstRunTimer: Timer?
+    /// One reading of the hold for render, start and tick alike.
+    var firstRunLaunch: FirstRunStart {
+        firstRunStartState(startedAt: firstRunStartedAt,
+            launcherExists: firstRunLauncher.map { FileManager.default.fileExists(atPath: $0.path) } ?? false,
+            now: Date())
+    }
     var statusItem: NSStatusItem?
     var statusMenuTitle: NSMenuItem?
     var connectButton: NSButton!
@@ -585,7 +596,15 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             ? "버튼을 누르면 선택한 에이전트가 Mac에서 첫 작업을 시작합니다."
             : firstRunReady ? "첫 요청을 복사해 사용 중인 에이전트의 새 대화에 붙여넣으세요."
             : "권한과 에이전트 연결을 마치면 시작할 수 있어요."
-        startFirstRunButton?.isEnabled = firstRunReady && !detectedAgents.isEmpty && !startingFirstRun
+        let launch = firstRunLaunch
+        if firstRunReady && !detectedAgents.isEmpty {
+            switch launch {
+            case .opening: firstRunHint.stringValue = "터미널에 첫 작업을 전달하는 중이에요."
+            case .handedOff: firstRunHint.stringValue = "에이전트에 전달했어요. 터미널에서 진행 상황을 확인하세요. 잠시 후 다시 시작할 수 있어요."
+            case .idle: break
+            }
+        }
+        startFirstRunButton?.isEnabled = firstRunReady && !detectedAgents.isEmpty && !startingFirstRun && launch == .idle
         let compactPermissions = known && state.ready && !permissionDetails && watch == nil && notice == nil
         permissionTitle.stringValue = known && state.ready ? "1. Mac 권한 · 준비 완료" : "1. Mac 권한"
         permissionDetailsButton?.isHidden = !(known && state.ready)
@@ -676,15 +695,27 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                        environment: ProcessInfo.processInfo.environment)
         agentPicker.removeAllItems()
         agentPicker.addItems(withTitles: detectedAgents.map { $0.name })
-        if let previous { agentPicker.selectItem(withTitle: previous) }
+        // Keep the previous choice when it is still installed; otherwise the
+        // first agent, so a start is never a silent no-op.
+        if let previous, agentPicker.indexOfItem(withTitle: previous) >= 0 {
+            agentPicker.selectItem(withTitle: previous)
+        } else if !detectedAgents.isEmpty {
+            agentPicker.selectItem(at: 0)
+        }
         agentPicker.isHidden = detectedAgents.count < 2
         startFirstRunButton.title = detectedAgents.count == 1 ? "\(detectedAgents[0].name)로 시작" : "첫 작업 시작"
     }
     @objc func startFirstRun() {
-        guard known && state.ready && connection == .current && !checkInFlight && !installing && !startingFirstRun else { return }
+        guard known && state.ready && connection == .current && !checkInFlight && !installing && !startingFirstRun
+              && firstRunLaunch == .idle else { return }
         let selected = agentPicker.titleOfSelectedItem
         refreshFirstRunAgents()
-        guard let agent = detectedAgents.first(where: { $0.name == selected }) ?? (detectedAgents.count == 1 ? detectedAgents.first : nil) else { render(); return }
+        guard let agent = detectedAgents.first(where: { $0.name == selected }) ?? (detectedAgents.count == 1 ? detectedAgents.first : nil) else {
+            message.stringValue = detectedAgents.isEmpty
+                ? "설치된 에이전트를 찾지 못했어요. ‘첫 요청 복사’를 사용해 주세요."
+                : "선택했던 에이전트를 찾지 못했어요. 목록에서 다시 고른 뒤 시작해 주세요."
+            render(); return
+        }
         let fm = FileManager.default
         let directory = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Tacto/First Run", isDirectory: true)
         let command = directory.appendingPathComponent("tacto-first-run-\(UUID().uuidString).command")
@@ -705,10 +736,32 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self.message.stringValue = error == nil
                     ? "\(agent.name)의 새 터미널 세션을 열었습니다. 로그인·승인 요청이 있다면 터미널에서 진행하세요."
                     : "터미널을 열지 못했어요. ‘첫 요청 복사’를 사용해 주세요."
-                if error != nil { try? fm.removeItem(at: command) }
+                if error != nil {
+                    try? fm.removeItem(at: command)
+                } else {
+                    self.firstRunStartedAt = Date(); self.firstRunLauncher = command
+                    self.firstRunTimer?.invalidate()
+                    self.firstRunTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                        self?.tickFirstRun()
+                    }
+                }
                 self.render()
             }
         }
+    }
+    /// Ends the hold. A launcher Terminal never ran is removed so it cannot
+    /// start a second session later; the person can simply start again.
+    func tickFirstRun() {
+        guard firstRunLaunch == .idle else { render(); return }
+        let launcher = firstRunLauncher
+        let exists = launcher.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        firstRunTimer?.invalidate(); firstRunTimer = nil
+        firstRunStartedAt = nil; firstRunLauncher = nil
+        if exists, let launcher {
+            try? FileManager.default.removeItem(at: launcher)
+            message.stringValue = "터미널에서 시작되지 않았다면 다시 시작하거나 ‘첫 요청 복사’를 사용해 주세요."
+        }
+        render()
     }
     @objc func refreshAll() { refreshConnection(); check() }
     @objc func copyFirstRequest() {

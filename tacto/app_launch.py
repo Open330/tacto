@@ -61,32 +61,39 @@ def launch_app(target, *, backend=None, timeout=10, clock=time.monotonic):
         return error('invalid_bundle_id')
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 30:
         return error('invalid_launch_timeout')
-    backend = backend if backend is not None else NativeLaunchBackend()
-    if not backend.session_ready():
-        return error('gui_session_unavailable')
-    path = backend.resolve(target)
-    if path is None:
-        return error('application_not_installed')
-    deadline = clock() + timeout
-    request = None
     started = False
-    while True:
-        apps = backend.running(target)
-        if len(apps) > 1 or (apps and apps[0]['path'] != path):
-            return error('application_identity_ambiguous', 'unknown' if started else 'not_started')
-        if apps and apps[0]['ready']:
-            return {'type': 'app_launch', 'target': target, 'pid': apps[0]['pid'],
-                    'status': 'launched' if started else 'already_running',
-                    'application_running': True, 'window_verified': False}
-        if request is None and not apps:
-            if not backend.session_ready():
-                return error('gui_session_unavailable')
-            request = backend.start(path)
-            started = True
-        if request is not None and request.get('error'):
-            return error('launch_failed', 'unknown')
-        if clock() >= deadline:
-            # LaunchServices is asynchronous; a timeout must never cause a
-            # second launch. The caller should observe before doing anything.
-            return error('launch_timeout', 'unknown')
-        backend.pump(min(.05, max(0, deadline - clock())))
+    try:
+        backend = backend if backend is not None else NativeLaunchBackend()
+        if not backend.session_ready():
+            return error('gui_session_unavailable')
+        path = backend.resolve(target)
+        if path is None:
+            return error('application_not_installed')
+        deadline = clock() + timeout
+        request = None
+        while True:
+            apps = backend.running(target)
+            if len(apps) > 1 or (apps and apps[0]['path'] != path):
+                return error('application_identity_ambiguous', 'unknown' if started else 'not_started')
+            if apps and apps[0]['ready']:
+                return {'type': 'app_launch', 'target': target, 'pid': apps[0]['pid'],
+                        'status': 'launched' if started else 'already_running',
+                        'application_running': True, 'window_verified': False}
+            if not started and not apps:
+                if not backend.session_ready():
+                    return error('gui_session_unavailable')
+                started = True
+                request = backend.start(path)
+            if request is not None and request.get('error'):
+                return error('launch_failed', 'unknown')
+            if clock() >= deadline:
+                # LaunchServices is asynchronous; a timeout must never cause a
+                # second launch. The caller should observe before doing anything.
+                return error('launch_timeout', 'unknown')
+            backend.pump(min(.05, max(0, deadline - clock())))
+    except Exception:
+        # Native lookup and asynchronous dispatch can fail without an NSError
+        # callback. Never expose raw OS exception text or resend a launch whose
+        # dispatch may already have happened. Interrupts still propagate.
+        return error('launch_failed' if started else 'native_launch_unavailable',
+                     'unknown' if started else 'not_started')

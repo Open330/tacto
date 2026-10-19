@@ -51,3 +51,62 @@ try script.write(to:root.appendingPathComponent("launch.command"), atomically:fa
             self.assertEqual([prompt], json.loads(output.read_text()))
             self.assertFalse((folder / 'SHOULD_NOT_EXIST').exists())
             self.assertFalse(script.exists(), 'one-use launcher should remove itself')
+
+    def test_node_managers_path_and_bounded_start_state(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            home = folder / 'home'
+            # An nvm-installed CLI is a node script; its node sits beside it.
+            bin_dir = home / '.nvm/versions/node' / 'v22.13.1' / 'bin'
+            older = home / '.nvm/versions/node' / 'v9.11.2' / 'bin'
+            for directory in (bin_dir, older):
+                directory.mkdir(parents=True)
+            output = folder / "node's args.json"
+            (bin_dir / 'node').write_text('#!/usr/bin/python3\nimport json,os,sys\nfrom pathlib import Path\n'
+                                          f'Path({str(output)!r}).write_text(json.dumps(sys.argv[1:] + [os.environ["PATH"]]))\n')
+            (bin_dir / 'codex').write_text('#!/usr/bin/env node\n')
+            for tool in (bin_dir / 'node', bin_dir / 'codex'):
+                tool.chmod(0o700)
+            source = folder / 'main.swift'
+            source.write_text('''import Foundation
+let root = URL(fileURLWithPath: CommandLine.arguments[1])
+let home = root.appendingPathComponent("home")
+let bins = nodeManagerBins(home:home, environment:[:], listDirectory:{ path in
+    path.hasSuffix(".nvm/versions/node") ? ["v9.11.2", "v22.13.1", "v22.2.0", ".DS_Store"] : [] })
+assert(Array(bins.prefix(3)) == [home.path + "/.nvm/versions/node/v22.13.1/bin",
+                                 home.path + "/.nvm/versions/node/v22.2.0/bin",
+                                 home.path + "/.nvm/versions/node/v9.11.2/bin"], "\\(bins)")
+let custom = nodeManagerBins(home:home, environment:["NVM_DIR":"/custom nvm", "FNM_DIR":"relative"],
+                             listDirectory:{ $0 == "/custom nvm/versions/node" ? ["v1.0.0"] : [] })
+assert(custom == ["/custom nvm/versions/node/v1.0.0/bin"], "\\(custom)")
+let fnm = nodeManagerBins(home:home, environment:["FNM_DIR":"/custom fnm"],
+                         listDirectory:{ $0 == "/custom fnm/node-versions" ? ["v20.1.0", "v22.0.0"] : [] })
+assert(fnm == ["/custom fnm/node-versions/v22.0.0/installation/bin",
+               "/custom fnm/node-versions/v20.1.0/installation/bin"])
+let found = firstRunAgents(home:home, environment:["PATH":"/usr/bin:/bin"])
+assert(found.map { $0.name } == ["Codex"], "\\(found)")
+let script = firstRunCommand(agent:found[0], prompt:"Hello 'x' $PATH", directory:root)
+try script.write(to:root.appendingPathComponent("launch.command"), atomically:false, encoding:.utf8)
+let start = Date(timeIntervalSince1970: 1000)
+assert(firstRunStartState(startedAt:nil, launcherExists:true, now:start) == .idle)
+assert(firstRunStartState(startedAt:start, launcherExists:true, now:start.addingTimeInterval(1)) == .opening)
+assert(firstRunStartState(startedAt:start, launcherExists:false, now:start.addingTimeInterval(1)) == .handedOff)
+assert(firstRunStartState(startedAt:start, launcherExists:true, now:start.addingTimeInterval(firstRunHold)) == .idle)
+assert(firstRunStartState(startedAt:start, launcherExists:false, now:start.addingTimeInterval(-5)) == .idle)
+''')
+            binary = folder / 'check'
+            subprocess.run(['swiftc', str(ROOT / 'setup/PermissionState.swift'), str(source), '-o', str(binary)],
+                           check=True, capture_output=True, timeout=60)
+            run = subprocess.run([str(binary), str(folder)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(0, run.returncode, run.stderr)
+            script = folder / 'launch.command'
+            # Terminal's minimal PATH: node is found only through the export.
+            subprocess.run(['/bin/zsh', str(script)], check=True, capture_output=True, timeout=10,
+                           env={'PATH': '/usr/bin:/bin', 'HOME': str(home)})
+            # The agent's bin comes first and the existing PATH is kept after it.
+            self.assertEqual([str(bin_dir / 'codex'), "Hello 'x' $PATH", f"{bin_dir}:/usr/bin:/bin"],
+                             json.loads(output.read_text()))
+            self.assertFalse(script.exists())
+            text = (ROOT / 'setup/PermissionState.swift').read_text()
+            self.assertNotIn('bash -l', text)
+            self.assertNotIn('zsh -l', text)

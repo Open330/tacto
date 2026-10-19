@@ -662,7 +662,15 @@ def _dispatch_command(cmd, rest):
             print('usage: first-run --helper --yes (creates one document and writes the fixed welcome text)')
             return 2
         from .first_run import run_first_task
-        driver = _make_driver(rest)
+        from .helper import HelperUnavailable
+        try:
+            driver = _make_driver(rest)
+        except (HelperUnavailable, OSError, ValueError):
+            print(json.dumps(dict(type='first_run', status='failed', stage='connect',
+                                  error='helper_unavailable', effect='not_started',
+                                  model_calls=0, save_command_sent=False, repeat_write=False,
+                                  hint='tacto doctor --check')))
+            return 1
         try:
             result = run_first_task(driver)
         finally:
