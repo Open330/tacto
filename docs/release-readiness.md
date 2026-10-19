@@ -522,3 +522,21 @@ clean full-suite pass.
 This change does not qualify cross-app drag/drop or a stable release. Signing,
 notarization and installation results belong to the release's validation asset;
 existing fresh-install/beta qualification requirements remain applicable.
+
+
+Preview 8 distribution completed from source commit
+`f37b5bc31002bf86b560bbb37852d172e57e2083`. App and DMG passed Apple notarization,
+stapled-ticket validation and Gatekeeper. All five published assets matched
+recorded SHA-256 digests before publication. The first packaging candidate was
+rejected for missing secure timestamps on the new native peers; it was never
+installed or published. The corrected candidate timestamps every executable.
+
+The same app was installed on three Macs with unchanged signing requirements,
+matching runtime hashes, hidden Dock icons and current Claude/Codex skill links.
+Two retained both existing grants. The third had neither grant before updating
+and still requires its owner's setup step. Packaged capture verified Retina
+mapping (1172×976 pixels to 586×488 points); installed TextEdit received a text
+selection while preserving its body. A separate border-selection attempt
+resized its test window before geometry monitoring stopped the stroke with an
+unknown effect. That failed case is retained in validation; window resizing
+remains outside this route's supported scope.
