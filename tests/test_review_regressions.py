@@ -80,8 +80,9 @@ class ReviewRegressions(unittest.TestCase):
                            expected={"filename": "report.txt"})
         r = run(d, "app", "save", plan, envelope=env, spec=spec,
                 ask_where=lambda name, cands: {"pick": 0, "candidate": cands[0]})
-        self.assertTrue(r.ok, r.why)
+        self.assertFalse(r.ok, r.why)  # Authorization is not completion evidence.
         self.assertEqual(1, len(d.calls))
+        self.assertEqual('click', d.calls[0]['action']['name'])
 
     def test_declined_effect_did_not_happen(self):
         d = Screen("0 Window\n  1 Button Title: Send")
@@ -129,7 +130,7 @@ class ReviewRegressions(unittest.TestCase):
         self.assertFalse(r.ok)
         self.assertEqual([],d.calls)
 
-    def test_plan_can_continue_after_commit_witness(self):
+    def test_plan_stops_after_commit_witness_without_completion_receipt(self):
         d = Screen('0 Window\n  1 Button Title: Send\n  2 StaticText Identifier: recipient, Value: bob')
         def plan(goal,cands,done):
             if not done:
@@ -141,8 +142,9 @@ class ReviewRegressions(unittest.TestCase):
                 envelope=Envelope(allows=frozenset({'transmit','read'})),
                 spec=self.recipient_spec(), ask_where=self.where_recipient,
                 approve=lambda _:True)
-        self.assertTrue(r.ok,r.why)
-        self.assertEqual(2,len(d.calls))
+        self.assertFalse(r.ok,r.why)
+        self.assertEqual(1,len(d.calls))
+        self.assertEqual('commit_unverified',r.visits[-1].actions[-1]['result'])
 
     def test_missing_live_probe_cannot_confirm_recipient(self):
         class NoProbe(Screen):

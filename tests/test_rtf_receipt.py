@@ -21,7 +21,7 @@ class RTFReceiptTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name).resolve()
         self.directory.chmod(0o755)
-        self.name = 'tacto-test-' + uuid.uuid4().hex + '.rtf'
+        self.name = 'nlc-test-' + uuid.uuid4().hex + '.rtf'
         self.path = self.directory / self.name
         self.event = make_event({'name':'click','element_index':5}, {'write_persistent'}, 'com.apple.TextEdit')
         self.response = {'type':'acted'}
@@ -214,26 +214,34 @@ class RTFReceiptTests(unittest.TestCase):
         adapter = self.receipt(timeout_seconds=.15)
         adapter._decode_deadline = adapter._clock() + .15
         child_path = self.directory / 'decoder-child.pid'
+        gate=self.directory/'decoder-parent-exit'
         start, children = self.fake_decoder(
-            "import os,time\nif os.fork()==0:\n"
+            "import os,time,pathlib\nif os.fork()==0:\n"
             f" with open({str(child_path)!r}, 'w') as f: f.write(str(os.getpid()))\n"
             " time.sleep(20)\n"
-            "else: os._exit(0)")
-        def exited_parent(argv, **kwargs):
-            proc = start(argv, **kwargs)
-            # Establish the condition under test before the readback budget:
-            # interpreter startup (especially with tracemalloc) is not the
-            # exited-parent/retained-descendant-pipe condition.
-            proc.wait(timeout=3)
+            "else:\n"
+            " deadline=time.monotonic()+3\n"
+            f" while not pathlib.Path({str(gate)!r}).exists() and time.monotonic()<deadline: time.sleep(.005)\n"
+            " os._exit(0)")
+        original_stream=adapter._decode_stream
+        def exited_parent(proc,raw,remaining):
+            # Establish exit only after the owned session has been validated.
+            # Retain the waitable leader throughout the descendant-pipe timeout.
+            from tacto.provider_io import provider_process_exited_unreaped
+            gate.write_text('exit')
             ready_deadline = time.monotonic() + 3
+            while not provider_process_exited_unreaped(proc):
+                if time.monotonic() >= ready_deadline:
+                    raise AssertionError('decoder leader did not exit')
+                time.sleep(.005)
             while not child_path.exists():
                 if time.monotonic() >= ready_deadline:
                     raise AssertionError('decoder descendant did not start')
                 time.sleep(.005)
             adapter._decode_deadline = adapter._clock() + .15
-            return proc
+            return original_stream(proc,raw,.15)
         started = time.monotonic()
-        with patch('tacto.rtf_receipt.subprocess.Popen', side_effect=exited_parent):
+        with patch('tacto.rtf_receipt.subprocess.Popen', side_effect=start),patch.object(adapter,'_decode_stream',side_effect=exited_parent):
             with self.assertRaisesRegex(_ReadbackPending, 'deadline'):
                 adapter._decode(b'{\\rtf1 Hello}')
         self.assertLess(time.monotonic() - started, 4)
@@ -259,8 +267,46 @@ class RTFReceiptTests(unittest.TestCase):
         self.assertTrue(children[0].stdin.closed)
         self.assertTrue(children[0].stdout.closed)
 
+    def test_decoder_normal_cleanup_signals_only_unreaped_owned_leader(self):
+        from tacto.provider_io import provider_process_exited_unreaped
+        adapter=self.receipt(timeout_seconds=3)
+        adapter._decode_deadline=adapter._clock()+3
+        start,children=self.fake_decoder('import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b"Hello")')
+        original_killpg=os.killpg;seen=[]
+        def signal_owned(pid,number):
+            self.assertEqual(children[0].pid,pid)
+            self.assertIsNone(children[0].returncode)
+            self.assertTrue(provider_process_exited_unreaped(children[0]))
+            seen.append(pid)
+            return original_killpg(pid,number)
+        with patch('tacto.rtf_receipt.subprocess.Popen',side_effect=start),patch('tacto.provider_io.os.killpg',side_effect=signal_owned):
+            self.assertEqual('Hello',adapter._decode(b'{\\rtf1 Hello}'))
+        self.assertEqual([children[0].pid],seen)
+        self.assertEqual(0,children[0].returncode)
+
+    def test_already_reaped_decoder_never_authorizes_group_signal(self):
+        adapter=self.receipt(timeout_seconds=3)
+        adapter._decode_deadline=adapter._clock()+3
+        start,children=self.fake_decoder('pass')
+        def reaped(argv,**kwargs):
+            process=start(argv,**kwargs);process.wait(timeout=3);return process
+        with patch('tacto.rtf_receipt.subprocess.Popen',side_effect=reaped),patch('tacto.provider_io.os.killpg') as group:
+            with self.assertRaisesRegex(RuntimeError,'fresh owned session'):
+                adapter._decode(b'{\\rtf1 Hello}')
+            group.assert_not_called()
+        self.assertEqual(0,children[0].returncode)
+        self.assertTrue(children[0].stdin.closed);self.assertTrue(children[0].stdout.closed)
+
+    def test_unwaitable_host_refuses_before_decoder_spawn(self):
+        adapter=self.receipt(timeout_seconds=3)
+        adapter._decode_deadline=adapter._clock()+3
+        with patch('tacto.provider_io.require_provider_child_ownership',side_effect=RuntimeError('unwaitable host')),patch('tacto.rtf_receipt.subprocess.Popen') as spawn:
+            with self.assertRaisesRegex(RuntimeError,'unwaitable host'):
+                adapter._decode(b'{\\rtf1 Hello}')
+            spawn.assert_not_called()
+
     def xattr(self, value):
-        name='com.tacto.receipt-test' if sys.platform=='darwin' else 'user.tacto_receipt_test'
+        name='com.tacto.receipt-test' if sys.platform=='darwin' else 'user.nlc_receipt_test'
         data=str(value).encode()
         if hasattr(os, 'setxattr'):
             os.setxattr(self.path,name,data)

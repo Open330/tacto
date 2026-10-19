@@ -31,7 +31,7 @@ class ComparisonBackendTests(unittest.TestCase):
         with patch('tacto.helper.InheritedHelperDriver.available', return_value=False), \
              patch.object(comparison, '_locked') as locked, \
              patch.object(comparison.subprocess, 'run') as run:
-            result = comparison.run_one(task, 'tacto')
+            result = comparison.run_one(task, 'nlc')
         self.assertEqual('comparison_requires_signed_launcher', result['observed'])
         self.assertFalse(result['comparison_eligible'])
         self.assertEqual('not_run', result['status'])
@@ -44,7 +44,7 @@ class ComparisonBackendTests(unittest.TestCase):
                                cleanup=comparison.owned_cleanup)
         with patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison.subprocess, 'run') as run:
-            result = comparison.run_one(task, 'tacto')
+            result = comparison.run_one(task, 'nlc')
         self.assertEqual('owned_cleanup_requires_signed_window_binding', result['observed'])
         self.assertEqual('not_run', result['status'])
         setup.assert_not_called(); run.assert_not_called()

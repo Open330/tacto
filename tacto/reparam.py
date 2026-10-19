@@ -99,7 +99,12 @@ def parameterize(flow: Flow, mapping: dict[str, str], *,
         # verbatim (a typed string, an expected value)
         text = json.dumps(steps[i], ensure_ascii=False)
         for literal, param in mapping.items():
-            text = text.replace(f'"{literal}"', '"{{%s}}"' % param)
+            text = text.replace(json.dumps(literal,ensure_ascii=False), json.dumps('{{%s}}' % param))
+            # External literals may already be stored behind data parameters.
+            # An explicit user mapping can parameterize these labels too.
+            for stored_name,stored_value in {**d.get('params',{}),**d.get('literal_params',{})}.items():
+                if stored_value == literal:
+                    text = text.replace(json.dumps('{{%s}}' % stored_name),json.dumps('{{%s}}' % param))
         # Templates in a binding stay templates: bind() renders them to the
         # concrete value, so the invariant keeps describing the real action.
         out_steps.append(json.loads(text))
@@ -107,11 +112,15 @@ def parameterize(flow: Flow, mapping: dict[str, str], *,
 
     collapsed = out_steps
     d["steps"] = collapsed
-    d["params"] = {p: v for v, p in mapping.items()}
+    new_params = {p: v for v, p in mapping.items()}
+    if any(name in d.get('literal_params',{}) or (name in d.get('params',{}) and d['params'][name] != value)
+           for name,value in new_params.items()):
+        raise ValueError('parameter name already used; choose a different name')
+    d["params"] = {**d.get('params',{}), **new_params}
     if tables:
-        d["tables"] = tables
+        d["tables"] = {**d.get('tables',{}), **tables}
     if derived:
-        d["derived"] = derived
+        d["derived"] = {**d.get('derived',{}), **derived}
     return Flow.from_json(json.dumps(d, ensure_ascii=False))
 
 

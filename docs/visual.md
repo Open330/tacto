@@ -57,7 +57,7 @@ The fixture counter verifies a local canvas event only. It does not establish th
 
 `capture_browser(driver, obs_id, target="page")` binds a PNG to the current observation and document. It checks DOM, form values, viewport, and scroll state across capture. `VisualClickExecutor.click` asks the host for permission and then captures again; changed image bytes, DOM state, viewport, document, or observation prevent dispatch. Invalid, nonfinite, boolean, and out-of-bounds coordinates are refused.
 
-Captures are single-use in process while the capture object remains live, including across executor instances. A denied attempt also spends the capture. This protects the intended loop from accidental reuse; capture IDs are not cryptographic authorization tokens, and the Python host itself remains trusted.
+Capture IDs are single-use for the worker process lifetime, including across executor instances and after the original object is collected. A denied attempt also spends the ID. The browser registry retains only IDs (at most 128 characters each), not PNGs or capture objects. At 16,384 IDs it refuses new attempts with `capture_ledger_full`; it never evicts a spent ID to make room. Reservations are atomic across threads. The native executor has a separate registry with the same limit. This is not durable across worker restart; restart requires independent reconciliation of possibly delivered operations. Capture IDs are not cryptographic authorization tokens, and the Python host itself remains trusted.
 
 After a successful dispatch the loop observes and captures again. Events record `not_started`, `dispatched`, or `unknown`; a successful browser call alone is not completion. A dispatch exception records `unknown` and stops without retrying, since the click may already have happened.
 
@@ -87,3 +87,54 @@ Claude supplies observed model and token components. `query_visual` records
 success/error metadata through `capture_provider_calls`, without prompts,
 pixels or response text, and never silently falls back to another provider.
 Outer model timeouts do not guarantee cancellation of detached or remote work.
+
+## Public web app check — 2026-10-19
+
+`examples/probes/public_map_visual.py` exercises the live
+[OpenStreetMap app](https://www.openstreetmap.org/#map=15/37.5665/126.9780)
+in a new private headless Chromium browser. The model receives screenshot pixels,
+not the DOM target bounds. The host authorizes only the uniquely observed, visible
+Zoom In control, using its CSS bounds and an elementFromPoint hit check. The
+existing executor still checks the fresh image and DOM state before one click.
+The independent host oracle reads zoom15→16 and unchanged map center from the
+owned browser URL. This is ephemeral map navigation, not a saved/transmitted artifact.
+
+| Cohort | Capture/planning | Input and oracle | Result |
+|---|---|---|---|
+| Codex original | VisualError before a recorded capture; model0 | click0; exact error code unavailable | FAIL |
+| Codex v2 | first capture changed; second accepted; model1 | click dispatched1; verification raised Error; final state unavailable | FAIL |
+| Codex v3 | first capture changed; second accepted; model1 | click1; zoom15→16; same center | PASS, 11.508s |
+| Claude v3 | first capture changed; second accepted; model1 | click1; zoom15→16; same center | PASS, 8.962s |
+
+Artifacts are `reviews/tacto-finder-windowless-20261018/public-map-visual-*.json`
+with their private `.before.png` captures. The successful capture was visually
+checked: real map tiles and Korean labels were rendered. The directory names the
+engineering cohort; later checks continued on October19. These independent live
+site attempts are not pooled into a clean success rate or a fair provider/Sky
+comparison. All recorded source subsets were stable. No native app input is tested.
+
+The only read retry is `page_changed_during_capture`, at most3 fresh observations,
+before any model call or click; every attempt is recorded. Other read failures
+stop immediately. After any dispatched/uncertain input, the probe never resends it.
+The v3 harness changed verification from a page expression to bounded URL readback
+after v2's error. The original v1/v2 causes remain unknown; they are not filled in
+by speculation. Each cohort uses a different owned browser.
+
+Observed remote usage was Codex17,434 input/28 output tokens and Claude2,229
+input/36 output tokens in the successful rows. Codex cost is unknown; Claude's
+USD0.018544 is a CLI list estimate, not a billing receipt. One trial per provider,
+different CLI/model/image accounting and live page/cache conditions cannot prove
+relative latency or cost. `provider_side_effects_verified=false` remains explicit.
+
+The live UI, locale-dependent `Zoom In` label and tile responses are external
+dependencies. This is a small opt-in test, not a repeated tile-load benchmark.
+The original reports include browser version, viewport capture and HTTP status;
+browser locale/UA were not recorded, so condition parity is unproven. Follow-up
+probe metadata and offline boundary tests were implemented under
+`req_18dfa82a1e1583b0_60` and reviewed against the actual files. Seven offline probe
+tests cover URL parsing, exact control/hit authorization, capture retry bounds,
+readback timeout/center mismatch, source drift, cleanup errors and provider metadata
+retention. Together with the three visual deadline tests, ten checks passed in
+0.087s (`public-map-boundary-regression.log`). The refactor adds locale, user agent,
+viewport and UTC start metadata for future cohorts; it has not been rerun against
+the live site and does not retroactively change the four reports above.

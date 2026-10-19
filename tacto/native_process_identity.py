@@ -39,12 +39,7 @@ def _load_pidinfo():
         raise ProcessIdentityError('libproc process identity unavailable') from exc
 
 
-def process_start_identity(pid):
-    """Return observed epoch seconds + microseconds / 1e6 as a float.
-
-    Callers must use this same source for capture and comparison; AppKit's
-    launchDate is not interchangeable. Never return a guessed/default time.
-    """
+def _process_info(pid):
     if type(pid) is not int or not 0 < pid <= 0x7FFFFFFF:
         raise ProcessIdentityError('invalid PID')
     info = _ProcBSDInfo()
@@ -54,4 +49,17 @@ def process_start_identity(pid):
         raise ProcessIdentityError('process identity read incomplete or mismatched')
     if info.pbi_start_tvsec == 0 or info.pbi_start_tvusec >= 1_000_000:
         raise ProcessIdentityError('invalid process start time')
+    return info
+
+
+def process_start_identity(pid):
+    """Observed libproc epoch seconds; AppKit launchDate is not interchangeable."""
+    info = _process_info(pid)
     return info.pbi_start_tvsec + info.pbi_start_tvusec / 1_000_000
+
+
+def process_snapshot(pid):
+    """Same checked libproc packet; SZOMB=5 from the installed sys/proc.h."""
+    info = _process_info(pid)
+    return {'start_time': info.pbi_start_tvsec + info.pbi_start_tvusec / 1_000_000,
+            'zombie': info.pbi_status == 5}

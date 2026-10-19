@@ -29,7 +29,7 @@ let own = AXUIElementCreateApplication(10001)
 let foreign = AXUIElementCreateApplication(10002)
 let body = AXUIElementCreateApplication(10003)
 var windows = [foreign, own]
-var path = "/private/tmp/tacto-document-owned.rtf"
+var path = "/private/tmp/nlc-document-owned.rtf"
 var stamp = 10.0
 var calls = 0
 var bodyReads = 0
@@ -63,7 +63,7 @@ func AXUIElementCopyAttributeValue(_ element: AXUIElement, _ name: CFString,
     else if key == "AXValue" {
         precondition(CFEqual(element, body)); bodyReads += 1
         output.pointee = text as NSString
-        if driftDuringText { path = "/private/tmp/tacto-document-replaced.rtf" }
+        if driftDuringText { path = "/private/tmp/nlc-document-replaced.rtf" }
     } else { preconditionFailure(key) }
     return .success
 }
@@ -89,12 +89,12 @@ var rejected = false
 do { try documentValidateElement(body, window: own) } catch { rejected = true }
 precondition(rejected && bodyReads == before)
 bodyWindow = own
-path = "/private/tmp/tacto-document-replaced.rtf"
+path = "/private/tmp/nlc-document-replaced.rtf"
 let stale = documentText("com.apple.TextEdit", token:token, budget:100)
 precondition(stale["effect"] as? String == "not_started")
 precondition(bodyReads == before)
 precondition(documentTokens.isEmpty)
-path = "/private/tmp/tacto-document-owned.rtf"
+path = "/private/tmp/nlc-document-owned.rtf"
 windows = [own, own]
 let ambiguous = documentText("com.apple.TextEdit", token:nil, budget:100, selectedPath:path)
 precondition(ambiguous["effect"] as? String == "not_started")
@@ -112,12 +112,12 @@ precondition(raced["text"] == nil && documentTokens.isEmpty)
 // A token issued without a path selector pins the native document, not its
 // location. Save As can update AXDocument without invalidating that identity.
 driftDuringText = false; windows = [own]
-path = "/private/tmp/tacto-document-owned.rtf"
+path = "/private/tmp/nlc-document-owned.rtf"
 let original = documentText("com.apple.TextEdit", token:nil, budget:100)
 precondition(original["type"] as? String == "document_text")
 let movingToken = original["document_token"] as! String
 windows = [foreign, own]
-path = "/private/tmp/tacto-document-saved-as.rtf"
+path = "/private/tmp/nlc-document-saved-as.rtf"
 let relocated = documentText("com.apple.TextEdit", token:movingToken, budget:100)
 precondition(relocated["type"] as? String == "document_text", "\(relocated)")
 precondition(relocated["document_token"] as? String == movingToken)
@@ -132,7 +132,7 @@ let movingRace = documentText("com.apple.TextEdit", token:movingToken, budget:10
 precondition(movingRace["effect"] as? String == "not_started" && movingRace["text"] == nil)
 print("PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-document-selector-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-document-selector-') as directory:
             script = Path(directory) / 'main.swift'
             script.write_text(harness + section + checks)
             result = subprocess.run(['swift', str(script)], capture_output=True, text=True, timeout=45)

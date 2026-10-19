@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from . import safety
 from .contract import ContextBinding, Envelope, policy
-from .flow import Capture, Flow, Postcondition, Selector, Step, pin_params
+from .flow import Capture, Flow, Postcondition, Selector, Step, pin_params, literal_step, literal_text, _RuntimeText, _RuntimeReference
 
 
 @dataclass
@@ -82,6 +82,11 @@ def candidate_from(result, target: str, goal: str, quote: str = "",
     actions = [a for v in result.visits for a in v.actions if a.get("match")]
     # Pure menu discovery is not an executable replay action.
     if not actions or any(a.get("do") == "inspect_menu" for a in actions):
+        return None
+    # A Return that sent or opened something was checked against text the
+    # planner expected on screen; a recipe step needs an exact postcondition
+    # that a walk does not produce. Not promoted rather than replayed blind.
+    if any(a.get("do") == "submit" for a in actions):
         return None
     kept, explored = without_exploration(actions)
     return Candidate(goal=goal, target=target, quote=quote,
@@ -219,10 +224,15 @@ def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondi
                                        operation="menu",params_digest=pin_params(params)),
                 postcondition=(menu_postconditions or {}).get(index) or _menu_check(a)))
             continue
-        sel = Selector(role=a["role"], **{
+        child = a.get("via_child")
+        # An unlabeled row was found by the text inside it: the recipe does
+        # the same — match that text, act on the row around it.
+        found = child or a
+        sel = Selector(role=found["role"], **{
             {"Title": "title", "Description": "desc",
-             "Value": "value", "Identifier": "identifier"}[a["attr"]]: a["match"]},
-            ancestor=a.get("container") or None)
+             "Value": "value", "Identifier": "identifier"}[found["attr"]]: found["match"]},
+            ancestor=a.get("container") or None,
+            click_ancestor=[a["role"]] if child else None)
         from .protocol import ACTION_PARAMS
         params = {k: a[k] for k in ACTION_PARAMS[a["do"]] if k in a}
         action = {"name": a["do"], **params}
@@ -239,11 +249,11 @@ def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondi
             params=params,
             intent_text=a.get("label", a["match"]),
             safety=env.contract_for(effects, a.get("label", a["match"])),
-            binding=ContextBinding(bundle_id=c.target_identity or c.target, role=a["role"],
-                                   identifier=a["match"] if a["attr"] == "Identifier" else None,
-                                   title=a["match"] if a["attr"] == "Title" else None,
-                                   desc=a["match"] if a["attr"] == "Description" else None,
-                                   value=a["match"] if a["attr"] == "Value" else None,
+            binding=ContextBinding(bundle_id=c.target_identity or c.target, role=found["role"],
+                                   identifier=found["match"] if found["attr"] == "Identifier" else None,
+                                   title=found["match"] if found["attr"] == "Title" else None,
+                                   desc=found["match"] if found["attr"] == "Description" else None,
+                                   value=found["match"] if found["attr"] == "Value" else None,
                                    operation=a["do"],
                                    params_digest=pin_params(params),
                                    ancestor=a.get("container") or None),
@@ -255,7 +265,8 @@ def to_flow(c: Candidate, name: str, *, menu_postconditions: dict[int, Postcondi
             # deletes never is — it fails, as it always did.
             on_uncertain=(["target_missing", "target_ambiguous"]
                           if effects <= {"read", "write_ephemeral"} else [])))
-    return Flow(name=name, target=c.target, steps=steps, schema=2)
+    return Flow(name=name, target=literal_text(c.target),
+                steps=[literal_step(step) for step in steps], schema=2)
 
 
 def _menu_check(a: dict) -> Postcondition | None:
@@ -272,8 +283,8 @@ def _menu_check(a: dict) -> Postcondition | None:
     key = {"Title": "title", "Description": "desc"}.get(e["attr"])
     if key is None or e["attribute"] not in ("Identifier", "Value"):
         return None
-    return Postcondition(field=Selector(role=e["role"], **{key: e["match"]}),
-                         equals=e["equals"], attribute=e["attribute"])
+    return Postcondition(field=Selector(role=e["role"], **{key: literal_text(e["match"])}),
+                         equals=literal_text(e["equals"]), attribute=e["attribute"])
 
 
 # ------------------------------------------------------------------ gate
@@ -469,7 +480,7 @@ def lift_screen_values(c: Candidate, flow: Flow, request: str) -> tuple[Flow, di
         n += 1
         if not seen:
             ask = Step("decide", None, params={
-                "question": (f"목표: {c.goal[:200]}. '{a.get('label') or a.get('match')}' 에 "
+                "question": literal_text(f"목표: {c.goal[:200]}. '{a.get('label') or a.get('match')}' 에 "
                              f"입력할 글을 쓰십시오. (처음 했을 때 쓴 글: '{value[:200]}')"),
                 "compose": True, "into": f"written{n}"})
             steps += [ask, replace(st, params={**st.params, "value": "{{written%d}}" % n})]
@@ -484,7 +495,7 @@ def lift_screen_values(c: Candidate, flow: Flow, request: str) -> tuple[Flow, di
             source = seen[0]
             read = _basis_read(source, f"source{n}")
             ask = Step("decide", None, params={
-                "question": (f"'{source['label']}' 에 보이는 글에서, 목표를 위해 입력할 부분을 "
+                "question": literal_text(f"'{source['label']}' 에 보이는 글에서, 목표를 위해 입력할 부분을 "
                              f"그대로 고르십시오. 목표: {c.goal[:200]}. "
                              f"(처음 했을 때는 '{value[:80]}' 였습니다)"),
                 "extract_from": [f"source{n}"], "into": f"text{n}"})
@@ -513,7 +524,7 @@ class CandidateStore:
     def __init__(self, path: str | None = None):
         import os
         # Beside the recipes, wherever they live. A path relative to the
-        # working directory put candidates in whatever folder `tacto` happened
+        # working directory put candidates in whatever folder `nlc` happened
         # to be run from once it was installed.
         if path is None:
             from .store import default_directory
@@ -733,8 +744,8 @@ def with_decisions(flow: Flow, decisions: list, goal: str = "",
             branch = build(steps[i:], [{**x, "step": x["step"] - i, "_src": x.get("_src", x)}
                                        for x in ds if x["step"] > i])
             return head + [_basis_read(d["basis"], origin["seen"]), Step("decide", None, params={
-                "question": d["question"], "choices": d["choices"], "into": origin["into"],
-                "goal": goal or flow.name, "branches": {d["taken"]: branch}})]
+                "question": literal_text(d["question"]), "choices": [literal_text(x) for x in d["choices"]], "into": origin["into"],
+                "goal": literal_text(goal or flow.name), "branches": {d["taken"]: branch}})]
         steps = list(steps)
         for d in sorted(ds, key=lambda x: -x["step"]):
             origin = d.get("_src", d)
@@ -746,11 +757,12 @@ def with_decisions(flow: Flow, decisions: list, goal: str = "",
             sel = replace(st.selector, **{key: "{{%s}}" % into})
             binding = replace(st.binding, **{key: "{{%s}}" % into}) if st.binding else None
             steps[i] = replace(st, selector=sel, binding=binding,
-                               intent_text=f"{d['question']} → {{{{{into}}}}}")
+                               intent_text=_RuntimeText(f"{d['question']} → {{{{{into}}}}}",
+                                   (d['question']+' → ',_RuntimeReference(into))))
             # Read what the choice rests on, fresh, right before asking: the
             # replay's screen, not the walk's.
             steps[i:i] = [_basis_read(d["basis"], origin["seen"]), Step("decide", None, params={
-                "question": d["question"], "choices": d["choices"], "into": into})]
+                "question": literal_text(d["question"]), "choices": [literal_text(x) for x in d["choices"]], "into": into})]
         return steps
 
     # Nested copies carry `_src` so names land on the caller's dicts.
@@ -765,11 +777,11 @@ def _basis_read(b: dict, name: str) -> Step:
     from .contract import Resource, SafetyContract
     where = Selector(role=b["role"], ancestor=b.get("container") or None, **{
         {"Title": "title", "Description": "desc", "Identifier": "identifier"}[b["attr"]]: b["match"]})
-    return Step("read", where, intent_text=f"{b['label']} 읽기", unverified_ok=True,
+    return literal_step(Step("read", where, intent_text=f"{b['label']} 읽기", unverified_ok=True,
                 safety=SafetyContract(effects=["read"], reversibility="reversible",
                                       resource=Resource(object_type=str(b["label"])[:40],
                                                         scope="entry")),
-                captures=[Capture(name=name, field=where, attribute="Value")])
+                captures=[Capture(name=name, field=where, attribute="Value")]))
 
 
 def replays_the_walk(template: Flow, concrete: Flow, decisions: list) -> bool:

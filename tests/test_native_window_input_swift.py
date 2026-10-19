@@ -11,6 +11,37 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('xcrun'), 'macOS Swift required')
 class SwiftWindowInputTests(unittest.TestCase):
+    def test_popup_visibility_refuses_unknown_and_proves_absence_from_complete_list(self):
+        harness = r'''import Foundation
+import ApplicationServices
+let valid:[String:Any]=[kCGWindowNumber as String:17,kCGWindowOwnerPID as String:42,
+ kCGWindowLayer as String:0,kCGWindowIsOnscreen as String:true]
+let absent=try nativePopupVisibility(17,42,read:{[]})
+let visible=try nativePopupVisibility(17,42,read:{[valid]})
+precondition(!absent && visible)
+for mode in ["nil","duplicate","owner","layer","numeric_bool","missing_id","zero_id"] {
+ var entry=valid
+ if mode=="owner" {entry[kCGWindowOwnerPID as String]=99}
+ if mode=="layer" {entry[kCGWindowLayer as String]=1}
+ if mode=="numeric_bool" {entry[kCGWindowIsOnscreen as String]=NSNumber(value:1)}
+ if mode=="missing_id" {entry.removeValue(forKey:kCGWindowNumber as String)}
+ do {
+  _=try nativePopupVisibility(mode=="zero_id" ? 0:17,42,read:{mode=="nil" ? nil:mode=="duplicate" ? [entry,entry]:[entry]})
+  fatalError("unknown visibility admitted: \(mode)")
+ } catch NativeWindowInputError.refused {} catch {fatalError("unexpected error")}
+}
+print("SWIFT_POPUP_VISIBILITY_PASS")
+'''
+        with tempfile.TemporaryDirectory(prefix='nlc-popup-visibility-') as directory:
+            source,binary=Path(directory)/'main.swift',Path(directory)/'check'
+            source.write_text(harness)
+            built=subprocess.run(['xcrun','swiftc',str(source),str(ROOT/'helper/WindowInput.swift'),
+                str(ROOT/'helper/FrontmostProcess.swift'),'-o',str(binary)],capture_output=True,text=True,timeout=90)
+            self.assertEqual(0,built.returncode,built.stderr)
+            result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=10)
+            self.assertEqual(0,result.returncode,result.stderr)
+            self.assertEqual('SWIFT_POPUP_VISIBILITY_PASS',result.stdout.strip())
+
     def test_process_identity_and_prepared_pair_without_dispatch(self):
         harness = '''
 import ApplicationServices
@@ -40,7 +71,9 @@ do { _ = try captureNativeWindowBinding(element, pid, expectedStart: start - 1)
 catch NativeWindowInputError.refused { }
 let titlebar = try nativeTitlebarPoints(CGRect(x: 10, y: 20, width: 300, height: 200),
     CGRect(x: 18, y: 26, width: 14, height: 14))
-precondition(titlebar == [CGPoint(x: 160, y: 33), CGPoint(x: 235, y: 33), CGPoint(x: 85, y: 33)])
+precondition(Array(titlebar.prefix(3)) == [CGPoint(x: 160, y: 33), CGPoint(x: 235, y: 33), CGPoint(x: 85, y: 33)])
+precondition(titlebar.count == 15 && Set(titlebar.map { $0.x }).count == 15)
+precondition(titlebar.allSatisfy { $0.x > 10 && $0.x < 310 && $0.y == 33 })
 let negative = try nativeTitlebarPoints(CGRect(x: -400, y: -100, width: 300, height: 200),
     CGRect(x: -392, y: -94, width: 14, height: 14))
 precondition(negative[0] == CGPoint(x: -250, y: -87))
@@ -53,7 +86,7 @@ for anchor in [CGRect(x: 18, y: 100, width: 14, height: 14),
 }
 print("SWIFT_WINDOW_INPUT_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-swift-window-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-swift-window-') as directory:
             source = Path(directory)/'main.swift'
             binary = Path(directory)/'check'
             source.write_text(harness)
@@ -97,6 +130,13 @@ var changeDuringRead = false
 var changeAfterWrite = false
 var writeError = false
 var backgroundCalls = 0
+enum NativeWindowInputError: Error { case unavailable(String), refused(String), needsForeground(String) }
+// The person's focus is judged separately (test_foreground_preparation_swift).
+var focusRefusal: NativeWindowInputError? = nil
+func foregroundPreparationIsDone(_ pid: pid_t, _ window: AXUIElement) throws -> Bool {
+    if let focusRefusal { throw focusRefusal }
+    return false
+}
 func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                              _ pid: pid_t, deadline: Double) -> [String: Any] {
     backgroundCalls += 1
@@ -125,6 +165,7 @@ func refusalFor(_ setup: () -> Void) -> [String: Any] {
     abortState.isStopped = false; latestObsID = "test"; latestTargetPID = 1
     frontmost = true; minimized = false
     writes = 0; changeDuringRead = false; changeAfterWrite = false; writeError = false
+    focusRefusal = nil
     setup()
     return prepareWindow("test", "fixture", element, 1,
                          deadline: ProcessInfo.processInfo.systemUptime + 10)
@@ -134,6 +175,8 @@ let cases: [(String, () -> Void)] = [
     ("stale observation", { latestObsID = "other" }),
     ("other target", { latestTargetPID = 2 }),
     ("minimised", { minimized = true }),
+    ("editable focus elsewhere", { focusRefusal = .needsForeground("editable") }),
+    ("unreadable focus", { focusRefusal = .unavailable("user focus query failed") }),
 ]
 for (name, setup) in cases {
     let out = refusalFor(setup)
@@ -146,6 +189,11 @@ for (name, setup) in cases {
 let background = refusalFor({ frontmost = false })
 guard (background["type"] as? String) == "acted", backgroundCalls == 1, writes == 0 else {
     fatalError("background preparation was not delegated without AX writes")
+}
+let editing = refusalFor({ focusRefusal = .needsForeground("editable") })
+let unreadable = refusalFor({ focusRefusal = .unavailable("user focus query failed") })
+guard editing["needs_foreground"] as? Bool == true, unreadable["needs_foreground"] == nil, writes == 0 else {
+    fatalError("only editable focus is a foreground handoff, and neither may write")
 }
 let stopped = refusalFor({ abortState.isStopped = true })
 guard stopped["needs_foreground"] == nil else {
@@ -173,7 +221,7 @@ guard (failure["effect"] as? String) == "unknown", writes == 1 else {
 }
 print("SWIFT_PREPARE_GUARD_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-swift-prepare-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-swift-prepare-') as directory:
             script = Path(directory)/'main.swift'
             binary = Path(directory)/'check'
             script.write_text(harness)

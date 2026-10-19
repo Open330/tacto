@@ -62,3 +62,42 @@ class WindowReadyTests(unittest.TestCase):
             return result
         with self.assertRaises(WindowNotReady):
             require_window_ready('window',lambda:['window'],read,lambda a,b:a==b)
+
+    def test_nested_modal_and_unreadable_modal_state_refuse(self):
+        for modal in (True, 0, '', [], None):
+            with self.subTest(modal=modal):
+                self.setUp();self.tree['group']['AXModal']=modal
+                with self.assertRaises(WindowNotReady):self.check()
+        self.setUp();self.errors[('group','AXModal')]=-25204
+        with self.assertRaises(WindowNotReady):self.check()
+        self.setUp();self.tree['group']['AXModal']=False
+        self.assertTrue(self.check())
+
+    def test_late_sheet_attachment_refuses_even_with_empty_initial_list(self):
+        self.tree['window']['AXSheets']=[]
+        def read(node,name):
+            result=self.read(node,name)
+            if node=='group':self.tree['window']['AXSheets']=['late-sheet']
+            return result
+        with self.assertRaises(WindowNotReady):
+            require_window_ready('window',lambda:['window'],read,lambda a,b:a==b)
+
+    def test_late_top_role_change_refuses(self):
+        def read(node,name):
+            result=self.read(node,name)
+            if node=='group':self.tree['window']['AXRole']='AXSheet'
+            return result
+        with self.assertRaises(WindowNotReady):
+            require_window_ready('window',lambda:['window'],read,lambda a,b:a==b)
+
+    def test_pending_siblings_are_charged_before_expanding_branch(self):
+        self.tree['window']['AXChildren']=['group','sibling']
+        self.tree['group']['AXChildren']=['leaf-a','leaf-b']
+        for name in ('sibling','leaf-a','leaf-b'):
+            self.tree[name]={'AXRole':'AXGroup','AXChildren':[]}
+        reads=[]
+        def read(node,name):
+            reads.append((node,name));return self.read(node,name)
+        with self.assertRaises(WindowNotReady):
+            require_window_ready('window',lambda:['window'],read,lambda a,b:a==b,max_nodes=4)
+        self.assertFalse(any(node.startswith('leaf-') for node,name in reads))

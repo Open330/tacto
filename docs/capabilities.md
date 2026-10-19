@@ -12,7 +12,7 @@
 | 키보드 | Python/signed: 배경 입력 요소 탐색 키; host 승인 opaque Window에 여섯 탐색 키·최대64 UTF16 Unicode. Escape는 사용자 중단 | 같은 탐색 키와 Escape | host input_actions에 명시한 native key/text image proposal 지원 |
 | HTML select | 해당 없음 | value·label 고정, 변경·중복·disabled 거절 | 해당 없음 |
 | custom ARIA 선택 | 해당 없음 | 명시적 combobox/listbox 연결, 열기와 선택 분리 | 해당 없음 |
-| native 선택 | PopUpButton/ComboBox label 선택 구현; 조건 미실행 검사 발견으로 실앱 재검증 중 | 해당 없음 | 해당 없음 |
+| native 선택 | signed helper: owned AppKit PopUpButton 및 측정된 NSComboBox의 열기→label 선택 실제 통과; ComboBox는 물리 popup 창·행을 고정한 클릭과 수신 전이를 검증. 다른 AXComboBox 구조는 unsupported | 해당 없음 | 해당 없음 |
 | flow 재생 | 동일 backend·대상 binding | 동일 origin·대상 binding | 좌표 click을 자동 flow로 학습하지 않음 |
 | 저장·전송 완료 | 앱별 host receipt 연결 필요 | 호스트가 제공한 event-bound receipt 필요 | 이미지나 모델의 done은 완료 증거가 아님 |
 
@@ -24,6 +24,15 @@
 flow가 창 제목만 보고 완료하던 경로도 수정했다. host receipt를 제공하지 않는 앱은
 저장 액션을 실행했더라도 완료가 검증되지 않았다고 반환한다. 앱별 어댑터 연결은
 별도 작업이며, 현재 모든 앱의 저장 결과를 검증할 수 있다는 뜻은 아니다.
+
+native ComboBox의 signed 선택 경로는 AppKit direct-child Button1,
+TextField≤1,ScrollArea≤1의 구조만 분류한다. 편집 불가 owned NSComboBox는 실제
+결정론 및 Codex 모델 과제를 통과했다. editable 변형, 웹 ARIA/Electron의
+다른 AX 자식 구조, 위쪽 popup·잘린 행은 별도 실제 검증이 남아 있다. 누락·잘못된
+AX 데이터는 closed가 아니라 unknown/unsupported이며 열기·선택 전에 거부한다.
+목록을 열 때 physical popup ID를 고정하지 못했으면 popup_id_unavailable로
+선택을 제공하지 않는다. 이 경로를 direct Python native backend의 실제 지원
+증거나 legacy atomic select_option ComboBox 완료로 일반화하지 않는다.
 
 custom ARIA 선택은 같은 control이 명시한 listbox 안에서만 수행한다. 기본 완료
 검사는 같은 option의 `aria-selected`와 유일한 선택 상태다. 선택 후 option DOM을
@@ -125,3 +134,84 @@ inaccessible responders must expose independent receiving evidence; an event
 pair never proves completion. See [window input](native-window-input.md). General visual and registered Flow key/text proposals require explicit host
 input_actions and receiving evidence. Real app IME/typing and caret preservation
 still require actual-user evidence.
+
+### Signed channel failure and recovery
+
+The inherited launcher channel is permanently invalidated after an IO error,
+EOF, malformed JSON, or a response without an object and nonempty `type`.
+The SDK closes the write half and stream; a later request on that channel is
+refused before sending. Buffered replies cannot be reused as a later action's
+acknowledgment. A valid `type: error` response remains a protocol response and
+does not invalidate the channel by itself. A serialization error before IO
+does not send anything or invalidate the channel.
+
+A lost reply does not prove the action was cancelled or never started. Flow
+and general execution retain `effect: unknown` after a driver exception and
+stop consequential work rather than retry Save/Send. A fresh launcher starts a
+new observation scope; inspect the receiving state before authoring further
+work. Channel invalidation supplies no disk, producer, or recipient receipt.
+
+Flow 관측 실패 처리도 실행 기록과 분리한다(2026-10-11). observe/wait 예외와
+잘못된 응답은 `observation_unavailable`로 반환하고 이전 event·commit_evidence를
+보존한다. 공개 exception_class 집합 밖 클래스명과 예외 메시지는 기록하지 않는다.
+visual 호출 바깥 예외도 parent 결과에 이미 붙은 기록을 보존한다. 아직 parent에
+합쳐지지 않은 image/general child의 모든 부분 효과까지 보장하는 것은 아니다.
+KeyboardInterrupt/SystemExit은 전파한다. 확인된 커밋이 있어도 필수 후속 관측이
+실패하면 replay.ok=false이고 CLI는 두 사실을 구분해 출력하며 exit1을 반환한다.
+
+Helper/direct wait는 사용자 중단·대상 소멸·권한/연결/identity 오류와 모르는 오류를
+즉시 반환한다. `no_window_content`의 reason 미첨부/no_visible_window/window_offscreen만
+잠깐의 창 전환으로 관측을 계속할 수 있다. lock이 있으면 locked=false여야 하며,
+숨김/최소화/잠금/모르는 reason은 반복하지 않는다. 같은 기한 안의 read-only poll이고
+활성화·Space 이동·reopen·재입력을 승인하지 않는다. 마감까지 오류면 마지막 오류를
+반환한다. Flow는 error 및 legacy timeout.last_obs.error를 판단·복구로 넘기지 않는다.
+실제 관측은 성공했으나 조건이 불충족인 timeout만 기존 복구 대상이다.
+
+소유 AppKit 전송의 실제 client-side reply-loss 검증에서 sent1/commit_writes1,
+독립 sender transcript receipt1, 닫힌 채널 뒤 following_writes0을 확인했다.
+필수 후속 관측 실패로 전체 Flow는 실패이고 commit event는 confirmed로 보존됐다.
+응답이 이미 커널 버퍼에 도착했을 수 있으며 helper EPIPE·독립 helper 종료·실제 외부
+delivery는 검증하지 않았다. 실기와 첫 준비 실패 기록은 [평가](evaluation.md)에 있다.
+
+후속 helper lifecycle 검증은 인증된 launcher의 helper 연결 audit token에서
+PID/pid_version을 전달하고 helper 자기 보고 PID/start_time과 대조한다. 선택적
+메타데이터이므로 구버전의 미제공은 지원 불가이며 잘못된 형식/불일치는 handshake를
+닫는다. 이 정보는 프로세스 제어·입력 권한을 추가하지 않는다. 동일 libproc 시작
+시각으로 same_instance/replaced를 구분하고 ESRCH만 exited, 읽기 거부는 unobservable다.
+macOS의 zombie 상세 조회 실패에는 0.5초 제한의 PID/state 조회만 사용한다. 이 fallback은
+현재 PID의 zombie 상태이며 시작 시각 일치를 주장하지 않는다. PID가 재사용됐다면
+원래 실행은 끝났다는 의미다. 2026-10-11 소유 AppKit 실제 연결 단절에서 helper_before=
+same_instance, helper_after_channel_close=exited를 관측했다. helper EPIPE나 원격 모델
+취소·과금 종료를 검증한 것은 아니다.
+
+이름으로 선택한 복구 Flow도 부모 실행의 일부로 기록한다. 성공 여부만 반환하던
+경로를 보강해 자식 event ID·effects·receipt·provider/visual 기록과 진단을 유지한다.
+event에는 recovery/parent_step 출처를 붙이고, 자식 log는 recovery_step을 사용한
+64개 제한 중첩 기록으로 보존한다(total/truncated 포함). 복구 실패 또는 unknown
+효과는 부모 재시도를 허용하지 않는다. 복구 중 activated_target을 관측하면 두
+실패 경로 모두 같은 단계의 추가 입력 전에 target_seen_in_front/not_started로
+멈춘다. 정상적인 복구 뒤 재시도는 유지한다. 이는 반환된 자식 ReplayResult의
+보존이며, 자식 결과가 반환되기 전 예외·중단의 모든 부분 효과를 보장하지 않는다.
+
+제목 없는 AXSheet도 native/direct tree에서 역할과 부모 경계를 유지한다. 이전에는
+Sheet가 생략되고 Cancel만 남아 close_dialog가 닫을 것이 없다고 오인할 수 있었다.
+기본 close_dialog는 substring absent 대신 absent_role="Sheet"를 사용한다.
+Sheet1/Spreadsheet 같은 제목·값은 실제 Sheet 역할과 구분한다. IR load/bind와
+model authoring 모두 이 조건을 유지한다. 이는 관측된 tree 역할 조건이며 숨겨진
+노드·다른 앱의 상태나 입력 허가를 증명하지 않는다.
+
+`expect.no_modal`의 native/direct 가드도 AXSheets 외에 모든 창의 직계 자식과
+앱 포커스 요소의 조상에서 Sheet/AXModal/AXSheets를 확인한다. AppKit 모달 경계와
+포커스 조상이 검증 범위이며 임의의 포커스 밖 깊은 custom subtree를 전부 조사하지
+않는다. 내용 트리 전체를 매 행동마다 다시 읽지 않는다. 노드20000/포커스 깊이64/
+기한2초와 AX timeout 설정·복원 검사를 적용한다. 읽기 실패·잘못된 응답·예산 초과는
+unobservable로 입력을 거절한다. 선택적 AXModal/AXSheets/포커스의 NoValue 또는
+attributeUnsupported는 값 부재이고, 필수 AXWindows/AXRole/AXChildren의 오류는
+clear로 바꾸지 않는다. 이 조회는 시점 관측이며 입력까지의 경쟁을 배제하지 않는다.
+
+소유 ComboBox 앱의 종료 뒤 같은 signed helper에서 fresh popup을 열고 Beta를
+고르는 실제 liveness 과제도 통과했다. 슬롯 해제는 proven process instance end
+및 pinned popup의 confirmed onscreen 부재를 함께 요구한다. 앱을 종료하는
+런타임 복구나 자동 작업 재개 기능은 아니다. 같은 프로세스의 소유 AppKit 뷰
+교체 후 새 popup 선택도 실제 통과했다. live PID reuse와 다른 앱의 뷰 수명은
+별도 실제 검증이 남아 있다.

@@ -280,7 +280,7 @@ def scenario_trace_reproducibility():
     res, tr = record(Driver(), calculator_12x34())
     if not res.ok:
         return "실기기 실행이 되지 않아 녹화할 트레이스가 없음"
-    again = rerun(Trace.load(tr.save("/tmp/tacto-eval-trace.json")),
+    again = rerun(Trace.load(tr.save("/tmp/nlc-eval-trace.json")),
                   calculator_12x34())
     return again.ok and again.log[-1]["status"] == "done"
 
@@ -450,7 +450,7 @@ def scenario_permission_boundary():
     import os, subprocess, tempfile, pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     helper = root / "helper" / "Tacto Helper.app" / "Contents" / "MacOS" / "TactoHelper"
-    launcher = root / "launcher" / "tacto"
+    launcher = root / "launcher" / "nlc"
     if not helper.exists() or not launcher.exists():
         return "권한 경계 미빌드 (helper/build.sh, launcher/build.sh)"
 
@@ -480,7 +480,7 @@ def scenario_permission_boundary():
     pid = os.fork()
     if pid == 0:
         try:
-            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "tacto"), "list"])
+            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "nlc"), "list"])
         except Exception:
             os._exit(9)
     os.waitpid(pid, 0)
@@ -492,7 +492,7 @@ def scenario_peer_authentication():
     legacy stdio path is gone, and what crosses is checked per action."""
     import pathlib, subprocess
     root = pathlib.Path(__file__).resolve().parent.parent
-    if not (root / "launcher" / "tacto").exists():
+    if not (root / "launcher" / "nlc").exists():
         return "권한 경계 미빌드 (launcher/build.sh)"
     from tacto.helper import InheritedHelperDriver, HelperUnavailable
 
@@ -548,7 +548,7 @@ def scenario_cli_end_to_end():
     """Exercise the command a person actually types.
 
     Every other scenario calls the engine directly and binds parameters itself,
-    so a stored template that `tacto do` never bound ran as literal
+    so a stored template that `nlc do` never bound ran as literal
     "{{digit[item]}}" while the suite stayed green. This closes that gap: run the
     real CLI path over a stored recipe and require the verified answer."""
     from tacto.agent import Agent
@@ -986,7 +986,7 @@ def scenario_save_file():
     if problem:
         return problem
     _tidy_textedit(d)
-    name = f"tacto-eval-{uuid.uuid4().hex}.rtf"
+    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
     body = "저장 시나리오 테스트"
     receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
@@ -1259,7 +1259,7 @@ def scenario_save_chooses_its_folder():
     if problem:
         return problem
     _tidy_textedit(d)
-    name = f"tacto-eval-{uuid.uuid4().hex}.rtf"
+    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
     body = "폴더 지정 저장"
     receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
@@ -1660,7 +1660,7 @@ def scenario_escalation_clears_a_blocked_run():
     # its own "already exists, replace?" dialog, which is a different blockage
     # than the one under test.
     import uuid
-    name = f"tacto-escal-{uuid.uuid4().hex}.rtf"
+    name = f"nlc-escal-{uuid.uuid4().hex}.rtf"
     flow = textedit_save_as().bind(filename=name, folder="Downloads")
     # Only the first step may escalate; the consequential save still cannot.
     receipt = _native_rtf_receipt(d, name, "")
@@ -3397,7 +3397,7 @@ def scenario_every_transport_answers_the_same():
     import importlib.util
     root = __file__.rsplit("/", 2)[0]
     spec = importlib.util.spec_from_file_location(
-        "tacto_helper_contract", f"{root}/tests/test_helper_contract.py")
+        "nlc_helper_contract", f"{root}/tests/test_helper_contract.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
@@ -3585,7 +3585,7 @@ def scenario_an_abort_lasts_the_run_and_no_longer():
             and all(eff == "not_started" for _, eff in stopped.values()))
 
 
-_OBS_HANDOFF = "/tmp/tacto-obs-handoff.txt"
+_OBS_HANDOFF = "/tmp/nlc-obs-handoff.txt"
 
 
 def scenario_a_new_run_rejects_the_old_token():
@@ -3861,8 +3861,8 @@ def scenario_native_document_text():
     from pathlib import Path
     if any(a.startswith('--document-fixture=') for a in sys.argv[1:]):
         return _native_document_text_run(None)
-    work = Path(tempfile.mkdtemp(prefix='tacto-document-'))
-    document = work / 'tacto-document-witness.txt'
+    work = Path(tempfile.mkdtemp(prefix='nlc-document-'))
+    document = work / 'nlc-document-witness.txt'
     body = 'NLC document witness — 읽기 전용 확인 본문\n두 번째 줄'
     document.write_text(body)
     expectations = work / 'expectations.json'
@@ -3988,33 +3988,47 @@ def scenario_background_input_preserves_focus():
     return True
 
 
-def scenario_signed_provider_envelope():
+def scenario_signed_provider_envelope(provider='claude'):
     """Explicit one-call signed model telemetry probe; no app/UI actions."""
     import hashlib
     import json
     from pathlib import Path
+    from datetime import date
+    import os
     from tacto.authoring import reach_model_result, _extract_json
     from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
-    provider = next((arg.split("=", 1)[1] for arg in sys.argv
-                     if arg.startswith("--model-provider=")), "claude")
-    assert provider in ("claude", "codex"), "unsupported probe provider"
+    assert provider in ("claude", "codex", "gemini", "opencode"), "unsupported probe provider"
     root = Path(__file__).resolve().parents[1]
     files = [root/name for name in ("tacto/ask_provider.py", "tacto/authoring.py",
-             "tacto/helper.py", "tacto/provider_result.py", "launcher/tacto.swift", "launcher/tacto")]
+             "tacto/helper.py", "tacto/provider_result.py", "tacto/gemini_result.py", "tacto/opencode_result.py",
+             "tacto/provider_io.py", "tacto/codex_result.py", "tacto/claude_result.py",
+             "launcher/tacto.swift", "launcher/tacto")]
     def hashes():
         return {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
-    report = {"source_before": hashes(), "evaluation_kind": "single_signed_model_call_no_UI"}
-    result = reach_model_result('Return only the JSON object {"probe":"tacto-envelope"}.',
-                                provider, expect_json=True, timeout_seconds=60)
-    report.update(result=result.to_dict(), source_after=hashes())
-    output = root / "reviews/2026-09-19" / f"signed-provider-{provider}-{time.time_ns()}.json"
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2))
+    output = root / 'reviews' / date.today().isoformat() / f'signed-provider-{provider}-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    descriptor=os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    report = {"evaluation_kind": "single_signed_model_call_no_UI",
+              "comparison_eligible":False,"provider":provider}
+    with os.fdopen(descriptor,'w') as stream:
+        try:
+            report['source_before']=hashes()
+            result = reach_model_result('Return only the JSON object {"probe":"nlc-envelope"}.',
+                                        provider, expect_json=True, timeout_seconds=60)
+            report.update(result=result.to_dict(), source_after=hashes())
+        except BaseException as exc:
+            report['error_class']=type(exc).__name__
+            json.dump(report,stream,ensure_ascii=False,indent=2);raise
+        json.dump(report,stream,ensure_ascii=False,indent=2)
     print("  provider envelope report: " + str(output))
     assert report["source_before"] == report["source_after"], "source changed during probe"
-    assert result.status == "ok", result.error
-    assert _extract_json(result.text) == {"probe": "tacto-envelope"}, "unexpected model answer"
     assert result.transport == "launcher", "not signed model route"
+    from tacto.provider_result import UNAVAILABLE_REASONS
+    if result.status=='error' and getattr(result.error,'code',None) in UNAVAILABLE_REASONS:
+        return 'provider_unavailable:'+result.error.code
+    assert result.status == "ok", result.error
+    assert _extract_json(result.text) == {"probe": "nlc-envelope"}, "unexpected model answer"
     return True
 
 
@@ -4034,7 +4048,7 @@ def _coordinate_fixture_self_contained(driver):
     sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
     if not sdks:
         return "macOS SDK 없음"
-    app = Path(tempfile.mkdtemp(prefix="tacto-coordinate-")) / "NLC Coordinate Fixture.app"
+    app = Path(tempfile.mkdtemp(prefix="nlc-coordinate-")) / "NLC Coordinate Fixture.app"
     exe = app / "Contents/MacOS/NativeCoordinateFixture"
     exe.parent.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
@@ -4064,13 +4078,13 @@ def _coordinate_fixture_self_contained(driver):
         def count():
             observation = probe.observe(target, "tree_full")
             for line in observation.get("tree", "").splitlines():
-                if "tacto-coordinate-count" in line:
+                if "nlc-coordinate-count" in line:
                     return Selector._attr(line, "Value") or Selector._attr(line, "Title")
             return None
 
         with FocusWitness() as witness:
             observation = driver.observe(target, "tree_full")
-            index, _ = Selector(identifier="tacto-coordinate-button").resolve(observation["tree"])
+            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
             before = count()
             refusals = []
             for token, expectation in (("stale-observation", {"role": "Button"}),
@@ -4085,7 +4099,7 @@ def _coordinate_fixture_self_contained(driver):
             refusals.append(refused)
             unchanged = count()
             observation = driver.observe(target, "tree_full")
-            index, _ = Selector(identifier="tacto-coordinate-button").resolve(observation["tree"])
+            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
             acted = driver.act(observation["obs_id"], target,
                                {"name": "click", "element_index": index},
                                expect={"role": "Button", "enabled": True})
@@ -4153,16 +4167,19 @@ def scenario_public_opaque_point():
 
 
 
-def _native_visual_owned(provider, *, general=False, flow=False):
+def _native_visual_owned(provider, *, general=False, flow=False, receiving_cancel=False):
     import runpy
+    from datetime import date
     from pathlib import Path
     from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root=Path(__file__).resolve().parents[1]
     prefix='signed-flow-native-visual' if flow else ('signed-general-native-visual' if general else 'signed-native-visual')
-    output=root/'reviews/2026-10-01'/f'{prefix}-{provider}-{time.time_ns()}.json'
+    if receiving_cancel:prefix='signed-native-visual-receiving-cancel'
+    output=root/'reviews'/date.today().isoformat()/f'{prefix}-{provider}-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True, exist_ok=True)
     report=runpy.run_path(str(root/'examples/probes/native-opaque-point.py'))['main'](
-        output,public_driver=InheritedHelperDriver(),vision_provider=provider,general_visual=general,flow_visual=flow)
+        output,public_driver=InheritedHelperDriver(),vision_provider=provider,general_visual=general,flow_visual=flow,receiving_cancel=receiving_cancel)
     print('  native visual report: '+str(output))
     assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
     return True
@@ -4183,23 +4200,32 @@ def _opaque_window_input(*, signed, require_selection=False):
     return True
 
 
-def _visual_opaque_input(provider, *, require_selection=False):
+def _visual_opaque_input(provider, *, require_selection=False, journal_barrier=False, general_visual=False):
     import runpy
     from pathlib import Path
+    from datetime import date
     from tacto.helper import InheritedHelperDriver
     root=Path(__file__).resolve().parents[1]
     assert InheritedHelperDriver.available(),'signed launcher required'
-    output=root/'reviews/2026-10-04'/f'visual-flow-window-input-{provider}-{time.time_ns()}.json'
+    prefix='general-visual-window-input' if general_visual else 'visual-flow-window-input'
+    output=root/'reviews'/date.today().isoformat()/f'{prefix}-{provider}-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    options={'general_visual':True} if general_visual else {}
     report=runpy.run_path(str(root/'examples/probes/native-opaque-input.py'))['main'](
-        output,public_driver=InheritedHelperDriver(),visual_flow=True,vision_provider=provider,require_selection=require_selection)
+        output,public_driver=InheritedHelperDriver(),visual_flow=True,vision_provider=provider,require_selection=require_selection,journal_barrier=journal_barrier,**options)
     print('  visual opaque input report: '+str(output))
     assert report.get('passed'),json.dumps({key:report.get(key) for key in ('error','final')})[:1200]
+    if general_visual:
+        assert report.get('general_visual') is True and report.get('visual_flow') is False,'general input scope unverified'
     return True
 
 
 def scenario_visual_input_fixed(*, require_selection=False):return _visual_opaque_input('fixed',require_selection=require_selection)
 def scenario_visual_input_codex(*, require_selection=False):return _visual_opaque_input('codex',require_selection=require_selection)
 def scenario_visual_input_claude(*, require_selection=False):return _visual_opaque_input('claude',require_selection=require_selection)
+def scenario_visual_input_journal():return _visual_opaque_input('fixed',journal_barrier=True)
+def scenario_general_visual_input_fixed():return _visual_opaque_input('fixed',general_visual=True)
+def scenario_general_visual_input_codex():return _visual_opaque_input('codex',general_visual=True)
 
 
 def scenario_signed_opaque_input(*, require_selection=False):
@@ -4212,6 +4238,10 @@ def scenario_python_opaque_input(*, require_selection=False):
 
 def scenario_native_image_fixed():
     return _native_visual_owned('fixed')
+
+
+def scenario_native_image_receiving_cancel():
+    return _native_visual_owned('fixed',receiving_cancel=True)
 
 
 def scenario_native_image_codex():
@@ -4246,34 +4276,64 @@ def scenario_general_visual_claude():
     return _native_visual_owned('claude',general=True)
 
 
+def _navigation_failure_summary(report):
+    """Bounded evaluation metadata; UI trees and provider messages stay private."""
+    import re
+    if type(report) is not dict:report={}
+    def flag(name):
+        value=report.get(name)
+        return value if type(value) is bool else None
+    error_class=report.get('error_class')
+    if type(error_class) is not str or not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]{0,63}',error_class):
+        error_class=None
+    audit=report.get('input_audit');audit=audit if type(audit) is dict else {}
+    audit_status=audit.get('status')
+    if type(audit_status) is not str or audit_status not in {'UNCHANGED_SAMPLED','CHANGED','INCONCLUSIVE'}:
+        audit_status='unknown'
+    general=report.get('general');general=general if type(general) is dict else {}
+    calls=general.get('provider_calls');calls=calls if type(calls) is list else []
+    codes=set()
+    allowed={'organization_access_disabled','provider_unavailable','invalid_response','timeout','no_answer'}
+    for call in calls[:64]:
+        error=call.get('error') if type(call) is dict else None
+        code=error.get('code') if type(error) is dict else None
+        if type(code) is str and code in allowed:codes.add(code)
+    return {'passed':flag('passed'),'error_class':error_class,
+            'source_subset_stable':flag('source_stable_during_run'),
+            'owned_child_reaped':flag('owned_child_reaped'),'input_audit_status':audit_status,
+            'provider_error_codes':sorted(codes)}
+
+
 def scenario_signed_window_keys(*, require_selection=False):
     """Signed window keys on owned controls, with independent readback."""
     import runpy
+    from datetime import date
     from pathlib import Path
     from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
-    output = root / 'reviews/2026-10-01' / f'signed-native-navigation-{time.time_ns()}.json'
+    output = root / 'reviews' / date.today().isoformat() / f'signed-native-navigation-{time.time_ns()}.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     report = probe['main'](InheritedHelperDriver(), output, require_selection=require_selection)
     print('  signed native navigation report: ' + str(output))
-    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    assert report.get('passed'), json.dumps(_navigation_failure_summary(report),ensure_ascii=False)
     return True
 
 
 def _scenario_navigation_model(provider, *, require_selection=False):
     import runpy
+    from datetime import date
     from pathlib import Path
     from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), 'signed launcher required'
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
-    output = root / 'reviews/2026-10-01' / f'navigation-model-{provider}-{time.time_ns()}.json'
+    output = root / 'reviews' / date.today().isoformat() / f'navigation-model-{provider}-{time.time_ns()}.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     report = probe['main'](InheritedHelperDriver(), output, model_provider=provider, require_selection=require_selection)
     print('  model navigation report: ' + str(output))
-    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    assert report.get('passed'), json.dumps(_navigation_failure_summary(report),ensure_ascii=False)
     return True
 
 
@@ -4288,14 +4348,15 @@ def scenario_navigation_model_codex(*, require_selection=False):
 def scenario_native_navigation(*, require_selection=False):
     """Python PID/window navigation on owned controls with independent readback."""
     import runpy
+    from datetime import date
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / 'examples/probes/native-navigation.py'))
-    output = root / 'reviews/2026-10-01' / f'native-navigation-{time.time_ns()}.json'
+    output = root / 'reviews' / date.today().isoformat() / f'native-navigation-{time.time_ns()}.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     report = probe['main'](Driver(), output, require_selection=require_selection)
     print('  native navigation report: ' + str(output))
-    assert report.get('passed'), json.dumps({key:report.get(key) for key in ('error','final')})[:1000]
+    assert report.get('passed'), json.dumps(_navigation_failure_summary(report),ensure_ascii=False)
     return True
 
 
@@ -4318,16 +4379,115 @@ def scenario_signed_background_window_prepare():
 def scenario_signed_element_click():
     """Owned list: no-AXPress control click and row double click, background."""
     import runpy
+    from datetime import date
     from pathlib import Path
     from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root = Path(__file__).resolve().parents[1]
     probe = runpy.run_path(str(root / "examples/probes/signed-element-click.py"))
-    output = root / "reviews/2026-10-10" / f"signed-element-click-{time.time_ns()}.json"
+    output = root / "reviews" / date.today().isoformat() / f"signed-element-click-{time.time_ns()}.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     report = probe["main"](InheritedHelperDriver(), output)
     print("  signed element click report: " + str(output))
     assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:1500]
+    return True
+
+
+def scenario_signed_menu_readiness():
+    import runpy
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-menu-readiness-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    report=runpy.run_path(str(root/'examples/probes/signed-menu-readiness.py'))['main'](InheritedHelperDriver(),output)
+    print('  signed menu readiness report: '+str(output))
+    assert report.get('passed'), report.get('error_class') or 'menu readiness unverified'
+    return True
+
+
+def scenario_signed_native_recovery(*, repeated=False, exhaust_budget=False, interleave_textedit=False,
+                                    interleave_disconnect=False, interleave_parent_change=False):
+    """Actual owned twelve-stage native workflow, interrupted by a sheet."""
+    import runpy
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    output = root / "reviews" / date.today().isoformat() / f"signed-native-recovery-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    probe = runpy.run_path(str(root / "examples/probes/signed-native-recovery.py"))
+    options = {'repeated':repeated,'exhaust_budget':exhaust_budget}
+    if interleave_textedit:options['interleave_textedit'] = True
+    if interleave_disconnect:options['interleave_disconnect'] = True
+    if interleave_parent_change:options['interleave_parent_change'] = True
+    report = probe["main"](InheritedHelperDriver(), output,**options)
+    print("  signed native recovery report: " + str(output))
+    summary = {key:report.get(key) for key in ('passed','error_class','owned_child_reaped','source_subset_stable')}
+    assert report.get("passed"), json.dumps(summary,ensure_ascii=False)
+    assert report.get('stages')==(24 if repeated else 12), 'recovery stage scope mismatch'
+    assert report.get('recovery_budget')==(1 if exhaust_budget or not repeated else 3), 'recovery budget scope mismatch'
+    assert report.get('expected_budget_exhaustion') is exhaust_budget, 'recovery stop scope mismatch'
+    if interleave_textedit:
+        assert report.get('interleave_textedit_requested') is True, 'interleave scope mismatch'
+        rows = report.get('interleaved_textedit')
+        if interleave_disconnect:
+            assert report.get('expected_interleave_disconnect') is True, 'disconnect scope mismatch'
+            assert report.get('helper_channel_shutdown') is True and report.get('helper_channel_poisoned') is True, 'disconnect channel unverified'
+            assert report.get('expected_stop_verified') is True and report.get('task_oracle_passed') is False, 'disconnect stop unverified'
+            assert type(rows) is list and len(rows)==1 and rows[0].get('parent_stage')==8 and rows[0].get('phase')=='failed', 'disconnect boundary mismatch'
+        elif interleave_parent_change:
+            assert report.get('expected_interleave_parent_change') is True and report.get('parent_change_injected') is True,'parent change scope unverified'
+            assert report.get('expected_stop_verified') is True and report.get('task_oracle_passed') is False,'parent change stop unverified'
+            assert type(rows) is list and len(rows)==1 and rows[0].get('parent_stage')==8 and rows[0].get('phase')=='failed','parent change boundary mismatch'
+        else:
+            assert report.get('multi_app_saved_state_verified') is True, 'interleave saved state unverified'
+            assert type(rows) is list and [row.get('parent_stage') for row in rows] == [8,14,20], 'interleave boundaries mismatch'
+            assert all(row.get('phase') == 'completed' for row in rows), 'interleave incomplete'
+    return True
+
+
+def scenario_signed_native_recovery_repeated():
+    return scenario_signed_native_recovery(repeated=True)
+
+
+def scenario_signed_native_recovery_budget_stop():
+    return scenario_signed_native_recovery(repeated=True,exhaust_budget=True)
+
+
+def scenario_signed_native_recovery_multi_app():
+    return scenario_signed_native_recovery(repeated=True,interleave_textedit=True)
+
+
+def scenario_signed_native_recovery_multi_app_disconnect():
+    return scenario_signed_native_recovery(repeated=True,interleave_textedit=True,interleave_disconnect=True)
+
+
+def scenario_signed_native_recovery_multi_app_parent_change():
+    return scenario_signed_native_recovery(repeated=True,interleave_textedit=True,interleave_parent_change=True)
+
+
+def scenario_signed_commit_disconnect():
+    """Owned native commit survives client reply loss, with no second send."""
+    import runpy
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), "signed launcher required"
+    root = Path(__file__).resolve().parents[1]
+    output = root / "reviews" / date.today().isoformat() / f"signed-commit-disconnect-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    probe = runpy.run_path(str(root / "examples/probes/signed-commit-disconnect.py"))
+    report = probe["main"](InheritedHelperDriver(), output)
+    print("  signed commit disconnect report: " + str(output))
+    # Input-audit samples can describe the person's foreground. Keep them in
+    # the private report, not in an assertion copied into terminal/model logs.
+    summary = {key: report.get(key) for key in ('passed', 'error_class', 'owned_child_reaped', 'source_subset_stable')}
+    summary['preparation_diagnostic'] = report.get('preparation', {}).get('preparation_diagnostic')
+    assert report.get("passed"), json.dumps(summary, ensure_ascii=False)
     return True
 
 
@@ -4357,12 +4517,252 @@ def scenario_signed_document_rtf():
     from tacto.helper import InheritedHelperDriver
     assert InheritedHelperDriver.available(), "signed launcher required"
     root=Path(__file__).resolve().parents[1]
-    output=root/'reviews/2026-10-01'/f'signed-document-rtf-{time.time_ns()}.json'
+    from datetime import date
+    output=root/'reviews'/date.today().isoformat()/f'signed-document-rtf-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     probe=runpy.run_path(str(root/'examples/probes/signed-document-rtf.py'))
     report=probe['main'](InheritedHelperDriver(),output)
     print('  signed owned RTF export report: '+str(output))
     assert report.get('passed'), str(report.get('error') or report['input_audit'].get('status'))
     return True
+
+
+def scenario_signed_document_attachments():
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_document_attachments import main
+    assert InheritedHelperDriver.available(),'signed launcher required'
+    directory=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/('signed-document-attachments-'+str(time.time_ns()))
+    directory.mkdir(mode=0o700)
+    report=main(InheritedHelperDriver(),directory/'report.json')
+    print('  signed document attachment report: '+str(directory/'report.json'))
+    assert report['passed'],report.get('error','attachment preservation unverified')
+    return True
+
+
+def _signed_producer_file(sibling_count=0,journal_reply_loss=False,journal_worker_restart=False,journal_worker_reconcile=False):
+    """Owned app callback and fresh file, joined by typed producer evidence."""
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-producer-file-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    probe=runpy.run_path(str(root/'examples/probes/signed_save_writer.py'))
+    options={'sibling_count':sibling_count,'journal_reply_loss':journal_reply_loss,'journal_worker_restart':journal_worker_restart}
+    if journal_worker_reconcile:options['journal_worker_reconcile']=True
+    report=probe['main'](InheritedHelperDriver(),output,**options)
+    print('  signed producer file report: '+str(output))
+    summary={key:report.get(key) for key in ('passed','failure_code','error_class','owned_child_reaped','source_subset_stable')}
+    assert report.get('passed'),json.dumps(summary,ensure_ascii=False)
+    if journal_worker_reconcile:
+        assert report.get('worker_reconciliation_requested') is True and report.get('native_causal_continuation_verified') is True, 'native continuation scope unverified'
+    return True
+
+
+def scenario_signed_producer_file():
+    return _signed_producer_file()
+
+
+def scenario_signed_producer_file_large():
+    """Selected parent has 2400 owned sibling folders; budgets are unchanged."""
+    return _signed_producer_file(2400)
+
+
+def scenario_signed_producer_file_reply_loss():
+    """Owned native receipt resolves injected reply loss; journal refuses reuse."""
+    return _signed_producer_file(journal_reply_loss=True)
+
+
+def scenario_signed_producer_worker_restart():
+    """Real signed worker death after native receipt; fresh worker refuses input."""
+    return _signed_producer_file(journal_worker_restart=True)
+
+
+def scenario_signed_producer_worker_reconcile():
+    return _signed_producer_file(journal_worker_restart=True,journal_worker_reconcile=True)
+
+
+def scenario_signed_native_journal_worker(config_path=None,phase=None):
+    """Internal owned evaluation worker; requires parent-created configuration."""
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_native_journal_worker import execute
+    if not config_path:raise ValueError('owned worker configuration required')
+    return execute(InheritedHelperDriver(),config_path,phase)
+
+
+def scenario_signed_finder_read_cost(include_preflight=False,read_strategy='batch',collect_cpu=False,titlebar_probe=False):
+    """Read-only Finder RPC sample; not a preparation success oracle."""
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-finder-read-cost-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    print('  signed Finder read-cost report: '+str(output),flush=True)
+    report=runpy.run_path(str(root/'examples/probes/signed_finder_read_cost.py'))['main'](InheritedHelperDriver(),output,
+        include_preflight=include_preflight,read_strategy=read_strategy,collect_cpu=collect_cpu,titlebar_probe=titlebar_probe)
+    summary={key:report.get(key) for key in ('passed','error_class','source_subset_stable','rpc_only_us')}
+    assert report.get('passed'),json.dumps(summary,ensure_ascii=False)
+    return True
+
+
+def scenario_signed_finder_titlebar_profile():
+    """Opt-in read-only titlebar diagnostic; not a timing baseline or input permit."""
+    return scenario_signed_finder_read_cost(include_preflight=True,titlebar_probe=True)
+
+
+def scenario_signed_finder_readiness_profile():
+    """Read-only full guard timing; measurement success is not preparation pass."""
+    return scenario_signed_finder_read_cost(include_preflight=True)
+
+
+def scenario_signed_finder_readiness_single_profile():
+    """Same full read-only guard and deadline, using individual attribute RPCs."""
+    return scenario_signed_finder_read_cost(include_preflight=True,read_strategy='single')
+
+
+def scenario_signed_concurrent_typing(directory=None, witness_report=None, participant_confirmed=False):
+    """User-operated witness; only the signed driver sends background input."""
+    if participant_confirmed is not True:return 'human_participation_required'
+    if directory is None or witness_report is None:return 'prepared_typing_fixture_required'
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    if not InheritedHelperDriver.available():return 'signed_helper_required'
+    root = Path(__file__).resolve().parents[1]
+    prepared = Path(directory).resolve(strict=True)
+    witness = Path(witness_report).resolve(strict=True)
+    if not prepared.is_relative_to(root/'reviews') or not witness.is_relative_to(root/'reviews'):
+        raise ValueError('owned_review_fixture_required')
+    probe = runpy.run_path(str(root/'examples/probes/concurrent-typing.py'))
+    output = root/'reviews'/date.today().isoformat()/f'signed-concurrent-typing-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    result = probe['run'](prepared,output,witness,driver=InheritedHelperDriver(),participant_confirmed=True)
+    assert result == 0, 'signed concurrent typing unverified; no retry'
+    return True
+
+
+def scenario_signed_native_selection_parameters():
+    """Native parameter refusals through the installed authenticated channel."""
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_native_selection_parameters import main
+    if not InheritedHelperDriver.available():return 'signed_helper_required'
+    driver = InheritedHelperDriver()
+    output = Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/f'native-selection-parameters-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    result = main(driver,output)
+    print('  signed native parameter report: '+str(output))
+    assert result['passed'], 'native parameter refusal matrix incomplete'
+    return True
+
+
+def scenario_signed_finder_cpu_profile():
+    """Whole-process CPU across the read-only full preflight RPC."""
+    return scenario_signed_finder_read_cost(include_preflight=True,collect_cpu=True)
+
+
+def scenario_signed_readiness_scale(audit_strategy='application_frontmost'):
+    """Owned other-window AX size; retain every failed preparation task."""
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-readiness-scale-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    print('  signed readiness scale report: '+str(output),flush=True)
+    probe=runpy.run_path(str(root/'examples/probes/signed_readiness_scale.py'))
+    report=probe['main'](InheritedHelperDriver(),output,audit_strategy=audit_strategy)
+    summary={'passed':report.get('passed'),'source_subset_stable':report.get('source_subset_stable'),
+        'cases':[{key:case.get(key) for key in ('requested_B_leaves','observed_B_leaves',
+                   'passed','error_class','elapsed_ms','diagnostic')} for case in report.get('cases',[])]}
+    assert report.get('passed'),json.dumps(summary,ensure_ascii=False)
+    return True
+
+
+def scenario_signed_readiness_scale_systemwide():
+    """Owned preparation with system-wide focus cross-checks; not human typing."""
+    return scenario_signed_readiness_scale(audit_strategy='systemwide')
+
+
+def scenario_signed_finder_preparation(*, preflight=False):
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(),'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-finder-preparation-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    print('  signed Finder report: '+str(output),flush=True)
+    probe=runpy.run_path(str(root/'examples/probes/signed_finder_preparation.py'))
+    report=probe['main'](InheritedHelperDriver(),output,preflight=preflight)
+    if (report.get('precondition_status')=='not_run' and report.get('source_subset_stable') is True
+            and report.get('open_folder_attempted') is False and report.get('task_result_ok') is None):
+        checks=report.get('background_precondition_checks') or []
+        if checks and checks[-1].get('reason') in ('target_already_foreground','foreground_changed','foreground_unavailable'):
+            return 'background Finder precondition: '+checks[-1]['reason']
+    summary={key:report.get(key) for key in ('passed','error_class','stage_count','source_subset_stable')}
+    assert report.get('passed'),json.dumps(summary,ensure_ascii=False)
+    return True
+
+
+def scenario_signed_popover_receipt(*,prepared=False,routing_refusal=False):
+    """One signed window-point action with owned content receipt per child."""
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-popover-receipt-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    print('  signed popover receipt report: '+str(output),flush=True)
+    report=runpy.run_path(str(root/'examples/probes/signed_popover_receipt.py'))['main'](InheritedHelperDriver(),output,prepared=prepared,routing_refusal=routing_refusal)
+    summary={'passed':report.get('passed'),'source_subset_stable':report.get('source_subset_stable'),
+        'cases':[{k:c.get(k) for k in ('mode','target_window','accepts_first_mouse','passed','content_received_once','error_class')} for c in report.get('cases',[])]}
+    assert report.get('passed'),json.dumps(summary,ensure_ascii=False)
+    return True
+
+
+def scenario_signed_popover_routing_refusal():
+    return scenario_signed_popover_receipt(routing_refusal=True)
+
+
+def scenario_signed_popover_prepared_receipt():
+    return scenario_signed_popover_receipt(prepared=True)
+
+
+def scenario_signed_modality_inventory():
+    """Owned read-only full/boundary comparison; no input safety claim."""
+    import runpy
+    from pathlib import Path
+    from datetime import date
+    from tacto.helper import InheritedHelperDriver
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'signed-modality-inventory-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    print('  signed modality report: '+str(output),flush=True)
+    report=runpy.run_path(str(root/'examples/probes/signed_modality_inventory.py'))['main'](InheritedHelperDriver(),output)
+    summary={'passed':report.get('passed'),'source_subset_stable':report.get('source_subset_stable'),
+        'cases':[{k:c.get(k) for k in ('mode','passed','boundary','verdicts_differ','error_class')} for c in report.get('cases',[])]}
+    assert report.get('passed'),json.dumps(summary,ensure_ascii=False)
+    return True
+
+
+def scenario_signed_finder_preflight():
+    return scenario_signed_finder_preparation(preflight=True)
 
 
 def scenario_guarded_panel_commit():
@@ -4378,6 +4778,24 @@ def scenario_guarded_panel_commit():
     report = probe["main"](InheritedHelperDriver(), output, guarded_commit=True)
     print("  owned guarded panel report: " + str(output))
     assert report.get("passed"), json.dumps(report, ensure_ascii=False)[:800]
+    return True
+
+
+def scenario_signed_textedit_saved_state():
+    """Actual app Save plus exact bytes, without claiming writer attribution."""
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_textedit_saved_state import main
+    assert InheritedHelperDriver.available(),'signed launcher required'
+    output=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/f'signed-textedit-saved-state-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True)
+    print('  signed TextEdit saved-state report: '+str(output),flush=True)
+    report=main(InheritedHelperDriver(),output)
+    if report.get('run_status')=='precondition_unmet' and report.get('source_subset_stable') is True:
+        return 'background TextEdit precondition unmet'
+    child=report.get('saved_state_result',{})
+    assert report.get('passed'),json.dumps({key:child.get(key) for key in ('failure_code','preparation_diagnostic','cleanup_status')})
     return True
 
 
@@ -4491,7 +4909,7 @@ def scenario_signed_background_refusal():
     return True
 
 
-def _owned_select_fixture():
+def _owned_select_fixture(options=0, *, duplicates=False, combo=False,replacement=False,visible_items=0):
     """Start the owned select fixture if nobody has, and say who owns it.
 
     These scenarios used to require it already running, and the only code that
@@ -4501,6 +4919,15 @@ def _owned_select_fixture():
     the background and is never activated. Returns the process to stop, or None
     if one was already running (then it is not ours to stop).
     """
+    if type(options) is not int or not 0<=options<=256:
+        raise ValueError('owned option count must be 0..256')
+    if type(duplicates) is not bool:raise ValueError('duplicates must be boolean')
+    if type(combo) is not bool or (combo and (duplicates or options>197)):
+        raise ValueError('combo requires its own fixture configuration')
+    if type(replacement) is not bool or (replacement and not combo):
+        raise ValueError('replacement requires a ComboBox fixture')
+    if type(visible_items) is not int or not 0<=visible_items<=20 or (visible_items and (not combo or replacement)):
+        raise ValueError('visible items requires its own ComboBox configuration')
     import plistlib
     import subprocess
     import tempfile
@@ -4509,12 +4936,13 @@ def _owned_select_fixture():
     probe = Driver()
     probe._pump()
     if probe._resolve(TARGET, launch=False) is not None:
+        if options or duplicates or combo:raise RuntimeError('owned_select_fixture_already_running')
         return None
     root = Path(__file__).resolve().parents[1]
     sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
     if not sdks:
         raise RuntimeError("no_macos_sdk")
-    app = Path(tempfile.mkdtemp(prefix="tacto-owned-select-")) / "NLC Select Fixture.app"
+    app = Path(tempfile.mkdtemp(prefix="nlc-owned-select-")) / "NLC Select Fixture.app"
     executable = app / "Contents/MacOS/NativeSelectFixture"
     executable.parent.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
@@ -4527,7 +4955,10 @@ def _owned_select_fixture():
          "-o", str(executable)], capture_output=True, text=True)
     if build.returncode != 0:
         raise RuntimeError("fixture_compile_failed: " + build.stderr.strip()[:200])
-    process = subprocess.Popen([str(executable), "--timeout", "180"],
+    process = subprocess.Popen([str(executable), "--timeout", "240" if combo and options else "180",'--options',str(options)]
+                               +(['--duplicate-options'] if duplicates else [])+(['--combo'] if combo else [])
+                               +(['--replace-combo'] if replacement else [])
+                               +(['--visible-items',str(visible_items)] if visible_items else []),
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
@@ -4542,7 +4973,7 @@ def _owned_select_fixture():
     raise RuntimeError("fixture_did_not_start")
 
 
-def scenario_native_select_fixture():
+def scenario_native_select_fixture(*, duplicates=False, combo=False,visible_items=0):
     """Explicit owned AppKit popup probe; not part of the default UI suite."""
     import json
     from pathlib import Path
@@ -4552,10 +4983,12 @@ def scenario_native_select_fixture():
     d = InheritedHelperDriver() if signed else Driver()
     transport = "inherited-helper" if signed else "in-process"
     root = Path(__file__).resolve().parents[1]
-    output = root / "reviews/2026-09-19" / f"native-select-{transport}-{time.time_ns()}.json"
-    owned = _owned_select_fixture()
+    from datetime import date
+    output = root/'reviews'/date.today().isoformat()/f"native-select-{transport}-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    owned = _owned_select_fixture(duplicates=duplicates,combo=combo,visible_items=visible_items)
     try:
-        result = run_and_save(d, output=output, transport=transport)
+        result = run_and_save(d, output=output, transport=transport,duplicates=duplicates,combo=combo,visible_items=visible_items)
     finally:
         if owned is not None:
             owned.terminate()
@@ -4564,29 +4997,328 @@ def scenario_native_select_fixture():
     return True
 
 
-def scenario_native_select_model_fixture():
+def scenario_signed_native_select_observe_control():
+    """Signed owned popup observation, no menu opening or selection."""
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probe_native_select import run_observe_control
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    directory=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/('select-observe-control-'+str(time.time_ns()))
+    directory.mkdir(mode=0o700)
+    output=directory/'report.json'
+    owned=_owned_select_fixture()
+    assert owned is not None, 'control requires a new owned fixture'
+    try:
+        assert owned.poll() is None, 'owned fixture exited'
+        result=run_observe_control(InheritedHelperDriver(),output=output,focus_diagnostics_dir=directory,expected_pid=owned.pid)
+        assert owned.poll() is None, 'owned fixture exited during control'
+    finally:
+        if owned is not None:
+            owned.terminate();owned.wait(timeout=5)
+    print('  signed select observe control report: '+str(output))
+    assert result['passed'], 'read-only observation/input state unverified'
+    return True
+
+
+def scenario_signed_native_select_opening_diagnostic(*, opening_action=None):
+    """One owned popup opening, focus descriptors, never a selection or retry."""
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probe_native_select import run_and_save
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    directory=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/('select-opening-diagnostic-'+str(time.time_ns()))
+    directory.mkdir(mode=0o700)
+    output=directory/'report.json'
+    owned=_owned_select_fixture()
+    assert owned is not None, 'diagnostic requires a new owned fixture'
+    try:
+        assert owned.poll() is None, 'owned fixture exited'
+        result=run_and_save(InheritedHelperDriver(),output=output,transport='inherited-helper',
+                            focus_diagnostics_dir=directory,opening_only=True,expected_pid=owned.pid,opening_action=opening_action)
+        assert owned.poll() is None, 'owned fixture exited during diagnostic'
+    finally:
+        owned.terminate();owned.wait(timeout=5)
+    print('  signed select opening diagnostic report: '+str(output))
+    assert result['passed'], 'opening/input state unverified; retain raw diagnostic'
+    return True
+
+
+def scenario_signed_native_select_press_opening_diagnostic():
+    return scenario_signed_native_select_opening_diagnostic(opening_action='AXPress')
+
+
+def scenario_signed_native_select_press_fixture():
+    """Owned full popup cycle using explicit AXPress, no activation or retry."""
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probe_native_select import run_and_save
+    assert InheritedHelperDriver.available(), 'signed launcher required'
+    signed_driver=InheritedHelperDriver()
+    assert 'action.open_select.explicit_ax' in signed_driver.capabilities,'explicit native AX opening capability required'
+    directory=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/('select-press-cycle-'+str(time.time_ns()))
+    directory.mkdir(mode=0o700)
+    output=directory/'report.json'
+    owned=_owned_select_fixture()
+    assert owned is not None,'cycle requires a new owned fixture'
+    try:
+        assert owned.poll() is None,'owned fixture exited'
+        result=run_and_save(signed_driver,output=output,transport='inherited-helper',
+                           focus_diagnostics_dir=directory,expected_pid=owned.pid,opening_action='AXPress')
+        assert owned.poll() is None,'owned fixture exited during cycle'
+    finally:
+        owned.terminate();owned.wait(timeout=5)
+    print('  signed select AXPress cycle report: '+str(output))
+    assert result['passed'],'cycle/input state unverified; retain raw diagnostic'
+    return True
+
+
+def scenario_signed_native_select_press_flow_replay():
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_popup_flow_replay import main
+    assert InheritedHelperDriver.available(),'signed launcher required'
+    directory=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/('select-press-flow-'+str(time.time_ns()))
+    directory.mkdir(mode=0o700)
+    owned=_owned_select_fixture()
+    assert owned is not None,'replay requires a new owned fixture'
+    try:
+        report=main(InheritedHelperDriver(),directory/'report.json',owned.pid)
+        assert owned.poll() is None,'owned fixture exited during replay'
+    finally:
+        owned.terminate();owned.wait(timeout=5)
+    print('  signed popup Flow IR replay report: '+str(directory/'report.json'))
+    assert report['passed'],report.get('error_class','owned replay unverified')
+    return True
+
+
+def scenario_signed_native_select_journal_dispatch_worker(config_path=None):
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_popup_journal_restart import dispatch_worker
+    assert config_path,'explicit owned worker config required'
+    dispatch_worker(InheritedHelperDriver(),config_path)
+    return True
+
+
+def scenario_signed_native_select_journal_restart():
+    from datetime import date
+    from pathlib import Path
+    from tacto.helper import InheritedHelperDriver
+    from examples.probes.signed_popup_journal_restart import main
+    assert InheritedHelperDriver.available(),'signed launcher required'
+    directory=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/('select-journal-restart-'+str(time.time_ns()))
+    directory.mkdir(mode=0o700)
+    owned=_owned_select_fixture()
+    assert owned is not None,'restart probe requires a new owned fixture'
+    try:
+        report=main(InheritedHelperDriver(),directory/'report.json',owned.pid)
+        assert owned.poll() is None,'owned fixture exited during restart probe'
+    finally:
+        owned.terminate();owned.wait(timeout=5)
+    print('  signed popup journal restart report: '+str(directory/'report.json'))
+    assert report['passed'],report.get('error_class','restart probe unverified')
+    return True
+
+
+def scenario_native_select_duplicate_fixture():
+    return scenario_native_select_fixture(duplicates=True)
+
+def scenario_native_select_combo_fixture():
+    return scenario_native_select_fixture(combo=True)
+
+def scenario_native_select_combo_clipped_fixture():
+    return scenario_native_select_fixture(combo=True,visible_items=1)
+
+def scenario_native_select_observe_json_fixture():
+    """Actual CLI JSON output on one signed connection with a pinned popup."""
+    import contextlib,hashlib,io,json,os
+    from datetime import date
+    from pathlib import Path
+    from tacto.cli import _dispatch
+    from tacto.flow import Selector
+    from tacto.helper import InheritedHelperDriver
+    from tacto.input_audit_process import ProcessInputAudit
+    if not InheritedHelperDriver.available():return 'signed_helper_required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'native-select-observe-json-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    paths=[root/name for name in ('tacto/cli.py','tacto/helper.py','examples/eval.py','tests/fixtures/NativeSelectFixture.swift',
+        'helper/TactoHelper.swift','helper/tacto-helper','helper/Tacto Helper.app/Contents/MacOS/TactoHelper','launcher/tacto')]
+    def sources():return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+    report={'passed':False,'comparison_eligible':False,'planned_inputs':['open_select'],'caret_preservation_verified':False}
+    audit=None;owned=None
+    with os.fdopen(os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as stream:
+        try:
+            report['source_before']=sources()
+            owned=_owned_select_fixture(combo=True,visible_items=1)
+            if owned is None:raise RuntimeError('fixture_not_owned')
+            driver=InheritedHelperDriver()
+            audit=ProcessInputAudit(strategy='application_frontmost',interval=.005,startup_timeout=10,stop_timeout=3)
+            with audit:
+                obs=driver.observe('ai.callabo.nlc.select-fixture','tree_full')
+                index,_=Selector(role='ComboBox',identifier='nlc-fixture-choice').resolve(obs['tree'])
+                report['open_receipt']=driver.act(obs['obs_id'],'ai.callabo.nlc.select-fixture',{'name':'open_select','element_index':index})
+                captured=io.StringIO()
+                with contextlib.redirect_stdout(captured):
+                    report['cli_exit_code']=_dispatch('observe',['ai.callabo.nlc.select-fixture','--helper','--json'])
+                report['json_observation']=json.loads(captured.getvalue())
+                result=report['json_observation']
+                report['same_driver']=InheritedHelperDriver() is driver
+                current_index,_=Selector(role='ComboBox',identifier='nlc-fixture-choice').resolve(result['tree'])
+                meta=result.get('custom_selects',{}).get(str(current_index),{})
+                options={row['label']:row for row in meta.get('options',[])}
+                count_index,_=Selector(identifier='nlc-fixture-count').resolve(result['tree'])
+                count_line=next(line for line in result['tree'].splitlines() if line.strip().startswith(str(count_index)+' '))
+                report['selection_count']=Selector._attr(count_line,'Value')
+                report['passed']=(report['open_receipt'].get('opened') is True and report['cli_exit_code']==0
+                    and report['same_driver'] and meta.get('state')=='open' and meta.get('selection_supported') is True
+                    and options.get('Alpha',{}).get('visible') is True and options.get('Beta',{}).get('visible') is False
+                    and options.get('Beta',{}).get('scroll_direction')=='down' and report['selection_count']=='0')
+        except Exception as exc:report['error_class']=type(exc).__name__
+        finally:
+            try:
+                if owned is not None:owned.terminate();owned.wait(timeout=10)
+            except Exception as exc:report['cleanup_error_class']=type(exc).__name__;report['passed']=False
+            try:
+                if audit is not None:report['audit']=audit.report()
+            except Exception as exc:report['audit_error_class']=type(exc).__name__
+            try:
+                report['source_after']=sources();report['source_stable']=report.get('source_before')==report['source_after']
+            except Exception as exc:report['source_after_error_class']=type(exc).__name__;report['source_stable']=False
+            report['passed']=report['passed'] and report['source_stable'] and report.get('audit',{}).get('status')=='UNCHANGED_SAMPLED'
+            json.dump(report,stream,ensure_ascii=False,indent=2)
+    print('  native JSON observation report: '+str(output))
+    assert report['passed'],report.get('error_class') or 'JSON observation unverified'
+    return True
+
+def scenario_native_select_process_exit_fixture(*,replacement=False):
+    """Retired owned ComboBox cannot block a fresh task on the same helper."""
+    import json,os
+    from datetime import date
+    from pathlib import Path
+    from examples.probe_native_select import run_process_exit_probe
+    from tacto.helper import InheritedHelperDriver
+    if type(replacement) is not bool:raise ValueError('replacement must be boolean')
+    if not InheritedHelperDriver.available():return 'signed_helper_required'
+    kind='view-replacement' if replacement else 'process-exit'
+    output=Path(__file__).resolve().parents[1]/'reviews'/date.today().isoformat()/f'native-select-{kind}-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with os.fdopen(os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as stream:
+        result=run_process_exit_probe(InheritedHelperDriver(),_owned_select_fixture,replacement=replacement)
+        json.dump(result,stream,ensure_ascii=False,indent=2)
+    print('  native select lifecycle report: '+str(output))
+    assert result['passed'],result.get('error') or kind+' recovery unverified'
+    return True
+
+def scenario_native_select_view_replacement_fixture():
+    return scenario_native_select_process_exit_fixture(replacement=True)
+
+
+def scenario_native_select_model_fixture(provider='claude', *, options=0, combo=False,visible_items=0):
     """Explicit model+owned native fixture probe, never a default-suite action."""
     import json
     from pathlib import Path
     from examples.probe_native_select import run_and_save
     from tacto.helper import InheritedHelperDriver
-    provider=next((arg.split("=",1)[1] for arg in sys.argv[1:]
-                   if arg.startswith("--model-provider=")),"claude")
+    if type(combo) is not bool or (combo and (type(options) is not int or not 0<=options<=197)):
+        raise ValueError('combo model probe requires its own fixture')
+    if type(visible_items) is not int or not 0<=visible_items<=20 or (visible_items and not combo):
+        raise ValueError('clipped model probe requires 0..20 visible ComboBox rows')
     if provider not in ("claude","codex"):
         raise ValueError("unsupported fixture model provider")
     signed=InheritedHelperDriver.available()
     d=InheritedHelperDriver() if signed else Driver()
     transport="inherited-helper" if signed else "in-process"
     root=Path(__file__).resolve().parents[1]
-    output=root/"reviews/2026-09-19"/f"native-select-model-{transport}-{time.time_ns()}.json"
-    owned = _owned_select_fixture()
+    from datetime import date
+    output=root/'reviews'/date.today().isoformat()/f"native-select-model-{transport}-{time.time_ns()}.json"
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    owned = _owned_select_fixture(options=options,combo=combo,visible_items=visible_items)
     try:
-        result=run_and_save(d,output=output,transport=transport,provider=provider)
+        result=run_and_save(d,output=output,transport=transport,provider=provider,
+                           option=f'Choice{options-1:03d}' if options else 'Beta',
+                           budget=2500 if options else 16000,tokenizer='o200k_base' if options else 'utf8_bytes',combo=combo,visible_items=visible_items,combo_option_index=options+2 if combo and options else 1)
     finally:
         if owned is not None:
             owned.terminate()
     print("  native select report: " + str(output))
-    assert result["passed"],json.dumps(result.get("error") or result.get("why"),ensure_ascii=False)
+    from tacto.provider_result import UNAVAILABLE_REASONS
+    calls=result.get('provider_calls',[])
+    if (not result.get('passed') and result.get('events')==[]
+            and result.get('readback')==['Alpha','0'] and result.get('source_stable') is True
+            and result.get('audit',{}).get('status')=='UNCHANGED_SAMPLED' and calls
+            and (not combo or (result.get('combo_readback')=={'control_value':'Alpha','selected_index':'0','state':'closed'}
+                               and result.get('native_receipts')==[]))
+            and all(call.get('status')=='error' and call.get('error',{}).get('code') in UNAVAILABLE_REASONS
+                    for call in calls)):
+        return 'provider_unavailable:'+calls[-1]['error']['code']
+    assert result["passed"],json.dumps(result.get("error") or result.get("failure_reasons") or result.get("why"),ensure_ascii=False)
+    return True
+
+
+def scenario_native_select_many_codex():
+    return scenario_native_select_model_fixture('codex',options=128)
+
+def scenario_native_select_combo_model_fixture(provider='claude'):
+    return scenario_native_select_model_fixture(provider,combo=True)
+
+def scenario_native_select_combo_many_model_fixture(provider='claude'):
+    return scenario_native_select_model_fixture(provider,options=128,combo=True,visible_items=8)
+
+def scenario_native_select_combo_clipped_model_fixture(provider='claude'):
+    return scenario_native_select_model_fixture(provider,combo=True,visible_items=1)
+
+
+def scenario_native_select_scroll_receiving_failure_fixture():
+    """Signed real input, injected planner, expected stop before selection."""
+    import json,os,re
+    from datetime import date
+    from pathlib import Path
+    from unittest.mock import patch
+    from examples.probe_native_select import run_model_probe,_expected_scroll_receiving_failure
+    from tacto.helper import InheritedHelperDriver
+    if not InheritedHelperDriver.available():return 'signed_helper_required'
+    root=Path(__file__).resolve().parents[1]
+    output=root/'reviews'/date.today().isoformat()/f'native-select-scroll-receiving-failure-{time.time_ns()}.json'
+    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    wrapper={'expectation_passed':False,'evaluation_kind':'host_injected_planner_owned_appkit',
+             'comparison_eligible':False,'model_calls':0}
+    calls=0;owned=None
+    def scripted_ask(question,*args,**kwargs):
+        nonlocal calls
+        calls+=1
+        if calls>2:raise RuntimeError('unexpected_planning_after_scroll_failure')
+        kwargs['_request_guard'](question.prompt,0)
+        role='ComboBox' if calls==1 else 'TextField'
+        match=re.search(r'(?m)^(\d+)\. .*?\['+role+r'\]',question.prompt)
+        if match is None:raise RuntimeError('owned_script_target_not_displayed')
+        action={'pick':int(match.group(1)),'do':'open_select' if calls==1 else 'scroll'}
+        if calls==2:action.update(direction='up',pages=1)
+        answer=question.check({'actions':[action]})
+        if answer is None:raise RuntimeError('owned_script_plan_rejected')
+        return answer
+    with os.fdopen(os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600),'w') as stream:
+        try:
+            owned=_owned_select_fixture(combo=True,visible_items=1)
+            with patch('tacto.ask.ask',side_effect=scripted_ask):
+                result=run_model_probe(InheritedHelperDriver(),provider='codex',combo=True,visible_items=1)
+            result['evaluation_kind']='host_injected_planner_owned_appkit'
+            # The probe API's configured provider is bypassed by the host
+            # script; it is not a served backbone for this negative scenario.
+            result['provider']=None
+            wrapper.update(probe=result,planner_calls=calls,
+                           expectation_passed=_expected_scroll_receiving_failure(result,calls))
+        except Exception as exc:wrapper['error_class']=type(exc).__name__
+        finally:
+            if owned is not None:
+                try:owned.terminate()
+                except Exception as exc:wrapper['cleanup_error_class']=type(exc).__name__;wrapper['expectation_passed']=False
+            json.dump(wrapper,stream,ensure_ascii=False,indent=2);stream.write('\n')
+    print('  expected scroll failure report: '+str(output))
+    assert wrapper['expectation_passed'],str(wrapper.get('error_class') or wrapper.get('probe',{}).get('why'))
     return True
 
 
@@ -4594,7 +5326,25 @@ SCENARIOS = [
     ("signed_provider_envelope (isolated model telemetry, no UI)", scenario_signed_provider_envelope),
     ("native_coordinate_fixture (isolated signed window click)", scenario_native_coordinate_fixture),
     ("native_select_model_fixture (isolated model and owned AppKit popup)", scenario_native_select_model_fixture),
+    ("native_select_many_codex (isolated Codex 128-option AppKit popup)", scenario_native_select_many_codex),
+    ("native_select_combo_model_fixture (isolated model and AppKit ComboBox)", scenario_native_select_combo_model_fixture),
+    ("native_select_combo_many_model_fixture (isolated model and 131-option AppKit ComboBox)", scenario_native_select_combo_many_model_fixture),
+    ("native_select_combo_clipped_model_fixture (isolated model and clipped AppKit ComboBox)", scenario_native_select_combo_clipped_model_fixture),
     ("native_select_fixture (isolated owned AppKit popup)", scenario_native_select_fixture),
+    ("signed_native_select_observe_control (owned popup read-only focus control)", scenario_signed_native_select_observe_control),
+    ("signed_native_select_press_flow_replay (owned serialized IR, zero model)", scenario_signed_native_select_press_flow_replay),
+    ("signed_native_select_journal_restart (two fresh signed workers, same journal)", scenario_signed_native_select_journal_restart),
+    ("signed_native_select_journal_dispatch_worker (internal audited worker)", scenario_signed_native_select_journal_dispatch_worker),
+    ("signed_native_select_press_fixture (owned explicit AXPress full popup cycle)", scenario_signed_native_select_press_fixture),
+    ("signed_native_select_press_opening_diagnostic (one owned AXPress popup opening)", scenario_signed_native_select_press_opening_diagnostic),
+    ("signed_native_select_opening_diagnostic (one owned popup opening, focus metadata)", scenario_signed_native_select_opening_diagnostic),
+    ("native_select_duplicate_fixture (isolated duplicate-label AppKit refusal)", scenario_native_select_duplicate_fixture),
+    ("native_select_combo_fixture (isolated AppKit ComboBox)", scenario_native_select_combo_fixture),
+    ("native_select_combo_clipped_fixture (isolated one-visible-row AppKit ComboBox)", scenario_native_select_combo_clipped_fixture),
+    ("native_select_scroll_receiving_failure_fixture (isolated signed receiving failure stops input)", scenario_native_select_scroll_receiving_failure_fixture),
+    ("native_select_observe_json_fixture (isolated CLI JSON on same signed helper)", scenario_native_select_observe_json_fixture),
+    ("native_select_process_exit_fixture (isolated owned app exit and same-helper successor)", scenario_native_select_process_exit_fixture),
+    ("native_select_view_replacement_fixture (isolated same-process view replacement)", scenario_native_select_view_replacement_fixture),
     ("native_document_text (isolated read-only native document witness)",
      scenario_native_document_text),
     ("background_input_preserves_focus (isolated native process audit)",
@@ -4781,14 +5531,28 @@ SCENARIOS = [
      scenario_signed_background_window_prepare),
     ("signed_element_click (owned no-AXPress click and row double click)",
      scenario_signed_element_click),
+    ("signed_commit_disconnect (owned commit followed by client reply loss)",
+     scenario_signed_commit_disconnect),
+    ("signed_menu_readiness (owned read-only menu settling)", scenario_signed_menu_readiness),
+    ("signed_native_recovery_repeated (owned twenty-four-stage three-sheet recovery)", scenario_signed_native_recovery_repeated),
+    ("signed_native_recovery_budget_stop (owned repeated recovery budget exhaustion)", scenario_signed_native_recovery_budget_stop),
+    ("signed_native_recovery_multi_app (owned recovery plus three TextEdit saves)", scenario_signed_native_recovery_multi_app),
+    ("signed_native_recovery_multi_app_disconnect (stop after child Save and channel shutdown)", scenario_signed_native_recovery_multi_app_disconnect),
+    ("signed_native_recovery_multi_app_parent_change (stop after child Save and parent mutation)", scenario_signed_native_recovery_multi_app_parent_change),
+    ("signed_native_recovery (owned twelve-stage native sheet recovery)",
+     scenario_signed_native_recovery),
     ("native_navigation (owned Python window keys)", scenario_native_navigation),
     ("signed_window_keys (owned signed window keys)", scenario_signed_window_keys),
     ("public_opaque_point (owned authorized signed coordinates)", scenario_public_opaque_point),
     ("native_image_fixed (owned signed pixel proposal)", scenario_native_image_fixed),
+    ("native_image_receiving_cancel (owned signed receiving cancellation)", scenario_native_image_receiving_cancel),
     ("native_image_codex (owned signed Codex image proposal)", scenario_native_image_codex),
     ("native_image_claude (owned signed Claude image proposal)", scenario_native_image_claude),
     ("visual_input_fixed (owned signed Flow visual keys/text)", scenario_visual_input_fixed),
+    ("visual_input_journal (owned signed visual journal refusal)", scenario_visual_input_journal),
     ("visual_input_codex (owned signed Flow Codex visual keys/text)", scenario_visual_input_codex),
+    ("general_visual_input_fixed (owned signed general visual keys/text)", scenario_general_visual_input_fixed),
+    ("general_visual_input_codex (owned signed general Codex visual keys/text)", scenario_general_visual_input_codex),
     ("visual_input_claude (owned signed Flow Claude visual keys/text)", scenario_visual_input_claude),
     ("signed_opaque_input (owned inaccessible responder keys and Unicode)", scenario_signed_opaque_input),
     ("python_opaque_input (owned direct inaccessible responder input)", scenario_python_opaque_input),
@@ -4803,7 +5567,30 @@ SCENARIOS = [
     ("signed_save_panel (owned settings and commit identity, read only)",
      scenario_signed_save_panel),
     ("guarded_panel_commit (owned callback; no file writer)", scenario_guarded_panel_commit),
+    ("signed_producer_file (owned callback and exact fresh file)", scenario_signed_producer_file),
+    ("signed_producer_file_large (2400 owned sibling folders)", scenario_signed_producer_file_large),
+    ("signed_producer_file_reply_loss (owned native receipt after injected reply loss)", scenario_signed_producer_file_reply_loss),
+    ("signed_producer_worker_restart (real signed worker restart after native receipt)", scenario_signed_producer_worker_restart),
+    ("signed_producer_worker_reconcile (fresh causal evidence and one new native input)", scenario_signed_producer_worker_reconcile),
+    ("signed_native_journal_worker (internal owned worker)", scenario_signed_native_journal_worker),
+    ("signed_finder_preparation (owned folder; stage journal)",scenario_signed_finder_preparation),
+    ("signed_textedit_saved_state (actual app Save and exact bytes)",scenario_signed_textedit_saved_state),
+    ("signed_finder_preflight (read-only cold preflight then fresh preparation)",scenario_signed_finder_preflight),
+    ("signed_popover_routing_refusal (diagnostic validation; no task success)",scenario_signed_popover_routing_refusal),
+    ("signed_popover_prepared_receipt (explicit prepare then fresh content click)",scenario_signed_popover_prepared_receipt),
+    ("signed_popover_receipt (owned content click receipt)",scenario_signed_popover_receipt),
+    ("signed_modality_inventory (owned read-only modality comparison)",scenario_signed_modality_inventory),
+    ("signed_readiness_scale (owned other-window AX scale)",scenario_signed_readiness_scale),
+    ("signed_readiness_scale_systemwide (owned preparation with system-wide focus audit)",scenario_signed_readiness_scale_systemwide),
+    ("signed_finder_read_cost (read-only RPC comparison)",scenario_signed_finder_read_cost),
+    ("signed_finder_readiness_single_profile (read-only single RPC full guard)",scenario_signed_finder_readiness_single_profile),
+    ("signed_finder_titlebar_profile (read-only titlebar hit diagnostic)",scenario_signed_finder_titlebar_profile),
+    ("signed_finder_readiness_profile (read-only full guard timing)",scenario_signed_finder_readiness_profile),
+    ("signed_finder_cpu_profile (read-only preflight with process CPU)",scenario_signed_finder_cpu_profile),
+    ("signed_native_selection_parameters (parameter refusal, no selection input)",scenario_signed_native_selection_parameters),
+    ("signed_concurrent_typing (user-operated witness, signed background input)",scenario_signed_concurrent_typing),
     ("signed_document_rtf (new owned TextEdit range export, no save)", scenario_signed_document_rtf),
+    ("signed_document_attachments (owned TextEdit RTFD payload export)", scenario_signed_document_attachments),
     ("signed_rtf_refusal (unknown token, no app body selected)", scenario_signed_rtf_refusal),
     ("signed_window_capture (one owned window, by the grant holder)",
      scenario_signed_window_capture),
@@ -4862,15 +5649,40 @@ _LOOKED = [False]
 #     ./launcher/tacto eval peer_authentication
 #     ./launcher/tacto eval an_abort_lasts
 ISOLATED = {
+    "signed_textedit_saved_state",
+    "signed_popover_routing_refusal",
+    "signed_popover_prepared_receipt",
+    "signed_popover_receipt",
+    "signed_modality_inventory",
+    "signed_finder_preflight",
+    "signed_finder_read_cost",
+    "signed_finder_readiness_single_profile",
+    "signed_finder_titlebar_profile",
+    "signed_finder_readiness_profile",
+    "signed_finder_cpu_profile",
+    "signed_native_selection_parameters",
+    "signed_concurrent_typing",
+    "signed_readiness_scale",
+    "signed_readiness_scale_systemwide",
     "signed_background_window_prepare",
     "signed_element_click",
+    "signed_commit_disconnect",
+    "signed_menu_readiness",
+    "signed_native_recovery",
+    "signed_native_recovery_repeated",
+    "signed_native_recovery_budget_stop",
+    "signed_native_recovery_multi_app",
+    "signed_native_recovery_multi_app_disconnect",
+    "signed_native_recovery_multi_app_parent_change",
     "native_navigation",
     "signed_window_keys",
     "public_opaque_point",
     "native_image_fixed",
+    "native_image_receiving_cancel",
     "native_image_codex",
     "native_image_claude",
-    "visual_input_fixed", "visual_input_codex", "visual_input_claude",
+    "visual_input_fixed", "visual_input_codex", "visual_input_claude", "visual_input_journal",
+    "general_visual_input_fixed", "general_visual_input_codex",
     "signed_opaque_input",
     "python_opaque_input",
     "flow_visual_fixed",
@@ -4882,7 +5694,15 @@ ISOLATED = {
     "navigation_model_claude", "navigation_model_codex",
     "signed_save_panel",
     "guarded_panel_commit",
+    "signed_producer_file",
+    "signed_producer_file_large",
+    "signed_producer_file_reply_loss",
+    "signed_producer_worker_restart",
+    "signed_producer_worker_reconcile",
+    "signed_native_journal_worker",
+    "signed_finder_preparation",
     "signed_document_rtf",
+    "signed_document_attachments",
     "signed_rtf_refusal",
     "signed_background_refusal",
     "signed_window_capture",
@@ -4890,7 +5710,25 @@ ISOLATED = {
     "signed_provider_envelope",
     "native_coordinate_fixture",
     "native_select_model_fixture",
+    "native_select_many_codex",
+    "native_select_combo_model_fixture",
+    "native_select_combo_clipped_model_fixture",
+    "native_select_combo_many_model_fixture",
     "native_select_fixture",
+    "signed_native_select_observe_control",
+    "signed_native_select_press_flow_replay",
+    "signed_native_select_journal_restart",
+    "signed_native_select_journal_dispatch_worker",
+    "signed_native_select_press_fixture",
+    "signed_native_select_press_opening_diagnostic",
+    "signed_native_select_opening_diagnostic",
+    "native_select_duplicate_fixture",
+    "native_select_combo_fixture",
+    "native_select_combo_clipped_fixture",
+    "native_select_scroll_receiving_failure_fixture",
+    "native_select_observe_json_fixture",
+    "native_select_process_exit_fixture",
+    "native_select_view_replacement_fixture",
     "native_document_text",
     "background_input_preserves_focus",
     "helper_user_authority",
@@ -4900,16 +5738,43 @@ ISOLATED = {
 }
 
 SCENARIO_REQUIREMENTS: dict = {
+    "signed_textedit_saved_state": {"gui", "native"},
+    "signed_popover_routing_refusal": {"gui", "native"},
+    "signed_popover_prepared_receipt": {"gui", "native"},
+    "signed_popover_receipt": {"gui", "native"},
+    "signed_modality_inventory": {"gui", "native"},
+    "signed_finder_preflight": {"gui", "native"},
+    "signed_finder_read_cost": {"gui", "native"},
+    "signed_finder_readiness_single_profile": {"gui", "native"},
+    "signed_finder_titlebar_profile": {"gui", "native"},
+    "signed_finder_readiness_profile": {"gui", "native"},
+    "signed_finder_cpu_profile": {"gui", "native"},
+    "signed_native_selection_parameters": {"gui", "native"},
+    "signed_concurrent_typing": {"gui", "native"},
+    "signed_readiness_scale": {"gui", "native"},
+    "signed_readiness_scale_systemwide": {"gui", "native"},
     "signed_background_window_prepare": {"gui", "native"},
     "signed_element_click": {"gui", "native"},
+    "signed_commit_disconnect": {"gui", "native"},
+    "signed_menu_readiness": {"gui", "native"},
+    "signed_native_recovery": {"gui", "native"},
+    "signed_native_recovery_repeated": {"gui", "native"},
+    "signed_native_recovery_budget_stop": {"gui", "native"},
+    "signed_native_recovery_multi_app": {"gui", "native"},
+    "signed_native_recovery_multi_app_disconnect": {"gui", "native"},
+    "signed_native_recovery_multi_app_parent_change": {"gui", "native"},
     "native_navigation": {"gui", "native"},
     "signed_window_keys": {"gui", "native"},
     "public_opaque_point": {"gui", "native"},
     "native_image_fixed": {"gui", "native"},
+    "native_image_receiving_cancel": {"gui", "native"},
     "native_image_codex": {"gui", "native", "model"},
     "native_image_claude": {"gui", "native", "model"},
     "visual_input_fixed": {"gui", "native"},
+    "visual_input_journal": {"gui", "native"},
     "visual_input_codex": {"gui", "native", "model"},
+    "general_visual_input_fixed": {"gui", "native"},
+    "general_visual_input_codex": {"gui", "native", "model"},
     "visual_input_claude": {"gui", "native", "model"},
     "signed_opaque_input": {"gui", "native"},
     "python_opaque_input": {"gui", "native"},
@@ -4923,7 +5788,15 @@ SCENARIO_REQUIREMENTS: dict = {
     "navigation_model_codex": {"gui", "native", "model"},
     "signed_save_panel": {"gui", "native"},
     "guarded_panel_commit": {"gui", "native"},
+    "signed_producer_file": {"gui", "native"},
+    "signed_producer_file_large": {"gui", "native"},
+    "signed_producer_file_reply_loss": {"gui", "native"},
+    "signed_producer_worker_restart": {"gui", "native"},
+    "signed_producer_worker_reconcile": {"gui", "native"},
+    "signed_native_journal_worker": {"gui", "native"},
+    "signed_finder_preparation": {"gui", "native"},
     "signed_document_rtf": {"gui", "native"},
+    "signed_document_attachments": {"gui", "native"},
     "signed_rtf_refusal": {"native"},
     "signed_provider_envelope": {"model"},
     "native_coordinate_fixture": {"gui"},
@@ -4932,7 +5805,25 @@ SCENARIO_REQUIREMENTS: dict = {
     "canvas_point_click": {"gui", "native"},
     "background_menu_refusal": {"gui", "native"},
     "native_select_model_fixture": {"gui", "model"},
+    "native_select_many_codex": {"gui", "native", "model"},
+    "native_select_combo_model_fixture": {"gui", "native", "model"},
+    "native_select_combo_clipped_model_fixture": {"gui", "native", "model"},
+    "native_select_combo_many_model_fixture": {"gui", "native", "model"},
     "native_select_fixture": {"gui"},
+    "signed_native_select_observe_control": {"gui", "native"},
+    "signed_native_select_press_flow_replay": {"gui", "native"},
+    "signed_native_select_journal_restart": {"gui", "native"},
+    "signed_native_select_journal_dispatch_worker": {"gui", "native"},
+    "signed_native_select_press_fixture": {"gui", "native"},
+    "signed_native_select_press_opening_diagnostic": {"gui", "native"},
+    "signed_native_select_opening_diagnostic": {"gui", "native"},
+    "native_select_duplicate_fixture": {"gui", "native"},
+    "native_select_combo_fixture": {"gui", "native"},
+    "native_select_combo_clipped_fixture": {"gui", "native"},
+    "native_select_scroll_receiving_failure_fixture": {"gui", "native"},
+    "native_select_observe_json_fixture": {"gui", "native"},
+    "native_select_process_exit_fixture": {"gui", "native"},
+    "native_select_view_replacement_fixture": {"gui", "native"},
     "native_document_text": {"gui"},
     "background_input_preserves_focus": {"gui"},
     "an_abort_lasts_the_run_and_no_longer": {"gui"},
@@ -5123,7 +6014,7 @@ def _parse_plan(argv):
     """Resolve the whole selection before checking or changing the machine."""
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("scenarios", nargs="*", help="scenario name substrings (OR)")
+    parser.add_argument("scenarios", nargs="*", help="exact scenario names or name substrings (OR)")
     parser.add_argument("--offline", action="store_true",
                         help="never access the GUI or a model")
     parser.add_argument("--foreground", action="store_true",
@@ -5139,6 +6030,13 @@ def _parse_plan(argv):
     parser.add_argument("--coordinate-abort", action="store_true")
     parser.add_argument("--coordinate-model", choices=("codex", "claude"))
     parser.add_argument("--menu-unresponsive", action="store_true")
+    parser.add_argument('--select-journal-worker-config', metavar='PATH')
+    parser.add_argument('--owned-worker-config', metavar='PATH')
+    parser.add_argument('--owned-worker-phase', choices=('dispatch','restart','reconcile'))
+    parser.add_argument('--typing-directory', metavar='PATH')
+    parser.add_argument('--typing-witness-report', metavar='PATH')
+    parser.add_argument('--participant-confirmed', action='store_true')
+    parser.add_argument('--model-provider',choices=('claude','codex','gemini','opencode'))
     parser.add_argument("--require-selection", action="store_true",
                         help="require foreground caret/selection readiness for one owned navigation/input probe")
     args = parser.parse_args(argv)
@@ -5150,10 +6048,42 @@ def _parse_plan(argv):
     for query in args.scenarios:
         if not any(query in name for name, _ in SCENARIOS):
             parser.error(f"no scenario matches {query!r}")
+    exact = {name.split(' ')[0] for name, _ in SCENARIOS}
     selected = [(name, fn) for name, fn in SCENARIOS
-                if not args.scenarios or any(q in name for q in args.scenarios)]
+                if not args.scenarios or any(
+                    name.split(' ')[0] == q if q in exact else q in name
+                    for q in args.scenarios)]
     if not selected:
         parser.error("no scenarios selected")
+    if args.model_provider is not None:
+        probe=selected[0][0].split(' ')[0] if len(selected)==1 else None
+        if probe not in ('signed_provider_envelope','native_select_model_fixture','native_select_combo_model_fixture','native_select_combo_clipped_model_fixture','native_select_combo_many_model_fixture'):
+            parser.error('--model-provider requires one signed_provider_envelope or native_select[_combo]_model_fixture')
+        if probe in ('native_select_model_fixture','native_select_combo_model_fixture','native_select_combo_clipped_model_fixture','native_select_combo_many_model_fixture') and args.model_provider not in ('claude','codex'):
+            parser.error('native select model fixture supports claude/codex')
+        from functools import partial
+        name,fn=selected[0];selected=[(name,partial(fn,provider=args.model_provider))]
+    if args.select_journal_worker_config is not None:
+        if len(selected)!=1 or selected[0][0].split(' ')[0]!='signed_native_select_journal_dispatch_worker':
+            parser.error('select journal worker config requires one signed_native_select_journal_dispatch_worker')
+        from functools import partial
+        name,fn=selected[0];selected=[(name,partial(fn,config_path=args.select_journal_worker_config))]
+    if args.owned_worker_config is not None or args.owned_worker_phase is not None:
+        if (len(selected)!=1 or selected[0][0].split(' ')[0]!='signed_native_journal_worker'
+                or args.owned_worker_config is None or args.owned_worker_phase is None):
+            parser.error('owned worker options require one signed_native_journal_worker and both options')
+        from functools import partial
+        name,fn=selected[0]
+        selected=[(name,partial(fn,config_path=args.owned_worker_config,phase=args.owned_worker_phase))]
+    if args.typing_directory is not None or args.typing_witness_report is not None or args.participant_confirmed:
+        if (len(selected)!=1 or selected[0][0].split(' ')[0]!='signed_concurrent_typing'
+                or args.typing_directory is None or args.typing_witness_report is None
+                or not args.participant_confirmed):
+            parser.error('typing options require one signed_concurrent_typing, both prepared paths, and explicit participant confirmation')
+        from functools import partial
+        name,fn=selected[0]
+        selected=[(name,partial(fn,directory=args.typing_directory,witness_report=args.typing_witness_report,
+                              participant_confirmed=True))]
     isolated = [name.split(" ")[0] for name, _ in selected
                 if name.split(" ")[0] in ISOLATED]
     if args.scenarios and isolated and len(selected) != 1:

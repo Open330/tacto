@@ -1,4 +1,4 @@
-// tacto — the signed entry point, the trust anchor, and the only thing that talks
+// nlc — the signed entry point, the trust anchor, and the only thing that talks
 // to the privileged helper.
 //
 // Three properties, each of which was missing at some point and put back after
@@ -21,7 +21,7 @@
 //    isolated so the caller's directory is not on sys.path, with an allowlisted
 //    environment and a fixed PATH.
 //
-// What running this still buys a caller is the Tacto command surface — flows,
+// What running this still buys a caller is the NLC command surface — flows,
 // which are declarative, policy-checked, shown on screen and interruptible —
 // not raw control of the accessibility API.
 
@@ -46,9 +46,9 @@ guard !exe.path.isEmpty else {
 }
 let root = exe.deletingLastPathComponent().deletingLastPathComponent()
 let python = root.appendingPathComponent(".venv/bin/python")
-let canonicalHelper = root.appendingPathComponent("helper/Tacto Helper.app")
-let helperApp = FileManager.default.fileExists(atPath: canonicalHelper.path)
-    ? canonicalHelper : root.appendingPathComponent("helper/NLC Helper.app")
+let canonicalHelperApp = root.appendingPathComponent("helper/Tacto Helper.app")
+let legacyHelperApp = root.appendingPathComponent("helper/NLC Helper.app")
+let helperApp = FileManager.default.fileExists(atPath: canonicalHelperApp.path) ? canonicalHelperApp : legacyHelperApp
 
 guard FileManager.default.isExecutableFile(atPath: python.path) else {
     FileHandle.standardError.write(Data(
@@ -64,8 +64,8 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
 let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
-                                 "probe", "selection", "ask", "document_text", "document_window_status", "document_rtf_export", "save_panel", "menu_state",
-                                 "menu_items", "capture"]
+                                 "probe", "selection", "ask", "document_text", "document_window_status", "document_rtf_export", "document_attachment_metadata", "save_panel", "menu_state",
+                                 "menu_items", "capture", "readiness_read_cost", "readiness_preflight"]
 // The largest complete document this channel will carry, in UTF-16 units. The
 // same ceiling the helper enforces: a budget is a promise about how much this
 // process will allocate, so both ends have to mean the same number.
@@ -98,6 +98,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // WINDOW, and a point inside one resolves to whatever is drawn there.
     "click":            (["name"], ["element_index", "point", "window_index"]),
     "click_point":      (["name", "element_index", "point"], []),
+    "vroid_focus":      (["name", "element_index", "title"], []),
+    "vroid_drag":       (["name", "element_index", "from", "to", "duration", "title"], ["via", "graph_bounds"]),
     // AXOpen where offered, else two window-bound clicks on the element.
     "double_click":     (["name", "element_index"], []),
     "window_input":     (["name", "element_index"], ["key", "text"]),
@@ -132,7 +134,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     // The two-step form. `open_select` opens a popup and stops — it names no
     // option because the whole reason it exists is that the caller does not
     // yet know what is in there.
-    "open_select":      (["name", "element_index"], []),
+    "open_select":      (["name", "element_index"], ["opening_action"]),
     // And this one chooses, from the observation that followed. `value` is
     // accepted only for shape-compatibility with the browser and must equal
     // `option_label`, for the same reason it must in `select_option`.
@@ -175,7 +177,7 @@ let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", 
                                  "require_window", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
                                  "document_token", "document_path", "max_utf16_units", "timeout_seconds",
-                                 "window_index", "window_element_index", "panel_token", "require_format"]
+                                 "window_index", "window_element_index", "panel_token", "require_format", "element_indices", "read_strategy", "titlebar_probe"]
 
 // What a caller may claim its target still is. Reading one element's own
 // attributes is about a millisecond; re-walking Mail's tree to find out is
@@ -203,7 +205,7 @@ let maxPromptBytes = 400_000
 // Which providers a question may ask for. The child names one of these or
 // none; it never names a program, a path or an argument. Kept in step with
 // `tacto/authoring.py::PROVIDER_ORDER`.
-let knownProviders: Set<String> = ["auto", "claude", "codex", "opencode", "cxweb"]
+let knownProviders: Set<String> = ["auto", "claude", "codex", "opencode", "gemini", "cxweb"]
 
 @Sendable func isInt(_ v: Any) -> Bool {
     // CFBoolean bridges to NSNumber, so a bare NSNumber test would let `true`
@@ -224,6 +226,41 @@ func vetted(_ msg: [String: Any]) -> String? {
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
     }
+    if (msg["read_strategy"] != nil || msg["titlebar_probe"] != nil) && type != "readiness_preflight" {
+        return "read strategy is diagnostic-only"
+    }
+    if type == "readiness_preflight" {
+        let fields = Set(["type","target","obs_id","element_index"])
+        guard fields.isSubset(of: Set(msg.keys)), Set(msg.keys).isSubset(of: fields.union(["read_strategy", "titlebar_probe"])),
+              msg["read_strategy"] == nil || ["batch","single"].contains(msg["read_strategy"] as? String ?? ""),
+              msg["titlebar_probe"] == nil || CFGetTypeID(msg["titlebar_probe"]! as CFTypeRef) == CFBooleanGetTypeID(),
+              let target = msg["target"] as? String,
+              ["com.apple.finder","ai.callabo.nlc.modality-fixture"].contains(target),
+              let obs = msg["obs_id"] as? String, !obs.isEmpty, obs.count <= 128,
+              let value = msg["element_index"], isInt(value), let number = value as? NSNumber,
+              !CFNumberIsFloatType(number as CFNumber), (0..<2500).contains(number.intValue) else {
+            return "invalid readiness preflight request"
+        }
+        return nil
+    }
+    if type == "readiness_read_cost" {
+        guard Set(msg.keys) == Set(["type","target","obs_id","element_indices"]),
+              msg["target"] as? String == "com.apple.finder",
+              let obs = msg["obs_id"] as? String, !obs.isEmpty, obs.count <= 128,
+              let values = msg["element_indices"] as? [Any], (1...16).contains(values.count) else {
+            return "invalid readiness cost request"
+        }
+        var indices: Set<Int> = []
+        for value in values {
+            guard isInt(value), let number = value as? NSNumber,
+                  !CFNumberIsFloatType(number as CFNumber),
+                  (0..<2500).contains(number.intValue), indices.insert(number.intValue).inserted else {
+                return "invalid readiness cost indices"
+            }
+        }
+        return nil
+    }
+    if msg["element_indices"] != nil { return "element_indices is only for readiness cost" }
     if msg["image"] != nil || msg["model"] != nil {
         guard type == "ask", let image = msg["image"] as? [String: Any],
               Set(image.keys) == Set(["media_type", "data"]),
@@ -251,8 +288,8 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "opaque window input authorization required"
         }
     }
-    if msg["coordinate_authorized"] != nil || (msg["action"] as? [String:Any])?["name"] as? String == "click_point" {
-        guard type == "act", (msg["action"] as? [String:Any])?["name"] as? String == "click_point",
+    if msg["coordinate_authorized"] != nil || ["click_point", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "") {
+        guard type == "act", ["click_point", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? ""),
               let value = msg["coordinate_authorized"] as? NSNumber,
               CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
             return "coordinate authorization required"
@@ -278,7 +315,7 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "invalid save panel dispatch guard"
         }
     }
-    if msg["document_token"] != nil && !["observe", "document_text", "document_window_status", "document_rtf_export", "save_panel"].contains(type) {
+    if msg["document_token"] != nil && !["observe", "document_text", "document_window_status", "document_rtf_export", "document_attachment_metadata", "save_panel"].contains(type) {
         return "document_token 은 observe/document_text/save_panel 에만 허용됩니다"
     }
     if msg["document_path"] != nil && type != "document_text" {
@@ -400,7 +437,7 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "invalid document window status request"
         }
     }
-    if type == "document_rtf_export" {
+    if type == "document_rtf_export" || type == "document_attachment_metadata" {
         guard Set(msg.keys).isSubset(of:["type","target","document_token","max_utf16_units","timeout_seconds"]),
               msg["target"] as? String == "com.apple.TextEdit",
               let token = msg["document_token"] as? String, !token.isEmpty, token.count <= 128 else {
@@ -408,7 +445,7 @@ func vetted(_ msg: [String: Any]) -> String? {
         }
         if let raw = msg["max_utf16_units"] {
             guard isInt(raw), let number = raw as? NSNumber, !CFNumberIsFloatType(number as CFNumber), number.intValue >= 0,
-                  number.intValue <= maxDocumentUTF16Units else { return "invalid RTF export text budget" }
+                  number.intValue <= (type == "document_attachment_metadata" ? 100_000 : maxDocumentUTF16Units) else { return "invalid document evidence text budget" }
         }
         if let raw = msg["timeout_seconds"] {
             guard let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
@@ -429,7 +466,7 @@ func vetted(_ msg: [String: Any]) -> String? {
     }
     if let raw = msg["click_deadline_uptime"] {
         guard type == "act", let action = msg["action"] as? [String: Any],
-              ["click", "click_point", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
+              ["click", "click_point", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
               let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               number.doubleValue.isFinite, number.doubleValue > 0 else {
             return "invalid click deadline"
@@ -545,9 +582,47 @@ func vetted(_ msg: [String: Any]) -> String? {
         }
         for (k, v) in action {
             switch k {
+            case "opening_action":
+                guard let opening=v as? String,["AXShowMenu","AXPress"].contains(opening) else {
+                    return "opening_action 형식 오류"
+                }
             case "key", "option_label":
                 if !(v is String) { return "\(k) 형식 오류" }
             case "name", "direction": if !(v is String) { return "\(k) 형식 오류" }
+            case "from", "to":
+                guard name=="vroid_drag", let point=v as? [String:Any], Set(point.keys)==Set(["x","y"]),
+                      let x=point["x"] as? NSNumber, let y=point["y"] as? NSNumber,
+                      CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
+                      x.doubleValue.isFinite,y.doubleValue.isFinite,x.doubleValue>=0,y.doubleValue>=0 else {
+                    return "invalid VRoid drag point"
+                }
+            case "graph_bounds":
+                guard name=="vroid_drag",let rect=v as? [String:Any],
+                      Set(rect.keys)==Set(["x","y","width","height"]) else {return "invalid curve graph bounds"}
+                for key in ["x","y","width","height"] {
+                    guard let n=rect[key] as? NSNumber,CFGetTypeID(n) != CFBooleanGetTypeID(),
+                          n.doubleValue.isFinite,n.doubleValue>=0 else {return "invalid curve graph bounds"}
+                }
+                guard (rect["width"] as! NSNumber).doubleValue>0,
+                      (rect["height"] as! NSNumber).doubleValue>0 else {return "empty curve graph bounds"}
+            case "via":
+                guard name=="vroid_drag", let points=v as? [[String:Any]], points.count<=12 else {
+                    return "invalid VRoid drag path"
+                }
+                for point in points {
+                    guard Set(point.keys)==Set(["x","y"]),
+                          let x=point["x"] as? NSNumber, let y=point["y"] as? NSNumber,
+                          CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
+                          x.doubleValue.isFinite,y.doubleValue.isFinite,x.doubleValue>=0,y.doubleValue>=0 else {
+                        return "invalid VRoid drag path point"
+                    }
+                }
+            case "duration":
+                guard name=="vroid_drag",let d=v as? NSNumber,CFGetTypeID(d) != CFBooleanGetTypeID(),
+                      d.doubleValue.isFinite,d.doubleValue>=0.5,d.doubleValue<=2 else {return "invalid drag duration"}
+            case "title":
+                guard let t=v as? String,t.utf8.count<=512,
+                      (name=="vroid_drag" && t.contains(".vroid")) || (name=="vroid_focus" && (t=="VRoid Studio" || t=="VRoid Studio 2.14.0" || t.hasPrefix("VRoid Studio 2.14.0 - ") && t.contains(".vroid"))) else {return "invalid VRoid title"}
             case "point":
                 if !(v is [String: Any]) { return "point 형식 오류" }
             case "window_index":
@@ -736,10 +811,10 @@ defer { unlink(rendezvousPath); rmdir(runDir) }
 //
 //   from a shell       responsible path = /usr/libexec/sshd-keygen-wrapper
 //   posix_spawned      responsible path = /usr/libexec/sshd-keygen-wrapper
-//   LaunchServices     responsible path = .../Tacto Helper.app/.../TactoHelper
+//   LaunchServices     responsible path = .../NLC Helper.app/.../TactoHelper
 //
 // Only the third is the helper's own identity, and only the third can use the
-// grant the user ticked against "Tacto Helper". Accessibility was never affected,
+// grant the user ticked against "NLC Helper". Accessibility was never affected,
 // which is why this went unnoticed: the two services do not attribute alike.
 //
 // What LaunchServices takes away is the parent-child relationship: no inherited
@@ -943,25 +1018,40 @@ guard spawned == 0 else {
 }
 
 enum ModelProcessError: Error { case timeout, ioFailure, outputLimit }
+let modelCleanupGroup = DispatchGroup()
 
 // Bound stdin, stdout (including inherited pipe writers), and process waiting.
-// SIGKILL targets this wrapper only. Provider-owned detached process groups and
+// Ask our Python wrapper to unwind its CLI runners before forced termination.
+// Cleanup stays off the relay thread. Noncooperative/detached descendants and
 // remote inference are not guaranteed cancelled by this outer watchdog.
 @Sendable func boundedModelProcess(_ proc: Process, prompt: String, timeout: Double) throws -> Data {
     let deadline = ProcessInfo.processInfo.systemUptime + timeout
     let input = Pipe(), output = Pipe()
     proc.standardInput = input
     proc.standardOutput = output
-    try proc.run()
+    // Register before launch, so shutdown cannot miss an active watchdog that
+    // has not reached its cleanup defer yet.
+    modelCleanupGroup.enter()
+    do { try proc.run() }
+    catch { modelCleanupGroup.leave(); throw error }
     let inputFD = input.fileHandleForWriting.fileDescriptor
     let outputFD = output.fileHandleForReading.fileDescriptor
     var inputOpen = true
     defer {
         if inputOpen { try? input.fileHandleForWriting.close() }
         try? output.fileHandleForReading.close()
-        if proc.isRunning { kill(proc.processIdentifier, SIGKILL) }
-        // Reap off the relay thread; do not let cleanup extend its deadline.
-        DispatchQueue.global().async { proc.waitUntilExit() }
+        if proc.isRunning { kill(proc.processIdentifier, SIGTERM) }
+        // A short grace allows the wrapper to kill/reap its own CLI group.
+        // A hung wrapper still gets killed; relay responses retain their deadline.
+        DispatchQueue.global().async {
+            defer { modelCleanupGroup.leave() }
+            let cleanupDeadline = ProcessInfo.processInfo.systemUptime + 0.75
+            while proc.isRunning && ProcessInfo.processInfo.systemUptime < cleanupDeadline {
+                usleep(10_000)
+            }
+            if proc.isRunning { kill(proc.processIdentifier, SIGKILL) }
+            proc.waitUntilExit()
+        }
     }
     let inputFlags = fcntl(inputFD, F_GETFL), outputFlags = fcntl(outputFD, F_GETFL)
     guard inputFlags >= 0, outputFlags >= 0,
@@ -1131,13 +1221,23 @@ relayQueue.async {
                                                + "이 실행에서는 다시 연결하지 않습니다"])
             continue
         }
-        writeJSONLine(relayEnd, reply)
+        var forwarded = reply
+        if msg["type"] as? String == "ping", reply["type"] as? String == "pong",
+           let token = peerToken(helperFD) {
+            // OS credentials on the authenticated helper connection, not the
+            // child's socket (whose peer is this launcher). Metadata only.
+            forwarded["helper_peer"] = ["pid": Int(token.val.5), "pid_version": Int(token.val.7)]
+        }
+        writeJSONLine(relayEnd, forwarded)
     }
     if helperFD >= 0 { close(helperFD) }
 }
 
 var status: Int32 = 0
 waitpid(childPID, &status, 0)
+// Give already scheduled watchdog cleanup its bounded grace before process exit.
+// This affects launcher shutdown, never the model response deadline.
+_ = modelCleanupGroup.wait(timeout: .now() + 1)
 // Closing the connection is what ends the helper — it serves one client and
 // exits when that client goes away, which is the whole of its lifetime now that
 // there is no parent to watch. This is the backstop for a helper that is wedged
@@ -1147,18 +1247,18 @@ if let app = helperRunning, !app.isTerminated {
     app.terminate()
     let deadline = ProcessInfo.processInfo.systemUptime + 2
     while !app.isTerminated && ProcessInfo.processInfo.systemUptime < deadline {
-        // NSRunningApplication refreshes termination state through the main
-        // run loop. Sleeping here can leave a dead helper cached as alive for
-        // the entire deadline, adding two seconds to every helper command.
+        // NSRunningApplication caches time-varying properties until the main
+        // run loop turns (AppKit SDK contract). Sleeping here kept a departed
+        // helper looking alive for the entire two-second cleanup grace.
         let remaining = deadline - ProcessInfo.processInfo.systemUptime
-        let tick = min(0.05, max(0, remaining))
-        let began = ProcessInfo.processInfo.systemUptime
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: tick))
-        // With no input sources, run() can return immediately. Avoid burning
-        // CPU while still honoring the original monotonic cleanup deadline.
-        let rest = min(tick - (ProcessInfo.processInfo.systemUptime - began),
-                       deadline - ProcessInfo.processInfo.systemUptime)
-        if !app.isTerminated && rest > 0 { usleep(useconds_t(rest * 1_000_000)) }
+        if remaining > 0 {
+            let tick = min(0.05, remaining)
+            let began = ProcessInfo.processInfo.systemUptime
+            CFRunLoopRunInMode(CFRunLoopMode.defaultMode, tick, false)
+            let rest = min(tick - (ProcessInfo.processInfo.systemUptime - began),
+                           deadline - ProcessInfo.processInfo.systemUptime)
+            if !app.isTerminated && rest > 0 { usleep(useconds_t(rest * 1_000_000)) }
+        }
     }
     if !app.isTerminated { app.forceTerminate() }
 }

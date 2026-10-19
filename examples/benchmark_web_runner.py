@@ -74,7 +74,7 @@ def execute(task_id, provider='codex', timeout=45, planner=None):
                               validation_retries=1))
         except Exception:
             return record(None)
-    with tempfile.TemporaryDirectory(prefix='tacto-benchmark-') as folder:
+    with tempfile.TemporaryDirectory(prefix='nlc-benchmark-') as folder:
         driver = BrowserDriver()
         writes = []
         active_commit = None

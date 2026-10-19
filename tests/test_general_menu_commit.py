@@ -59,13 +59,13 @@ class FileMenuApp:
 
 
 class GeneralMenuCommitTests(unittest.TestCase):
-    def execute(self, app, receipt_mode="valid", *, guarded=False):
+    def execute(self, app, receipt_mode="valid", *, guarded=False, repeat_commit=False, cancelled=None):
         env = Envelope(quote="save note.txt", allows=frozenset({"read", "write_persistent"}), scope="item")
         spec = spec_for("save_file", env,
                         {"저장 위치": app.folder, "저장한 이름": "note.txt", "다시 읽은 내용": "hello"},
                         {"저장 위치": "request", "저장한 이름": "request", "다시 읽은 내용": "prior"})
         stages = iter((("inspect_menu", "메뉴 목록 조회"), ("inspect_menu", "File"),
-                       ("menu", "Save"), ("read", "readback")))
+                       ("menu", "Save"), ("menu", "Save") if repeat_commit else ("read", "readback")))
         if guarded:
             stages = iter((("click", "Save"), ("read", "readback")))
 
@@ -86,6 +86,8 @@ class GeneralMenuCommitTests(unittest.TestCase):
 
         def after(event, response, before):
             if guarded: before=before.receipt_context
+            if receipt_mode == 'raises':
+                raise RuntimeError('private receipt payload')
             if receipt_mode == "missing" or app.writes != before + 1:
                 return None
             return CommitEvidence("unrelated-event" if receipt_mode == "wrong_event" else event["event_id"],
@@ -100,8 +102,54 @@ class GeneralMenuCommitTests(unittest.TestCase):
 
         result = run(app, "fixture", "save note.txt", here, envelope=env, spec=spec,
                      ask_where=where, approve=lambda _: True,
-                     prepare_commit=prepare, after_commit=after)
+                     prepare_commit=prepare, after_commit=after, cancelled=cancelled)
         return result, verify(spec, result, result.after_tree)
+
+    def test_lost_save_response_is_resolved_by_event_bound_receipt(self):
+        class LostResponse(FileMenuApp):
+            def act(self, obs_id, target, action, **kwargs):
+                result = super().act(obs_id, target, action, **kwargs)
+                if action['name'] == 'menu':
+                    raise TimeoutError('response lost after writing')
+                return result
+        with tempfile.TemporaryDirectory() as folder:
+            app = LostResponse(folder)
+            result, receipt = self.execute(app)
+            self.assertEqual(DONE, receipt.state, (result.why, receipt))
+            self.assertEqual(1, app.writes)
+            self.assertEqual('confirmed', result.events[0]['state'])
+            self.assertEqual({'type':'error','effect':'unknown'}, result.events[0]['dispatch_response'])
+
+    def test_missing_or_failed_receipt_stops_before_second_save(self):
+        for mode in ('missing', 'wrong_event', 'raises'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as folder:
+                app = FileMenuApp(folder)
+                result, receipt = self.execute(app, mode, repeat_commit=True)
+                self.assertFalse(result.ok)
+                self.assertNotEqual(DONE, receipt.state)
+                self.assertEqual(1, app.writes)
+                self.assertEqual(1, len(result.events))
+                self.assertEqual('unknown', result.certainty)
+                self.assertNotIn('private receipt payload', str(result))
+
+    def test_cancellation_after_write_keeps_event_and_cancellation_reason(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app = FileMenuApp(folder)
+            original = app.act
+            cancelled = [False]
+            def act(*args, **kwargs):
+                response = original(*args, **kwargs)
+                cancelled[0] = True
+                return response
+            app.act = act
+            result, receipt = self.execute(app, cancelled=lambda:cancelled[0])
+            self.assertFalse(result.ok)
+            self.assertEqual('cancelled', result.stop_reason)
+            self.assertIn('사용자 취소', result.why)
+            self.assertEqual(1, app.writes)
+            self.assertEqual(1, len(result.events))
+            self.assertEqual('unknown', result.certainty)
+            self.assertEqual({}, result.commit_evidence)
 
     def test_general_uncertain_guarded_save_requires_receipt_before_more_planning(self):
         class GuardedApp(FileMenuApp):

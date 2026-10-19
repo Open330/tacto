@@ -113,12 +113,12 @@ let own=AXUIElementCreateApplication(10001),other=AXUIElementCreateApplication(1
 var documentTokens=[(token:"own",document:PinnedDocument(pid:42,stamp:10,window:own,selectedPath:"/private/tmp/own.txt",lifecycleWindowID:10001))]
 var mode="open", reads=0
 var documentOperationDeadline:Double?=nil
-func CGPreflightScreenCaptureAccess()->Bool {mode != "no-capture"}
+func CGPreflightScreenCaptureAccess()->Bool {fatalError("metadata must not require capture authorization")}
 func CGWindowListCopyWindowInfo(_ option:CGWindowListOption,_ relative:CGWindowID)->CFArray? {
  precondition(option == .optionAll)
  if mode=="cg-error" {return nil}
  if mode=="cg-malformed" {return [[kCGWindowNumber as String:true]] as CFArray}
- return mode=="offspace" ? [[kCGWindowOwnerPID as String:42,kCGWindowNumber as String:10001]] as CFArray:[] as CFArray
+ return ["offspace","no-capture-present"].contains(mode) ? [[kCGWindowOwnerPID as String:42,kCGWindowNumber as String:10001]] as CFArray:[] as CFArray
 }
 func documentIsWholeNumber(_ raw:Any?)->NSNumber? {
  guard let n=raw as? NSNumber,CFGetTypeID(n) != CFBooleanGetTypeID(),!CFNumberIsFloatType(n as CFNumber) else {return nil};return n
@@ -137,7 +137,7 @@ func documentRequired(_ el:AXUIElement,_ name:String)throws->Any {
   if mode=="overflow" {return Array(repeating:own,count:129)}
   if mode=="drift" {return reads==1 ? [own]:[AXUIElement]()}
   if mode=="late" {Thread.sleep(forTimeInterval:0.01)}
-  return ["closed","offspace","no-capture","cg-error","cg-malformed","no-id"].contains(mode) ? [AXUIElement]() : mode=="reopened" ? [other] : mode=="duplicate" ? [own,other] : [own]
+  return ["closed","offspace","no-capture","no-capture-present","cg-error","cg-malformed","no-id"].contains(mode) ? [AXUIElement]() : mode=="reopened" ? [other] : mode=="duplicate" ? [own,other] : [own]
  }
  precondition(name=="AXSubrole","body or unexpected attribute was read")
  return mode=="rolechanged" ? "AXDialog":"AXStandardWindow"
@@ -152,7 +152,9 @@ let request:[String:Any]=["type":"document_window_status","target":"com.apple.Te
 let opened=documentWindowStatus(request);precondition(opened["state"] as? String == "open")
 mode="closed";reads=0;let closed=documentWindowStatus(request);precondition(closed["state"] as? String == "closed")
 precondition(closed["same_process_verified"] as? Bool == true && documentTokens.count==1)
-for kind in ["gone","restart","readerror","overflow","drift","reopened","duplicate","patherror","pathchanged","abort","rolechanged","late","offspace","no-capture","cg-error","cg-malformed"] {
+mode="no-capture";reads=0
+precondition(documentWindowStatus(request)["state"] as? String == "closed")
+for kind in ["gone","restart","readerror","overflow","drift","reopened","duplicate","patherror","pathchanged","abort","rolechanged","late","offspace","no-capture-present","cg-error","cg-malformed"] {
  mode=kind;reads=0;documentOperationDeadline=kind=="late" ? ProcessInfo.processInfo.systemUptime+0.005:nil
  let old=documentOperationDeadline
  let result=documentWindowStatus(request)

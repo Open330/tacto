@@ -1,6 +1,6 @@
 // Peer authentication — who is on the other end of this connection, per the kernel.
 //
-// The ancestry check this replaces really said "a descendant of signed tacto may
+// The ancestry check this replaces really said "a descendant of signed nlc may
 // act", so any attacker-controlled link in that chain qualified. What we want
 // instead is to authenticate the PEER ITSELF: the process that connected.
 //

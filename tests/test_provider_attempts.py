@@ -117,9 +117,13 @@ class ProviderAttemptTests(unittest.TestCase):
                 ('tacto.authoring', lambda: _run_provider(['unused'], 1)),
                 ('tacto.codex_result', lambda: _run_codex(['unused'], 'payload', 1)),
                 ('tacto.claude_result', lambda: _run_claude(['unused'], 'payload', 1, '/tmp'))):
-            with patch(module + '.subprocess.Popen') as popen, patch(module + '.os.killpg') as killpg:
+            with patch(module + '.subprocess.Popen') as popen, patch(module + '.os.killpg') as killpg, \
+                 patch('tacto.provider_io.bounded_communicate',side_effect=KeyboardInterrupt), \
+                 patch('tacto.provider_io.provider_process_exited_unreaped',return_value=False), \
+                 patch('os.getpgid',return_value=12345),patch('os.getsid',return_value=12345):
                 proc = popen.return_value.__enter__.return_value
                 proc.pid = 12345
+                proc.returncode = None
                 proc.communicate.side_effect = KeyboardInterrupt
                 with self.assertRaises(KeyboardInterrupt): invoke()
                 killpg.assert_called_once()

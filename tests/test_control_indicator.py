@@ -2,7 +2,7 @@
 
 Found 2026-09-20 while verifying browsers: the outline was wired at two CLI
 commands and two signed-helper messages, so every other way in — a script
-holding a Driver, `tacto observe`, the whole evaluation suite, this session's own
+holding a Driver, `nlc observe`, the whole evaluation suite, this session's own
 browser and Calculator probes — drove somebody's machine with nothing on screen
 to say so. Asking each caller to remember is how it went missing; the driver
 owns it now.
@@ -185,28 +185,38 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         text = (ROOT / "tacto/overlay.py").read_text()
         self.assertIn("statusItemWithLength_", text)
 
-    def test_neither_draws_a_window_over_the_screen(self):
-        for path, banned in (("helper/TactoHelper.swift", ("NSPanel(", "orderFrontRegardless")),
-                             ("tacto/overlay.py", ("NSPanel", "NSBezierPath"))):
-            text = (ROOT / path).read_text()
-            for line in text.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("//") or stripped.startswith("#"):
-                    continue
-                for token in banned:
-                    self.assertNotIn(token, stripped,
-                                     f"{path} is drawing over the screen again")
+    def test_control_never_becomes_key_or_follows_other_spaces(self):
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        body=text[text.index('final class TactoControlPanel'):text.index('/// Supplementary menu-bar status')]
+        self.assertIn('override var canBecomeKey: Bool { false }',body)
+        self.assertIn('override var canBecomeMain: Bool { false }',body)
+        self.assertIn('.nonactivatingPanel',body)
+        self.assertIn('becomesKeyOnlyIfNeeded = true',body)
+        self.assertNotIn('canJoinAllSpaces',body)
+        self.assertNotIn('moveToActiveSpace',body)
+        self.assertIn('panel.isOnActiveSpace',body)
+        self.assertIn('avoiding: targets',body)
 
-    def test_no_collection_behaviour_survives_anywhere(self):
-        # There is no panel to give a Space behaviour to. A reference to one is
-        # the panel coming back.
-        for path in ("helper/TactoHelper.swift", "tacto/overlay.py"):
-            text = (ROOT / path).read_text()
-            for line in text.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("//") or stripped.startswith("#"):
-                    continue
-                self.assertNotIn("ollectionBehavior", stripped, path)
+    def test_placement_keeps_control_outside_target_window(self):
+        import json,shutil,subprocess,tempfile
+        if not shutil.which('swift'):self.skipTest('macOS Swift required')
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        code=text[text.index('func availableControlFrame('):text.index('func controlTargetFrames(')]
+        harness='import Foundation\nimport CoreGraphics\n'+code+r'''
+let screen=CGRect(x:0,y:0,width:1000,height:800)
+let size=CGSize(width:292,height:56)
+let first=availableControlFrame(screens:[screen],avoiding:[],size:size)!
+let moved=availableControlFrame(screens:[screen],avoiding:[first],size:size)!
+let blocked=availableControlFrame(screens:[screen],avoiding:[screen],size:size)
+let other=CGRect(x:1000,y:0,width:1000,height:800)
+let second=availableControlFrame(screens:[screen,other],avoiding:[screen],size:size)!
+print(String(data:try! JSONSerialization.data(withJSONObject:["inside":screen.contains(first),"moved":!first.intersects(moved),"blocked":blocked == nil,"other":other.contains(second)]),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/'main.swift';path.write_text(harness)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=60)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual({'inside':True,'moved':True,'blocked':True,'other':True},json.loads(result.stdout))
 
     def test_the_indicator_still_gates_every_action(self):
         # The point of it is that a caller cannot act invisibly. Losing the
@@ -215,33 +225,14 @@ class TheIndicatorCoversNothing(unittest.TestCase):
         self.assertGreaterEqual(text.count("ensureVisibleControl(forPID: p"), 4)
         self.assertIn("indicator_unavailable", text)
 
-    def test_what_the_gate_hangs_on_is_the_signal_that_cannot_hide(self):
-        # Measured: on a full menu bar macOS collapses extra items behind an
-        # overflow chevron while the item still reports isVisible == true. A
-        # promise the person can see this happening cannot rest on that, so the
-        # refusal hangs on the capture stream, whose indicator is the system's
-        # own and took a slot ahead of the chevron rather than behind it.
-        text = (ROOT / "helper/TactoHelper.swift").read_text()
-        body = text[text.index("func ensureVisibleControl("):]
-        body = body[:body.index("\n}\n")]
-        self.assertIn("guard ensureControlStream(forPID: pid) else", body)
-        # With a window, the menu-bar item is best effort: the gate is the
-        # stream. With NO window of its own there is nothing to stream and
-        # nothing being read, and refusing blocked the menu command that would
-        # open one (Finder, 2026-10-07) — there, and only there, the item being
-        # shown IS the gate, and the stream returns once a window exists.
-        # Narrowed after Codex's review of 2b6b400: the caller must say the
-        # request is one a windowless app can take (menus), "no windows" must
-        # come from a successful read (a failed read is not "none"), and the
-        # item must be reported on screen.
-        self.assertIn("if windowless && appSaysItHasNoWindows(pid)", body)
-        windowless = body[body.index("if windowless &&"):body.index("guard ensureControlStream")]
-        self.assertIn("guard shown else", windowless)
-        self.assertIn("controlItemOnScreen()", windowless)
-        probe = text[text.index("func noWindowsAmong("):]
-        probe = probe[:probe.index("\n}\n")]
-        self.assertIn("error == .success, let windows = value as? [AXUIElement] else { return false }", probe)
-        self.assertNotIn("realWindows", probe)
+    def test_ax_control_does_not_start_screen_capture(self):
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        body=text[text.index('func ensureVisibleControl('):]
+        body=body[:body.index('\n}\n')]
+        self.assertIn('showControlPanel(forPID: pid, targets:targets)',body)
+        self.assertIn('guard shown else',body)
+        self.assertNotIn('ensureControlStream',body)
+        self.assertNotIn('SCStream',body)
 
     def test_windowless_judgement_runs(self):
         """The real function against a fake read (june-mba, 2026-10-09: Finder
@@ -296,7 +287,7 @@ let out: [String: Bool] = [
 ]
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix="tacto-windowless-") as directory:
+        with tempfile.TemporaryDirectory(prefix="nlc-windowless-") as directory:
             source = pathlib.Path(directory) / "main.swift"
             source.write_text(harness)
             result = subprocess.run(["swift", str(source)], capture_output=True, text=True, timeout=120)

@@ -10,6 +10,8 @@ room's window — the result, not the posting, is what passes.
 """
 from pathlib import Path
 import json
+import hashlib
+import os
 import plistlib
 import subprocess
 import tempfile
@@ -25,15 +27,24 @@ def main(driver, output):
     from ApplicationServices import AXUIElementCreateApplication
     from tacto.input_audit_process import ProcessInputAudit
     root = Path(__file__).resolve().parents[2]
+    source_paths = list((root / 'tacto').glob('*.py')) + list((root / 'nlc').glob('*.py')) + [Path(__file__).resolve(),
+        root / 'tests/fixtures/NativeListFixture.swift', root / 'helper/tacto-helper',
+        root / 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
+    def source_subset():
+        return {str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in sorted(source_paths)}
+    source_before = source_subset()
     local = Driver()
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
     report = {'passed': False, 'scope': 'owned background AppKit list; element pointer clicks',
               'transport': type(driver).__name__}
     process = None
+    interrupted = None
+    report_fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         assert local._resolve(TARGET, launch=False) is None, 'fixture already running'
         assert {'action.double_click', 'click.window_bound_element'} <= set(driver.capabilities)
-        with tempfile.TemporaryDirectory(prefix='tacto-signed-element-click-') as work:
+        with tempfile.TemporaryDirectory(prefix='nlc-signed-element-click-') as work:
             app = Path(work) / 'NLC List Fixture.app'
             binary = app / 'Contents/MacOS/NativeListFixture'
             binary.parent.mkdir(parents=True)
@@ -45,7 +56,8 @@ def main(driver, output):
                 check=True, capture_output=True, timeout=60)
             with audit:
                 try:
-                    process = subprocess.Popen([str(binary)],
+                    close_signal = Path(work) / 'close-owned-window'
+                    process = subprocess.Popen([str(binary), '--close-owned-window', str(close_signal)],
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     deadline = time.monotonic() + 15
                     while local._resolve(TARGET, launch=False) != process.pid:
@@ -100,7 +112,8 @@ def main(driver, output):
                     assert opened.get('type') == 'acted', opened
                     assert report['double_click']['after']['opens'] == '1', report['double_click']
                     assert report['double_click']['after']['opened'] == 'Room_B', report['double_click']
-                    assert 'Window  Title: Room B' in observe()['tree']
+                    # Window labels are JSON-quoted now; match the field, not the text.
+                    assert Selector(role='Window', title='Room B').resolve_all(observe()['tree'])
 
                     # 3. The same through replay: the postcondition is the window.
                     env = Envelope.minimal()
@@ -241,28 +254,66 @@ def main(driver, output):
                     again = driver.act(view['obs_id'], TARGET, {'name': 'close_menu'})
                     assert again.get('effect') == 'not_started', again
 
-                    # 8. The window is closed (setup, by the harness through
-                    #    AX); reopen_window brings it back without activation.
+                    # 8. The fixture closes only its own window as setup;
+                    #    signed reopen_window brings it back without activation.
                     assert 'action.reopen_window' in driver.capabilities
-                    from ApplicationServices import AXUIElementPerformAction
+                    signal_fd = os.open(close_signal, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    with os.fdopen(signal_fd, 'w') as signal:
+                        signal.write('close-owned-main')
+                    until_closed = time.monotonic() + 3
                     app_element = AXUIElementCreateApplication(process.pid)
-                    main = [w for w in (_attr(app_element, 'AXWindows') or [])
-                            if _attr(w, 'AXTitle') == 'NLC List Fixture']
-                    assert len(main) == 1, 'main window absent'
-                    assert AXUIElementPerformAction(_attr(main[0], 'AXCloseButton'), 'AXPress') == 0
-                    time.sleep(.4)
+                    while any(_attr(window, 'AXTitle') == 'NLC List Fixture'
+                              for window in (_attr(app_element, 'AXWindows') or [])):
+                        assert time.monotonic() < until_closed, 'owned main window did not close'
+                        time.sleep(.05)
                     view = driver.observe(TARGET, 'tree_full', require_window=False)
                     assert view.get('type') == 'observation', view
-                    assert 'Title: NLC List Fixture' not in view['tree'], view['tree']
+                    assert not Selector(role='Window', title='NLC List Fixture').resolve_all(view['tree']), view['tree']
                     reopened = driver.act(view['obs_id'], TARGET, {'name': 'reopen_window'})
                     time.sleep(.4)
                     after_reopen = observe()
-                    report['reopen'] = {'response': reopened, 'tree_has_window':
-                                        'Title: NLC List Fixture' in after_reopen['tree'], 'after': host()}
+                    report['reopen'] = {'response': reopened, 'tree_has_window': bool(
+                                        Selector(role='Window', title='NLC List Fixture').resolve_all(after_reopen['tree'])),
+                                        'after': host()}
                     assert reopened.get('type') == 'acted', reopened
                     assert reopened.get('activated_target') is not True, reopened
                     assert report['reopen']['tree_has_window'], report['reopen']
                     assert report['reopen']['after']['reopens'] == '1', report['reopen']
+
+                    # 9. The model loop, with a scripted planner: a row that has
+                    #    no name of its own is offered by the text inside it,
+                    #    selected, then opened with a declared Return submit.
+                    from tacto.general import run as general_run
+                    before = host()
+                    seen = []
+                    def planner(goal, cands, history):
+                        row = next((c for c in cands if c.get('role') == 'Row'
+                                    and c.get('label') == 'Room C'), None)
+                        seen.append({'row': None if row is None else
+                                     {k: row.get(k) for k in ('label', 'can', 'via_child')}})
+                        if row is None or len(seen) > 3:
+                            return {'done': True}
+                        if len(seen) == 1:
+                            # Room windows opened above hold the app's focus;
+                            # a pointer click needs its own window prepared.
+                            window = next(c for c in cands if c.get('role') == 'Window'
+                                          and c.get('label') == 'NLC List Fixture')
+                            return {'actions': [{'do': 'prepare_window', 'candidate': window}],
+                                    'expect': None}
+                        if len(seen) == 2:
+                            return {'actions': [{'do': 'click', 'candidate': row}], 'expect': None}
+                        return {'actions': [{'do': 'submit', 'candidate': row}],
+                                'expect': f"opens={int(before['opens']) + 1}"}
+                    walked = general_run(driver, TARGET, 'Room C 방 열어줘', planner, max_screens=4)
+                    report['general_row_submit'] = {'ok': walked.ok, 'verified': walked.verified,
+                        'why': walked.why, 'seen': seen, 'events': walked.events, 'after': host()}
+                    assert seen[0]['row'] and seen[0]['row']['via_child'], seen
+                    assert 'submit' in seen[0]['row']['can'], seen
+                    assert walked.ok and walked.verified, report['general_row_submit']
+                    after = report['general_row_submit']['after']
+                    assert after['opens'] == str(int(before['opens']) + 1), report['general_row_submit']
+                    assert after['opened'] == 'Room_C', report['general_row_submit']
+                    assert after['sent'] == before['sent'], report['general_row_submit']
 
                     report['final'] = host()
                     # NSApp.isActive of this accessory fixture turns true after
@@ -276,9 +327,20 @@ def main(driver, output):
                         if process.poll() is None: process.terminate()
                         process.wait(timeout=5)
                         report['owned_child_reaped'] = True
-    except Exception as exc:
+    except BaseException as exc:
         report.update(passed=False, error=type(exc).__name__ + ': ' + str(exc))
+        if not isinstance(exc, Exception):
+            interrupted = exc
+            report['interrupted'] = True
     report['input_audit'] = audit.report()
     if report['input_audit']['status'] != 'UNCHANGED_SAMPLED': report['passed'] = False
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2, default=str))
+    source_after = source_subset()
+    report.update(source_subset_before=source_before, source_subset_after=source_after,
+                  source_subset_stable=source_before == source_after, all_dependencies_frozen=False)
+    if source_before != source_after:
+        report['passed'] = False
+    with os.fdopen(report_fd, 'w') as stream:
+        json.dump(report, stream, ensure_ascii=False, indent=2, default=str)
+    if interrupted is not None:
+        raise interrupted
     return report

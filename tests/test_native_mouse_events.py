@@ -141,6 +141,10 @@ class AccessibilityScrollTests(unittest.TestCase):
         from types import SimpleNamespace
         from tacto import driver
         self.m = driver
+        owner_patch=patch.object(driver,'AXUIElementGetPid',return_value=(0,41))
+        owner_patch.start();self.addCleanup(owner_patch.stop)
+        equality_patch=patch.object(driver,'CFEqual',side_effect=lambda a,b:a is b)
+        equality_patch.start();self.addCleanup(equality_patch.stop)
         self.d = object.__new__(driver.Driver)
         self.content, self.area = object(), object()
         self.vertical, self.horizontal = object(), object()
@@ -149,8 +153,10 @@ class AccessibilityScrollTests(unittest.TestCase):
             self.area: {'AXRole': 'AXScrollArea',
                         'AXChildren': [self.vertical, self.horizontal]},
             self.vertical: {'AXRole': 'AXScrollBar', 'AXValue': 0.5,
+                            'AXParent':self.area,
                             'AXOrientation': 'AXVerticalOrientation'},
             self.horizontal: {'AXRole': 'AXScrollBar', 'AXValue': 0.5,
+                              'AXParent':self.area,
                               'AXOrientation': 'AXHorizontalOrientation'},
         }
 
@@ -191,10 +197,88 @@ class AccessibilityScrollTests(unittest.TestCase):
         with self.assertRaises(self.m.NotStarted):
             self._run('down', settable=False)
 
+    def test_setter_can_change_value_then_timeout_and_act_must_report_unknown(self):
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        self.d._latest={'native':SimpleNamespace(obs_id='s1',pid=42)}
+        calls=[]
+        def setter(el,key,value):
+            calls.append(value)
+            self.attrs[el][key]=value
+            return -25204
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(self.d,'_showing_control'))
+            stack.enter_context(patch.object(self.d,'_validate_document_observation'))
+            stack.enter_context(patch.object(self.d,'_mismatch',return_value=None))
+            stack.enter_context(patch.object(self.d,'_perform',side_effect=lambda *a,**k:self.d._scroll(self.content,'down',1)))
+            stack.enter_context(patch.object(self.m,'_attr',side_effect=lambda el,key:self.attrs.get(el,{}).get(key)))
+            stack.enter_context(patch.object(self.m,'_aborted_now',return_value=False))
+            stack.enter_context(patch.object(self.m,'AXUIElementIsAttributeSettable',return_value=(0,True)))
+            stack.enter_context(patch.object(self.m,'AXUIElementSetAttributeValue',side_effect=setter))
+            result=self.d.act('s1','native',{'name':'scroll','element_index':0})
+            self.assertEqual('unknown',result['effect'])
+            self.assertEqual([.6],calls)
+            # A recovery-enabled replay must not run the setter again after
+            # this exact direct-driver error response, even though it changed.
+            from tacto.flow import Flow,Selector,Step,replay
+            from tacto.contract import SafetyContract,Resource
+            direct=self.d;attrs=self.attrs;bar=self.vertical
+            class Adapter:
+                def identity(self,target):return target
+                def observe(self,*args,**kwargs):
+                    return {'type':'observation','obs_id':'s1','tree':f'0 ScrollArea  Identifier: article, Value: {attrs[bar]["AXValue"]}'}
+                def probe(self,*args):return {'type':'probe','line':self.observe()['tree']}
+                def act(self,obs_id,target,action,**kwargs):return direct.act(obs_id,target,action,**kwargs)
+            flow=Flow('scroll','native',[Step('scroll',Selector(identifier='article'),
+                params={'direction':'down','pages':1},safety=SafetyContract(effects=['write_ephemeral'],
+                    resource=Resource(scope='entry'),reversibility='reversible'))])
+            calls.clear();self.attrs[self.vertical]['AXValue']=.5;recovery=[]
+            replayed=replay(Adapter(),flow,escalate=lambda why:recovery.append(why),budget=3)
+            self.assertFalse(replayed.ok)
+            self.assertTrue(replayed.events,replayed.log)
+            self.assertEqual('unknown',replayed.events[-1]['state'])
+            self.assertEqual([],recovery)
+        self.assertEqual('unknown',result['effect'])
+        self.assertEqual('action_failed',result['error'])
+        self.assertEqual([.6],calls)
+        self.assertEqual(.6,self.attrs[self.vertical]['AXValue'])
+
     def test_a_missing_bar_says_so_instead_of_scrolling_something_else(self):
         self.attrs[self.area]['AXChildren'] = [self.horizontal]
         with self.assertRaises(self.m.NotStarted):
             self._run('down')
+
+    def test_bad_parameters_and_unusable_positions_never_call_setter(self):
+        for direction,pages in [('wrong',1),(None,1),('down',True),('down',False),('down',0),('down',11),('down',1.0),('down',1.5)]:
+            with self.subTest(direction=direction,pages=pages),patch.object(self.m,'AXUIElementSetAttributeValue') as setter,self.assertRaises(self.m.NotStarted):
+                self.d._scroll(self.content,direction,pages)
+            setter.assert_not_called()
+
+        for value in (True,float('nan'),float('inf'),-.1,1.1,10**400):
+            self.attrs[self.vertical]['AXValue']=value
+            with self.subTest(position=value),patch.object(self.m,'_attr',side_effect=lambda el,key:self.attrs.get(el,{}).get(key)),patch.object(self.m,'AXUIElementIsAttributeSettable',return_value=(0,True)),patch.object(self.m,'AXUIElementSetAttributeValue') as setter,self.assertRaises(self.m.NotStarted):
+                self.d._scroll(self.content,'down',1)
+            setter.assert_not_called()
+
+    def test_foreign_or_ambiguous_bar_and_broken_parent_chain_send_nothing(self):
+        from contextlib import ExitStack
+        baseline={node:dict(attrs) for node,attrs in self.attrs.items()}
+        for mode in ('foreign_bar','foreign_parent','wrong_bar_parent','duplicate','overflow','cycle','unknown_orientation','owner_error'):
+            self.attrs={node:dict(attrs) for node,attrs in baseline.items()}
+            if mode=='wrong_bar_parent':self.attrs[self.vertical]['AXParent']=self.content
+            if mode=='duplicate':self.attrs[self.area]['AXChildren']=[self.vertical,self.vertical]
+            if mode=='overflow':self.attrs[self.area]['AXChildren']=[self.vertical]+[self.content]*40
+            if mode=='cycle':self.attrs[self.content]['AXParent']=self.content
+            if mode=='unknown_orientation':self.attrs[self.vertical]['AXOrientation']=None
+            def owner(node,*args):
+                if mode=='owner_error':return -25204,None
+                return 0,99 if (mode=='foreign_bar' and node is self.vertical) or (mode=='foreign_parent' and node is self.area) else 41
+            with self.subTest(mode=mode),ExitStack() as stack:
+                stack.enter_context(patch.object(self.m,'_attr',side_effect=lambda el,key:self.attrs.get(el,{}).get(key)))
+                stack.enter_context(patch.object(self.m,'AXUIElementGetPid',side_effect=owner))
+                setter=stack.enter_context(patch.object(self.m,'AXUIElementSetAttributeValue'))
+                with self.assertRaises(self.m.NotStarted):self.d._scroll(self.content,'down',1,expected_pid=41)
+                setter.assert_not_called()
 
     def test_no_wheel_or_pointer_event_is_built_anywhere(self):
         import inspect

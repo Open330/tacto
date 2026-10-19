@@ -41,7 +41,7 @@ for name in ["window_element_index", "panel_token", "require_format"] {
 }
 print("SWIFT_SAVE_PANEL_PROTOCOL_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-swift-save-protocol-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-swift-save-protocol-') as directory:
             main = Path(directory) / 'main.swift'
             binary = Path(directory) / 'check'
             main.write_text('import Foundation\nimport CoreFoundation\n' + protocol + harness)
@@ -153,6 +153,44 @@ mustReject { _ = try reader.read(window) }
 set(name, "AXParent", group)
 let tiny = try NativeSavePanelReader(readAttribute: read, directoryResource: resource, maxNodes: 8)
 mustReject { _ = try tiny.read(window) }
+// A large array is fully validated on both captures without charging each
+// repeated identity against the attribute-read pool. Hidden malformed or
+// duplicate entries still refuse; no prefix-only membership check.
+let originalRows = nodes.first(where: { CFEqual($0.element, list) })!.values["AXChildren"]!
+var largeRows: [AXUIElement] = [row]
+for index in 0..<2400 { largeRows.append(AXUIElementCreateApplication(pid_t(200000 + index))) }
+set(list, "AXChildren", largeRows as NSArray)
+let largeWitness = try reader.read(window, requireFormat: true)
+precondition(largeWitness.filename == witness.filename)
+precondition(reader.budgetUsage["peak_array_entries"]! > 4800)
+precondition(reader.budgetUsage["peak_distinct_elements"]! < 5000)
+precondition(reader.budgetUsage["peak_work_items"]! < 5000)
+precondition(reader.budgetUsage["accounting_version"] == 2)
+precondition(reader.budgetUsage["capture_count"] == 2)
+precondition(reader.budgetUsage["active_column_index"] == -1)
+precondition(reader.budgetUsage["column_0_list_entries"] == 2401)
+precondition(reader.budgetUsage["column_0_validated_list_entries"] == 2401)
+precondition(reader.budgetUsage["column_1_list_entries"] == nil) // terminal list not enumerated
+set(list, "AXChildren", (largeRows + [row]) as NSArray)
+mustReject { _ = try reader.read(window) }
+set(list, "AXChildren", (largeRows as [AnyObject] + ["bad-tail" as NSString]) as NSArray)
+mustReject { _ = try reader.read(window) }
+precondition(reader.budgetUsage["active_column_index"] == 0)
+precondition(reader.budgetUsage["capture_count"] == 1)
+precondition(reader.budgetUsage["column_0_list_entries"] == 2402)
+precondition(reader.budgetUsage["column_0_validated_list_entries"] == 2401)
+set(list, "AXChildren", Array(repeating: row, count: 5001) as NSArray)
+mustReject { _ = try reader.read(window) }
+precondition(reader.budgetUsage["column_0_list_entries"] == 5001)
+precondition(reader.budgetUsage["column_0_validated_list_entries"] == 0)
+// Combined arrays of different native identities share the distinct cap.
+set(list, "AXChildren", largeRows as NSArray)
+var secondRows: [AXUIElement] = []
+for index in 0..<3000 { secondRows.append(AXUIElementCreateApplication(pid_t(300000 + index))) }
+set(terminal, "AXChildren", (secondRows + [terminalList]) as NSArray)
+mustReject { _ = try reader.read(window) }
+set(terminal, "AXChildren", [terminalList] as NSArray)
+set(list, "AXChildren", originalRows)
 let sourceGroup = node("AXScrollArea", parent: window)
 let sourceBody = node("AXTextArea", parent: sourceGroup, identifier: "First Text View")
 let sheetBody = node("AXTextArea", parent: sheet, identifier: "First Text View")
@@ -178,7 +216,7 @@ set(group, "AXChildren", ["not an AX object"] as NSArray)
 mustReject { _ = try reader.read(window) }
 print("SWIFT_SAVE_PANEL_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-swift-save-panel-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-swift-save-panel-') as directory:
             source = Path(directory) / 'main.swift'
             binary = Path(directory) / 'check'
             source.write_text(harness)

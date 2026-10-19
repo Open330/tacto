@@ -19,8 +19,10 @@ ACTION_PARAMS = {
     "click": frozenset(), "double_click": frozenset(), "read": frozenset(), "prepare_window": frozenset(),
     "set_value": frozenset({"value"}), "type_text": frozenset({"text"}),
     "select_option": frozenset({"value", "option_label"}),
-    "open_select": frozenset(),
+    "open_select": frozenset({"opening_action"}),
     "select_custom_option": frozenset({"option_label", "value"}),
+    # Host-registered immutable browser payload, never a model-supplied path.
+    "upload": frozenset({"scope", "attachment_digest"}),
     "press_key": frozenset({"key"}), "menu": frozenset({"path", "focused_document"}),
     "scroll": frozenset({"direction", "pages"}),
     "secondary_action": frozenset({"action"}),
@@ -31,6 +33,30 @@ ACTION_PARAMS = {
     # and close an open context menu with AXCancel instead of Escape.
     "reopen_window": frozenset(), "close_menu": frozenset(),
 }
+
+
+def native_opening_parameters_problem(action):
+    """Explicit AXPress is a single alternative, never a retry strategy."""
+    if 'opening_action' in action and action['opening_action'] not in ('AXShowMenu','AXPress'):
+        return 'invalid_opening_action'
+    return None
+
+
+def native_selection_parameters_problem(action):
+    """Native titles have no separate value space; never coerce a value.
+
+    HTML option values may differ from labels. Native value may be omitted,
+    but explicit null/number/bool/array/object or a different string is invalid.
+    """
+    if not isinstance(action, dict) or not isinstance(action.get('option_label'), str) or not action['option_label']:
+        return 'option_label_required'
+    try:
+        action['option_label'].encode('utf-8')
+    except UnicodeError:
+        return 'invalid_option_label_encoding'
+    if 'value' in action and (not isinstance(action['value'], str) or action['value'] != action['option_label']):
+        return 'native_option_value_mismatch'
+    return None
 
 
 def window_key_reobservation(action, response, capabilities):
@@ -141,3 +167,15 @@ class Driver(Protocol):
 def default_driver():
     from .driver import Driver as NativeDriver
     return NativeDriver()
+
+
+def normalize_action_response(response):
+    """Preserve known act replies; malformed acknowledgements leave effects unknown.
+
+    Called only after invoking act. Never infer not_started or include the
+    malformed payload (which can contain application data) in diagnostics.
+    """
+    if (type(response) is dict and type(response.get('type')) is str
+            and response['type'] in ('acted','error','confirm_request','handoff_request')):
+        return response
+    return {'type':'error','error':'driver_response_invalid','effect':'unknown'}

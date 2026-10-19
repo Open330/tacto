@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import signal
 import selectors
 import stat
 import subprocess
@@ -88,18 +87,14 @@ class FreshRTFReceipt(FreshFileReceipt):
             raise _ReadbackPending('artifact is not complete RTF')
         argv = ['/usr/bin/textutil', '-convert', 'txt', '-format', 'rtf',
                 '-encoding', 'UTF-8', '-stdin', '-stdout']
+        from .provider_io import require_provider_child_ownership, owned_process_session
+        require_provider_child_ownership()
         with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.DEVNULL, start_new_session=True) as proc:
-            try:
+            # A waitable, unreaped leader pins the group identity until cleanup.
+            # The shared context refuses signalling after ownership is lost.
+            with owned_process_session(proc):
                 output = self._decode_stream(proc, raw, remaining)
-            finally:
-                # Also cover descendants retaining a pipe after the decoder
-                # exits, output overflow, cancellation, and unexpected errors.
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait()
         if proc.returncode != 0 or len(output) > self._MAX_TEXT_BYTES:
             raise _ReadbackPending('RTF decoder did not return bounded text')
         try:
@@ -153,10 +148,9 @@ class FreshRTFReceipt(FreshFileReceipt):
                             output.extend(chunk)
                             if len(output) > self._MAX_TEXT_BYTES:
                                 raise _ReadbackPending('RTF decoder exceeded text byte budget')
-            try:
-                proc.wait(timeout=budget())
-            except subprocess.TimeoutExpired:
-                raise _ReadbackPending('RTF decoding exceeded deadline') from None
+            from .provider_io import provider_process_exited_unreaped
+            while not provider_process_exited_unreaped(proc):
+                time.sleep(min(.01, budget()))
             budget()
         return bytes(output)
 

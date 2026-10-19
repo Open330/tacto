@@ -124,6 +124,7 @@ class UpgradeRollbackHarnessTests(unittest.TestCase):
             root=runtime(self.base,name).resolve()
             package=root/'.venv/lib/python3.11/site-packages'/name
             package.mkdir(parents=True)
+            (package/'__init__.py').write_text('')
             (package/'flow.py').write_text('owned implementation')
             (root/'helper'/helper).mkdir(parents=True)
             seen=[]

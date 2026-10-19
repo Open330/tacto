@@ -15,6 +15,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class EvaluationReports(unittest.TestCase):
+    def test_general_visual_input_cases_are_isolated_and_offline_skipped(self):
+        import runpy
+        module=runpy.run_path(str(ROOT/'examples/eval.py'))
+        for name in ('general_visual_input_fixed','general_visual_input_codex'):
+            args,selected,cases=module['_parse_plan']([name,'--offline'])
+            self.assertEqual(1,len(selected))
+            self.assertEqual('skipped',cases[0]['status'])
+            self.assertIn(name,module['ISOLATED'])
+            self.assertTrue({'gui','native'}<=module['SCENARIO_REQUIREMENTS'][name])
+            with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+                module['_parse_plan']([name,'calc_mult'])
+
+    def test_single_popup_opening_diagnostic_is_isolated_and_offline_skipped(self):
+        import runpy
+        module=runpy.run_path(str(ROOT/'examples/eval.py'))
+        name='signed_native_select_opening_diagnostic'
+        _,selected,cases=module['_parse_plan']([name,'--offline'])
+        self.assertEqual(1,len(selected));self.assertEqual('skipped',cases[0]['status'])
+        self.assertIn(name,module['ISOLATED'])
+        self.assertTrue({'gui','native'}<=module['SCENARIO_REQUIREMENTS'][name])
+        with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+            module['_parse_plan']([name,'calc_mult'])
+
     def setUp(self):
         spec = importlib.util.spec_from_file_location("eval_reports", ROOT / "examples/eval.py")
         self.m = importlib.util.module_from_spec(spec)

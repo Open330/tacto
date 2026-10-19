@@ -4,7 +4,7 @@ from contextvars import ContextVar
 import math
 import time
 
-_DEADLINE = ContextVar('tacto_model_deadline', default=None)
+_DEADLINE = ContextVar('nlc_model_deadline', default=None)
 
 
 @contextmanager

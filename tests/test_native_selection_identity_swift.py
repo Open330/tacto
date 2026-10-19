@@ -23,6 +23,12 @@ typealias AXUIElement = Node
 typealias CFTypeRef = AnyObject
 typealias CFString = String
 struct ReadError { let rawValue: Int32 }
+typealias AXError=ReadError
+class NativeWindowReadScope {
+ func read(_ node:Node,_ key:String) throws -> (ReadError,AnyObject?) {
+  var value:AnyObject?;let error=AXUIElementCopyAttributeValue(node,key,&value);return(error,value)
+ }
+}
 func AXUIElementCopyAttributeValue(_ node: Node, _ key: String, _ value: inout AnyObject?) -> ReadError {
     if let error = node.values[key + "Error"] as? Int32 { return ReadError(rawValue: error) }
     guard let result = node.values[key] else { return ReadError(rawValue: -25205) }
@@ -34,7 +40,11 @@ let kAXChildrenAttribute = "AXChildren"
 let kAXValueAttribute = "AXValue"
 var root = Node([:])
 func AXUIElementCreateApplication(_ pid: pid_t) -> Node { root }
-func attr(_ node: Node, _ key: String) -> Any? { node.values[key] }
+func attr(_ node: Node, _ key: String) -> Any? {
+    var value: AnyObject?
+    let error = AXUIElementCopyAttributeValue(node, key, &value)
+    return error.rawValue == 0 ? value : nil
+}
 func str(_ node: Node, _ key: String) -> String? {
     guard let text = node.values[key] as? String, !text.isEmpty else { return nil }; return text
 }
@@ -75,6 +85,10 @@ let empty = popup("", "")
 root.values = ["AXRole": "AXApplication", "AXChildren": [empty]]
 precondition(rereadSelection(1, role: "AXPopUpButton", identity: "", control: original) == nil)
 precondition(rereadSelection(1, role: "AXPopUpButton", identity: "", control: empty) == "")
+root.values = ["AXRole": "AXApplication", "AXChildren": [original]]
+original.values["AXValueError"] = Int32(-25204)
+precondition(rereadSelection(1, role: "AXPopUpButton", identity: nil, control: original) == nil)
+original.values.removeValue(forKey: "AXValueError")
 print("SELECTION_IDENTITY_PASS")
 '''
         # Execute the actual expressions at both wire-response call sites.

@@ -10,12 +10,12 @@ from pathlib import Path
 import struct
 import tempfile
 import time
-import weakref
+from .capture_ledger import CaptureLedger
 
 from .native_visual import NativeVisualCapture, NativeVisualError, _frame_valid
 
 
-_SPENT = weakref.WeakValueDictionary()
+_SPENT = CaptureLedger()
 
 
 def capture_window(driver, obs_id, target, *, window_index, timeout_seconds=5):
@@ -98,9 +98,8 @@ class NativeVisualClickExecutor:
         if not isinstance(capture.capture_id, str) or not capture.capture_id:
             return denied('invalid_native_capture')
         event['capture_id'] = capture.capture_id
-        if capture.capture_id in _SPENT:
-            return denied('capture_already_used')
-        _SPENT[capture.capture_id] = capture
+        if reason := _SPENT.reserve(capture.capture_id):
+            return denied(reason)
         if capture.target != self.target:
             return denied('target_mismatch')
         capabilities = getattr(self.driver, 'capabilities', ())
@@ -228,7 +227,12 @@ def run_native_visual(driver, target, goal, window_selector, planner, authorize,
             identity = current
             if reason := stopped():
                 return finish('STOPPED', reason)
-            if verify(latest, deepcopy(history)) is True:
+            verified = verify(latest, deepcopy(history)) is True
+            # Host readers can outlast the budget or observe cancellation.
+            # A late True must not override either stop condition.
+            if reason := stopped():
+                return finish('STOPPED', reason)
+            if verified:
                 return finish('DONE', 'host_verified')
             if step == max_steps:
                 return finish('STOPPED', 'step_limit')

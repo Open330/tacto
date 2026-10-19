@@ -76,12 +76,75 @@ class ExistingFileReadPollingTests(unittest.TestCase):
             return data
         return patch('tacto.existing_file_receipt.os.read', side_effect=boundary)
 
+    def test_document_changes_during_exact_file_read_cannot_issue_saved_state(self):
+        with self.eof(lambda:setattr(self.doc,'text','changed document')):
+            with self.assertRaisesRegex(ArtifactReceiptError,'changed_during_save'):
+                self.after()
+        with self.assertRaisesRegex(ArtifactReceiptError,'already_used'):
+            self.after()
+
+    def test_file_changed_during_final_document_read_discards_old_readback(self):
+        read=self.doc.document_text
+        def final_document(*args,**kwargs):
+            result=read(*args,**kwargs)
+            if self.doc.reads==3:self.replace(b'wrong')
+            return result
+        with patch.object(self.doc,'document_text',side_effect=final_document):
+            with self.assertRaisesRegex(ArtifactReceiptError,'file_does_not_hold_text'):
+                self.after()
+        self.assertEqual(b'wrong',self.path.read_bytes())
+
+    def test_identical_file_swap_during_final_document_read_requires_fresh_poll(self):
+        read=self.doc.document_text
+        def final_document(*args,**kwargs):
+            result=read(*args,**kwargs)
+            if self.doc.reads==3:self.replace()
+            return result
+        with patch.object(self.doc,'document_text',side_effect=final_document):
+            self.assertIs(type(self.after()),CommitEvidence)
+        self.assertEqual([.01],self.clock.sleeps)
+
+    def test_same_size_overwrite_with_restored_mtime_during_document_read_is_not_stable(self):
+        read=self.doc.document_text
+        def final_document(*args,**kwargs):
+            result=read(*args,**kwargs)
+            if self.doc.reads==3:
+                original=self.path.stat()
+                self.path.write_bytes(b'changed!')
+                os.utime(self.path,ns=(original.st_atime_ns,original.st_mtime_ns))
+            return result
+        with patch.object(self.doc,'document_text',side_effect=final_document):
+            with self.assertRaisesRegex(ArtifactReceiptError,'file_does_not_hold_text'):
+                self.after()
+        self.assertEqual(b'changed!',self.path.read_bytes())
+
+    def test_slow_initial_document_read_never_starts_file_read_after_deadline(self):
+        read=self.doc.document_text
+        def slow_document(*args,**kwargs):
+            result=read(*args,**kwargs);self.clock.now=.04
+            return result
+        with patch.object(self.doc,'document_text',side_effect=slow_document), \
+                patch('tacto.existing_file_receipt._file_state') as file_reader:
+            with self.assertRaisesRegex(ArtifactReceiptError,'file_readback_deadline'):
+                self.after()
+        file_reader.assert_not_called()
+
+    def test_slow_final_document_read_cannot_issue_evidence_after_deadline(self):
+        read=self.doc.document_text
+        def final_document(*args,**kwargs):
+            result=read(*args,**kwargs)
+            if self.doc.reads==3:self.clock.now=.04
+            return result
+        with patch.object(self.doc,'document_text',side_effect=final_document):
+            with self.assertRaisesRegex(ArtifactReceiptError,'file_readback_deadline'):
+                self.after()
+
     def test_one_safe_save_replacement_then_stable_exact_file_is_accepted(self):
         with self.eof(self.replace):
             proof = self.after()
         self.assertIs(type(proof), CommitEvidence)
         self.assertEqual([.01], self.clock.sleeps)
-        self.assertEqual(3, self.doc.reads)  # prepare + two independently bound reads
+        self.assertEqual(4, self.doc.reads)  # prepare + retry reads + final document check
         with self.assertRaisesRegex(ArtifactReceiptError, 'already_used'):
             self.after()
 

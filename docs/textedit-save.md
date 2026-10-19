@@ -184,3 +184,196 @@ RTF만 열어 path-selected token으로 조회한다. 앱 실행·사용자 문�
 시험의 신규 owned 문서는 다음 G7 실험을 위해 보존하며 사용자 문서를 닫지 않는다.
 최초 실측은 TextEdit process 부재로 document open 전에 실패했다. 이것을 실제
 TextEdit export 성공으로 계산하지 않는다.
+
+### 2026-10-11: 파일 읽기 이후 바뀐 TextEdit 문서·파일의 저장 상태 증거 거부
+
+ExistingTextFileReceipt는 문서→파일 순서로만 읽어, 파일 read 동안 바뀐
+문서 본문/token이나 파일 reader 직후 교체된 path를 다시 확인하지 않았다.
+[전후 EOF 재현](../reviews/2026-10-11/existing-save-bracket-before-after-20261011-a.json)은
+before08511ef에서 실제 임시 파일을 읽는 도중 host document 응답의 text/token을
+바꾸면 SavedFileStateEvidence를 발급하고 evidence_error=None인 것을 확인했다.
+after는 changed_during_save/document_identity_changed로 증거를 거부한다.
+[파일 reader 이후 실제 path 교체 전후 재현](../reviews/2026-10-11/existing-save-postread-before-after-20261011-a.json):
+before는 named file이 다른 bytes인데도 saved-state proof를 발급했고,
+after는 전체 readback을 버린 뒤 관측만 반복하고 file_does_not_hold_text로
+거부했다. 두 재현은 실제 임시 파일·host document stub·synthetic acted response를
+사용하며 native GUI/실제 TextEdit document change/model 요청은0이다.
+
+현재는 정확한 file read를 같은 document token·본문·경로 읽기로 양쪽에서
+검증하고, 마지막 문서 read 뒤 named file의 dev/ino/mode/uid/nlink/size/
+mtime/ctime 및 canonical path를 확인한다. 파일이 바뀌면 transient observation만
+deadline 안에서 반복하며 Save를 재전송하지 않는다. 이미 deadline을 넘었으면
+새 문서/file read를 시작하지 않고 느린 host read 뒤에도 증거를 발급하지 않는다.
+_file_state의 기존 첫6 fields는 유지하고 full fingerprint를7번째에 추가했다.
+추가 snapshot은 OS/document/filesystem의 원자적 transaction이나 동일 사용자
+ABA·마지막 검사 이후 변경·앱 writer attribution을 증명하지 않는다.
+증거 타입은 saved_state이며 producer/causal Save 증거로 승격하지 않는다.
+
+[최종 관련 unit](../reviews/2026-10-11/existing-save-bracket-unit-20261011-a.json):
+115 tests3.260s/OK/no skips,process3.358s/source subset stable.
+최초 새 regression은 수정 전 ArtifactReceiptError not raised로 실패했다.
+문서 변경·실제 inode swap·동일 bytes swap·mtime 복원 덮어쓰기·느린 최초/최종
+문서 read·one-shot after 호출을 검사한다. 이 unit은 일반 앱 실기가 아니다.
+
+[실제 scoped TextEdit Save 시도](../reviews/2026-10-11/existing-save-bracket-direct-20261011-a.json)는
+exit2/11.445s/window_preparation_unverified/Save dispatch·receipt 미도달,
+[실제 installed scoped CLI Save 시도](../reviews/2026-10-11/existing-save-bracket-cli-20261011-a.json)도
+exit2/10.397s/같은 준비 거부였다. 두 소유 fixture는 closed/cleanup 완료,
+source_changed=false다. 실패를 PASS나 기능 미지원 SKIP로 바꾸지 않았다.
+[현재 전체 regression k](../reviews/2026-10-11/combo-popup-regression-current-20261011-k.json)와
+[raw log](../reviews/2026-10-11/combo-popup-regression-current-20261011-k.log):
+1915 tests276.013s/OK/skipped2(실행1913),process276.504s/exit0/source subset stable.
+직전 setup link recovery·native cancellation·repeated sheet evaluation과 이번
+saved-state 검사를 포함한다. declared manifest가 모든 dependency/OS를 고정하거나
+실제 GUI/백본/비교 과제 완료를 증명하지는 않는다.
+
+현재 probe는 preparation의 상세 error code를 보존하지 않아 거부 원인을 더
+확인해야 한다. 사용자 앱 강제 활성화·문서 close·권한/서명 변경으로 우회하지 않았다.
+일반 앱/새 Save·format·수신자/첨부·동시 사용자 입력·G0~G10 전체 감사는 계속 남는다.
+
+### 2026-10-11: scoped TextEdit 창 준비의 문서 context 비용과 read-only cadence
+
+signed_textedit_save probe가 window_preparation_unverified만 남기던 경로에
+기존 preparation_diagnostic validator를 적용해 closed phase/reason/숫자만
+보존한다. raw error/detail/document text나 허용되지 않은 key는 기록하지 않는다.
+[수정 전 실제 진단 a](../reviews/2026-10-11/textedit-prepare-diagnostic-20261011-a.json):
+FAIL/not_started/observation_deadline/dispatch phase/4994ms. scoped AX314회/63ms,
+full context918회/context4880ms,readiness pass2/windows4/nodes111이었다.
+정확한 document token의 documentWindowForToken 재탐색이 full context마다
+반복되는 비용을 확인했다. 다른 사용자 window를 닫거나 activate하지 않았다.
+
+정확한 observed bundle의 read-only readiness에서는 기존 NativeWindowReadScope
+cadence를 문서 token에도 적용한다. 매 RPC의 abort/obsID/PID/process start/
+element generation/최신 document token 검사는 유지하고, connection pin의
+pid/stamp/window/body/selectedPath/lifecycleWindowID가 처음과 동일한지도
+검사한다. live document enumeration은16 AX operations마다, readiness entry/exit,
+이 구간 밖의 모든 full checkpoint·입력 전 validation에서 유지한다.
+Alias는 per-RPC full resolver 검사를 유지한다. 실제 live document의 모든
+속성을 매 RPC 다시 읽는다는 주장은 하지 않는다. 관측은 원자적 lease가 아니며
+sampling 사이의 ABA/연속 사용자 caret 보존을 증명하지 않는다.
+
+[helper signed build s](../reviews/2026-10-11/combo-popup-routing-build-20261011-s.json):
+PASS22.051s/source subset stable/designated requirement·identifier·Team identity
+unchanged/strict helper·deep app verify PASS. TCC/launcher identity는 변경하지 않았다.
+[이후 direct scoped Save](../reviews/2026-10-11/textedit-prepare-cadence-direct-20261011-a.json):
+FAIL7.070s/not_started/validation_headroom/dispatch. preparation1461ms,
+full557/incremental809/scoped AX463/context1380ms/AX40ms.
+[이후 installed CLI Save](../reviews/2026-10-11/textedit-prepare-cadence-cli-20261011-a.json):
+FAIL9.051s/not_started/validation_headroom/preparation3858ms,
+full559/incremental813/scoped AX465/context3681ms/AX89ms.
+각 source_changed=false/cleanup closed/closed_observed=true/artifact_removed=true/
+focus activations0/model requests0. 모두 Save·receipt까지 미도달이므로 saved-state
+성공이나 causal Save로 채점하지 않는다. 두 시도의 AX latency도 달랐으므로
+일반 속도 우위/성공률을 주장하지 않는다. 전체 post sequence의 measured-cost
+headroom gate는 완화하지 않았다. 다음 작업은 남은 validation/routing/context
+비용의 closed 계측과 live document enumeration의 동등한 조회 최적화다.
+
+[최종 관련 unit](../reviews/2026-10-11/textedit-prepare-cadence-unit-20261011-a.json):
+40 tests14.413s/OK/no skips,process14.526s/source subset stable.
+실제 추출 Swift 함수에서 pin 교체·삭제/문서 full validator 실패를 입력 전에
+거부하고, 실제 Swift ReadScope에서16 ops checkpoint·entry/exit·phase 밖 full
+검사·abort/deadline을 확인했다. headroom의 느린 검증/라우팅/입력/context는
+첫 post0으로 거부하는 기존 Swift 검사를 실행했다. 이 unit은 real document
+replacement/다중 앱/모델 평가나 강제 OS cancellation의 증거가 아니다.
+[새 helper의 정상 native visual](../reviews/2026-10-11/signed-native-visual-fixed-1791718776596674000.json):
+PASS6.493s/DONE/history1/posted_events2/source subset stable/UNCHANGED_SAMPLED/
+owned child reaped/model calls0. document token 없는 소유 canvas 회귀다.
+이전 full k1915는 이번 helper cadence·probe 변경을 포함하지 않는다.
+TextEdit/Finder·G0~G10·backbone·Sky 동일 조건 감사는 여전히 미완료다.
+
+### 2026-10-11: window input headroom의 closed 비용 계측
+
+shared mouse/key preparation sequence의 첫 post 이전 headroom gate에
+required_ms/remaining_ms/validation_ms/routing_ms/input_ms/context_ms/event_count/
+saturated를 추가했다. 각 duration은 ceil ms/0..600000에 한정하며 nonfinite나
+600s 초과는 포화 표식을 남긴다. 원래 float reserve 판정은 유지하고, 진단
+callback이 끝난 뒤 실제 now를 다시 사용한다. 이 숫자는 authority/receipt가
+아니며 기한·검증·입력 보존 요구를 완화하지 않는다. opaque input 등의 다른
+branch 전부에 동일 계측이 생겼다고 주장하지 않는다.
+helper는 이 metadata만 preparation_diagnostic에 넣고 Python의 기존 closed
+validator가 정확한 key/type/bounds를 검사한다. unknown key/body/raw error
+text는 거부하고 nested dictionary를 복사해 이후 mutation도 차단한다.
+
+[signed helper build t](../reviews/2026-10-11/combo-popup-routing-build-20261011-t.json):
+PASS22.191s/source subset stable/designated requirement·identifier·Team unchanged/
+strict helper·deep app signature verify PASS/TCC 변경 없음.
+[실제 scoped TextEdit 진단 a](../reviews/2026-10-11/textedit-headroom-diagnostic-20261011-a.json):
+FAIL/exit2/7.405s/window_preparation_unverified/not_started/validation_headroom.
+prep1532ms/required6115ms/remaining3442ms/validation558ms/routing1ms/input8ms/
+context6ms/events3/saturated=false. full557/incremental809/scoped AX463,
+context1464ms/AX28ms/readiness pass3/windows4/nodes111이었다.
+이 시도의 reserve에서는 전체 binding validation의 최대558ms가 주요 비용이다.
+이는 실제 deadline을 늘리거나 느린 검증을 생략하면 된다는 증거가 아니다.
+Save/receipt 미도달,cleanup closed/source_changed=false/model requests0,
+실패를 saved-state·causal Save 성공으로 바꾸지 않았다. 다음 구현 작업은
+binding validation 안의 live document/window 조회를 중복 없이 검증하는
+동등한 최적화와 새 signed 실제 Save 확인이다. 환경/동시 입력/일반 앱
+성공률이나 속도/비용 우위는 이1회 진단으로 증명하지 않는다.
+
+[최종 관련 unit](../reviews/2026-10-11/window-headroom-components-unit-20261011-a.json):
+36 tests11.124s/OK/no skips,process11.253s/source subset stable.
+실제 Swift dispatcher에서 slow validation/routing/input/context와 늦은 diagnostic
+callback은 첫 post0으로 거부한다. 정상 mouse/submit은 기존 event 수를 유지하며
+bounded telemetry/marker transport/후속 mutation·private key 거부를 검사했다.
+[실제 정상 native visual](../reviews/2026-10-11/signed-native-visual-fixed-1791719138244139000.json):
+PASS6.595s/DONE/history1/posted_events2/source subset stable/UNCHANGED_SAMPLED/
+owned child reaped/model calls0. required203ms/remaining4804ms/validation21ms/
+routing4ms/input1ms/context1ms/events2/saturated=false. 이 소유 canvas는 document
+token 없는 회귀이며 TextEdit 성공을 대신하지 않는다. 이전 full k1915는 이번
+계측 및 앞선 document cadence 변경을 포함하지 않는다. G0~G10 전체는 미완료다.
+
+### 2026-10-11: complete binding capture의 read-only context 주기와 실제 Save
+
+batch node 후보는 복원된 fe199ba 코드 그대로 비활성이다. 새 withBindingContext는
+비-popup physical binding capture와 재검증의 읽기 전용 구간에만 기존16 AX ops
+auxiliary context 주기를 적용한다. binding의 window/process/geometry/hit/모달
+검사 자체를 생략하거나 결과를 캐시하지 않는다. exact observed bundle은 매 RPC
+abort/obsID/PID/process start/element generation/document connection pin을 검증하고,
+live document context를 주기 및 구간 경계에서 검사한다. alias는 per-RPC full
+검사를 유지한다. popup capture/selection transition의 기존 검사 경로는 유지했다.
+routing/preflight/입력 상태 확인/dispatch context/기한/headroom gate는 밖에서
+기존 full 검사를 수행한다. live document 속성 전체를 매 RPC 다시 읽거나
+동일 사용자 ABA·연속 caret/pointer 불변을 증명한다는 주장은 하지 않는다.
+
+NativeWindowReadScope의 중첩 구간도 항상 full entry/exit를 거치며 이전 read-only
+모드를 defer로 복원한다. nested failure를 호스트가 잡아도 바깥 phase는 유지되고
+최종 metadata가 바뀌면 결과를 내보내지 않는다. phase 밖은 full 검사로 복귀한다.
+[최종 관련 unit](../reviews/2026-10-11/binding-context-unit-20261011-a.json):
+61 tests15.709s/OK/no skips,process15.818s/source subset stable. 실제 추출 Swift scope의
+nested exception/live metadata/identity drift와 helper preparation의 pin 교체·삭제·
+body validator 실패 거부, key/window/save-panel/receipt 관련 회귀를 확인했다.
+이 unit은 actual user document replacement나 동시 사용자 입력 증거가 아니다.
+
+[signed build w](../reviews/2026-10-11/combo-popup-routing-build-20261011-w.json):
+PASS21.722s/source subset stable/designated requirement/identifier/Team unchanged/
+strict helper/deep app verify PASS. TCC·launcher identity는 변경하지 않았다.
+[실제 direct a](../reviews/2026-10-11/textedit-binding-context-direct-20261011-a.json):
+FAIL7.892s/save_menu_not_enabled_after_prepare. 준비는 acted/dispatched_unverified/
+741ms로 완료했고 first-post headroom required1030ms/remaining4756ms/
+validation62ms/routing1ms/input10ms/context4ms/planned events3/saturated=false였다.
+scoped AX1243/full161/incremental3538/context481ms/AX87ms/8 readiness passes였다.
+입력 전 validation_headroom 거부는 해결됐지만 이후 Save menu disabled를 관측해
+Save/receipt는 실행하지 않았다. 준비가 acted라는 이유로 Save 성공으로 채점하지 않는다.
+
+[실제 installed scoped CLI a](../reviews/2026-10-11/textedit-binding-context-cli-20261011-a.json):
+PASS9.813s/CLI exit0/done/정확한 disk·document text after Save/cleanup closed.
+[실제 direct b](../reviews/2026-10-11/textedit-binding-context-direct-20261011-b.json):
+PASS6.895s/Save acted/evidence_error=None/exact disk text/cleanup closed.
+두 PASS는 menu가 이미 enabled여서 preparation not_needed였다. 새 binding 준비
+변경이 이 두 Save 성공을 직접 만들었다고 귀속하지 않는다. 모두 source_changed=false/
+closed_observed=true/artifact_removed=true/focus activations0/model requests0다.
+Save 직전 disk_matched_before_save=false지만, saved-state proof/파일 수렴을 일반
+앱 writer attribution이나 causal Save 증거로 승격하지 않는다. direct b의 proof는
+현재 ExistingTextFileReceipt의 같은 document token·본문 양쪽 검사와 최종 file
+fingerprint 검사를 실행했다. 준비 필요 상태와 불필요 상태의 초기 UI는 동등하지
+않고, 이번3회로 대표 성공률·속도 우위·Sky 동일 조건 비교를 주장하지 않는다.
+[현재 전체 regression l](../reviews/2026-10-11/combo-popup-regression-current-20261011-l.json)와
+[raw log](../reviews/2026-10-11/combo-popup-regression-current-20261011-l.log):
+1918 tests276.854s/OK/skipped2(실행1916),process277.422s/exit0/source subset stable.
+앞선 document readiness cadence·headroom 계측 및 이번 binding/nested phase 변경을
+포함한다. 이 manifest는 dependency/OS 전체 고정이나 실제 G0~G10/백본/비교 과제
+완료를 증명하지 않는다. rejected node batch 후보는 현재 소스·전체 검사에 포함하지 않는다.
+
+남은 실제 격차는 preparation 뒤 disabled Save menu의 이유·responder readiness,
+Finder와 다른 앱·백본의 반복, 동시 사용자 numeric caret·Save producer/receiver
+인과 증거와 전체 G0~G10 감사다. 기존 실패 cohort는 계속 보존한다.

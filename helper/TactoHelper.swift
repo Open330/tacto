@@ -6,7 +6,7 @@
 // every script run with that interpreter — demonstrated on this machine, where
 // an unrelated /tmp script read other apps' windows. A signed, single-purpose
 // helper is identified by its code signature instead, so the grant belongs to
-// Tacto alone, survives updates, and keeps OS privilege out of the model loop
+// NLC alone, survives updates, and keeps OS privilege out of the model loop
 // (decision D8: the agent that talks to a model must not hold the permissions).
 //
 // It speaks the same L2 protocol the Python driver already speaks — one JSON
@@ -62,6 +62,8 @@ let interactableRoles: Set<String> = [
     "AXPopUpButton", "AXMenuButton", "AXMenuItem", "AXLink", "AXComboBox",
     "AXSlider", "AXIncrementor", "AXDisclosureTriangle", "AXTabGroup",
     "AXStaticText", "AXCell", "AXRow", "AXScrollArea", "AXGroup", "AXImage",
+    // Preserve unlabelled modal boundaries for recovery and scoped selectors.
+    "AXSheet",
 ]
 
 @Sendable func attr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -90,21 +92,30 @@ let labelAttrs = ["AXTitle", "AXDescription", "AXValue", "AXHelp",
 let labelNames = ["Title", "Description", "Value", "Help",
                   "Identifier", "Placeholder", "Subrole"]
 
-// Match the Python observer's one-line transport. A multiline AXValue must
-// neither hide later identity attributes nor manufacture another tree node.
-func oneLineLabel(_ text: String) -> String {
-    text.replacingOccurrences(of: "\r\n", with: "\n").unicodeScalars.map {
-        switch $0.value {
-        case 10, 13, 11, 12, 28, 29, 30, 133, 8232, 8233: return "\\n"
-        default: return String($0)
-        }
-    }.joined()
-}
-
 /// The element's label attributes in ONE round trip. Some apps compute these
 /// lazily per element — a Mail row costs 20ms read one at a time and 3ms read
 /// together — and a mailbox has thousands of rows.
-@Sendable func label(_ el: AXUIElement) -> String {
+@Sendable func quotedLabelValue(_ value:String) -> String? {
+    guard let data=try? JSONSerialization.data(withJSONObject:value,options:[.fragmentsAllowed,.withoutEscapingSlashes]),
+          let encoded=String(data:data,encoding:.utf8) else { return nil }
+    return encoded.replacingOccurrences(of:"\u{0085}",with:"\\u0085")
+        .replacingOccurrences(of:"\u{2028}",with:"\\u2028")
+        .replacingOccurrences(of:"\u{2029}",with:"\\u2029")
+}
+
+@Sendable func oneLineLabel(_ value:String) -> String {
+    var text=value.replacingOccurrences(of:"\r\n",with:"\n")
+    for scalar:UnicodeScalar in ["\n","\r","\u{000B}","\u{000C}","\u{001C}","\u{001D}","\u{001E}","\u{0085}","\u{2028}","\u{2029}"] {
+        text=text.replacingOccurrences(of:String(scalar),with:"\\n")
+    }
+    return text
+}
+
+@Sendable func label(_ el: AXUIElement, quoteValues: Bool = false) -> String {
+    func field(_ name:String,_ value:String) -> String {
+        if quoteValues, let encoded=quotedLabelValue(value) { return "\(name): \(encoded)" }
+        return "\(name): \(oneLineLabel(value))"
+    }
     var raw: CFArray?
     var parts: [String] = []
     if AXUIElementCopyMultipleAttributeValues(
@@ -114,16 +125,16 @@ func oneLineLabel(_ text: String) -> String {
             if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
             // An attribute the element lacks comes back as an AXValue holding
             // an error, not as nil, so only real strings and numbers count.
-            if let s = v as? String, !s.isEmpty { parts.append("\(labelNames[i]): \(oneLineLabel(s))") }
+            if let s = v as? String, !s.isEmpty { parts.append(field(labelNames[i],s)) }
             else if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
-                parts.append("\(labelNames[i]): \(n.stringValue)")
+                parts.append(field(labelNames[i],n.stringValue))
             }
         }
         return parts.joined(separator: ", ")
     }
     for (i, key) in labelAttrs.enumerated() {
         if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
-        if let v = str(el, key) { parts.append("\(labelNames[i]): \(oneLineLabel(v))") }
+        if let v = str(el, key) { parts.append(field(labelNames[i],v)) }
     }
     return parts.joined(separator: ", ")
 }
@@ -146,31 +157,99 @@ func secondaryActionsOf(_ el: AXUIElement) -> [String] {
     return secondaryActions.filter { offered.contains($0) }
 }
 
+final class ObservationReadMetrics {
+    var packetAttempts = 0
+    var packetFallbacks = 0
+    var secondaryActionReads = 0
+    var metadata: [String: Int] {
+        ["packet_attempts":packetAttempts,"packet_successes":packetAttempts-packetFallbacks,
+         "packet_fallbacks":packetFallbacks,"secondary_action_reads":secondaryActionReads]
+    }
+}
+
+/// One node's descriptive observation data; never reused by probes/actions or
+/// another node/observation. AX multiple attributes are not an atomic snapshot.
+struct ObservationNodeSnapshot {
+    let values: [String: Any]
+    init?(_ element: AXUIElement) {
+        let names = [kAXRoleAttribute as String] + labelAttrs +
+            [kAXEnabledAttribute as String, kAXSelectedAttribute as String,
+             kAXChildrenAttribute as String, "AXDocument"]
+        var raw: CFArray?
+        guard AXUIElementCopyMultipleAttributeValues(element, names as CFArray,
+                AXCopyMultipleAttributeOptions(rawValue: 0), &raw) == .success,
+              let entries = raw as? [Any], entries.count == names.count else { return nil }
+        values = Dictionary(uniqueKeysWithValues: zip(names, entries))
+    }
+    func value(_ name: String) -> Any? {
+        guard let raw = values[name] else { return nil }
+        if CFGetTypeID(raw as CFTypeRef) == AXValueGetTypeID(),
+           AXValueGetType(raw as! AXValue) == .axError { return nil }
+        return raw
+    }
+    func string(_ name: String) -> String? {
+        if let text = value(name) as? String { return text.isEmpty ? nil : text }
+        if let number = value(name) as? NSNumber { return number.stringValue }
+        return nil
+    }
+    func label(role: String, quoteValues: Bool) -> String {
+        var parts: [String] = []
+        for (index, key) in labelAttrs.enumerated() {
+            if labelNames[index] == "Subrole" && (!parts.isEmpty || role != "AXButton") { continue }
+            let text: String
+            if let raw = value(key) as? String, !raw.isEmpty { text = raw }
+            else if let raw = value(key) as? NSNumber, CFGetTypeID(raw) != CFBooleanGetTypeID() {
+                text = raw.stringValue
+            } else { continue }
+            parts.append(labelNames[index] + ": " +
+                (quoteValues ? quotedLabelValue(text) ?? oneLineLabel(text) : oneLineLabel(text)))
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
 /// One line per element, in the exact format the Python `Selector` parses:
 /// `<indent><index> <Role>  Key: value, Key2: value [disabled] [selected]`
 func walk(_ el: AXUIElement, depth: Int, out: inout [String],
           elements: inout [AXUIElement], visited: inout Int,
-          truncated: inout Bool) {
+          truncated: inout Bool, nodeLimit: Int = maxTreeNodes,
+          deferred: ((AXUIElement, Int) -> Void)? = nil,
+          metrics: ObservationReadMetrics? = nil) {
     if depth > 25 { return }
-    if visited >= maxTreeNodes { truncated = true; return }
+    if visited >= min(maxTreeNodes, nodeLimit) {
+        if let deferred { deferred(el, depth) } else { truncated = true }
+        return
+    }
     visited += 1
-    let role = str(el, kAXRoleAttribute as String) ?? "?"
-    var text = label(el)
+    metrics?.packetAttempts += 1
+    let snapshot = ObservationNodeSnapshot(el)
+    if snapshot == nil { metrics?.packetFallbacks += 1 }
+    let role = snapshot.map { $0.string(kAXRoleAttribute as String) ?? "?" }
+        ?? str(el, kAXRoleAttribute as String) ?? "?"
+    var text = snapshot?.label(role:role,quoteValues:role == kAXWindowRole as String)
+        ?? label(el,quoteValues:role == kAXWindowRole as String)
     // A window says which file it shows, so an agent can name that file
     // (textedit_save needs the absolute path; the title is only a name).
     // file:// only, decoded and composed; anything else is not shown.
-    if role == kAXWindowRole as String, let doc = str(el, "AXDocument"),
+    let document = snapshot.map { $0.string("AXDocument") } ??
+        (role == kAXWindowRole as String ? str(el, "AXDocument") : nil)
+    if role == kAXWindowRole as String, let doc = document,
        let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/") {
-        text += (text.isEmpty ? "" : ", ") + "Document: \(oneLineLabel(path.precomposedStringWithCanonicalMapping))"
+        if let encoded=quotedLabelValue(path.precomposedStringWithCanonicalMapping) {
+            text += (text.isEmpty ? "" : ", ") + "Document: \(encoded)"
+        }
     }
     if interactableRoles.contains(role) || !text.isEmpty {
         let idx = elements.count
         elements.append(el)
-        let enabled = (attr(el, kAXEnabledAttribute as String) as? Bool) ?? true
+        let enabled = snapshot.map { ($0.value(kAXEnabledAttribute as String) as? Bool) ?? true }
+            ?? (attr(el, kAXEnabledAttribute as String) as? Bool) ?? true
         // AXSelected is how a chosen button in a set says so (System
         // Settings' Light / Dark / Auto); shown like [disabled] (2026-10-09).
-        let selected = (attr(el, kAXSelectedAttribute as String) as? Bool) == true
+        let selected = snapshot.map { ($0.value(kAXSelectedAttribute as String) as? Bool) == true }
+            ?? ((attr(el, kAXSelectedAttribute as String) as? Bool) == true)
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
+        metrics?.secondaryActionReads += 1
         let extra = secondaryActionsOf(el)
         // "  Secondary Actions: …" when there is no label before it, so the
         // role token never carries a comma ("Cell," matched nothing).
@@ -181,10 +260,11 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
                    + (text.isEmpty ? "" : "  \(text)") + (enabled ? "" : " [disabled]")
                    + (selected ? " [selected]" : "") + actions)
     }
-    let children = (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+    let children = snapshot.map { ($0.value(kAXChildrenAttribute as String) as? [AXUIElement]) ?? [] }
+        ?? (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
     for child in children.prefix(maxChildrenPerNode) {
         walk(child, depth: depth + 1, out: &out, elements: &elements,
-             visited: &visited, truncated: &truncated)
+             visited: &visited, truncated: &truncated, nodeLimit: nodeLimit, deferred: deferred, metrics: metrics)
     }
     if children.count > maxChildrenPerNode {
         truncated = true
@@ -203,7 +283,14 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
 // later client never inherits the previous one's observation (they were global
 // and survived across connections — advisor finding).
 var latestObsID: String = ""
-var latestElements: [AXUIElement] = []
+// Every replacement and in-place Array mutation invalidates the map, even
+// when a caller accidentally retains the observation ID or element count.
+// The connection worker owns these writes. Checking this generation avoids
+// rescanning the whole observed tree before and after every AX operation.
+var latestElementGeneration = UUID()
+var latestElements: [AXUIElement] = [] {
+    didSet { latestElementGeneration = UUID() }
+}
 // The observation belongs to ONE app. Without this, an obs_id taken from app A
 // could be presented while acting on app B — and `type_text` does not even
 // consult the element list, so it would simply type into the other app
@@ -246,12 +333,16 @@ final class PendingSelect {
     // time. A choice may only be made from a list the caller was shown.
     var options: [[String: Any]]?
     var optionsObsID: String?
+    let popupWindowID:CGWindowID?
+    let processStart:Double?
 
     init(pid: pid_t, index: Int, control: AXUIElement, identifier: String?,
-         role: String, label: String, menu: AXUIElement) {
+         role: String, label: String, menu: AXUIElement,processStart:Double?=nil) {
         self.pid = pid
         self.index = index; self.control = control; self.identifier = identifier
         self.role = role; self.label = label; self.menu = menu
+        self.popupWindowID=comboBoxPopupWindowID(menu)
+        self.processStart=processStart
     }
 }
 
@@ -269,15 +360,22 @@ let maxMenuOptions = 200
 /// No `value`: a native menu item has a title and nothing behind it, and
 /// inventing a value space would promise a distinction this surface does not
 /// have. `nil` means the menu offers more than we will vouch for.
-func menuOptions(_ menu: AXUIElement) -> [[String: Any]]? {
+func menuOptions(_ menu: AXUIElement, scope:NativeWindowReadScope? = nil) -> [[String: Any]]? {
+    let menuRole=comboBoxString(menu,kAXRoleAttribute as String,scope:scope)
+    // Failed scoped reads cannot fall through to an unscoped menu query.
+    guard scope == nil || menuRole != nil else {return nil}
+    if menuRole=="AXList" {
+        guard let rows=comboBoxListRows(menu,scope:scope) else { return nil }
+        return rows.map { ["label":$0.label,"disabled":$0.disabled] }
+    }
     var out: [[String: Any]] = []
-    for item in (attr(menu, kAXChildrenAttribute as String) as? [AXUIElement]) ?? [] {
+    for item in (comboBoxAttribute(menu,kAXChildrenAttribute as String,scope:scope) as? [AXUIElement]) ?? [] {
         if out.count >= maxMenuOptions { return nil }
-        guard let title = str(item, kAXTitleAttribute as String), !title.isEmpty else {
+        guard let title = comboBoxString(item,kAXTitleAttribute as String,scope:scope), !title.isEmpty else {
             continue                          // separators
         }
         out.append(["label": title,
-                    "disabled": (attr(item, kAXEnabledAttribute as String) as? Bool) == false])
+                    "disabled": (comboBoxAttribute(item,kAXEnabledAttribute as String,scope:scope) as? Bool) == false])
     }
     return out
 }
@@ -302,14 +400,240 @@ func sameOptions(_ a: [[String: Any]], _ b: [[String: Any]]) -> Bool {
 /// different one are the same answer here — not ours, so nothing may be
 /// pressed in it.
 func menuIsOurs(_ p: pid_t, _ pending: PendingSelect) -> Bool {
-    appMenus(p).contains { CFEqual($0, pending.menu) }
+    selectionContainerIsOurs(pending.control,pending.menu,p,knownPopupWindowID:pending.popupWindowID,knownProcessStart:pending.processStart)
+}
+
+func selectionContainerIsOurs(_ control:AXUIElement,_ container:AXUIElement,_ pid:pid_t,
+    knownPopupWindowID:CGWindowID?=nil,knownProcessStart:Double?=nil)->Bool {
+    if knownPopupWindowID != nil || str(container,kAXRoleAttribute as String)=="AXList" {
+        switch comboBoxContainerState(control,pid) {
+        case .closed:
+            if let id=knownPopupWindowID {return (try? nativePopupVisibility(id,pid)) != false}
+            return false
+        case .open(let current):return CFEqual(current,container)
+        case .unknown:
+            // A definitively invalid old control plus absence of its pinned
+            // physical popup can free a slot. Timeout/unknown reads cannot.
+            if let id=knownPopupWindowID {
+                var raw:CFTypeRef?
+                let invalid=AXUIElementCopyAttributeValue(control,kAXRoleAttribute as CFString,&raw) == .invalidUIElement
+                if (invalid || nativeProcessInstanceEnded(pid,expectedStart:knownProcessStart)),
+                   (try? nativePopupVisibility(id,pid))==false {return false}
+            }
+            return true
+        }
+    }
+    return appMenus(pid).contains { CFEqual($0,container) }
+}
+
+/// Scalar metadata used during pinned selection shares the binding read scope.
+/// Observation callers retain the existing unscoped read contract.
+func comboBoxAttribute(_ node:AXUIElement,_ name:String,scope:NativeWindowReadScope?=nil)->CFTypeRef? {
+    guard let scope else {return attr(node,name)}
+    guard let (error,value)=try? scope.read(node,name),error == .success else {return nil}
+    return value
+}
+
+func comboBoxString(_ node:AXUIElement,_ name:String,scope:NativeWindowReadScope?=nil)->String? {
+    guard let value=comboBoxAttribute(node,name,scope:scope) else {return nil}
+    if let text=value as? String {return text.isEmpty ? nil:text}
+    if let number=value as? NSNumber {return number.stringValue}
+    return nil
+}
+
+func comboBoxListVisibility(_ list:AXUIElement,_ pid:pid_t,scope:NativeWindowReadScope?=nil)->Bool? {
+    guard let id=comboBoxPopupWindowID(list,scope:scope) else {return nil}
+    return try? nativePopupVisibility(id,pid,scope:scope)
+}
+
+func comboBoxPopupWindowID(_ list:AXUIElement,scope:NativeWindowReadScope?=nil)->CGWindowID? {
+    guard comboBoxString(list,kAXRoleAttribute as String,scope:scope)=="AXList" else {return nil}
+    guard let raw=comboBoxAttribute(list,kAXParentAttribute as String,scope:scope),CFGetTypeID(raw)==AXUIElementGetTypeID(),
+          let id=nativeWindowID(raw as! AXUIElement,scope:scope) else {return nil}
+    return id
+}
+
+func comboBoxChildren(_ node:AXUIElement,_ limit:Int,scope:NativeWindowReadScope?=nil)->[AXUIElement]? {
+    guard let raw=comboBoxAttribute(node,kAXChildrenAttribute as String,scope:scope),
+          CFGetTypeID(raw)==CFArrayGetTypeID(),let values=raw as? [AnyObject],
+          values.count<=limit,values.allSatisfy({CFGetTypeID($0)==AXUIElementGetTypeID()}) else { return nil }
+    return values.map {$0 as! AXUIElement}
+}
+
+enum ComboBoxContainerState {case closed,open(AXUIElement),unknown}
+
+/// Only classify the measured direct-child AppKit shape. Missing/malformed
+/// children, ownership, roles or list data are never an invitation to press.
+func comboBoxContainerState(_ control:AXUIElement,_ pid:pid_t,scope:NativeWindowReadScope?=nil)->ComboBoxContainerState {
+    var owner:pid_t=0
+    guard pid>0,AXUIElementGetPid(control,&owner) == .success,owner==pid,
+          let role=comboBoxAttribute(control,kAXRoleAttribute as String,scope:scope),CFGetTypeID(role)==CFStringGetTypeID(),
+          role as? String=="AXComboBox",let children=comboBoxChildren(control,8,scope:scope) else {return .unknown}
+    var buttons=0,texts=0,scrolls=0
+    for child in children {
+        var childPID:pid_t=0
+        guard AXUIElementGetPid(child,&childPID) == .success,childPID==pid,
+              let parent=comboBoxAttribute(child,kAXParentAttribute as String,scope:scope),CFGetTypeID(parent)==AXUIElementGetTypeID(),
+              CFEqual(parent,control),let raw=comboBoxAttribute(child,kAXRoleAttribute as String,scope:scope),
+              CFGetTypeID(raw)==CFStringGetTypeID(),let role=raw as? String else {return .unknown}
+        switch role {
+        case "AXButton":buttons+=1
+        case "AXTextField":texts+=1
+        case "AXScrollArea":scrolls+=1
+        default:return .unknown
+        }
+    }
+    guard buttons==1,texts<=1,scrolls<=1 else {return .unknown}
+    if scrolls==0 {return .closed}
+    guard let list=comboBoxOwnedList(control,pid,scope:scope),let visible=comboBoxListVisibility(list,pid,scope:scope) else {return .unknown}
+    return visible ? .open(list):.closed
+}
+
+func comboBoxOwnedList(_ control:AXUIElement,_ pid:pid_t,scope:NativeWindowReadScope?=nil)->AXUIElement? {
+    func owned(_ node:AXUIElement,_ parent:AXUIElement,_ role:String)->Bool {
+        var owner:pid_t=0
+        guard AXUIElementGetPid(node,&owner) == .success,owner==pid,
+              comboBoxString(node,kAXRoleAttribute as String,scope:scope)==role,
+              let actual=comboBoxAttribute(node,kAXParentAttribute as String,scope:scope),
+              CFGetTypeID(actual)==AXUIElementGetTypeID(),CFEqual(actual,parent) else { return false }
+        return true
+    }
+    var owner:pid_t=0
+    guard AXUIElementGetPid(control,&owner) == .success,owner==pid,
+          comboBoxString(control,kAXRoleAttribute as String,scope:scope)=="AXComboBox",
+          let children=comboBoxChildren(control,8,scope:scope),
+          children.allSatisfy({comboBoxString($0,kAXRoleAttribute as String,scope:scope) != nil}) else { return nil }
+    let scrolls=children.filter {comboBoxString($0,kAXRoleAttribute as String,scope:scope)=="AXScrollArea"}
+    guard scrolls.count==1,owned(scrolls[0],control,"AXScrollArea"),
+          let contents=comboBoxChildren(scrolls[0],2,scope:scope),!contents.isEmpty else {return nil}
+    var lists:[AXUIElement]=[],bars=0
+    for child in contents {
+        guard let raw=comboBoxAttribute(child,kAXRoleAttribute as String,scope:scope),CFGetTypeID(raw)==CFStringGetTypeID(),
+              let role=raw as? String,["AXList","AXScrollBar"].contains(role),
+              owned(child,scrolls[0],role) else {return nil}
+        if role=="AXList" {lists.append(child)} else {bars+=1}
+    }
+    guard lists.count==1,bars<=1 else {return nil}
+    return lists[0]
+}
+
+/// All fields remain required. Batch transport unsupported may use the same
+/// strict scalar reads; timeout/malformed replies never invite a second API.
+/// No row or validation result is cached across these complete list reads.
+/// Selection binding supplies its existing read scope, so batch and scalar
+/// fallback share the observation deadline and per-read context/abort checks.
+func comboBoxListAttributes(_ node:AXUIElement,_ names:[String],scope:NativeWindowReadScope?=nil)->[CFTypeRef]? {
+    do {
+        if let fields=try nativeReadinessBatch(node,names:names,scope:scope) {
+            guard fields.count==names.count,fields.allSatisfy({$0.0 == .success && $0.1 != nil}) else {return nil}
+            return fields.map {$0.1!}
+        }
+        var values:[CFTypeRef]=[]
+        for name in names {
+            if let scope {
+                let (error,value)=try scope.read(node,name)
+                guard error == .success,let value else {return nil}
+                values.append(value)
+            } else {
+                guard let value=attr(node,name) else {return nil}
+                values.append(value)
+            }
+        }
+        return values
+    } catch {return nil}
+}
+
+func comboBoxListRows(_ list:AXUIElement,scope:NativeWindowReadScope?=nil)->[(node:AXUIElement,text:AXUIElement,label:String,disabled:Bool)]? {
+    func children(_ value:CFTypeRef,_ limit:Int)->[AXUIElement]? {
+        guard CFGetTypeID(value)==CFArrayGetTypeID(),let values=value as? [AnyObject],
+              values.count<=limit,values.allSatisfy({CFGetTypeID($0)==AXUIElementGetTypeID()}) else {return nil}
+        return values.map {$0 as! AXUIElement}
+    }
+    var pid:pid_t=0
+    guard AXUIElementGetPid(list,&pid) == .success,pid>0,
+          let listFields=comboBoxListAttributes(list,["AXRole","AXChildren"],scope:scope),
+          CFGetTypeID(listFields[0])==CFStringGetTypeID(),listFields[0] as? String=="AXList",
+          let rows=children(listFields[1],maxMenuOptions),!rows.isEmpty else {return nil}
+    var result:[(node:AXUIElement,text:AXUIElement,label:String,disabled:Bool)]=[]
+    for row in rows {
+        var rowPID:pid_t=0,textPID:pid_t=0
+        guard AXUIElementGetPid(row,&rowPID) == .success,rowPID==pid,
+              let rowFields=comboBoxListAttributes(row,["AXRole","AXParent","AXChildren"],scope:scope),
+              CFGetTypeID(rowFields[0])==CFStringGetTypeID(),rowFields[0] as? String=="AXGroup",
+              CFGetTypeID(rowFields[1])==AXUIElementGetTypeID(),CFEqual(rowFields[1],list),
+              let cells=children(rowFields[2],1),cells.count==1,
+              AXUIElementGetPid(cells[0],&textPID) == .success,textPID==pid,
+              let textFields=comboBoxListAttributes(cells[0],["AXRole","AXParent","AXValue","AXEnabled"],scope:scope),
+              CFGetTypeID(textFields[0])==CFStringGetTypeID(),textFields[0] as? String=="AXTextField",
+              CFGetTypeID(textFields[1])==AXUIElementGetTypeID(),CFEqual(textFields[1],row),
+              let value=textFields[2] as? String,!value.isEmpty,
+              CFGetTypeID(textFields[3])==CFBooleanGetTypeID() else {return nil}
+        result.append((row,cells[0],value,(textFields[3] as? Bool)==false))
+    }
+    return result
+}
+
+/// Estimate the existing scrollbar action's tenth-of-range page count. The
+/// complete row span supplies the range; provider padding/nonlinear scrolling
+/// may differ, so this is a hint and never evidence that a row became visible.
+func comboBoxScrollPagesHint(_ row: CGRect, _ viewport: CGRect, _ contentHeight: CGFloat) -> Int? {
+    let numbers = [row.minX,row.maxX,row.minY,row.maxY,row.width,row.height,
+                   viewport.minX,viewport.maxX,viewport.minY,viewport.maxY,
+                   viewport.width,viewport.height,contentHeight]
+    guard numbers.allSatisfy({$0.isFinite}), row.width > 0, row.height > 0,
+          viewport.width > 0, viewport.height > 0, row.height <= viewport.height,
+          row.minX >= viewport.minX, row.maxX <= viewport.maxX,
+          contentHeight > viewport.height else {return nil}
+    let gap = row.minY < viewport.minY ? viewport.minY-row.minY : row.maxY-viewport.maxY
+    guard gap > 0 else {return nil}
+    let pages = ceil(gap / ((contentHeight-viewport.height) * 0.1))
+    guard pages.isFinite else {return nil}
+    return Int(max(1,min(10,pages)))
+}
+
+/// Read-only planning hints, never authority for a later click. Dispatch still
+/// binds the physical popup and fully contained row against fresh live state.
+func comboBoxVisibleOptions(_ list:AXUIElement,_ pid:pid_t,_ expectedID:CGWindowID)->[[String:Any]]? {
+    guard comboBoxPopupWindowID(list)==expectedID,
+          comboBoxListVisibility(list,pid)==true,
+          let raw=attr(list,kAXParentAttribute as String),CFGetTypeID(raw)==AXUIElementGetTypeID(),
+          let rows=comboBoxListRows(list) else {return nil}
+    let scroll=raw as! AXUIElement
+    var owner:pid_t=0
+    guard AXUIElementGetPid(scroll,&owner) == .success,owner==pid,
+          let bounds=try? windowInputFrame(scroll),
+          (try? windowInputCGFrame(expectedID,pid))==bounds else {return nil}
+    var rectangles:[CGRect]=[]
+    for row in rows {
+        guard AXUIElementGetPid(row.node,&owner) == .success,owner==pid,
+              let rect=try? windowInputFrame(row.node) else {return nil}
+        rectangles.append(rect)
+    }
+    guard let top=rectangles.map({$0.minY}).min(),
+          let bottom=rectangles.map({$0.maxY}).max() else {return nil}
+    var options:[[String:Any]]=[]
+    for (row,rect) in zip(rows,rectangles) {
+        var option:[String:Any]=["label":row.label,"disabled":row.disabled,
+            "visible":rect.minX>=bounds.minX && rect.maxX<=bounds.maxX &&
+                      rect.minY>=bounds.minY && rect.maxY<=bounds.maxY]
+        if rect.width<=bounds.width,rect.height<=bounds.height,
+           rect.minX>=bounds.minX,rect.maxX<=bounds.maxX {
+            if rect.minY<bounds.minY {option["scroll_direction"]="up"}
+            else if rect.maxY>bounds.maxY {option["scroll_direction"]="down"}
+            if let pages=comboBoxScrollPagesHint(rect,bounds,bottom-top) {
+                option["scroll_pages_hint"]=pages
+            }
+        }
+        options.append(option)
+    }
+    return options
 }
 
 /// A menu this helper opened, already spent on a selection, that did not close
 /// itself. Nothing acts on it any more, but it is still on the person's screen
 /// — and an observation calling that control "closed" would tell the next step
 /// a menu is out of the way when it is not.
-var spentMenu: (pid: pid_t, control: AXUIElement, menu: AXUIElement)?
+var spentMenu: (pid: pid_t, control: AXUIElement, menu: AXUIElement,popupWindowID:CGWindowID?,processStart:Double?)?
 
 /// Is a menu this helper opened still on screen? One slot, one menu.
 ///
@@ -319,15 +643,22 @@ var spentMenu: (pid: pid_t, control: AXUIElement, menu: AXUIElement)?
 /// menu, and this helper will not dismiss the first to make room — so it
 /// refuses without sending anything.
 ///
-/// A pin is NOT liveness-checked here. The observation path drops a pin whose
+/// A live pin is NOT AX-liveness-checked here. The observation path drops a pin whose
 /// menu has gone, and checking it here would let a look at one app throw away
-/// what is standing in another (peer review).
+/// what is standing in another. Exception: its recorded process instance ended
+/// AND its pinned physical popup is confirmed absent; no old app input remains.
 func menuSlotBusy() -> String? {
-    if pendingSelect != nil {
-        return "이미 열어 둔 선택지가 있습니다 — 먼저 고르거나 화면을 다시 관측하세요"
+    if let pending=pendingSelect {
+        if let id=pending.popupWindowID,
+           nativeProcessInstanceEnded(pending.pid,expectedStart:pending.processStart),
+           (try? nativePopupVisibility(id,pending.pid))==false {
+            pendingSelect=nil
+        } else {
+            return "이미 열어 둔 선택지가 있습니다 — 먼저 고르거나 화면을 다시 관측하세요"
+        }
     }
     guard let spent = spentMenu else { return nil }
-    if !appMenus(spent.pid).contains(where: { CFEqual($0, spent.menu) }) {
+    if !selectionContainerIsOurs(spent.control,spent.menu,spent.pid,knownPopupWindowID:spent.popupWindowID,knownProcessStart:spent.processStart) {
         spentMenu = nil                       // it closed; the slot is free
         return nil
     }
@@ -346,6 +677,33 @@ func menuSlotBusy() -> String? {
 /// So a refusal now leaves the menu exactly where it is. The caller is told it
 /// is open; what to do about it belongs to whoever can see the screen, not to
 /// the step that failed.
+/// Some AppKit ComboBoxes expose their open action only on one direct button.
+/// Never search descendants or choose a first match; the caller may use this
+/// only after BOTH actions on the combo itself returned actionUnsupported.
+func comboBoxOpenButton(_ control: AXUIElement, _ pid: pid_t) -> AXUIElement? {
+    guard str(control,kAXRoleAttribute as String)=="AXComboBox",
+          let children=comboBoxChildren(control,8) else { return nil }
+    var buttons:[AXUIElement]=[]
+    for child in children {
+        guard let role=str(child,kAXRoleAttribute as String),!role.isEmpty else { return nil }
+        if role=="AXButton" { buttons.append(child) }
+    }
+    guard buttons.count==1 else { return nil }
+    let button=buttons[0]
+    var controlPID:pid_t=0,buttonPID:pid_t=0
+    guard AXUIElementGetPid(control,&controlPID) == .success,controlPID==pid,
+          AXUIElementGetPid(button,&buttonPID) == .success,buttonPID==pid,
+          let parent=attr(button,kAXParentAttribute as String),
+          CFGetTypeID(parent)==AXUIElementGetTypeID(),CFEqual(parent,control),
+          let enabled=attr(button,kAXEnabledAttribute as String),
+          CFGetTypeID(enabled)==CFBooleanGetTypeID(),enabled as? Bool==true else { return nil }
+    var names:CFArray?
+    guard AXUIElementCopyActionNames(button,&names) == .success,
+          let actions=names as? [String],actions.count<=64,
+          actions.filter({$0==kAXPressAction as String}).count==1 else { return nil }
+    return button
+}
+
 func forgetPin() {
     pendingSelect = nil
 }
@@ -368,7 +726,7 @@ func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [Str
     if let held = spent, held.pid != p {
         spent = nil
     } else if let held = spent,
-              !appMenus(p).contains(where: { CFEqual($0, held.menu) }) {
+              !selectionContainerIsOurs(held.control,held.menu,p,knownPopupWindowID:held.popupWindowID,knownProcessStart:held.processStart) {
         spentMenu = nil
         spent = nil
     }
@@ -383,7 +741,17 @@ func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [Str
     for (i, el) in elements.enumerated() {
         let role = str(el, kAXRoleAttribute as String) ?? ""
         guard ["AXPopUpButton", "AXComboBox"].contains(role) else { continue }
+        if role=="AXComboBox",case .unknown=comboBoxContainerState(el,p) {
+            out[String(i)]=["state":"unsupported","options":[],"selection_supported":false,
+                "note":"ComboBox 목록 상태를 읽을 수 없어 열기·선택 입력을 보내지 않습니다"]
+            continue
+        }
         guard let pending, CFEqual(el, pending.control) else {
+            if role=="AXComboBox",let list=comboBoxOwnedList(el,p),comboBoxListVisibility(list,p) != false {
+                out[String(i)]=["state":"unsupported","options":menuOptions(list) ?? [],
+                    "selection_supported":false,"note":"열려 있는 ComboBox 목록을 안전하게 선택할 수 없습니다"]
+                continue
+            }
             if let spent, spent.pid == p, CFEqual(el, spent.control) {
                 // Its menu is still up, and this helper will not take it down
                 // — dismissing is what leaves the control unable to open
@@ -407,10 +775,25 @@ func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [Str
             out[String(i)] = ["state": "unsupported", "options": []]
             continue
         }
+        if role=="AXComboBox",pending.popupWindowID==nil {
+            out[String(i)]=["state":"unsupported","options":options,"selection_supported":false,
+                "note":"popup_id_unavailable — 열 때 물리 창 ID를 고정하지 못해 선택하지 않습니다"]
+            continue
+        }
         pending.index = i
         pending.options = options
         pending.optionsObsID = obsID
-        out[String(i)] = ["state": "open", "options": options]
+        var shownOptions=options
+        if role=="AXComboBox",let id=pending.popupWindowID {
+            guard let visible=comboBoxVisibleOptions(pending.menu,p,id) else {
+                out[String(i)]=["state":"unsupported","options":options,"selection_supported":false,
+                    "note":"ComboBox 목록의 보이는 범위를 확인하지 못했습니다"]
+                continue
+            }
+            shownOptions=visible
+        }
+        out[String(i)] = ["state": "open", "options": shownOptions,
+                         "selection_supported":true]
     }
     return out
 }
@@ -477,23 +860,35 @@ func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [Str
 /// The observed element is usually the content rather than the scroller, so
 /// this walks up to the enclosing scroll area instead of expecting the caller
 /// to have named one.
-@Sendable func scrollBar(near element: AXUIElement, vertical: Bool) -> AXUIElement? {
+@Sendable func scrollBar(near element: AXUIElement, vertical: Bool, expectedPID:pid_t) -> AXUIElement? {
+    guard expectedPID>0 else {return nil}
+    func owned(_ node:AXUIElement)->Bool {
+        var pid:pid_t=0
+        return AXUIElementGetPid(node,&pid) == .success && pid==expectedPID
+    }
     var node: AXUIElement? = element
-    var seen = 0
-    while let here = node, seen < 12 {
-        seen += 1
-        if (attr(here, kAXRoleAttribute as String) as? String) == "AXScrollArea" {
-            let kids = (attr(here, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
-            for child in kids.prefix(40) {
-                guard (attr(child, kAXRoleAttribute as String) as? String) == "AXScrollBar" else { continue }
+    var seen:[AXUIElement]=[]
+    while let here=node,seen.count<12 {
+        guard owned(here),!seen.contains(where:{CFEqual($0,here)}),
+              let role=attr(here,kAXRoleAttribute as String) as? String,!role.isEmpty else {return nil}
+        seen.append(here)
+        if role == "AXScrollArea" {
+            guard let kids=comboBoxChildren(here,40) else {return nil}
+            var matches:[AXUIElement]=[]
+            for child in kids {
+                guard let childRole=attr(child,kAXRoleAttribute as String) as? String else {return nil}
+                guard childRole == "AXScrollBar" else {continue}
+                guard owned(child),let raw=attr(child,kAXParentAttribute as String),
+                      CFGetTypeID(raw)==AXUIElementGetTypeID(),CFEqual(raw as! AXUIElement,here),
+                      let orientation=attr(child,kAXOrientationAttribute as String) as? String,
+                      ["AXVerticalOrientation","AXHorizontalOrientation"].contains(orientation) else {return nil}
                 let want = vertical ? "AXVerticalOrientation" : "AXHorizontalOrientation"
-                if (attr(child, kAXOrientationAttribute as String) as? String) == want {
-                    return child
-                }
+                if orientation==want {matches.append(child)}
             }
-            return nil
+            return matches.count==1 ? matches[0]:nil
         }
-        node = attr(here, kAXParentAttribute as String) as! AXUIElement?
+        guard let raw=attr(here,kAXParentAttribute as String),CFGetTypeID(raw)==AXUIElementGetTypeID() else {return nil}
+        node=raw as! AXUIElement
     }
     return nil
 }
@@ -512,19 +907,18 @@ func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [Str
 /// person can see, so regular apps beat agents and extensions.
 func pid(forBundle bundle: String) -> pid_t? {
     let want = bundle.lowercased()
-    var byBundle: [NSRunningApplication] = []
-    var byName: [NSRunningApplication] = []
-    for app in NSWorkspace.shared.runningApplications {
-        if app.bundleIdentifier?.lowercased() == want { byBundle.append(app) }
-        else if app.localizedName?.lowercased() == want { byName.append(app) }
+    // Resolve from one fresh workspace snapshot. Exact bundle matches take
+    // precedence, so unrelated localized names need not be read on that path.
+    // No cached PID or alternative registry ordering is used.
+    let apps = NSWorkspace.shared.runningApplications
+    let byBundle = apps.filter { $0.bundleIdentifier?.lowercased() == want }
+    if !byBundle.isEmpty {
+        let regular = byBundle.filter { $0.activationPolicy == .regular }
+        return (regular.first ?? byBundle.first)?.processIdentifier
     }
     // A name never means a background agent; a bundle id is explicit and may.
-    byName = byName.filter { $0.activationPolicy == .regular }
-    for group in [byBundle, byName] where !group.isEmpty {
-        let regular = group.filter { $0.activationPolicy == .regular }
-        return (regular.first ?? group.first)?.processIdentifier
-    }
-    return nil
+    return apps.first { $0.localizedName?.lowercased() == want
+        && $0.activationPolicy == .regular }?.processIdentifier
 }
 
 func observe(_ target: String, requireWindow: Bool = true, documentToken: String? = nil) -> [String: Any] {
@@ -541,17 +935,25 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     // reason: macOS's screen-capture badge is a window in the app's own
     // AXWindows, so while the control indicator was up every observation of the
     // app being driven began with a phantom `Window  Title: Window, Identifier:
-    // _NS:8` — this helper's own way of saying "Tacto is working here" walked
+    // _NS:8` — this helper's own way of saying "NLC is working here" walked
     // into the tree it was working on, and shifted every element index behind
     // it.
     let windows: [AXUIElement]
+    var windowListing = WindowListingDiagnostic()
     do {
-        windows = try documentToken.map { [try documentWindowForToken(target, $0)] } ?? realWindows(of: app)
+        windows = try documentToken.map { [try documentWindowForToken(target, $0)] }
+            ?? realWindows(of: app, diagnostic: &windowListing)
     } catch {
         return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"]
     }
+    if documentToken == nil && !["ok", "no_value"].contains(windowListing.status) {
+        return ["type":"error","error":"window_list_unavailable","target":target,
+                "detail":"앱의 창 목록을 읽지 못했습니다. 창이 없다고 판단하지 않고 중단합니다.",
+                "window_listing_diagnostic":windowListing.metadata]
+    }
     if windows.isEmpty && requireWindow {
-        return ["type": "error", "error": "no_window_content", "target": target]
+        return ["type": "error", "error": "no_window_content", "target": target,
+                "window_listing_diagnostic":windowListing.metadata]
     }
     // Reading another app's contents is not neutral: an accessibility tree can
     // carry messages, names and account numbers. Show the outline for reads too,
@@ -566,18 +968,54 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     var lines: [String] = []
     var elements: [AXUIElement] = []
     var visited = 0
-    var truncated = false
-    for w in windows {
-        let start = lines.count
-        walk(w, depth: 0, out: &lines, elements: &elements,
-             visited: &visited, truncated: &truncated)
+    let metrics = ObservationReadMetrics()
+    var truncated = windows.count > maxTreeNodes
+    // A large first window must not hide every later window, including a
+    // file chooser. Divide the remaining budget among remaining windows so
+    // later roots AND controls can be read. Resume suspended frontiers with
+    // leftover budget; never reread a visited node. Window blocks stay ordered,
+    // while their observation-local indices may be non-monotonic after resuming.
+    let windowCount = min(windows.count, maxTreeNodes)
+    var blocks: [[String]] = []
+    var frontiers: [[(AXUIElement, Int)]] = []
+    var partial: [Bool] = []
+    for (position, w) in windows.prefix(windowCount).enumerated() {
+        var block: [String] = []
+        var pending: [(AXUIElement, Int)] = []
+        var windowTruncated = false
+        let windowBudget = (maxTreeNodes - visited) / (windowCount - position)
+        walk(w, depth: 0, out: &block, elements: &elements,
+             visited: &visited, truncated: &windowTruncated,
+             nodeLimit: visited + windowBudget, deferred: { pending.append(($0, $1)) },metrics:metrics)
+        blocks.append(block); frontiers.append(pending); partial.append(windowTruncated)
+    }
+    for position in 0..<windowCount where visited < maxTreeNodes {
+        let pending = frontiers[position]
+        frontiers[position] = []
+        var block = blocks[position]
+        var unfinished: [(AXUIElement, Int)] = []
+        var windowTruncated = partial[position]
+        for (node, depth) in pending {
+            walk(node, depth: depth, out: &block, elements: &elements,
+                 visited: &visited, truncated: &windowTruncated,
+                 deferred: { unfinished.append(($0, $1)) },metrics:metrics)
+        }
+        blocks[position] = block; frontiers[position] = unfinished; partial[position] = windowTruncated
+    }
+    for (position, w) in windows.prefix(windowCount).enumerated() {
+        var block = blocks[position]
         // Mark the frontmost window, exactly as the Python driver does. The two
         // must produce the same tree for the same app, or a recipe that scopes
         // to the front window silently matches nothing under one of them.
-        if lines.count > start,
+        if !block.isEmpty,
            (attr(w, "AXMain") as? Bool) == true || (attr(w, "AXFocused") as? Bool) == true {
-            lines[start] += " [focused]"
+            block[0] += " [focused]"
         }
+        if partial[position] || !frontiers[position].isEmpty {
+            truncated = true
+            block.append("  … (창별 관측이 잘렸습니다)")
+        }
+        lines.append(contentsOf: block)
     }
     let obsID = "s" + UUID().uuidString.prefix(8)
     if let documentToken {
@@ -600,10 +1038,12 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
             "tree": windows.isEmpty ? "(창 없음 — 메뉴만 사용 가능)"
                                     : lines.joined(separator: "\n"),
             "element_count": elements.count, "truncated": truncated,
+            "observation_metrics":metrics.metadata,
             // Reading only; nothing here opens a menu. A closed popup reports
             // no options because it HAS none until it is opened.
             "custom_selects": customSelects(p, elements, obsID: obsID)]
     if let documentToken { reply["document_token"] = documentToken }
+    else { reply["window_listing_diagnostic"] = windowListing.metadata }
     return reply
 }
 
@@ -644,14 +1084,18 @@ func appMenus(_ p: pid_t, depth: Int = 7) -> [AXUIElement] {
 /// Re-read the original control by native identity; only a complete unique
 /// identifier match may replace a vanished control. Role alone is not identity.
 func rereadSelection(_ p: pid_t, role: String, identity: String?,
-                     control: AXUIElement? = nil) -> String? {
+                     control: AXUIElement? = nil, scope:NativeWindowReadScope? = nil) -> String? {
     var sameID: [AXUIElement] = []
     var alive: AXUIElement? = nil
     var truncated = false
     var visited = 0
     func read(_ node: AXUIElement, _ key: String, optional: Bool = false) -> CFTypeRef? {
         var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(node, key as CFString, &value)
+        let error: AXError
+        if let scope {
+            guard let reply=try? scope.read(node,key) else {truncated=true;return nil}
+            error=reply.0;value=reply.1
+        } else {error=AXUIElementCopyAttributeValue(node,key as CFString,&value)}
         if error.rawValue == 0, let value = value {
             if key != kAXChildrenAttribute as String && !(value is String) {
                 truncated = true
@@ -679,9 +1123,173 @@ func rereadSelection(_ p: pid_t, role: String, identity: String?,
         for child in children.prefix(60) { walk(child, d + 1) }
     }
     walk(AXUIElementCreateApplication(p), 0)
-    if let original = alive { return attr(original, kAXValueAttribute as String) as? String }
+    if let original = alive { return read(original, kAXValueAttribute as String) as? String }
     guard identity?.isEmpty == false, !truncated, sameID.count == 1 else { return nil }
-    return attr(sameID[0], kAXValueAttribute as String) as? String
+    return read(sameID[0], kAXValueAttribute as String) as? String
+}
+
+/// First selection lookup has no input effects. Keep full live validation on
+/// every attribute RPC; this phase does not borrow a routing/binding cache.
+func selectionLookupAttribute(_ element:AXUIElement,_ name:String,
+    scope:NativeWindowReadScope) throws -> CFTypeRef? {
+    let (error,value)=try scope.read(element,name)
+    if error == .success {return value}
+    if error == .attributeUnsupported || error == .noValue {return nil}
+    throw NativeWindowInputError.refused("selection metadata unavailable")
+}
+
+func selectionLookupString(_ element:AXUIElement,_ name:String,
+    scope:NativeWindowReadScope) throws -> String? {
+    guard let value=try selectionLookupAttribute(element,name,scope:scope) else {return nil}
+    if let text=value as? String {return text.isEmpty ? nil:text}
+    if let number=value as? NSNumber {return number.stringValue}
+    return nil
+}
+
+/// Positive ownership needs a current path from this application. Incomplete
+/// traversal never establishes absence and never releases an unknown pin.
+func selectionOpeningMenus(_ pid:pid_t,scope:NativeWindowReadScope) throws -> [AXUIElement] {
+    var queue:[(AXUIElement,Int)]=[(AXUIElementCreateApplication(pid),0)]
+    var seen:[AXUIElement]=[],found:[AXUIElement]=[],cursor=0
+    while cursor<queue.count {
+        let (node,depth)=queue[cursor];cursor+=1
+        if seen.contains(where:{CFEqual($0,node)}) {continue}
+        guard seen.count<5000 else {throw NativeWindowInputError.refused("selection menu traversal incomplete")}
+        seen.append(node)
+        guard let rawRole=try selectionLookupAttribute(node,kAXRoleAttribute as String,scope:scope),
+              CFGetTypeID(rawRole)==CFStringGetTypeID(),let role=rawRole as? String,!role.isEmpty else {
+            throw NativeWindowInputError.refused("selection menu role unavailable")
+        }
+        if role=="AXMenu" {found.append(node)}
+        let raw=try selectionLookupAttribute(node,kAXChildrenAttribute as String,scope:scope)
+        guard raw == nil || CFGetTypeID(raw!)==CFArrayGetTypeID(),
+              let values=raw == nil ? []:raw as? [AnyObject],
+              values.allSatisfy({CFGetTypeID($0)==AXUIElementGetTypeID()}) else {
+            throw NativeWindowInputError.refused("selection menu children unavailable")
+        }
+        guard values.count<=60,depth<7 || values.isEmpty else {
+            throw NativeWindowInputError.refused("selection menu traversal incomplete")
+        }
+        queue += values.map {($0 as! AXUIElement,depth+1)}
+    }
+    try scope.ready()
+    return found
+}
+
+func selectionLookupMenuIsOwned(_ pid:pid_t,_ menu:AXUIElement,
+    scope:NativeWindowReadScope) throws -> Bool {
+    var queue:[(AXUIElement,Int)]=[(AXUIElementCreateApplication(pid),0)]
+    var cursor=0
+    while cursor<queue.count {
+        let (node,depth)=queue[cursor];cursor+=1
+        guard let role=try selectionLookupString(node,kAXRoleAttribute as String,scope:scope) else {
+            throw NativeWindowInputError.refused("selection menu role unavailable")
+        }
+        if CFEqual(node,menu) {return role == "AXMenu"}
+        let raw=try selectionLookupAttribute(node,kAXChildrenAttribute as String,scope:scope)
+        guard raw == nil || CFGetTypeID(raw!) == CFArrayGetTypeID(),
+              let values=raw == nil ? []:raw as? [AnyObject],
+              values.allSatisfy({CFGetTypeID($0)==AXUIElementGetTypeID()}) else {
+            throw NativeWindowInputError.refused("selection menu children unavailable")
+        }
+        let children=values.map {$0 as! AXUIElement}
+        guard children.count<=60,depth<7 || children.isEmpty else {
+            throw NativeWindowInputError.refused("selection menu traversal incomplete")
+        }
+        queue += children.map {($0,depth+1)}
+    }
+    try scope.ready()
+    return false
+}
+
+func menuIsOurs(_ pid:pid_t,_ pending:PendingSelect,scope:NativeWindowReadScope) throws -> Bool {
+    if try pending.popupWindowID != nil ||
+        selectionLookupString(pending.menu,kAXRoleAttribute as String,scope:scope) == "AXList" {
+        switch comboBoxContainerState(pending.control,pid,scope:scope) {
+        case .open(let current):return CFEqual(current,pending.menu)
+        case .closed:
+            if let id=pending.popupWindowID {return try nativePopupVisibility(id,pid,scope:scope)}
+            return false
+        case .unknown:throw NativeWindowInputError.refused("selection container state unavailable")
+        }
+    }
+    return try selectionLookupMenuIsOwned(pid,pending.menu,scope:scope)
+}
+
+/// Same unquoted label as the pinned observation, with scoped RPCs throughout.
+func selectionLookupLabel(_ element:AXUIElement,scope:NativeWindowReadScope) throws -> String {
+    var parts:[String]=[]
+    if let fields=try nativeReadinessBatch(element,names:labelAttrs,scope:scope) {
+        for (i,field) in fields.enumerated() {
+            guard field.0 == .success || field.0 == .attributeUnsupported || field.0 == .noValue else {
+                throw NativeWindowInputError.refused("selection label field unavailable")
+            }
+            guard let value=field.1 else {continue}
+            if labelNames[i] == "Subrole" {
+                if !parts.isEmpty {continue}
+                if try selectionLookupString(element,kAXRoleAttribute as String,scope:scope) != "AXButton" {continue}
+            }
+            if let text=value as? String,!text.isEmpty {parts.append(labelNames[i]+": "+oneLineLabel(text))}
+            else if let number=value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID() {
+                parts.append(labelNames[i]+": "+oneLineLabel(number.stringValue))
+            }
+        }
+    } else {
+        for (i,key) in labelAttrs.enumerated() {
+            if labelNames[i] == "Subrole" {
+                if !parts.isEmpty {continue}
+                if try selectionLookupString(element,kAXRoleAttribute as String,scope:scope) != "AXButton" {continue}
+            }
+            if let text=try selectionLookupString(element,key,scope:scope) {
+                parts.append(labelNames[i]+": "+oneLineLabel(text))
+            }
+        }
+    }
+    try scope.ready()
+    return parts.joined(separator:", ")
+}
+
+func initialSelectionReadScope(_ obsID:String,_ target:String,_ control:AXUIElement,
+    _ ownerPID:pid_t,deadline:Double) throws -> NativeWindowReadScope {
+    let elements=latestElements,generation=latestElementGeneration,observedName=latestTargetName
+    guard let start=latestProcessStart,latestDocumentToken == nil,
+          elements.filter({CFEqual($0,control)}).count==1 else {
+        throw NativeWindowInputError.refused("selection observation identity unavailable")
+    }
+    let scope=NativeWindowReadScope(deadline:deadline,check:{
+        guard !abortState.isStopped else {throw NativeWindowInputError.refused("user stopped input")}
+        guard obsID==latestObsID,ownerPID==latestTargetPID,
+              observedName.lowercased()==latestTargetName.lowercased(),
+              generation==latestElementGeneration,elements.count==latestElements.count,
+              latestDocumentToken == nil,nativeProcessStartIdentity(ownerPID)==start,
+              pid(forBundle:target)==ownerPID else {
+            throw NativeWindowInputError.refused("selection observation or process changed")
+        }
+        try validateDocumentObservation(target)
+    })
+    try scope.ready()
+    return scope
+}
+
+/// Read-only receiving proof, within both the observation and 400ms transition
+/// budgets. A late positive read is not confirmation and never triggers input.
+func confirmComboBoxSelectionTransition(_ control:AXUIElement,_ menu:AXUIElement,_ pid:pid_t,
+    role:String,identity:String?,want:String,scope:NativeWindowReadScope,
+    checkpoint:() throws -> Void) throws {
+    let until=min(scope.effectiveReadDeadline,ProcessInfo.processInfo.systemUptime+0.4)
+    try scope.withReadDeadline(until) {
+        while ProcessInfo.processInfo.systemUptime<until {
+            try checkpoint()
+            if comboBoxListVisibility(menu,pid,scope:scope)==false,
+               rereadSelection(pid,role:role,identity:identity,control:control,scope:scope)==want {
+                try checkpoint()
+                return
+            }
+            let remaining=until-ProcessInfo.processInfo.systemUptime
+            if remaining>0 {usleep(useconds_t(min(0.02,remaining)*1_000_000))}
+        }
+        throw NativeWindowInputError.refused("ComboBox selection transition unconfirmed")
+    }
 }
 
 /// Everything this app currently has selected and focused, as one short
@@ -710,19 +1318,83 @@ func selectionDigest(_ p: pid_t) -> String {
 }
 
 /// Is a sheet or modal dialog waiting for an answer in this app?
-func modalSheet(_ p: pid_t) -> Bool {
-    let app = AXUIElementCreateApplication(p)
-    for w in (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? [] {
-        if let sheets = attr(w, "AXSheets") as? [AXUIElement], !sheets.isEmpty { return true }
-        if (attr(w, "AXModal") as? Bool) == true { return true }
+enum NativeModalPresence: String { case clear, present, unobservable }
+
+func nativeObservedModalPresence(_ app: AXUIElement, maxNodes: Int = 20000,
+                                maxDepth: Int = 64,
+                                read: (AXUIElement, String) throws -> (AXError, CFTypeRef?)) -> NativeModalPresence {
+    guard maxNodes > 0, maxDepth >= 0 else { return .unobservable }
+    func nodes(_ value: CFTypeRef?) -> [AXUIElement]? {
+        guard let value, CFGetTypeID(value) == CFArrayGetTypeID(),
+              CFArrayGetCount((value as! CFArray)) <= maxNodes,
+              let values = value as? [AXUIElement],
+              values.allSatisfy({ CFGetTypeID($0) == AXUIElementGetTypeID() }) else { return nil }
+        return values
     }
-    return false
+    do {
+        let (status, raw) = try read(app, "AXWindows")
+        guard status == .success, let roots = nodes(raw) else { return .unobservable }
+        var remaining = maxNodes
+        func inspect(_ node: AXUIElement) throws -> NativeModalPresence {
+            guard remaining > 0 else { return .unobservable }
+            remaining -= 1
+            let (roleStatus, roleValue) = try read(node, "AXRole")
+            guard roleStatus == .success, let role = roleValue as? String,
+                  !role.isEmpty else { return .unobservable }
+            if role == "AXSheet" { return .present }
+            let (modalStatus, modal) = try read(node, "AXModal")
+            if modalStatus == .success {
+                guard let modal, CFGetTypeID(modal) == CFBooleanGetTypeID(),
+                      let flag = modal as? Bool else { return .unobservable }
+                if flag { return .present }
+            } else if modalStatus != .attributeUnsupported && modalStatus != .noValue { return .unobservable }
+            let (sheetStatus, rawSheets) = try read(node, "AXSheets")
+            if sheetStatus == .success {
+                guard let sheets = nodes(rawSheets) else { return .unobservable }
+                if !sheets.isEmpty { return .present }
+            } else if sheetStatus != .attributeUnsupported && sheetStatus != .noValue { return .unobservable }
+            return .clear
+        }
+        for window in roots {
+            let state = try inspect(window)
+            if state != .clear { return state }
+            let (childStatus, rawChildren) = try read(window, "AXChildren")
+            guard childStatus == .success, let children = nodes(rawChildren),
+                  children.count <= remaining else { return .unobservable }
+            for child in children {
+                let state = try inspect(child)
+                if state != .clear { return state }
+            }
+        }
+        let (focusStatus, rawFocus) = try read(app, "AXFocusedUIElement")
+        if focusStatus == .attributeUnsupported || focusStatus == .noValue { return .clear }
+        guard focusStatus == .success, let rawFocus,
+              CFGetTypeID(rawFocus) == AXUIElementGetTypeID() else { return .unobservable }
+        var focused = rawFocus as! AXUIElement
+        for _ in 0...maxDepth {
+            if CFEqual(focused, app) { return .clear }
+            let state = try inspect(focused)
+            if state != .clear { return state }
+            let (parentStatus, rawParent) = try read(focused, "AXParent")
+            guard parentStatus == .success, let rawParent,
+                  CFGetTypeID(rawParent) == AXUIElementGetTypeID() else { return .unobservable }
+            focused = rawParent as! AXUIElement
+        }
+        return .unobservable
+    } catch { return .unobservable }
+}
+
+func modalSheet(_ p: pid_t) -> Bool {
+    let scope = NativeWindowReadScope(deadline: ProcessInfo.processInfo.systemUptime + 2) {
+        if abortState.isStopped { throw NativeWindowInputError.refused("modal observation stopped") }
+    }
+    return nativeObservedModalPresence(AXUIElementCreateApplication(p), read: scope.read) != .clear
 }
 
 /// Why this is no longer what the caller meant — or nil if it still is.
 func mismatch(_ expect: [String: Any], element: AXUIElement?, pid p: pid_t) -> String? {
     if (expect["no_modal"] as? Bool) == true, modalSheet(p) {
-        return "화면에 대화상자가 열렸습니다"
+        return "대화상자가 열렸거나 유무를 확인할 수 없습니다"
     }
     if let wantSel = expect["selection"] as? String, wantSel != selectionDigest(p) {
         return "고른 것이 바뀌었습니다 — 같은 버튼이라도 대상이 다릅니다"
@@ -874,6 +1546,207 @@ func probe(_ obsID: String, _ target: String, _ index: Int) -> [String: Any] {
     return ["type": "probe", "line": "  \(index) \(role)  " + label(el)]
 }
 
+/// Read-only cold traversal. The response is never an input binding/permit.
+func readinessPreflight(_ msg: [String: Any]) -> [String: Any] {
+    let began = ProcessInfo.processInfo.systemUptime
+    let requestedStrategy = msg["read_strategy"] as? String ?? "batch"
+    let readStrategy = ["batch","single"].contains(requestedStrategy) ? requestedStrategy : "invalid"
+    var scope: NativeWindowReadScope?
+    var titlebarHits: [[String: Any]]?
+    func result(_ type: String, _ reason: String) -> [String: Any] {
+        var out: [String:Any] = ["type":type,"reason":reason,"read_only":true,"read_strategy":readStrategy,
+            "authorizes_input":false,"elapsed_ms":Int(min(600000,max(0,(ProcessInfo.processInfo.systemUptime-began)*1000))),
+            "scoped_ax_operations":scope?.operationCount ?? 0,
+            "ax_operation_elapsed_ms":scope?.operationElapsedMS ?? 0,
+            "context_elapsed_ms":scope?.contextElapsedMS ?? 0]
+        if let progress = scope?.readinessProgress { out["readiness_progress"] = progress }
+        if let titlebarHits { out["titlebar_hits"] = titlebarHits }
+        if let scope {
+            out["readiness_role_costs"] = scope.readinessRoleCosts
+            out["readiness_attribute_costs"] = scope.readinessAttributeCosts
+            if let counts=scope.readinessIdentityCounts {out["readiness_identity_counts"]=counts}
+            if let error = scope.readinessAXError { out["readiness_ax_error"] = error }
+            if let failure = scope.readinessFailure { out["readiness_failure"] = failure }
+        }
+        return out
+    }
+    let fields = Set(["type","target","obs_id","element_index"])
+    guard fields.isSubset(of: Set(msg.keys)), Set(msg.keys).isSubset(of: fields.union(["read_strategy", "titlebar_probe"])),
+          msg["read_strategy"] == nil || ["batch","single"].contains(msg["read_strategy"] as? String ?? ""),
+          msg["titlebar_probe"] == nil || CFGetTypeID(msg["titlebar_probe"]! as CFTypeRef) == CFBooleanGetTypeID(),
+          msg["type"] as? String == "readiness_preflight",
+          let target = msg["target"] as? String,
+          ["com.apple.finder","ai.callabo.nlc.modality-fixture"].contains(target),
+          let obs = msg["obs_id"] as? String, obs == latestObsID,
+          latestTargetName == target, latestDocumentToken == nil,
+          let number = documentIsWholeNumber(msg["element_index"]), number.intValue >= 0,
+          number.intValue < latestElements.count,
+          let pid = pid(forBundle:target), pid == latestTargetPID,
+          let start = latestProcessStart, nativeProcessStartIdentity(pid) == start else {
+        return result("error","invalid_or_stale_preflight")
+    }
+    let generation = latestElementGeneration
+    let window = latestElements[number.intValue]
+    var owner: pid_t = 0
+    guard AXUIElementGetPid(window,&owner) == .success, owner == pid else {
+        return result("error","preflight_window_owner_unavailable")
+    }
+    func identity() throws {
+        guard !abortState.isStopped, latestObsID == obs, latestTargetPID == pid,
+              latestTargetName == target,
+              latestElementGeneration == generation, latestDocumentToken == nil,
+              nativeProcessStartIdentity(pid) == start else {
+            throw NativeWindowInputError.refused("preflight identity or abort")
+        }
+    }
+    let readScope = NativeWindowReadScope(deadline:began+15,incrementalCheck:identity,
+        collectReadinessRoleCosts:true,check:{
+        try identity()
+        guard nativeObservedBundleMatches(pid,target) else {
+            throw NativeWindowInputError.refused("preflight bundle changed")
+        }
+    })
+    scope = readScope
+    do {
+        let (error,role) = try readScope.read(window,kAXRoleAttribute as String)
+        guard error == .success, role as? String == "AXWindow" else {
+            return result("error","preflight_window_role_unavailable")
+        }
+        let singleRead: AXRead? = readStrategy == "single" ? { node, name in
+            try readScope.read(node, name)
+        } : nil
+        try nativeRequireWindowReady(window,pid,scope:readScope,read:singleRead,isFinder:target == "com.apple.finder")
+        // Diagnostic reads only: no titlebar point is accepted for dispatch here.
+        if msg["titlebar_probe"] as? Bool == true {
+            titlebarHits = try nativeTitlebarHitSummary(window, pid, scope: readScope)
+        }
+        try readScope.ready(forceFull:true)
+        return result("readiness_preflight","read_complete")
+    } catch NativeWindowInputError.refused(let reason) {
+        let code: String
+        switch reason {
+        case "readiness budget exceeded: deadline", "window observation deadline expired": code = "preflight_deadline"
+        case "readiness budget exceeded: nodes": code = "preflight_nodes"
+        default: code = "preflight_unavailable"
+        }
+        // Preserve combined native predicates: these codes do not assert that a
+        // sheet/modal was positively identified when the guard also rejects unknown.
+        let cause: String
+        switch reason {
+        case "attached sheet or malformed role": cause = "sheet_or_malformed_role"
+        case "modal or unknown window": cause = "modal_or_unknown_top"
+        case "modal or unknown element": cause = "modal_or_unknown_element"
+        case "sheet or malformed sheet list": cause = "sheet_or_malformed_list"
+        case "sheet attached during validation": cause = "sheet_attached_recheck"
+        case "window became modal during validation": cause = "modal_recheck"
+        case "readiness budget exceeded: deadline", "window observation deadline expired": cause = "deadline"
+        case "readiness budget exceeded: nodes": cause = "nodes"
+        case "preflight identity or abort", "preflight bundle changed": cause = "identity_or_abort"
+        case "readiness batch malformed", "window children malformed": cause = "malformed"
+        default: cause = "unavailable"
+        }
+        var out = result("error",code); out["refusal_cause"] = cause; return out
+    } catch {
+        var out = result("error","preflight_unavailable"); out["refusal_cause"] = "unavailable"; return out
+    }
+}
+
+/// Diagnostic reads only; no state here may authorize an input or skip a guard.
+func readinessReadCost(_ msg: [String: Any]) -> [String: Any] {
+    var rows: [[String: Any]] = []
+    func refuse(_ reason: String) -> [String: Any] {
+        ["type":"error","error":reason,"effect":"not_started","rows":rows]
+    }
+    guard Set(msg.keys) == Set(["type","target","obs_id","element_indices"]),
+          msg["type"] as? String == "readiness_read_cost",
+          msg["target"] as? String == "com.apple.finder",
+          let obs = msg["obs_id"] as? String, obs == latestObsID,
+          latestTargetName == "com.apple.finder", latestDocumentToken == nil,
+          let raw = msg["element_indices"] as? [Any], (1...16).contains(raw.count) else {
+        return refuse("invalid_readiness_cost_request")
+    }
+    var indices: [Int] = []
+    for value in raw {
+        guard let number = documentIsWholeNumber(value), number.intValue >= 0,
+              number.intValue < latestElements.count, !indices.contains(number.intValue) else {
+            return refuse("invalid_readiness_cost_request")
+        }
+        indices.append(number.intValue)
+    }
+    guard let pid = pid(forBundle:"com.apple.finder"), pid == latestTargetPID,
+          let start = latestProcessStart, nativeProcessStartIdentity(pid) == start else {
+        return refuse("stale_observation")
+    }
+    let generation = latestElementGeneration
+    let scope = NativeWindowReadScope(deadline:ProcessInfo.processInfo.systemUptime+2, check:{
+        guard !abortState.isStopped, latestObsID == obs, latestTargetPID == pid,
+              latestElementGeneration == generation, nativeProcessStartIdentity(pid) == start,
+              nativeObservedBundleMatches(pid,"com.apple.finder") else {
+            throw NativeWindowInputError.refused("diagnostic identity or abort")
+        }
+    })
+    let names = [kAXRoleAttribute as String,"AXModal",kAXChildrenAttribute as String]
+    func shape(_ values: [(AXError, CFTypeRef?)]) -> [[String: Any]] {
+        values.map { error, value in
+            var item: [String:Any] = ["ax_error":Int(error.rawValue),"kind":"nil"]
+            if let value {
+                let type = CFGetTypeID(value)
+                if type == CFStringGetTypeID() { item["kind"] = "string" }
+                else if type == CFBooleanGetTypeID() { item["kind"] = "boolean" }
+                else if type == CFArrayGetTypeID() {
+                    item["kind"] = "array"; item["count"] = CFArrayGetCount((value as! CFArray))
+                } else { item["kind"] = "other" }
+            }
+            return item
+        }
+    }
+    do {
+        for (ordinal,index) in indices.enumerated() {
+            let element = latestElements[index]
+            for round in 0..<2 {
+                var row: [String:Any] = ["ordinal":ordinal,"round":round,
+                    "batch_first":(ordinal+round)%2 == 0]
+                defer { rows.append(row) }
+                func batch() throws {
+                    var seconds = 0.0
+                    let result = try nativeReadinessBatch(element,names:names,read:{ node,keys in
+                        try scope.withTimeout(node) {
+                            let began = ProcessInfo.processInfo.systemUptime
+                            defer { seconds += ProcessInfo.processInfo.systemUptime-began }
+                            var values: CFArray?
+                            let error = AXUIElementCopyMultipleAttributeValues(node,keys as CFArray,
+                                AXCopyMultipleAttributeOptions(rawValue:0),&values)
+                            return (error,values)
+                        }
+                    })
+                    row["batch_ax_us"] = Int(max(0,min(2000000,seconds*1000000)))
+                    row["batch_transport"] = result == nil ? "unsupported":"ok"
+                    row["batch_attributes"] = result.map(shape) as Any? ?? NSNull()
+                }
+                func singles() throws {
+                    var seconds = 0.0
+                    let values = try names.map { name in
+                        try scope.withTimeout(element) {
+                            let began = ProcessInfo.processInfo.systemUptime
+                            defer { seconds += ProcessInfo.processInfo.systemUptime-began }
+                            var value: CFTypeRef?
+                            let error = AXUIElementCopyAttributeValue(element,name as CFString,&value)
+                            return (error,value)
+                        }
+                    }
+                    row["single_ax_us"] = Int(max(0,min(2000000,seconds*1000000)))
+                    row["single_attributes"] = shape(values)
+                }
+                if (ordinal+round)%2 == 0 { try batch(); try singles() }
+                else { try singles(); try batch() }
+            }
+        }
+        try scope.ready()
+        return ["type":"readiness_read_cost","rows":rows,"scoped_ax_operations":scope.operationCount,
+                "read_only":true,"atomic_snapshot":false]
+    } catch { return refuse("readiness_cost_unavailable") }
+}
+
 func selectionOf(_ target: String) -> [String: Any] {
     guard let p = pid(forBundle: target) else {
         return ["type": "error", "error": "target_not_found",
@@ -904,20 +1777,75 @@ private func processForWindowTarget(_ target: String) -> pid_t? { pid(forBundle:
 /// so a `window_index` meant different things depending on whether the mouse
 /// happened to be resting on a button. An index into a list that changes shape
 /// under you is worse than a wrong index: it is one that is right sometimes.
+struct WindowListingDiagnostic {
+    var status = "ok"
+    var axError = 0
+    var rawCount = 0
+    var roleWindowCount = 0
+    var roleUnavailableCount = 0
+    var roleTransientCount = 0
+    var filteredCount = 0
+    var metadata: [String: Any] {
+        ["version":1,"status":status,"ax_error":axError,"raw_count":rawCount,
+         "role_window_count":roleWindowCount,"role_unavailable_count":roleUnavailableCount,
+         "role_transient_count":roleTransientCount,
+         "filtered_count":filteredCount,"badge_count":roleWindowCount-filteredCount]
+    }
+}
+
 func realWindows(of app: AXUIElement) -> [AXUIElement] {
-    let all = (attr(app, kAXWindowsAttribute as String) as? [AXUIElement]) ?? []
-    let byRole = all.filter { str($0, kAXRoleAttribute as String) == kAXWindowRole as String }
+    var diagnostic = WindowListingDiagnostic()
+    return realWindows(of: app, diagnostic: &diagnostic)
+}
+
+func realWindows(of app: AXUIElement, diagnostic: inout WindowListingDiagnostic) -> [AXUIElement] {
+    diagnostic = WindowListingDiagnostic()
+    var raw: CFTypeRef?
+    let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+    diagnostic.axError = Int(error.rawValue)
+    if error == .noValue { diagnostic.status = "no_value"; return [] }
+    guard error == .success else { diagnostic.status = "ax_error"; return [] }
+    guard let raw else { diagnostic.status = "no_value"; return [] }
+    guard CFGetTypeID(raw) == CFArrayGetTypeID(), let entries = raw as? [AnyObject] else {
+        diagnostic.status = "malformed_array"; return []
+    }
+    diagnostic.rawCount = entries.count
+    guard entries.allSatisfy({ CFGetTypeID($0) == AXUIElementGetTypeID() }) else {
+        diagnostic.status = "malformed_array"; return []
+    }
+    let all = entries.map { $0 as! AXUIElement }
+    let byRole = all.filter { node in
+        var value: CFTypeRef?
+        let roleError = AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &value)
+        guard roleError == .success, let role = value as? String, !role.isEmpty else {
+            diagnostic.roleUnavailableCount += 1
+            if roleError == .cannotComplete || roleError == .invalidUIElement {
+                diagnostic.roleTransientCount += 1
+            }
+            return false
+        }
+        return role == kAXWindowRole as String
+    }
+    diagnostic.roleWindowCount = byRole.count
+    if diagnostic.roleUnavailableCount > 0 { diagnostic.status = "role_unavailable" }
 
     func frame(_ element: AXUIElement) -> CGRect? {
         guard let positionValue = attr(element, kAXPositionAttribute as String),
               let sizeValue = attr(element, kAXSizeAttribute as String) else { return nil }
+        guard CFGetTypeID(positionValue) == AXValueGetTypeID(),
+              CFGetTypeID(sizeValue) == AXValueGetTypeID(),
+              AXValueGetType(positionValue as! AXValue) == .cgPoint,
+              AXValueGetType(sizeValue as! AXValue) == .cgSize else { return nil }
         var origin = CGPoint.zero, size = CGSize.zero
-        AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin)
-        AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size),
+              origin.x.isFinite, origin.y.isFinite, size.width.isFinite, size.height.isFinite else { return nil }
         return CGRect(origin: origin, size: size)
     }
     let frames = byRole.map { frame($0) }
 
+    var filteredWindowCount = byRole.count
+    defer { diagnostic.filteredCount = filteredWindowCount }
     // Drop attachments. macOS puts its screen-capture badge ON the window it
     // is capturing, and that badge turns up in the app's own AXWindows list:
     // measured at 66x20 inside a 460x232 window, subrole AXDialog, title
@@ -943,6 +1871,7 @@ func realWindows(of app: AXUIElement) -> [AXUIElement] {
         let inside = frames.enumerated().contains { other, rect in
             other != index && rect.map { $0.contains(mine) && $0 != mine } == true
         }
+        if inside { filteredWindowCount -= 1 }
         return !inside
     }.map { $0.element }
 }
@@ -986,70 +1915,196 @@ func elementAtPoint(_ point: CGPoint, pid p: pid_t) -> AXUIElement? {
     return element
 }
 
+/// Option metadata can include owned rows beyond the bounded outline. Such a
+/// row is addressed only through its unique observed ComboBox and complete live
+/// owned-list path, never by adding an unseen node to the observation map.
+func nativePopupSelectionAnchorMatches(_ control:AXUIElement,_ element:AXUIElement,
+                                       _ popup:AXUIElement,_ pid:pid_t,scope:NativeWindowReadScope?=nil)->Bool {
+    guard let list=comboBoxOwnedList(control,pid,scope:scope),
+          let raw=comboBoxAttribute(list,kAXParentAttribute as String,scope:scope),
+          CFGetTypeID(raw)==AXUIElementGetTypeID(),CFEqual(raw,popup),
+          let rows=comboBoxListRows(list,scope:scope) else {return false}
+    let matches=rows.filter {CFEqual($0.node,element)}
+    return matches.count==1 && !matches[0].disabled
+}
+
 func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
                              windowInput: NativeOpaqueWindowInput? = nil,
-                             elementClicks: Int = 0, submitKey: Bool = false) -> [String: Any] {
+                             elementClicks: Int = 0, submitKey: Bool = false,
+                             popup: AXUIElement? = nil, observedControl:AXUIElement? = nil,
+                             selectionCheck: ((NativeWindowReadScope) throws -> Void)? = nil,
+                             finalTransition: ((_ checkpoint: () throws -> Void, _ scope:NativeWindowReadScope) throws -> Void)? = nil) -> [String: Any] {
     let diagnosticStart = ProcessInfo.processInfo.systemUptime
     var phase = "identity"
+    var identityCause: String?
+    func identityRequirement(_ matches: Bool, _ cause: String) -> Bool {
+        if !matches { identityCause = cause }
+        return matches
+    }
     var readScope: NativeWindowReadScope?
+    var dispatchHeadroom: [String: Any]?
     func diagnosed(_ result: [String: Any]) -> [String: Any] {
         let detail = result["detail"] as? String ?? ""
         let reason: String
         switch detail {
         case "readiness budget exceeded: deadline": reason = "readiness_deadline"
         case "readiness budget exceeded: nodes": reason = "readiness_nodes"
+        case "readiness batch failed": reason = "readiness_batch_failed"
+        case "window state unavailable: AXWindows", "window state unavailable: AXMinimized",
+             "window state unavailable: AXRole", "window state unavailable: AXModal",
+             "window state unavailable: AXChildren", "window state unavailable: AXSheets",
+             "window state unavailable: AXParent": reason = "readiness_attribute_failed"
+        case "readiness batch malformed", "readiness batch error malformed": reason = "readiness_batch_malformed"
+        case "window validation headroom insufficient": reason = "validation_headroom"
         case "window observation deadline expired": reason = "observation_deadline"
         case "window AX timeout unavailable": reason = "ax_timeout_unavailable"
         case "window AX timeout reset failed": reason = "ax_timeout_reset_failed"
         case "no blank native titlebar point": reason = "titlebar_point_unavailable"
         case "modal or unknown window", "sheet or malformed sheet list": reason = "modal_or_unverifiable"
         case "window observation identity unavailable", "window observation or process changed": reason = "identity_changed"
+        case "target window is not the app focused window": reason = "target_window_not_focused"
+        case "target input element or window changed": reason = "target_input_changed"
+        case "focus is outside the bound window": reason = "target_focus_outside_window"
+        case "the bound input is not the keyboard focus": reason = "target_input_not_focused"
+        case "the selected row is not in the focused list": reason = "target_row_not_in_focused_list"
+        case "user focus unavailable": reason = "user_focus_unavailable"
+        case "user focus unsupported": reason = "user_focus_unsupported"
+        case "user focus malformed": reason = "user_focus_malformed"
+        case "user focus query failed": reason = "user_focus_query_failed"
+        case "user foreground changed": reason = "user_foreground_changed"
+        case "user focus deadline expired": reason = "user_focus_deadline"
         default: reason = result["type"] as? String == "acted" ? "dispatched_unverified" : "unclassified_refusal"
         }
         var out = result
-        out["preparation_diagnostic"] = ["phase": phase, "reason": reason,
+        var diagnostic: [String: Any] = ["phase": phase, "reason": reason,
             "elapsed_ms": Int(max(0, min(600000, (ProcessInfo.processInfo.systemUptime - diagnosticStart) * 1000))),
-            "scoped_ax_operations": readScope?.operationCount ?? 0]
+            "scoped_ax_operations": readScope?.operationCount ?? 0,
+            "context_elapsed_ms": readScope?.contextElapsedMS ?? 0,
+            "ax_operation_elapsed_ms": readScope?.operationElapsedMS ?? 0,
+            "full_context_checks": readScope?.fullContextChecks ?? 0,
+            "incremental_context_checks": readScope?.incrementalContextChecks ?? 0]
+        if reason == "identity_changed", let identityCause { diagnostic["identity_cause"] = identityCause }
+        if let dispatchHeadroom { diagnostic["headroom"] = dispatchHeadroom }
+        if let error = readScope?.readinessAXError { diagnostic["readiness_ax_error"] = error }
+        if let failure = readScope?.readinessFailure { diagnostic["readiness_failure"] = failure }
+        if let progress = readScope?.readinessProgress { diagnostic["readiness_progress"] = progress }
+        out["preparation_diagnostic"] = diagnostic
         return out
     }
     let elements = latestElements
+    let elementGeneration = latestElementGeneration
     guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
-          elements.filter({ CFEqual($0, element) }).count == 1 else {
+          elements.filter({ CFEqual($0, observedControl ?? element) }).count == 1 else {
+        identityCause = "initial_binding"
         return diagnosed(["type":"error", "error":"action_failed", "effect":"not_started",
                 "detail":"window observation identity unavailable"])
     }
-    func context() throws {
-        try validateDocumentObservation(target)
+    // An exact bundle request stays bound to the observed process instance.
+    // A later same-bundle process must not redirect this window transaction.
+    // Name aliases retain the resolver's existing precedence contract.
+    let observedBundle = nativeObservedBundleMatches(pid, target)
+    let observedDocumentToken = latestDocumentToken
+    let observedDocument = observedDocumentToken.flatMap { token in
+        documentTokens.first(where: { $0.token == token })?.document
+    }
+    func contextIdentity() throws {
         guard !abortState.isStopped else { throw NativeWindowInputError.refused("user stopped input") }
-        guard obsID == latestObsID, pid == latestTargetPID,
-              target.lowercased() == latestTargetName.lowercased(),
-              processForWindowTarget(target) == pid, nativeProcessStartIdentity(pid) == start,
-              latestElements.count == elements.count,
-              zip(latestElements, elements).allSatisfy({ CFEqual($0, $1) }) else {
+        guard identityRequirement(obsID == latestObsID, "observation_id"),
+              identityRequirement(pid == latestTargetPID, "process_id"),
+              identityRequirement(target.lowercased() == latestTargetName.lowercased(), "target_name"),
+              identityRequirement(nativeProcessStartIdentity(pid) == start, "process_start"),
+              identityRequirement(latestElementGeneration == elementGeneration, "element_map"),
+              identityRequirement(latestElements.count == elements.count, "element_map"),
+              identityRequirement(latestDocumentToken == observedDocumentToken, "document_token") else {
+            throw NativeWindowInputError.refused("window observation or process changed")
+        }
+        if let token = observedDocumentToken {
+            guard let pinned = observedDocument,
+                  let current = documentTokens.first(where: { $0.token == token })?.document,
+                  current.pid == pinned.pid, current.stamp == pinned.stamp,
+                  CFEqual(current.window, pinned.window), CFEqual(current.body, pinned.body),
+                  current.selectedPath == pinned.selectedPath,
+                  current.lifecycleWindowID == pinned.lifecycleWindowID else {
+                identityCause = "document_pin"
+                throw NativeWindowInputError.refused("window observation or process changed")
+            }
+        }
+    }
+    func context() throws {
+        do { try validateDocumentObservation(target) }
+        catch { identityCause = "document_live"; throw error }
+        try contextIdentity()
+        guard identityRequirement(observedBundle ? nativeObservedBundleMatches(pid, target)
+                             : processForWindowTarget(target) == pid, "target_resolution") else {
             throw NativeWindowInputError.refused("window observation or process changed")
         }
     }
     do {
-        let scope = NativeWindowReadScope(deadline: deadline, check: context)
+        // Exact-bundle readiness may amortize live document enumeration only
+        // inside the read-only phase. Pins/identity/abort stay per-RPC; full
+        // document validation remains at phase boundaries and before input.
+        // Alias transactions retain full per-RPC resolver validation.
+        let scope = NativeWindowReadScope(deadline: deadline,
+            incrementalCheck: observedBundle ? contextIdentity : nil,
+            check: context)
         readScope = scope
         phase = "context"
         try scope.ready()
         phase = "binding"
-        let binding = try captureNativeWindowBinding(element, pid, expectedStart: start,
-            pointKind: windowInput != nil ? .windowInput : point != nil ? .windowPoint
-                : (key == nil && elementClicks == 0) ? .titlebar : .elementCenter,
-            scope: scope, relativePoint: point)
+        func capture() throws -> NativeWindowBinding {
+            if let popup {
+                guard elementClicks==1,selectionCheck != nil,finalTransition != nil,
+                      key==nil,point==nil,windowInput==nil,!submitKey else {
+                    throw NativeWindowInputError.refused("popup requires a pinned selection transition")
+                }
+                // Popup captures are complete read-only binding phases too.
+                // Keep all option/path/readiness reads, with full live context
+                // at both boundaries and identity/abort/deadline on each scoped RPC.
+                return try scope.withBindingContext {
+                    try scope.ready();try selectionCheck?(scope);try scope.ready()
+                    if let observedControl {
+                        guard nativePopupSelectionAnchorMatches(observedControl,element,popup,pid,scope:scope) else {
+                            throw NativeWindowInputError.refused("observed ComboBox option path changed")
+                        }
+                        try scope.ready()
+                    }
+                    return try captureNativePopupWindowBinding(element,popup,pid,expectedStart:start,scope:scope)
+                }
+            }
+            guard selectionCheck==nil,finalTransition==nil,observedControl==nil else {
+                throw NativeWindowInputError.refused("selection transition requires a popup binding")
+            }
+            return try scope.withBindingContext {
+                try captureNativeWindowBinding(element, pid, expectedStart: start,
+                    pointKind: windowInput != nil ? .windowInput : point != nil ? .windowPoint
+                        : (key == nil && elementClicks == 0) ? .titlebar : .elementCenter,
+                    scope: scope, relativePoint: point)
+            }
+        }
+        let binding=try capture()
         let routing: ((NativeWindowBinding, Bool) throws -> Void)?
         if windowInput != nil || point != nil || elementClicks != 0 { routing = { binding, _ in try requireNativeWindowTarget(binding, scope: scope) } }
         else if submitKey { routing = { binding, _ in try requireNativeSubmitTarget(binding, scope: scope) } }
         else if key != nil { routing = { try requireNativeKeyTarget($0, element: $1, scope: scope) } }
         else { routing = nil }
         phase = "dispatch"
+        let transition: ((_ checkpoint: () throws -> Void) throws -> Void)?
+        if let finalTransition {transition={checkpoint in try finalTransition(checkpoint,scope)}}
+        else {transition=nil}
         let result = try dispatchNativeWindowPreparation(binding, deadline: deadline,
             stopped: { abortState.isStopped }, context: context,
-            validate: { try validateNativeWindowBinding($0, scope: scope) }, key: key,
+            validate: { previous in
+                if popup != nil {
+                    let fresh=try capture()
+                    guard CFEqual(fresh.window,previous.window),fresh.windowID==previous.windowID,
+                          fresh.windowBounds==previous.windowBounds,fresh.elementBounds==previous.elementBounds,
+                          fresh.point==previous.point else {
+                        throw NativeWindowInputError.refused("popup binding changed")
+                    }
+                } else {try scope.withBindingContext {try validateNativeWindowBinding(previous,scope:scope)}}
+            }, key: key,
             routing: routing,
             preflight: key == nil && point == nil && windowInput == nil && elementClicks == 0 ? nil : {
                 try scope.ready()
@@ -1057,7 +2112,8 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                     throw NativeWindowInputError.refused(why)
                 }
                 try scope.ready()
-            }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks, submitKey: submitKey)
+            }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks, submitKey: submitKey,
+            finalTransition: transition, headroomDiagnostic: { dispatchHeadroom = $0 })
         return diagnosed(["type":"acted", "action":elementClicks == 2 ? "double_click" : elementClicks == 1 ? "click" : windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
                 "input_route":submitKey ? "window_bound_submit_key" : elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
                 "posted_events":result.posted, "window_id":result.windowID,
@@ -1076,6 +2132,37 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
         return diagnosed(["type":"error", "error":abortState.isStopped ? "aborted_by_user" : "action_failed",
                 "effect":"not_started", "detail":detail])
     }
+}
+
+/// Choosing another window of the frontmost app is what prepare_window is for,
+/// but that app is the one the person is in, and a Finder run measured the
+/// write moving their focus (2026-10-18). Their keyboard focus decides: an
+/// editable field outside the target window keeps its typing unless they
+/// approve, and a focus that cannot be read is not called safe.
+/// True when the window is already prepared and nothing needs writing.
+func foregroundPreparationIsDone(_ pid: pid_t, _ window: AXUIElement) throws -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    if (attr(window, "AXMain") as? Bool) == true, let front = attr(app, "AXFocusedWindow"),
+       CFGetTypeID(front) == AXUIElementGetTypeID(), CFEqual(front, window) {
+        return true
+    }
+    var raw: AnyObject?
+    let error = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement" as CFString, &raw)
+    guard let focused = try nativeUserFocusedElement(error, raw) else { return false }
+    if let owner = attr(focused, "AXWindow"), CFGetTypeID(owner) == AXUIElementGetTypeID(),
+       CFEqual(owner, window) {
+        return false
+    }
+    var settable = DarwinBoolean(false)
+    let text = (attr(focused, "AXValue") as? String) != nil
+        && AXUIElementIsAttributeSettable(focused, "AXValue" as CFString, &settable) == .success
+        && settable.boolValue
+    let role = attr(focused, "AXRole") as? String ?? ""
+    if text || ["AXTextField", "AXTextArea", "AXComboBox"].contains(role) {
+        throw NativeWindowInputError.needsForeground(
+            "keyboard focus is in an editable field outside the target window")
+    }
+    return false
 }
 
 func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
@@ -1107,6 +2194,21 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
     }
     guard (attr(element, "AXMinimized") as? Bool) == false else {
         return refuse("action_failed", "최소화된 창은 준비할 수 없습니다")
+    }
+    do {
+        if try foregroundPreparationIsDone(pid, element) {
+            // Nothing written; the caller still confirms by observing again.
+            return ["type": "acted", "action": "prepare_window", "obs_id": obsID,
+                    "input_route": "window_prepare", "wrote": [String](),
+                    "window_reports_key": true, "foreground_route": true,
+                    "unverified": "observe_effect", "reobserve_required": true]
+        }
+    } catch NativeWindowInputError.needsForeground(let detail) {
+        return refuse("action_failed", detail, foreground: true)
+    } catch NativeWindowInputError.unavailable(let detail) {
+        return refuse("action_failed", detail)
+    } catch {
+        return refuse("action_failed", "user focus unreadable")
     }
     var wrote: [String] = []
     phase = "foreground_write"
@@ -1145,7 +2247,7 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
               || (attr(element, "AXFocused") as? Bool) == true
     var out: [String: Any] = ["type": "acted", "action": "prepare_window", "obs_id": obsID,
                               "input_route": "window_prepare", "wrote": wrote,
-                              "window_reports_key": became]
+                              "window_reports_key": became, "foreground_route": true]
     out["preparation_diagnostic"] = ["phase": phase, "reason": "dispatched_unverified",
         "elapsed_ms": Int(max(0, min(600000, (ProcessInfo.processInfo.systemUptime - diagnosticStart) * 1000)))]
     if !became {
@@ -1162,6 +2264,7 @@ func prepareWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
 func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIElement,
                             _ pid: pid_t, deadline: Double) -> [String: Any] {
     let elements = latestElements
+    let elementGeneration = latestElementGeneration
     guard let start = latestProcessStart, nativeProcessStartIdentity(pid) == start,
           elements.filter({ CFEqual($0, element) }).count == 1 else {
         return ["type":"error", "error":"action_failed", "effect":"not_started",
@@ -1173,8 +2276,8 @@ func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIEl
         guard obsID == latestObsID, pid == latestTargetPID,
               target.lowercased() == latestTargetName.lowercased(),
               processForWindowTarget(target) == pid, nativeProcessStartIdentity(pid) == start,
-              latestElements.count == elements.count,
-              zip(latestElements, elements).allSatisfy({ CFEqual($0, $1) }) else {
+              latestElementGeneration == elementGeneration,
+              latestElements.count == elements.count else {
             throw NativeWindowInputError.refused("window observation or process changed")
         }
     }
@@ -1203,10 +2306,38 @@ func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIEl
     }
 }
 
+func nativeOpeningParametersProblem(_ action:[String:Any]) -> String? {
+    if action.keys.contains("opening_action") {
+        guard let requested=action["opening_action"] as? String,
+              ["AXShowMenu","AXPress"].contains(requested) else {return "invalid_opening_action"}
+    }
+    return nil
+}
+
+func nativeSelectionParametersProblem(_ action: [String: Any]) -> String? {
+    guard let label = action["option_label"] as? String, !label.isEmpty else {
+        return "option_label_required"
+    }
+    if action.keys.contains("value") {
+        guard let value = action["value"] as? String, value.utf8.elementsEqual(label.utf8) else {
+            return "native_option_value_mismatch"
+        }
+    }
+    return nil
+}
+
 func act(_ obsID: String, _ target: String, _ action: [String: Any],
          expect: [String: Any]? = nil, clickDeadline: Double? = nil, coordinateAuthorized: Bool = false,
          savePanelToken: String? = nil, windowInputAuthorized: Bool = false,
          submitAuthorized: Bool = false) -> [String: Any] {
+    if action["name"] as? String == "open_select",let problem=nativeOpeningParametersProblem(action) {
+        return ["type":"error","error":"invalid_selection_parameters","effect":"not_started","detail":problem]
+    }
+    if ["select_option", "select_custom_option"].contains(action["name"] as? String ?? ""),
+       let problem = nativeSelectionParametersProblem(action) {
+        return ["type":"error", "error":"invalid_selection_parameters",
+                "effect":"not_started", "detail":problem]
+    }
     if let token = savePanelToken {
         guard !token.isEmpty, token.count <= 128, Set(action.keys) == Set(["name", "element_index"]),
               action["name"] as? String == "click",
@@ -1217,7 +2348,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
     if action["name"] as? String == "window_input", !windowInputAuthorized {
         return ["type":"error", "error":"window_input_authorization_required", "effect":"not_started"]
     }
-    if action["name"] as? String == "click_point", !coordinateAuthorized {
+    if ["click_point", "vroid_drag", "vroid_focus"].contains(action["name"] as? String ?? ""), !coordinateAuthorized {
         return ["type":"error", "error":"coordinate_authorization_required", "effect":"not_started"]
     }
     let deadline = min(clickDeadline ?? .infinity, ProcessInfo.processInfo.systemUptime + 5)
@@ -1241,18 +2372,25 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
     }
     do { try validateDocumentObservation(target) }
     catch { return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"] }
-    if latestDocumentToken != nil {
-        guard let index = documentIsWholeNumber(action["element_index"] as Any),
-              index.intValue >= 0, index.intValue < latestElements.count,
-              ["read", "click", "prepare_window", "press_key", "set_value", "type_text", "secondary_action", "scroll"].contains(action["name"] as? String ?? ""),
-              expect?["selection"] == nil else {
-            return ["type":"error", "error":"unverifiable_action", "effect":"not_started"]
-        }
-        do {
-            try documentValidateElement(latestElements[index.intValue],
-                                        window: documentWindowForToken(target, latestDocumentToken!))
-        } catch {
-            return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"]
+    if let token = latestDocumentToken {
+        let selectedPath = documentTokens.first(where: { $0.token == token })?.document.selectedPath
+        if documentScopedSaveAction(action, selectedPath: selectedPath) {
+            guard expect?["selection"] == nil else {
+                return ["type":"error", "error":"unverifiable_action", "effect":"not_started"]
+            }
+        } else {
+            guard let index = documentIsWholeNumber(action["element_index"] as Any),
+                  index.intValue >= 0, index.intValue < latestElements.count,
+                  ["read", "click", "prepare_window", "press_key", "set_value", "type_text", "secondary_action", "scroll"].contains(action["name"] as? String ?? ""),
+                  expect?["selection"] == nil else {
+                return ["type":"error", "error":"unverifiable_action", "effect":"not_started"]
+            }
+            do {
+                try documentValidateElement(latestElements[index.intValue],
+                                            window: documentWindowForToken(target, latestDocumentToken!))
+            } catch {
+                return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"]
+            }
         }
     }
     let elements = latestElements
@@ -1325,6 +2463,86 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         return prepareBackgroundWindow(obsID, target, el, p, deadline: deadline,
                                        expectation: expect, windowInput: input)
+#if TACTO_EXPERIMENTAL_FOREGROUND
+    case "vroid_focus":
+        guard target=="net.pixiv.vroid.macosx", latestDocumentToken==nil,
+              Set(action.keys)==Set(["name","element_index","title"]),
+              let el=element(), str(el,kAXRoleAttribute as String)==kAXWindowRole,
+              let title=action["title"] as? String, str(el,kAXTitleAttribute as String)==title,
+              let start=latestProcessStart else {
+            return ["type":"error","error":"invalid_vroid_focus","effect":"not_started"]
+        }
+        do {
+            let binding=try captureNativeWindowBinding(el,p,expectedStart:start,pointKind:.windowPoint,relativePoint:CGPoint(x:1,y:1))
+            let generation=latestElementGeneration
+            return dispatchVroidFocus(binding,title:title,deadline:deadline,stopped:{abortState.isStopped},context:{
+                guard latestObsID==obsID, latestTargetPID==p,
+                      latestElementGeneration==generation, nativeProcessStartIdentity(p)==start else {
+                    throw NativeWindowInputError.refused("focus observation changed")
+                }
+            })
+        } catch {
+            return ["type":"error","error":"vroid_focus_binding_failed","effect":"not_started","detail":String(describing:error)]
+        }
+    case "vroid_drag":
+        func parsePoint(_ value:Any?) -> CGPoint? {
+            guard let raw=value as? [String:Any], Set(raw.keys)==Set(["x","y"]),
+                  let x=raw["x"] as? NSNumber, let y=raw["y"] as? NSNumber,
+                  CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
+                  x.doubleValue.isFinite, y.doubleValue.isFinite else { return nil }
+            return CGPoint(x:x.doubleValue,y:y.doubleValue)
+        }
+        let baseKeys = Set(["name","element_index","from","to","duration","title"])
+        var graphBounds: CGRect? = nil
+        if let value = action["graph_bounds"] {
+            guard let rect=value as? [String:Any],Set(rect.keys)==Set(["x","y","width","height"]) else {
+                return ["type":"error","error":"invalid_curve_graph_bounds","effect":"not_started"]
+            }
+            var numbers: [Double] = []
+            for key in ["x","y","width","height"] {
+                guard let n=rect[key] as? NSNumber,CFGetTypeID(n) != CFBooleanGetTypeID(),n.doubleValue.isFinite else {
+                    return ["type":"error","error":"invalid_curve_graph_bounds","effect":"not_started"]
+                }
+                numbers.append(n.doubleValue)
+            }
+            graphBounds=CGRect(x:numbers[0],y:numbers[1],width:numbers[2],height:numbers[3])
+        }
+        var via: [CGPoint] = []
+        if let value = action["via"] {
+            guard let values = value as? [Any], values.count <= 12 else {
+                return ["type":"error","error":"invalid_vroid_drag","effect":"not_started"]
+            }
+            for value in values {
+                guard let point = parsePoint(value) else {
+                    return ["type":"error","error":"invalid_vroid_drag","effect":"not_started"]
+                }
+                via.append(point)
+            }
+        }
+        guard target=="net.pixiv.vroid.macosx", latestDocumentToken==nil,
+              Set(action.keys).isSuperset(of:baseKeys),
+              Set(action.keys).isSubset(of:baseKeys.union(["via","graph_bounds"])),
+              let el=element(), str(el,kAXRoleAttribute as String)==kAXWindowRole,
+              let title=action["title"] as? String, str(el,kAXTitleAttribute as String)==title,
+              let from=parsePoint(action["from"]), let to=parsePoint(action["to"]),
+              let duration=action["duration"] as? NSNumber, CFGetTypeID(duration) != CFBooleanGetTypeID(),
+              let start=latestProcessStart else {
+            return ["type":"error","error":"invalid_vroid_drag","effect":"not_started"]
+        }
+        do {
+            let binding=try captureNativeWindowBinding(el,p,expectedStart:start,pointKind:.windowPoint,relativePoint:from)
+            let generation=latestElementGeneration
+            return dispatchVroidDrag(binding,title:title,from:from,to:to,duration:duration.doubleValue,via:via,graphBounds:graphBounds,
+                deadline:deadline,stopped:{abortState.isStopped},context:{
+                    guard latestObsID==obsID, latestTargetPID==p,
+                          latestElementGeneration==generation, nativeProcessStartIdentity(p)==start else {
+                        throw NativeWindowInputError.refused("drag observation changed")
+                    }
+                })
+        } catch {
+            return ["type":"error","error":"vroid_drag_binding_failed","effect":"not_started","detail":String(describing:error)]
+        }
+#endif
     case "click_point":
         guard Set(action.keys) == Set(["name", "element_index", "point"]),
               let index = documentIsWholeNumber(action["element_index"]),
@@ -1395,34 +2613,6 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         let listed = AXUIElementCopyActionNames(el, &advertised)
         if listed == .success, let names = advertised as? [String],
            !names.contains(kAXPressAction as String) {
-            // Finder list rows expose selection as an AX attribute, not a
-            // press. A background pointer dispatch can report delivery without
-            // selecting anything. Set only an observed row in Finder's file
-            // list; sidebar rows and Save panels keep their existing route.
-            if target == "com.apple.finder", savePanelToken == nil,
-               str(el, kAXRoleAttribute as String) == kAXRowRole,
-               let parent = attr(el, kAXParentAttribute as String),
-               CFGetTypeID(parent as CFTypeRef) == AXUIElementGetTypeID(),
-               str(parent as! AXUIElement, kAXRoleAttribute as String) == kAXOutlineRole,
-               str(parent as! AXUIElement, kAXIdentifierAttribute as String) == "ListView" {
-                var settable = DarwinBoolean(false)
-                if AXUIElementIsAttributeSettable(parent as! AXUIElement, kAXSelectedRowsAttribute as CFString,
-                                                  &settable) == .success, settable.boolValue {
-                    guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline else {
-                        return ["type":"error", "error":"input_cancelled_or_expired", "effect":"not_started"]
-                    }
-                    let selected = AXUIElementSetAttributeValue(parent as! AXUIElement, kAXSelectedRowsAttribute as CFString,
-                                                               [el] as CFArray)
-                    guard selected == .success,
-                          let rows = attr(parent as! AXUIElement, kAXSelectedRowsAttribute as String) as? [AXUIElement],
-                          rows.count == 1, CFEqual(rows[0], el) else {
-                        return ["type":"error", "error":"action_failed", "effect":"unknown",
-                                "detail":"Finder row selection could not be verified"]
-                    }
-                    return ["type":"acted", "action":name, "obs_id":obsID,
-                            "input_route":"ax_selection", "note":"not verified — observe again"]
-                }
-            }
             return pointerClick()
         }
         if let token = savePanelToken,
@@ -1581,6 +2771,12 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // enough: two files called note.txt in different folders (Codex review
         // of 4d04b80). Otherwise nothing is pressed.
         if let wanted = action["focused_document"] {
+            if let token = latestDocumentToken {
+                // Menus may have taken time to resolve. The same pinned window
+                // and path must still exist before the focused/main check.
+                do { _ = try documentWindowForToken(target, token) }
+                catch { return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"] }
+            }
             let why: String
             if let want = wanted as? String, want.hasPrefix("/") {
                 why = focusedDocumentMismatch(pid: p, want: want)
@@ -1831,6 +3027,17 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // CFEqual, not object identity: each AX call can hand back a NEW
         // wrapper around the same element, so comparing wrappers compares
         // nothing about the menus (peer review).
+        if role=="AXComboBox" {
+            switch comboBoxContainerState(el,p) {
+            case .closed:break
+            case .open:
+                return ["type":"error","error":"selection_already_open","effect":"not_started",
+                        "detail":"이미 열려 있는 ComboBox 목록을 다시 누르지 않습니다"]
+            case .unknown:
+                return ["type":"error","error":"selection_state_unavailable","effect":"not_started",
+                        "detail":"ComboBox 목록 상태를 확인할 수 없어 열지 않았습니다"]
+            }
+        }
         let before = appMenus(p)
         var opened = AXUIElementPerformAction(el, "AXShowMenu" as CFString)
         if opened == AXError(rawValue: -25206) {
@@ -1838,6 +3045,9 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             // no AXShowMenu — so trying the other way is not a second attempt
             // at the same thing.
             opened = AXUIElementPerformAction(el, kAXPressAction as CFString)
+        }
+        if opened == AXError(rawValue:-25206),let button=comboBoxOpenButton(el,p) {
+            opened=AXUIElementPerformAction(button,kAXPressAction as CFString)
         }
         if opened == AXError(rawValue: -25204) {
             // A timeout is not a failure: the callback may have done the work
@@ -1884,7 +3094,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // Tracked from the moment there is exactly one menu and we know which.
         // Waiting until just before the press left every refusal in between
         // describing an open menu as a closed popup (peer review).
-        spentMenu = (pid: p, control: el, menu: menu)
+        spentMenu = (pid: p, control: el, menu: menu,popupWindowID:comboBoxPopupWindowID(menu),processStart:latestProcessStart)
 
         /// Refuse, and leave the menu exactly where this action put it.
         ///
@@ -1977,13 +3187,28 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "effect": "not_started",
                     "detail": "open_select 에는 element_index 가 필요합니다"]
         }
-        let role = str(el, kAXRoleAttribute as String) ?? ""
+        let openingScope:NativeWindowReadScope
+        let role:String,openingIdentifier:String?,openingLabel:String,openingEnabled:CFTypeRef?
+        do {
+            openingScope=try initialSelectionReadScope(obsID,target,el,p,deadline:deadline)
+            role=try selectionLookupString(el,kAXRoleAttribute as String,scope:openingScope) ?? ""
+            openingEnabled=try selectionLookupAttribute(el,kAXEnabledAttribute as String,scope:openingScope)
+            if let enabled=openingEnabled,CFGetTypeID(enabled) != CFBooleanGetTypeID() {
+                throw NativeWindowInputError.unavailable("selection enabled state malformed")
+            }
+            openingIdentifier=try selectionLookupString(el,"AXIdentifier",scope:openingScope)
+            openingLabel=try selectionLookupLabel(el,scope:openingScope)
+            try openingScope.ready()
+        } catch {
+            return ["type":"error","error":"selection_state_unavailable","effect":"not_started",
+                    "reobserve_required":true,"detail":"선택지를 열기 전 관측 상태나 읽기를 확인할 수 없습니다"]
+        }
         guard ["AXPopUpButton", "AXComboBox"].contains(role) else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started",
                     "detail": "선택지를 가진 컨트롤이 아닙니다: \(role)"]
         }
-        if (attr(el, kAXEnabledAttribute as String) as? Bool) == false {
+        if (openingEnabled as? Bool) == false {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started", "detail": "이 컨트롤은 지금 쓸 수 없습니다"]
         }
@@ -1992,14 +3217,54 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "effect": "not_started", "detail": busy]
         }
         // Same as above: reported, never arranged.
+        if role=="AXComboBox" {
+            switch comboBoxContainerState(el,p,scope:openingScope) {
+            case .closed:break
+            case .open:
+                return ["type":"error","error":"selection_already_open","effect":"not_started",
+                        "detail":"이미 열려 있는 ComboBox 목록을 다시 누르지 않습니다"]
+            case .unknown:
+                return ["type":"error","error":"selection_state_unavailable","effect":"not_started",
+                        "detail":"ComboBox 목록 상태를 확인할 수 없어 열지 않았습니다"]
+            }
+        }
         let wasFront = isFrontmost(pid: p)
-        let before = appMenus(p)
-        var showed = AXUIElementPerformAction(el, "AXShowMenu" as CFString)
+        let before:[AXUIElement]
+        do {
+            before=role=="AXComboBox" ? []:try selectionOpeningMenus(p,scope:openingScope)
+            try openingScope.ready()
+        } catch {
+            return ["type":"error","error":"selection_state_unavailable","effect":"not_started",
+                    "reobserve_required":true,"detail":"선택지를 열기 전 관측 상태나 읽기 기한이 바뀌었습니다"]
+        }
+        let openingAction=action["opening_action"] as? String ?? "AXShowMenu"
+        var showed:AXError
+        if openingAction=="AXPress" {
+            var attempted=false
+            do {showed=try openingScope.withTimeout(el) {attempted=true;return AXUIElementPerformAction(el,kAXPressAction as CFString)}}
+            catch {return ["type":"error","error":"selection_state_unavailable","effect":attempted ? "unknown":"not_started",
+                           "reobserve_required":true,"detail":"명시적 opening의 관측 또는 기한을 확인하지 못했습니다"]}
+            if showed == .actionUnsupported {
+                return ["type":"error","error":"action_failed","effect":"not_started",
+                        "detail":"명시적 AXPress opening이 지원되지 않아 다른 동작을 시도하지 않았습니다"]
+            }
+        } else {showed=AXUIElementPerformAction(el,"AXShowMenu" as CFString)}
         if showed == AXError(rawValue: -25206) {
             // actionUnsupported: provably nothing happened — this element has
             // no AXShowMenu — so trying the other way is not a second attempt
             // at the same thing.
+            do {try openingScope.ready()} catch {
+                return ["type":"error","error":"selection_state_unavailable","effect":"not_started",
+                        "reobserve_required":true,"detail":"지원되지 않는 action 뒤 관측 상태가 바뀌어 입력하지 않았습니다"]
+            }
             showed = AXUIElementPerformAction(el, kAXPressAction as CFString)
+        }
+        if showed == AXError(rawValue:-25206),let button=comboBoxOpenButton(el,p) {
+            do {try openingScope.ready()} catch {
+                return ["type":"error","error":"selection_state_unavailable","effect":"not_started",
+                        "reobserve_required":true,"detail":"ComboBox 버튼을 읽은 뒤 관측 상태가 바뀌어 입력하지 않았습니다"]
+            }
+            showed=AXUIElementPerformAction(button,kAXPressAction as CFString)
         }
         if showed == AXError(rawValue: -25204) {
             // A timeout is not a failure: the callback may have done the work
@@ -2018,8 +3283,23 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "detail": "선택지를 열지 못했습니다 (\(showed.rawValue))"]
         }
         usleep(400_000)                       // drawn, then populated
-        let fresh = appMenus(p).filter { candidate in
-            !before.contains(where: { CFEqual($0, candidate) })
+        let fresh:[AXUIElement]
+        do {
+            if role=="AXComboBox" {
+                guard let list=comboBoxOwnedList(el,p,scope:openingScope),
+                      comboBoxListVisibility(list,p,scope:openingScope)==true else {
+                    throw NativeWindowInputError.unavailable("selection list unavailable")
+                }
+                fresh=[list]
+            } else {
+                fresh=try selectionOpeningMenus(p,scope:openingScope).filter { candidate in
+                    !before.contains(where:{CFEqual($0,candidate)})
+                }
+            }
+            try openingScope.ready()
+        } catch {
+            return ["type":"error","error":"selection_state_unavailable","effect":"unknown",
+                    "reobserve_required":true,"detail":"입력 뒤 선택지 목록을 완전히 확인할 수 없어 다시 입력하지 않았습니다"]
         }
         if fresh.isEmpty {
             return ["type": "error", "error": "action_failed",
@@ -2039,8 +3319,8 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         pendingSelect = PendingSelect(
             pid: p, index: action["element_index"] as? Int ?? -1, control: el,
-            identifier: str(el, "AXIdentifier"), role: role,
-            label: label(el), menu: fresh[0])
+            identifier: openingIdentifier, role: role,
+            label: openingLabel, menu: fresh[0],processStart:latestProcessStart)
         // NOT `unverified`. Exactly one menu appeared and we hold its identity,
         // so what this action set out to do is confirmed — and a caller that
         // treats `unverified` as a failure would stop the very loop this
@@ -2107,29 +3387,51 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         guard let el = element(), CFEqual(el, pending.control) else {
             return drop("선택지를 연 컨트롤이 그 자리에 없습니다")
         }
-        if str(el, "AXIdentifier") != pending.identifier {
-            return drop("컨트롤의 식별자가 바뀌었습니다")
-        }
-        if label(el) != pending.label {
-            return drop("컨트롤의 이름이 바뀌었습니다")
-        }
-        if (attr(el, kAXEnabledAttribute as String) as? Bool) == false {
-            return keep("이 컨트롤은 지금 쓸 수 없습니다")
-        }
         if p != pending.pid {
             return drop("선택지를 연 앱과 고르려는 앱이 다릅니다")
         }
-        if !menuIsOurs(pending.pid, pending) {
+        let lookupScope:NativeWindowReadScope
+        do {lookupScope=try initialSelectionReadScope(obsID,target,el,p,deadline:deadline)}
+        catch {return keep("선택 전 관측 상태나 읽기 기한을 확인할 수 없습니다")}
+        let controlIdentifier:String?,controlLabel:String,controlEnabled:CFTypeRef?
+        let containerIsOurs:Bool
+        do {
+            controlIdentifier=try selectionLookupString(el,"AXIdentifier",scope:lookupScope)
+            controlLabel=try selectionLookupLabel(el,scope:lookupScope)
+            controlEnabled=try selectionLookupAttribute(el,kAXEnabledAttribute as String,scope:lookupScope)
+            containerIsOurs=try menuIsOurs(pending.pid,pending,scope:lookupScope)
+            try lookupScope.ready()
+        } catch {return keep("선택 전 컨트롤이나 목록의 읽기를 확인할 수 없습니다")}
+        if controlIdentifier != pending.identifier {
+            return drop("컨트롤의 식별자가 바뀌었습니다")
+        }
+        if controlLabel != pending.label {
+            return drop("컨트롤의 이름이 바뀌었습니다")
+        }
+        if (controlEnabled as? Bool) == false {
+            return keep("이 컨트롤은 지금 쓸 수 없습니다")
+        }
+        if !containerIsOurs {
             return drop("열어 둔 선택지 목록이 사라졌거나 다른 목록으로 바뀌었습니다")
         }
         // Not "the item we want is still there" — the whole list. An item
         // appearing above the one we mean moves nothing we can see, and is
         // exactly how a choice lands on the wrong row.
-        guard let now = menuOptions(pending.menu), sameOptions(now, shown) else {
+        guard let now = menuOptions(pending.menu,scope:lookupScope), sameOptions(now, shown) else {
             return keep("관측한 뒤 선택지 목록이 달라졌습니다")
         }
-        let items = ((attr(pending.menu, kAXChildrenAttribute as String) as? [AXUIElement]) ?? [])
-            .filter { str($0, kAXTitleAttribute as String) == want }
+        guard let menuRole=comboBoxString(pending.menu,kAXRoleAttribute as String,scope:lookupScope) else {
+            return keep("선택지 목록 상태를 확인할 수 없습니다")
+        }
+        let isComboList=menuRole=="AXList"
+        let items:[AXUIElement]
+        if isComboList {
+            guard let rows=comboBoxListRows(pending.menu,scope:lookupScope) else { return keep("ComboBox 목록을 확인할 수 없습니다") }
+            items=rows.filter {$0.label==want}.map {$0.node}
+        } else {
+            items=((comboBoxAttribute(pending.menu,kAXChildrenAttribute as String,scope:lookupScope) as? [AXUIElement]) ?? [])
+                .filter {comboBoxString($0,kAXTitleAttribute as String,scope:lookupScope)==want}
+        }
         if items.isEmpty {
             let here = shown.prefix(12).compactMap { $0["label"] as? String }.joined(separator: ", ")
             return keep("'\(want)' 라는 선택지가 없습니다 — 있는 것: "
@@ -2138,8 +3440,64 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         if items.count > 1 {
             return keep("'\(want)' 라는 선택지가 \(items.count)개라 어느 것인지 알 수 없습니다")
         }
-        if (attr(items[0], kAXEnabledAttribute as String) as? Bool) == false {
+        if (comboBoxAttribute(items[0],kAXEnabledAttribute as String,scope:lookupScope) as? Bool) == false {
             return keep("'\(want)' 는 지금 고를 수 없습니다")
+        }
+        if isComboList {
+            guard let pinnedID=pending.popupWindowID,
+                  case .open(let live)=comboBoxContainerState(el,p,scope:lookupScope),CFEqual(live,pending.menu),
+                  comboBoxPopupWindowID(live,scope:lookupScope)==pinnedID else {
+                return keep("ComboBox 목록 상태를 확인할 수 없어 선택하지 않았습니다")
+                    .merging(["error":"selection_state_unavailable"]) {_,new in new}
+            }
+            guard let before=rereadSelection(p,role:pending.role,identity:pending.identifier,control:el,scope:lookupScope) else {
+                return keep("ComboBox initial selection unavailable")
+            }
+            if before==want {
+                return keep("이미 선택된 값이라 선택 입력을 보내지 않았습니다")
+                    .merging(["error":"already_selected"]) {_,new in new}
+            }
+            guard let raw=comboBoxAttribute(pending.menu,kAXParentAttribute as String,scope:lookupScope),
+                  CFGetTypeID(raw)==AXUIElementGetTypeID() else {
+                return keep("ComboBox popup parent unavailable")
+            }
+            let popup=raw as! AXUIElement,chosen=items[0],menu=pending.menu
+            func selectionCheck(_ scope:NativeWindowReadScope) throws {
+                guard case .open(let live)=comboBoxContainerState(el,p,scope:scope),CFEqual(live,menu),
+                      comboBoxPopupWindowID(live,scope:scope)==pinnedID,
+                      let options=menuOptions(menu,scope:scope),sameOptions(options,shown),
+                      let rows=comboBoxListRows(menu,scope:scope) else {
+                    throw NativeWindowInputError.refused("pinned ComboBox list changed")
+                }
+                let matches=rows.filter {$0.label==want}
+                guard matches.count==1,!matches[0].disabled,CFEqual(matches[0].node,chosen),
+                      rereadSelection(p,role:pending.role,identity:pending.identifier,control:el,scope:scope)==before,
+                      let parent=comboBoxAttribute(menu,kAXParentAttribute as String,scope:scope),
+                      CFGetTypeID(parent)==AXUIElementGetTypeID(),CFEqual(parent,popup) else {
+                    throw NativeWindowInputError.refused("pinned ComboBox option changed")
+                }
+            }
+            let result=prepareBackgroundWindow(obsID,target,chosen,p,deadline:deadline,
+                elementClicks:1,popup:popup,observedControl:el,selectionCheck:selectionCheck,finalTransition:{checkpoint,scope in
+                    try confirmComboBoxSelectionTransition(el,menu,p,role:pending.role,
+                        identity:pending.identifier,want:want,scope:scope,checkpoint:checkpoint)
+                })
+            if result["type"] as? String != "acted" {
+                if result["effect"] as? String=="not_started" {
+                    return result.merging(["pin_kept":true,"menu_open":true,"selections_made":0]) {_,new in new}
+                }
+                forgetPin();spentMenu=(pid:p,control:el,menu:menu,popupWindowID:pending.popupWindowID,processStart:pending.processStart)
+                return result.merging(["pin_kept":false,"reobserve_required":true]) {_,new in new}
+            }
+            forgetPin()
+            // Both mouse events and the control's receiving transition were
+            // checked; no highlight setter, Escape, activation or retry.
+            var verified=result
+            verified.removeValue(forKey:"unverified")
+            verified["action"]=name;verified["selected"]=want
+            verified["input_route"]="combo_popup_bound_click"
+            verified["selection_transition_verified"]=true
+            return verified
         }
         // Checked HERE, with the menu on screen and the press one line away:
         // the whole point of the stop is that it lands between the thing being
@@ -2151,14 +3509,16 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "retry_after_reobserve": true, "reobserve_required": true,
                     "detail": "고르기 직전에 사용자가 중단했습니다"]
         }
+        do {try lookupScope.ready()}
+        catch {return keep("고르기 전 관측 상태나 읽기 기한이 바뀌었습니다")}
         let menu = pending.menu, chosenRole = pending.role, identity = pending.identifier
         forgetPin()                           // spent, whatever happens next
         // Recorded BEFORE the press. If the press fails we may not be able to
         // say whether the menu is still up, and a menu this helper opened must
         // never be described to the next observation as closed. The next
         // observation of this app drops it once it is really gone.
-        spentMenu = (pid: p, control: el, menu: menu)
-        let pressed = AXUIElementPerformAction(items[0], kAXPressAction as CFString)
+        spentMenu = (pid: p, control: el, menu: menu,popupWindowID:pending.popupWindowID,processStart:pending.processStart)
+        let pressed=AXUIElementPerformAction(items[0],kAXPressAction as CFString)
         if pressed != .success, pressed != AXError(rawValue: -25204) {
             // A backend error is not "no effect". The press was ALREADY
             // attempted, so how many selections happened is not something this
@@ -2169,11 +3529,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                                         "effect": "unknown", "press_attempted": true,
                                         "pin_kept": false, "reobserve_required": true,
                                         "detail": "'\(want)' 를 고르지 못했습니다 (\(pressed.rawValue))"]
-            facts["menu_left_open"] = appMenus(p).contains { CFEqual($0, menu) }
+            facts["menu_left_open"] = selectionContainerIsOurs(el,menu,p)
             return facts
         }
         usleep(300_000)
-        let stillOpen = appMenus(p).contains { CFEqual($0, menu) }
+        let stillOpen = selectionContainerIsOurs(el,menu,p)
         if !stillOpen { spentMenu = nil }     // it closed itself, as menus do
         let readsAs = rereadSelection(p, role: chosenRole, identity: identity, control: el)
         if readsAs == want {
@@ -2245,14 +3605,21 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
                     "effect": "not_started",
                     "detail": "scroll 에는 element_index 가 필요합니다"]
         }
-        let pages = min(max((action["pages"] as? Int) ?? 1, 1), 10)
-        let dir = (action["direction"] as? String) ?? "down"
-        guard ["up", "down", "left", "right"].contains(dir) else {
+        guard let number=(action["pages"] ?? NSNumber(value:1)) as? NSNumber,
+              CFGetTypeID(number)==CFNumberGetTypeID(),
+              !CFNumberIsFloatType(unsafeBitCast(number,to:CFNumber.self)),
+              number.doubleValue>=1,number.doubleValue<=10 else {
+            return ["type":"error","error":"action_failed","effect":"not_started",
+                    "detail":"스크롤 페이지 수는 1~10 정수여야 합니다"]
+        }
+        let pages=number.intValue
+        guard let dir=(action["direction"] ?? "down") as? String,
+              ["up", "down", "left", "right"].contains(dir) else {
             return ["type": "error", "error": "action_failed",
-                    "effect": "not_started", "detail": "scroll 방향이 아닙니다: \(dir)"]
+                    "effect": "not_started", "detail": "스크롤 방향이 올바르지 않습니다"]
         }
         let wantVertical = dir == "up" || dir == "down"
-        guard let bar = scrollBar(near: el, vertical: wantVertical) else {
+        guard let bar = scrollBar(near: el, vertical: wantVertical,expectedPID:p) else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started",
                     "detail": "\(wantVertical ? "세로" : "가로") 스크롤 막대를 "
@@ -2262,7 +3629,8 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         guard AXUIElementIsAttributeSettable(bar, kAXValueAttribute as CFString,
                                              &barSettable) == .success,
               barSettable.boolValue,
-              let current = attr(bar, kAXValueAttribute as String) as? Double else {
+              let raw=attr(bar,kAXValueAttribute as String),CFGetTypeID(raw)==CFNumberGetTypeID(),
+              let current=raw as? Double,current.isFinite,current>=0,current<=1 else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started",
                     "detail": "스크롤 막대의 값을 읽거나 바꿀 수 없습니다"]
@@ -2276,8 +3644,10 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         let scrolled = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString,
                                                     wanted as CFTypeRef)
         guard scrolled == .success else {
+            // A setter can take effect before its reply times out. No failed
+            // write receipt proves that the scroll did not happen.
             return ["type": "error", "error": "action_failed",
-                    "effect": "not_started",
+                    "effect": "unknown",
                     "detail": "스크롤에 실패했습니다 (\(scrolled.rawValue))"]
         }
     case "secondary_action":
@@ -2308,7 +3678,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 // MARK: - The user is the authority
 //
 // Caller identity cannot protect this interface while the client is a shared
-// Python interpreter: any script using that interpreter looks identical to Tacto,
+// Python interpreter: any script using that interpreter looks identical to NLC,
 // which is the very problem the helper exists to fix. What DOES hold regardless
 // of who is calling is that the person can see what is happening and stop it.
 // So the indicator and the abort key belong HERE, in the process that performs
@@ -2321,26 +3691,133 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 /// The menu-bar item that says this is happening. Nil when nothing is running.
 var controlItem: NSStatusItem?
 
-/// Show that Tacto is working, and say on which app.
-///
-/// This was an outline drawn around the target window, and it was wrong in two
-/// ways. It covered part of someone's screen with our own drawing, and — the
-/// report that started this — it carried `canJoinAllSpaces`, so switching
-/// desktops brought the box along and drew it over unrelated work, around a
-/// window that was not on that screen at all.
-///
-/// A menu-bar item is the same promise without either problem: it hides
-/// nothing, it does not follow anyone anywhere, and it costs no permission.
-/// The other half of the promise is macOS's own: when this helper actually
-/// captures the screen, the system lights its recording indicator, which we do
-/// not draw, cannot fake and cannot suppress. Two signals whose scopes differ
-/// exactly as the access does — the menu bar for "Tacto is acting", the system
-/// indicator for "Tacto is looking".
-///
-/// Returns false when the item could not be created. Callers treat that as a
-/// refusal: acting without the person being able to see it is the situation
-/// this whole mechanism exists to prevent, so a failure here must stop the
-/// action rather than silently proceed (advisor finding).
+/// A visible stop control for AX work, without capturing anyone's screen.
+/// Never key/main, never moved across Spaces, and never activates the helper.
+final class TactoControlPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+final class TactoStopButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+var controlPanel: TactoControlPanel?
+var controlPanelLabel: NSTextField?
+var controlPanelDiagnostic: [String: Bool] = [:]
+
+func controlPanelOnScreen() -> Bool {
+    guard let panel = controlPanel else { return false }
+    controlPanelDiagnostic = ["created":true,"visible":panel.isVisible,
+        "active_space":panel.isOnActiveSpace,"not_minimized": !panel.isMiniaturized,
+        "opaque":panel.alphaValue >= 0.99,"not_occluded":panel.occlusionState.contains(.visible),
+        "inside_screen":NSScreen.screens.contains { $0.visibleFrame.contains(panel.frame) },
+        "display_awake":NSScreen.screens.contains { screen in
+            guard screen.visibleFrame.contains(panel.frame),
+                  let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
+            return CGDisplayIsAsleep(number.uint32Value) == 0
+        }]
+    return controlPanelDiagnostic.values.allSatisfy { $0 }
+}
+
+/// Place the stop control wholly inside a screen and outside every target window.
+func availableControlFrame(screens: [CGRect], avoiding targets: [CGRect], size: CGSize) -> CGRect? {
+    for screen in screens {
+        for origin in [CGPoint(x: screen.maxX-size.width-12, y: screen.maxY-size.height-12),
+                       CGPoint(x: screen.minX+12, y: screen.maxY-size.height-12),
+                       CGPoint(x: screen.maxX-size.width-12, y: screen.minY+12),
+                       CGPoint(x: screen.minX+12, y: screen.minY+12)] {
+            let candidate = CGRect(origin: origin, size: size)
+            if screen.contains(candidate) && !targets.contains(where: { $0.intersects(candidate) }) {
+                return candidate
+            }
+        }
+    }
+    return nil
+}
+
+func controlTargetFrames(forPID pid: pid_t, primaryTop: CGFloat) -> [CGRect]? {
+    var listing = WindowListingDiagnostic()
+    let windows = realWindows(of: AXUIElementCreateApplication(pid), diagnostic: &listing)
+    guard ["ok","no_value"].contains(listing.status),
+          !windows.isEmpty || appSaysItHasNoWindows(pid) else { return nil }
+    var frames: [CGRect] = []
+    for window in windows {
+        guard let position = attr(window, kAXPositionAttribute as String),
+              let size = attr(window, kAXSizeAttribute as String),
+              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID(),
+              AXValueGetType(position as! AXValue) == .cgPoint,
+              AXValueGetType(size as! AXValue) == .cgSize else { return nil }
+        var point = CGPoint.zero, dimensions = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
+              AXValueGetValue(size as! AXValue, .cgSize, &dimensions),
+              point.x.isFinite, point.y.isFinite, dimensions.width.isFinite, dimensions.height.isFinite,
+              dimensions.width > 0, dimensions.height > 0 else { return nil }
+        // AX uses top-left global coordinates; AppKit uses bottom-left.
+        frames.append(CGRect(x:point.x, y:primaryTop-point.y-dimensions.height,
+                             width:dimensions.width, height:dimensions.height))
+    }
+    return frames
+}
+
+func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
+    let who = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "앱"
+    guard let frame = availableControlFrame(screens: NSScreen.screens.map { $0.visibleFrame },
+                            avoiding: targets, size: CGSize(width:292,height:56)) else {
+        controlPanelDiagnostic=["frame_available":false];return false
+    }
+    let size = frame.size
+    if let panel = controlPanel {
+        guard panel.isOnActiveSpace else { return false }
+        panel.setFrameOrigin(frame.origin)
+    }
+    if controlPanel == nil {
+        let panel = TactoControlPanel(contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.collectionBehavior = [.fullScreenAuxiliary, .transient, .ignoresCycle]
+        let content = NSView(frame: NSRect(origin: .zero, size: size))
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        content.layer?.cornerRadius = 12
+        content.layer?.borderWidth = 1
+        content.layer?.borderColor = NSColor.separatorColor.cgColor
+        let title = NSTextField(labelWithString: "")
+        title.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        title.textColor = .labelColor
+        title.lineBreakMode = .byTruncatingTail
+        title.frame = NSRect(x: 16, y: 28, width: 185, height: 18)
+        let help = NSTextField(labelWithString: "앱 조작 중 · Esc로 즉시 중단")
+        help.font = NSFont.systemFont(ofSize: 11)
+        help.textColor = .secondaryLabelColor
+        help.frame = NSRect(x: 16, y: 10, width: 185, height: 16)
+        let stop = TactoStopButton(title: "중단", target: ControlMenuTarget.shared,
+                            action: #selector(ControlMenuTarget.stopNow(_:)))
+        stop.bezelStyle = .rounded
+        stop.frame = NSRect(x: 215, y: 12, width: 63, height: 32)
+        stop.setAccessibilityLabel("Tacto 작업 중단")
+        content.addSubview(title); content.addSubview(help); content.addSubview(stop)
+        panel.contentView = content
+        controlPanel = panel; controlPanelLabel = title
+        // orderFront does not activate the application or make this panel key.
+        panel.orderFrontRegardless()
+    }
+    controlPanelLabel?.stringValue = "Tacto · \(who)"
+    // If the person changes Spaces or covers/closes the control, refuse work.
+    // Do not drag the panel into their new workspace or activate it.
+    return controlPanelOnScreen()
+}
+
+/// Supplementary menu-bar status; the nonactivating Tacto stop panel is the
+/// visible control for AX work. It is Tacto's own UI, not an OS capture proof.
+/// Actual image capture retains Screen Recording permission and macOS's own
+/// recording indicator. AX-only access never starts a capture stream merely
+/// to light an indicator. The panel stays outside target windows and refuses
+/// work when it cannot remain visible without covering them.
 /// What the indicator's menu does when someone chooses to stop.
 ///
 /// `static let` rather than a global, and the position is load-bearing for the
@@ -2356,6 +3833,7 @@ final class ControlMenuTarget: NSObject {
         note("tacto-helper: 표시 메뉴에서 중단했습니다")
         DispatchQueue.main.async {
             controlItem?.button?.title = "● Tacto 중단됨"
+            controlPanelLabel?.stringValue = "Tacto · 중단됨"
         }
     }
 }
@@ -2407,26 +3885,9 @@ func controlMenu(for appName: String?) -> NSMenu {
     return menu
 }
 
-/// The capture stream whose only product is macOS's own recording indicator.
-///
-/// The menu-bar item above is not enough on its own, and this is measured
-/// rather than assumed: on a full menu bar macOS collapses extra items behind
-/// an overflow chevron, and the item reports `isVisible == true` the whole
-/// time. A promise that the person can see this happening cannot rest on a
-/// signal that hides itself and then says it did not.
-///
-/// The system's recording indicator does not do that. Photographed while a
-/// stream was held, it took a slot at the front of the cluster and pushed the
-/// overflow chevron out rather than going behind it. It is also the one signal
-/// here that is not ours: we do not draw it, cannot fake it and cannot
-/// suppress it, which is exactly what makes it worth more than anything we
-/// could draw.
-///
-/// It costs what it says it costs. Lighting it means really capturing, so this
-/// asks for the smallest, slowest stream that keeps it lit and throws every
-/// frame away — and it means a run needs Screen Recording even when it only
-/// ever touches accessibility APIs. That is the honest trade: the indicator is
-/// truthful precisely because the access behind it is real.
+/// Legacy capture-indicator diagnostic stream. Basic AX work uses the visible
+/// Tacto stop panel and never starts this merely to show activity. Any actual
+/// pixel capture remains scoped and subject to Screen Recording permission.
 var controlStream: SCStream?
 
 /// Which window the held stream is scoped to, so a moved target is noticed.
@@ -2476,7 +3937,7 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
         }
         // ONE WINDOW. `SCContentFilter(display:)` stood here and it was wrong:
         // it captures the whole screen, so lighting an indicator that says
-        // "Tacto is looking" meant looking at everything — including every other
+        // "NLC is looking" meant looking at everything — including every other
         // window the person had open and never offered us (user report,
         // 2026-09-21). The filter is the same one `captureWindow` uses, and it
         // sees the target window and nothing else.
@@ -2528,47 +3989,39 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
 /// hides without telling anyone — so what the refusal hangs on is the stream,
 /// the signal that cannot hide.
 func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
-    let shown = DispatchQueue.main.sync { showControlIndicator(forPID: pid) }
-    // An app with no window of its own (Finder showing only the desktop, an
-    // app whose documents are all closed) has nothing to look at, so there is
-    // no window to stream and nothing for the recording indicator to report.
-    // Refusing here blocked the very menu command that would open a window,
-    // and blamed a Screen Recording permission that was granted (2026-10-07).
-    //
-    // Only a SUCCESSFUL read that says "no windows" counts: `realWindows`
-    // turns a failed read into [], and a transient AX failure on an app with
-    // windows must not skip the stream (Codex review of 2b6b400). And the
-    // menu-bar item is the gate here only while the system says it is on
-    // screen. That does not rule out the overflow chevron (see
-    // controlItemOnScreen) — on this path the promise that acting is visible
-    // is weaker than with a stream, and is limited to menu requests on an app
-    // with no window. Otherwise: the stream path, which refuses when it
-    // cannot stream.
-    // `windowless` is said by the caller, and only for what can be done to an
-    // app with no window: read its menus, run a menu command. Everything else
-    // keeps the stream as its gate even when the app shows no window.
-    if windowless && appSaysItHasNoWindows(pid) {
-        if let running = controlStream {
-            running.stopCapture { _ in }
-            controlStream = nil
-            controlStreamWindow = nil
-        }
-        guard shown else { lastIndicatorRefusal = "menu_item_unavailable"; return false }
-        // The helper starts per command and makes the item just before
-        // asking; the system may not report it on screen until the main loop
-        // has run (june-mba, 2026-10-09: refused right after creation). Asked
-        // again for up to 0.5s, between main-loop turns. An item that stays
-        // off screen (overflow) is still refused.
-        var onScreen = false
-        for attempt in 0..<10 {
-            if attempt > 0 { Thread.sleep(forTimeInterval: 0.05) }
-            onScreen = DispatchQueue.main.sync(execute: { controlItemOnScreen() })
-            if onScreen { break }
-        }
-        guard onScreen else { lastIndicatorRefusal = "menu_item_not_on_screen"; return false }
-        return true
+    // AX access does not read pixels. Keep its visible stop control independent
+    // from Screen Recording; actual image APIs retain their permission checks.
+    guard let session = CGSessionCopyCurrentDictionary() as? [String:Any],
+          session[kCGSessionOnConsoleKey as String] as? Bool == true,
+          session["CGSSessionScreenIsLocked"] as? Bool != true else {
+        lastIndicatorRefusal="session_not_visible";return false
     }
-    guard ensureControlStream(forPID: pid) else { lastIndicatorRefusal = "stream_unavailable"; return false }
+    func targetFrames() -> [CGRect]? {
+        guard let top = DispatchQueue.main.sync(execute:{ NSScreen.screens.first?.frame.maxY }) else { return nil }
+        // AX reads must stay off the main loop so the Stop control responds.
+        return controlTargetFrames(forPID:pid,primaryTop:top)
+    }
+    guard let targets = targetFrames() else {
+        controlPanelDiagnostic=["target_frames_available":false]
+        lastIndicatorRefusal="control_panel_unavailable";return false
+    }
+    let ready = DispatchQueue.main.sync {
+        _ = showControlIndicator(forPID: pid)
+        return showControlPanel(forPID: pid, targets:targets)
+    }
+    if ready { return true }
+    // WindowServer visibility arrives on a later main-loop turn. Poll only
+    // this panel's readiness; never activate it or send target input here.
+    let created = DispatchQueue.main.sync { controlPanel != nil }
+    guard created else { lastIndicatorRefusal = "control_panel_unavailable"; return false }
+    var shown = false
+    for _ in 0..<10 {
+        Thread.sleep(forTimeInterval:0.05)
+        guard let currentTargets = targetFrames() else { break }
+        shown = DispatchQueue.main.sync { showControlPanel(forPID: pid, targets:currentTargets) }
+        if shown { break }
+    }
+    guard shown else { lastIndicatorRefusal = "control_panel_not_visible"; return false }
     return true
 }
 
@@ -2578,21 +4031,25 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
 var lastIndicatorRefusal = ""
 
 func indicatorRefusal(_ what: String = "") -> [String: Any] {
-    let reason = lastIndicatorRefusal.isEmpty ? "stream_unavailable" : lastIndicatorRefusal
+    let reason = lastIndicatorRefusal.isEmpty ? "control_panel_unavailable" : lastIndicatorRefusal
     let lead = "조작 표시를 켤 수 없어 \(what.isEmpty ? "" : what + " 를 ")중단했습니다 — "
     let advice: String
     switch reason {
+    case "session_not_visible":
+        advice = "화면이 잠겼거나 사용자 화면 세션이 보이지 않습니다. 화면을 확인한 뒤 다시 진행하세요."
+    case "control_panel_unavailable", "control_panel_not_visible":
+        advice = "Tacto의 중단 패널이 현재 화면에 보이지 않습니다. 작업을 중단했습니다."
     case "menu_item_not_on_screen":
-        advice = "메뉴바의 '● Tacto' 표시가 화면에 보이지 않습니다(메뉴바가 가득 차 넘침 영역에 들어갔을 수 있습니다). "
+        advice = "메뉴바의 'Tacto' 표시가 화면에 보이지 않습니다(메뉴바가 가득 차 넘침 영역에 들어갔을 수 있습니다). "
                + "다른 메뉴바 항목을 줄이거나 앱의 창을 하나 연 뒤 다시 시도해 주세요."
     case "menu_item_unavailable":
-        advice = "메뉴바에 '● Tacto' 표시를 만들지 못했습니다."
+        advice = "메뉴바에 'Tacto' 표시를 만들지 못했습니다."
     default:
         advice = "화면 기록 표시를 시작하지 못했습니다. 시스템 설정 > 개인정보 보호 및 보안 > 화면 기록 에서 "
                + "'\(permissionHolderName)' 가 켜져 있는지 확인해 주세요."
     }
     return ["type": "error", "error": "indicator_unavailable", "effect": "not_started",
-            "reason": reason,
+            "reason": reason, "control_panel_diagnostic":controlPanelDiagnostic,
             "detail": lead + advice + " 조작 중임을 화면에 표시하는 수단이라 이것 없이는 진행하지 않습니다."]
 }
 
@@ -2665,6 +4122,10 @@ func controlItemOnScreen() -> Bool {
 }
 
 func hideControlIndicator() {
+    controlPanel?.orderOut(nil)
+    controlPanel?.close()
+    controlPanel = nil
+    controlPanelLabel = nil
     if let item = controlItem {
         NSStatusBar.system.removeStatusItem(item)
     }
@@ -2818,7 +4279,7 @@ func captureWindow(_ obsID: String, _ target: String,
         return refuse("target_changed", "the app changed while capturing")
     }
 
-    let directory = NSTemporaryDirectory() + "tacto-capture-\(getpid())"
+    let directory = NSTemporaryDirectory() + "nlc-capture-\(getpid())"
     try? FileManager.default.createDirectory(atPath: directory,
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let path = directory + "/\(UUID().uuidString).png"
@@ -3064,6 +4525,12 @@ let navigationKeys: [String: (CGKeyCode, CGEventFlags)] = [
 
 // Bumped when this helper starts honouring something it used to ignore, or
 // stops. A caller compares it against what it needs before sending anything.
+#if TACTO_EXPERIMENTAL_FOREGROUND
+let experimentalForegroundCapabilities = ["action.vroid_drag", "action.vroid_focus", "experimental.foreground_input"]
+#else
+let experimentalForegroundCapabilities: [String] = []
+#endif
+
 let helperCapabilities: [String] = [
     "observe", "act", "probe", "selection", "menu_state", "menu_items",
     "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "observe.subrole", "expect.enabled",
@@ -3075,15 +4542,16 @@ let helperCapabilities: [String] = [
     "action.open_folder",
     // menu may carry focused_document: pressed only when the focused and
     // main windows show exactly that file.
-    "action.menu.focused_document",
+    "action.menu.focused_document", "action.menu.document_token_save",
     "action.select_option", "evidence.visual",
     // Native menu items have a title and nothing behind it, so `value` must
     // agree with `option_label` rather than name something else.
     "select_option.label_only",
+    "select_option.strict_parameters",
     // The two-step form, for a caller that does not already know what the
     // popup contains: open it, look at the observation that follows, then
     // choose from THAT. Same words the browser backend uses.
-    "action.open_select", "action.select_custom_option",
+    "action.open_select", "action.open_select.explicit_ax", "action.select_custom_option",
     "custom_select.label_only",
     // Said separately because the browser's `press_key` includes Escape and
     // this one does not. A client that needs Escape should see the difference
@@ -3121,9 +4589,13 @@ let helperCapabilities: [String] = [
     // Reading only, and deliberately NOT document_snapshot: this witnesses what
     // a document contains and where it lives, never its source format or where
     // a save panel would put it.
+    "diagnostic.readiness_read_cost", "diagnostic.readiness_preflight",
     "evidence.document_window_status", "evidence.document_text", "evidence.document_text.path_selector", "observe.document_token", "evidence.save_panel",
-    "action.click.save_panel_guard", "evidence.document_rtf_export",
-]
+    "action.click.save_panel_guard", "evidence.document_rtf_export", "evidence.document_attachment_metadata",
+] + experimentalForegroundCapabilities
+
+
+
 
 
 // MARK: - Read-only document text
@@ -3394,7 +4866,7 @@ func documentURLPath(_ text: String, resolvingReference: Bool = false) throws ->
     }
     // Percent escapes decoded by hand, so a malformed escape or a byte string
     // that is not UTF-8 is a refusal rather than a replacement character.
-    guard var path = documentDecodePercent(parts.percentEncodedPath) else {
+    guard let path = documentDecodePercent(parts.percentEncodedPath) else {
         throw DocumentError.fail("invalid document file URL")
     }
     guard path.hasPrefix("/"), !path.hasPrefix("//"), !path.contains("\\"),
@@ -3408,13 +4880,17 @@ func documentURLPath(_ text: String, resolvingReference: Bool = false) throws ->
         }
         return try documentURLPath(resolved.absoluteString, resolvingReference: true)
     }
-    // AppKit supplies a trailing slash for package documents such as RTFD.
-    // Accept one directory marker only on an existing canonical directory.
-    if path.count > 1, path.hasSuffix("/"), !path.hasSuffix("//") {
-        let plain = String(path.dropLast())
-        var isDirectory = ObjCBool(false)
-        if FileManager.default.fileExists(atPath: plain, isDirectory: &isDirectory), isDirectory.boolValue,
-           documentIsCanonical(plain) { path = plain }
+    // AXDocument may identify an RTFD package with a directory URL. Normalize
+    // exactly one terminal slash, only for an existing canonical directory.
+    if path.hasSuffix("/"), path != "/" {
+        let candidate = String(path.dropLast())
+        var isDirectory: ObjCBool = false
+        guard documentIsCanonical(candidate),
+              FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            throw DocumentError.fail("document path is not canonical absolute")
+        }
+        return candidate
     }
     guard documentIsCanonical(path) else {
         throw DocumentError.fail("document path is not canonical absolute")
@@ -3706,9 +5182,11 @@ func documentWindowStatus(_ msg: [String:Any]) -> [String:Any] {
             try documentCheckAbort()
             if !present {
                 guard let windowID = pinned.lifecycleWindowID, windowID > 0,
-                      CGPreflightScreenCaptureAccess(),
                       let allWindows = CGWindowListCopyWindowInfo(.optionAll, 0) as? [[String:Any]],
                       allWindows.count <= 8192 else { throw DocumentError.fail("global windows unavailable") }
+                // Lifecycle uses required numeric metadata only, never titles
+                // or pixels. Image-capture authorization is unrelated to this
+                // read; nil/malformed metadata still cannot prove closure.
                 for info in allWindows {
                     try documentCheckAbort()
                     guard let owner = documentIsWholeNumber(info[kCGWindowOwnerPID as String]),
@@ -3841,6 +5319,113 @@ func documentWindowForToken(_ target: String, _ token: String) throws -> AXUIEle
     return pinned.window
 }
 
+func documentAttachmentMetadata(_ msg: [String:Any]) -> [String:Any] {
+    func refuse() -> [String:Any] {
+        ["type":"error", "error":"document_attachment_metadata_unavailable", "effect":"not_started"]
+    }
+    guard Set(msg.keys).isSubset(of: ["type","target","document_token","max_utf16_units","timeout_seconds"]),
+          msg["target"] as? String == "com.apple.TextEdit",
+          let token = msg["document_token"] as? String, !token.isEmpty, token.count <= 128,
+          let budget = documentIsWholeNumber(msg["max_utf16_units"] ?? 100_000),
+          budget.intValue >= 0, budget.intValue <= 100_000,
+          let timeout = (msg["timeout_seconds"] ?? 3.0) as? NSNumber,
+          CFGetTypeID(timeout) != CFBooleanGetTypeID(), timeout.doubleValue.isFinite,
+          timeout.doubleValue > 0, timeout.doubleValue <= 6,
+          let pinned = documentTokens.first(where: { $0.token == token })?.document else { return refuse() }
+    let previousDeadline = documentOperationDeadline
+    documentOperationDeadline = min(previousDeadline ?? .infinity,
+        ProcessInfo.processInfo.systemUptime + timeout.doubleValue)
+    defer { documentOperationDeadline = previousDeadline }
+    do {
+        let path = try documentPath(pinned.window)
+        func check() throws {
+            try documentCheckAbort()
+            guard CFEqual(try documentWindowForToken("com.apple.TextEdit", token), pinned.window),
+                  let current = documentTokens.first(where: { $0.token == token })?.document,
+                  current.pid == pinned.pid, current.stamp == pinned.stamp,
+                  CFEqual(current.body, pinned.body), try documentPath(pinned.window) == path else {
+                throw DocumentError.fail("document export identity or path changed")
+            }
+            try documentCheckAbort()
+        }
+        func timed<T>(_ operation: () throws -> T) throws -> T {
+            try check()
+            let remaining = documentOperationDeadline! - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0, AXUIElementSetMessagingTimeout(pinned.body, Float(min(0.5, remaining))) == .success else {
+                throw DocumentError.fail("document export AX timeout unavailable")
+            }
+            defer { _ = AXUIElementSetMessagingTimeout(pinned.body, 0) }
+            let result = try operation()
+            guard AXUIElementSetMessagingTimeout(pinned.body, 0) == .success else {
+                throw DocumentError.fail("document export AX timeout reset failed")
+            }
+            try check()
+            return result
+        }
+        let text = try timed { try documentCompleteText(pinned.body, budget:budget.intValue) }
+        let count = text.utf16.count
+        var positions: [Int] = []
+        for (index, unit) in text.utf16.enumerated() {
+            try documentCheckAbort()
+            if unit == 0xFFFC {
+                guard positions.count < 256 else { return refuse() }
+                positions.append(index)
+            }
+        }
+        func snapshot() throws -> [[String:Any]] {
+            try timed {
+                var range = CFRange(location:0, length:count)
+                guard let parameter = AXValueCreate(.cfRange, &range) else { throw DocumentError.fail("range unavailable") }
+                var raw: AnyObject?
+                guard AXUIElementCopyParameterizedAttributeValue(pinned.body, "AXAttributedStringForRange" as CFString, parameter, &raw) == .success,
+                      let raw, CFGetTypeID(raw) == CFAttributedStringGetTypeID(),
+                      let value = raw as? NSAttributedString, value.length == count else {
+                    throw DocumentError.fail("attributed metadata unavailable")
+                }
+                let captured = value.attributedSubstring(from:NSRange(location:0, length:count))
+                try documentCheckAbort()
+                guard value.length == count, captured.length == count, captured.string == text else {
+                    throw DocumentError.fail("attributed text changed")
+                }
+                var rows: [[String:Any]] = []
+                for index in positions {
+                    try documentCheckAbort()
+                    let attachment = captured.attribute(NSAttributedString.Key("AXAttachment"), at:index, effectiveRange:nil)
+                    let isElement = attachment.map { CFGetTypeID($0 as CFTypeRef) == AXUIElementGetTypeID() } ?? false
+                    rows.append(["utf16_index":index, "ax_attachment_present":attachment != nil,
+                                 "ax_element_reference":isElement])
+                    try documentCheckAbort()
+                }
+                return rows
+            }
+        }
+        let first = try snapshot()
+        guard try timed({ try documentCompleteText(pinned.body, budget:budget.intValue) }) == text,
+              (try snapshot() as NSArray).isEqual(to:first),
+              try timed({ try documentCompleteText(pinned.body, budget:budget.intValue) }) == text else { return refuse() }
+        let reply: [String:Any] = ["type":"document_attachment_metadata", "document_token":token,
+                "document_path":path as Any? ?? NSNull(), "utf16_length":count,
+                "text_sha256":sha256Hex(Data(text.utf8)), "occurrences":first,
+                "evidence_kind":"ax_attributed_attachment_metadata", "sampled_stable":true,
+                "proves_no_intermediate_change":false, "source_format_verified":false,
+                "attachment_completeness_verified":false, "attachment_payload_verified":false,
+                "authorizes_save":false]
+        try check()
+        return reply
+    } catch { return refuse() }
+}
+
+func documentScopedSaveAction(_ action: [String: Any], selectedPath: String?) -> Bool {
+    guard Set(action.keys) == Set(["name", "path", "focused_document"]),
+          action["name"] as? String == "menu",
+          let selectedPath, let wanted = action["focused_document"] as? String,
+          wanted.precomposedStringWithCanonicalMapping == selectedPath.precomposedStringWithCanonicalMapping,
+          let path = action["path"] as? [Any], path.count == 2,
+          path[0] as? String == "File",
+          let titles = path[1] as? [String], titles == ["Save", "저장"] else { return false }
+    return true
+}
+
 func validateDocumentObservation(_ target: String) throws {
     if let token = latestDocumentToken {
         _ = try documentWindowForToken(target, token)
@@ -3923,9 +5508,12 @@ func validateSavePanelDispatch(_ obsID: String, _ target: String, _ action: [Str
 }
 
 func readSavePanel(_ msg: [String: Any], operationDeadline: Double? = nil) -> [String: Any] {
+    var budgetUsage: [String: Int]?
     func refuse(_ detail: String) -> [String: Any] {
-        ["type":"error", "error":abortState.isStopped ? "aborted_by_user" : "save_panel_unavailable",
-         "effect":"not_started", "detail":detail]
+        var result: [String: Any] = ["type":"error", "error":abortState.isStopped ? "aborted_by_user" : "save_panel_unavailable",
+                                    "effect":"not_started", "detail":detail]
+        if let budgetUsage { result["observation_budget"] = budgetUsage }
+        return result
     }
     let allowed: Set<String> = ["type", "target", "obs_id", "window_element_index", "panel_token", "require_format", "document_token"]
     guard Set(msg.keys).isSubset(of: allowed), let target = msg["target"] as? String, !target.isEmpty,
@@ -4029,6 +5617,7 @@ func readSavePanel(_ msg: [String: Any], operationDeadline: Double? = nil) -> [S
         try validate()
         let reader = try NativeSavePanelReader(readAttribute: timedRead,
             directoryResource: saveDirectoryResource, check: context)
+        defer { budgetUsage = reader.budgetUsage }
         if let document { try reader.validateDocument(window, body: document.body) }
         var witness: NativeSavePanelWitness
         if let requested {
@@ -4057,7 +5646,7 @@ func readSavePanel(_ msg: [String: Any], operationDeadline: Double? = nil) -> [S
                 "original_changes_setting":witness.keepChanges as Any? ?? NSNull(),
                 "commit_control":["obs_id":obsID, "enabled":true,
                                   "action":["name":"click", "element_index":commitIndex]],
-                "authorizes_save":false]
+                "authorizes_save":false, "observation_budget":reader.budgetUsage]
         if let documentToken { response["document_token"] = documentToken }
         return response
     } catch NativeSavePanelError.unavailable(let detail) {
@@ -4288,7 +5877,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     // just integrity. So these refuse when the outline cannot be drawn,
     // exactly as `observe` does.
     let reaching: Set<String> = ["menu_state", "menu_items", "probe",
-                                 "selection", "document_text", "save_panel", "document_rtf_export"]
+                                 "selection", "document_text", "save_panel", "document_rtf_export", "document_attachment_metadata", "readiness_read_cost", "readiness_preflight"]
     if let kind, reaching.contains(kind) || kind == "capture",
        let target = msg["target"] as? String, let p = pid(forBundle: target) {
         guard ensureVisibleControl(forPID: p, windowless: kind == "menu_state" || kind == "menu_items") else {
@@ -4311,11 +5900,15 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         // request).
         // Screen capture is granted to THIS process's identity (it is opened
         // through LaunchServices), so only it can say whether it holds it; a
-        // Python asking about itself answered for the wrong app, and `tacto
+        // Python asking about itself answered for the wrong app, and `nlc
         // doctor` told people to enable "this app" without saying which.
-        return ["type": "pong", "trusted": AXIsProcessTrusted(),
+        var reply: [String: Any] = ["type": "pong", "trusted": AXIsProcessTrusted(),
                 "screen_capture": CGPreflightScreenCaptureAccess(),
                 "capabilities": helperCapabilities]
+        if let start = nativeProcessStartIdentity(getpid()) {
+            reply["helper_process"] = ["pid": Int(getpid()), "start_time": start]
+        }
+        return reply
     case "list_targets":
         let apps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
@@ -4387,7 +5980,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
             }
             submitAuthorized = true
         }
-        let coordinate = (msg["action"] as? [String:Any])?["name"] as? String == "click_point"
+        let coordinate = ["click_point", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "")
         var coordinateAuthorized = false
         if coordinate || msg["coordinate_authorized"] != nil {
             guard coordinate, let value = msg["coordinate_authorized"] as? NSNumber,
@@ -4398,7 +5991,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         }
         var clickDeadline: Double?
         if let raw = msg["click_deadline_uptime"] {
-            guard let action = msg["action"] as? [String: Any], ["click", "click_point", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
+            guard let action = msg["action"] as? [String: Any], ["click", "click_point", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
                   let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite, number.doubleValue > 0 else {
                 return ["type": "error", "error": "invalid_click_deadline", "effect": "not_started"]
@@ -4410,6 +6003,10 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                    expect: msg["expect"] as? [String: Any], clickDeadline: clickDeadline,
                    coordinateAuthorized: coordinateAuthorized, savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized,
                    submitAuthorized: submitAuthorized)
+    case "readiness_preflight":
+        return readinessPreflight(msg)
+    case "readiness_read_cost":
+        return readinessReadCost(msg)
     case "probe":
         return probe(msg["obs_id"] as? String ?? "", msg["target"] as? String ?? "",
                      msg["element_index"] as? Int ?? -1)
@@ -4419,6 +6016,8 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         return readSavePanel(msg)
     case "document_window_status":
         return documentWindowStatus(msg)
+    case "document_attachment_metadata":
+        return documentAttachmentMetadata(msg)
     case "document_rtf_export":
         return documentRTFExport(msg)
     case "document_text":
@@ -4550,8 +6149,8 @@ if let index = CommandLine.arguments.firstIndex(of: "--hold-indicator"),
             Thread.sleep(forTimeInterval: 4)
             SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) {
                 content, _ in
-                guard let display = content?.displays.first else { return }
-                let f = SCContentFilter(display: display, excludingWindows: [])
+                guard let content, let display = content.displays.first else { return }
+                let f = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
                 let c = SCStreamConfiguration()
                 c.width = display.width * 2
                 c.height = display.height * 2
@@ -4590,7 +6189,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
     let app = NSApplication.shared
     let policySet = app.setActivationPolicy(.accessory)
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    item.button?.title = "● Tacto"
+    item.button?.title = "●NLC"
     // The audit session id, read here rather than in the interpolation: the
     // type checker gives up on a long one, and the session is the whole point.
     var auditToken = audit_token_t()
@@ -4650,8 +6249,8 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) {
                 content, _ in
-                guard let display = content?.displays.first else { return }
-                let filter = SCContentFilter(display: display, excludingWindows: [])
+                guard let content, let display = content.displays.first else { return }
+                let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
                 let configuration = SCStreamConfiguration()
                 configuration.width = display.width * 2
                 configuration.height = display.height * 2
@@ -4701,12 +6300,12 @@ if let index = CommandLine.arguments.firstIndex(of: "--recording-indicator-probe
     var report = "{\"error\": \"no answer\"}"
     SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: true) {
         content, error in
-        guard let display = content?.displays.first else {
+        guard let content, let display = content.displays.first else {
             report = "{\"started\": false, \"why\": \"no display: "
                 + "\(error?.localizedDescription ?? "none")\"}"
             done.signal(); return
         }
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
         let configuration = SCStreamConfiguration()
         // Small and slow on purpose. Frames are not the point here; holding the
         // stream is. Anything captured is dropped on the floor.
@@ -4744,8 +6343,8 @@ if let index = CommandLine.arguments.firstIndex(of: "--recording-indicator-probe
                     SCShareableContent.getExcludingDesktopWindows(false,
                                                                   onScreenWindowsOnly: true) {
                         content, _ in
-                        guard let display = content?.displays.first else { return }
-                        let f = SCContentFilter(display: display, excludingWindows: [])
+                        guard let content, let display = content.displays.first else { return }
+                        let f = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
                         let c = SCStreamConfiguration()
                         c.width = display.width * 2
                         c.height = display.height * 2
@@ -4865,7 +6464,7 @@ guard connectPath != nil else {
 /// Does the process that launched us satisfy the code requirement?
 ///
 /// This is the check that makes the helper refuse to be anyone's deputy: the
-/// grant it holds is usable only through the signed `tacto` launcher, not by any
+/// grant it holds is usable only through the signed `nlc` launcher, not by any
 /// process that can execute this binary. It is a genuine OS check —
 /// `SecCodeCheckValidity` against a requirement, not a name comparison —
 /// though a PID can in principle be reused, so it is made once at startup and
@@ -4898,7 +6497,7 @@ func parentOf(_ pid: pid_t) -> pid_t? {
 /// The immediate parent is the Python process the launcher started, so checking
 /// only one level would reject our own client. Descending FROM the signed
 /// launcher is the property that matters: to be one of its descendants a process
-/// has to have been started by it, and the launcher runs only Tacto's own code —
+/// has to have been started by it, and the launcher runs only NLC's own code —
 /// it takes no script path, interpreter override or injectable environment. An
 /// unrelated process has no signed ancestor and is refused.
 func ancestrySatisfiesRequirement(_ start: pid_t, maxDepth: Int = 6) -> (Bool, String) {

@@ -29,6 +29,37 @@ func nativeProcessStartIdentity(_ pid: pid_t) -> Double? {
     return Double(info.pbi_start_tvsec) + Double(info.pbi_start_tvusec) / 1_000_000
 }
 
+/// Prove absence/replacement, never equate an unreadable start time with exit.
+/// kill(pid, 0) sends no signal. EPERM and other errors remain unproven.
+func nativeProcessInstanceEnded(_ pid:pid_t,expectedStart:Double?,
+    probe:((pid_t)->(Int32,Int32))?=nil,
+    readStart:((pid_t)->Double?)=nativeProcessStartIdentity)->Bool {
+    guard pid>0 else {return false}
+    let result:(Int32,Int32)
+    if let probe {result=probe(pid)}
+    else {errno=0;let status=Darwin.kill(pid,0);result=(status,errno)}
+    if result.0 == -1 {return result.1==ESRCH}
+    guard result.0==0,let expectedStart,expectedStart.isFinite,expectedStart>0,
+          let current=readStart(pid),current.isFinite,current>0 else {return false}
+    return current != expectedStart
+}
+
+/// Auxiliary bundle metadata for an already observed process. This is NOT a
+/// liveness/PID-reuse check: callers must still match the OS start identity.
+/// Read a fresh per-PID wrapper each time; never retain NSRunningApplication.
+func nativeObservedBundleMatches(_ pid: pid_t, _ bundle: String,
+    lookup: ((pid_t) -> (pid_t, String?, Bool)?)? = nil) -> Bool {
+    guard pid > 0, !bundle.isEmpty else { return false }
+    let metadata: (pid_t, String?, Bool)?
+    if let lookup { metadata = lookup(pid) }
+    else if let app = NSRunningApplication(processIdentifier: pid) {
+        metadata = (app.processIdentifier, app.bundleIdentifier, app.isTerminated)
+    } else { metadata = nil }
+    guard let (actualPID, actualBundle, terminated) = metadata,
+          actualPID == pid, !terminated else { return false }
+    return actualBundle?.lowercased() == bundle.lowercased()
+}
+
 enum NativeWindowPointKind { case elementCenter, titlebar, windowPoint, windowInput }
 
 struct NativeWindowKeyPair {
@@ -190,23 +221,192 @@ enum WindowInputSPI {
 
 final class NativeWindowReadScope {
     let deadline: Double
+    private var temporaryReadDeadline: Double?
+    /// Read-only limit for loops nested inside a shorter receiving scope.
+    var effectiveReadDeadline: Double { min(deadline,temporaryReadDeadline ?? deadline) }
     private(set) var operationCount = 0
+    private var contextSeconds = 0.0
+    private var operationSeconds = 0.0
+    private let collectReadinessRoleCosts: Bool
+    private var readinessIdentities:[CFHashCode:[AXUIElement]]=[:]
+    private var readinessUniqueNodes=0,readinessRepeatedNodes=0
+    var readinessIdentityCounts:[String:Int]? {
+        guard collectReadinessRoleCosts else {return nil}
+        return ["unique_nodes":readinessUniqueNodes,"repeated_nodes":readinessRepeatedNodes,
+                "visits":readinessUniqueNodes+readinessRepeatedNodes]
+    }
+    func recordReadinessIdentity(_ node:AXUIElement) {
+        guard collectReadinessRoleCosts else {return}
+        let hash=CFHash(node as AnyObject)
+        if readinessIdentities[hash,default:[]].contains(where:{CFEqual($0,node)}) {
+            readinessRepeatedNodes+=1
+        } else {
+            readinessIdentities[hash,default:[]].append(node);readinessUniqueNodes+=1
+        }
+    }
+    private struct RoleCost {
+        var nodes = 0, operations = 0
+        var ax = 0.0, context = 0.0, wall = 0.0
+    }
+    private var roleCosts: [String: RoleCost] = [:]
+    private var attributeCosts: [String: RoleCost] = [:]
+    var readinessAttributeCosts: [[String: Any]] {
+        attributeCosts.keys.sorted().map { name in
+            let cost = attributeCosts[name]!
+            return ["attribute":name,"scoped_ax_operations":cost.operations,
+                    "ax_operation_us":Int(max(0,min(600000000,cost.ax*1000000)))]
+        }
+    }
+    var readinessRoleCosts: [[String: Any]] {
+        roleCosts.keys.sorted().map { role in
+            let cost = roleCosts[role]!
+            func micros(_ seconds: Double) -> Int { Int(max(0,min(600000000,seconds*1000000))) }
+            return ["role":role,"nodes":cost.nodes,"scoped_ax_operations":cost.operations,
+                    "ax_operation_us":micros(cost.ax),"context_us":micros(cost.context),"wall_us":micros(cost.wall)]
+        }
+    }
+    func readinessNodeTiming() -> (Int, Double, Double, Double)? {
+        collectReadinessRoleCosts ? (operationCount, operationSeconds, contextSeconds,
+                                    ProcessInfo.processInfo.systemUptime) : nil
+    }
+    func recordReadinessRole(_ role: String?, since start: (Int, Double, Double, Double)) {
+        let allowed = ["AXWindow","AXScrollArea","AXGroup","AXRow","AXCell","AXSheet",
+                       "AXStaticText","AXImage","AXButton","AXTextField","AXOutline",
+                       "AXSplitGroup","AXToolbar","AXPopUpButton","AXDisclosureTriangle"]
+        let key = role == nil ? "unreadable" : allowed.contains(role!) ? role! : "other"
+        var cost = roleCosts[key] ?? RoleCost()
+        cost.nodes += 1; cost.operations += max(0,operationCount-start.0)
+        cost.ax += max(0,operationSeconds-start.1); cost.context += max(0,contextSeconds-start.2)
+        cost.wall += max(0,ProcessInfo.processInfo.systemUptime-start.3)
+        roleCosts[key] = cost
+    }
+    var contextElapsedMS: Int { Int(max(0,min(600000,contextSeconds*1000))) }
+    var operationElapsedMS: Int { Int(max(0,min(600000,operationSeconds*1000))) }
     let check: () throws -> Void
-    init(deadline: Double, check: @escaping () throws -> Void) { self.deadline = deadline; self.check = check }
-    func ready() throws {
-        try check()
-        guard deadline.isFinite, ProcessInfo.processInfo.systemUptime < deadline else {
+    let incrementalCheck: (() throws -> Void)?
+    private var readinessContext = false
+    private var lastFullOperation = 0
+    private(set) var fullContextChecks = 0
+    private(set) var incrementalContextChecks = 0
+    private(set) var readinessAXError: Int?
+    private struct ReadinessProgress {
+        let pass: Int
+        var windows: Int
+        var completed = 0
+        var index = -1
+        var target = false
+        var nodes = 0
+        var totalNodes = 0
+        var stage = "entry"
+        var metadata: [String: Any] {
+            ["pass":pass,"windows":windows,"completed":completed,"index":index,
+             "target":target,"nodes":nodes,"total_nodes":totalNodes,"stage":stage]
+        }
+    }
+    private var progress: ReadinessProgress?
+    var readinessProgress: [String: Any]? { progress?.metadata }
+    private var readinessPass = 0
+    func beginReadiness(_ windows: Int) {
+        readinessPass += 1
+        roleCosts.removeAll(keepingCapacity: true)
+        readinessIdentities.removeAll(keepingCapacity:true)
+        readinessUniqueNodes=0;readinessRepeatedNodes=0
+        progress = ReadinessProgress(pass: readinessPass, windows: windows)
+    }
+    func setReadinessWindows(_ windows: Int) { progress?.windows = windows }
+    func beginReadinessTop(_ index: Int, target: Bool, stage: String = "top") {
+        progress?.index = index; progress?.target = target
+        progress?.nodes = 0; progress?.stage = stage
+    }
+    func visitReadinessNode() {
+        progress?.stage = "tree"; progress?.nodes += 1; progress?.totalNodes += 1
+    }
+    func finishReadinessTop() { progress?.completed += 1 }
+    func markReadinessStage(_ stage: String) { progress?.stage = stage }
+    func recordReadinessAXFailure(_ error: AXError) { readinessAXError = Int(error.rawValue) }
+    /// The first readiness read that could not be used, as closed codes and
+    /// numbers only: never a value, label, title, pid or path. Recording it
+    /// cannot change the verdict; the caller still throws exactly as before.
+    private(set) var readinessFailure: [String: Any]?
+    func recordReadinessFailure(attribute: String, source: String, kind: String,
+                                error: AXError?, depth: Int) {
+        guard readinessFailure == nil else { return }
+        let attributes = ["AXRole", "AXModal", "AXChildren", "AXSheets", "AXWindows",
+                          "AXMinimized", "AXParent", "batch"]
+        var failure: [String: Any] = [
+            "stage": progress?.stage ?? "entry",
+            "attribute": attributes.contains(attribute) ? attribute : "other",
+            "source": source, "kind": kind,
+            "depth": max(0, min(64, depth)), "visit": max(0, min(20000, progress?.totalNodes ?? 0))]
+        if let error, error != .success { failure["ax_error"] = Int(error.rawValue) }
+        readinessFailure = failure
+    }
+    init(deadline: Double, incrementalCheck: (() throws -> Void)? = nil,
+         collectReadinessRoleCosts: Bool = false,
+         check: @escaping () throws -> Void) {
+        self.deadline = deadline; self.check = check; self.incrementalCheck = incrementalCheck
+        self.collectReadinessRoleCosts = collectReadinessRoleCosts
+    }
+    /// Read-only readiness and complete physical binding captures may amortize
+    /// auxiliary metadata. Identity/abort/deadline remain per RPC; full live
+    /// context checkpoints bracket every phase, including nested phases.
+    func withReadinessContext<T>(_ body: () throws -> T) throws -> T {
+        try withReadOnlyContext(body)
+    }
+    func withBindingContext<T>(_ body: () throws -> T) throws -> T {
+        try withReadOnlyContext(body)
+    }
+    private func withReadOnlyContext<T>(_ body: () throws -> T) throws -> T {
+        guard incrementalCheck != nil else { return try body() }
+        try ready(forceFull: true)
+        let previous = readinessContext
+        readinessContext = true
+        defer { readinessContext = previous }
+        let result = try body()
+        try ready(forceFull: true)
+        return result
+    }
+    /// A receiving phase can narrow the shared read budget, never extend it.
+    /// Counters/context checks stay on this scope; nested/throwing phases restore
+    /// the preceding limit before their caller can perform another read.
+    func withReadDeadline<T>(_ limit:Double,_ body:() throws -> T) throws -> T {
+        guard limit.isFinite,deadline.isFinite,limit<=deadline else {
+            throw NativeWindowInputError.refused("invalid window read deadline")
+        }
+        let previous=temporaryReadDeadline
+        temporaryReadDeadline=min(effectiveReadDeadline,limit)
+        defer {temporaryReadDeadline=previous}
+        try ready(forceFull:true)
+        let result=try body()
+        try ready(forceFull:true)
+        return result
+    }
+    func ready(forceFull: Bool = false) throws {
+        let start = ProcessInfo.processInfo.systemUptime
+        defer { contextSeconds += max(0,ProcessInfo.processInfo.systemUptime-start) }
+        if readinessContext, !forceFull, operationCount-lastFullOperation < 16,
+           let incrementalCheck {
+            incrementalContextChecks += 1
+            try incrementalCheck()
+        } else {
+            fullContextChecks += 1
+            try check()
+            lastFullOperation = operationCount
+        }
+        guard effectiveReadDeadline.isFinite, ProcessInfo.processInfo.systemUptime < effectiveReadDeadline else {
             throw NativeWindowInputError.refused("window observation deadline expired")
         }
     }
     func withTimeout<T>(_ element: AXUIElement, _ operation: () -> T) throws -> T {
         try ready()
-        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        let remaining = effectiveReadDeadline - ProcessInfo.processInfo.systemUptime
         guard remaining > 0, AXUIElementSetMessagingTimeout(element, Float(min(0.5, remaining))) == .success else {
             throw NativeWindowInputError.unavailable("window AX timeout unavailable")
         }
         operationCount += 1
+        let operationStart = ProcessInfo.processInfo.systemUptime
         let result = operation()
+        operationSeconds += max(0,ProcessInfo.processInfo.systemUptime-operationStart)
         guard AXUIElementSetMessagingTimeout(element, 0) == .success else {
             throw NativeWindowInputError.unavailable("window AX timeout reset failed")
         }
@@ -214,7 +414,18 @@ final class NativeWindowReadScope {
         return result
     }
     func read(_ element: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
-        try withTimeout(element) {
+        let calls = operationCount, seconds = operationSeconds
+        defer {
+            if collectReadinessRoleCosts, operationCount > calls {
+                let allowed = ["AXRole","AXModal","AXChildren","AXWindows","AXMinimized","AXParent","AXSheets"]
+                let key = allowed.contains(name) ? name : "other"
+                var cost = attributeCosts[key] ?? RoleCost()
+                cost.operations += operationCount-calls
+                cost.ax += max(0,operationSeconds-seconds)
+                attributeCosts[key] = cost
+            }
+        }
+        return try withTimeout(element) {
             var value: CFTypeRef?
             let error = AXUIElementCopyAttributeValue(element, name as CFString, &value)
             return (error, value)
@@ -340,12 +551,40 @@ func windowInputCGFrame(_ windowID: CGWindowID, _ pid: pid_t,
           let onScreen = entry[kCGWindowIsOnscreen as String] as? NSNumber,
           CFGetTypeID(onScreen) == CFBooleanGetTypeID(), onScreen.boolValue,
           let bounds = entry[kCGWindowBounds as String] as? [String: Any] else {
-        throw NativeWindowInputError.refused("CG window ownership or visibility mismatch")
+        let owner = entry[kCGWindowOwnerPID as String] as? NSNumber
+        let layer = entry[kCGWindowLayer as String] as? NSNumber
+        let visible = entry[kCGWindowIsOnscreen as String] as? NSNumber
+        throw NativeWindowInputError.refused("CG window ownership or visibility mismatch (window=\(windowID), expected_pid=\(pid), owner_pid=\(owner?.stringValue ?? "missing"), layer=\(layer?.stringValue ?? "missing"), onscreen=\(visible?.stringValue ?? "missing"))")
     }
     let rect = try CGRect(x: windowInputNumber(bounds["X"]), y: windowInputNumber(bounds["Y"]),
                           width: windowInputNumber(bounds["Width"]), height: windowInputNumber(bounds["Height"]))
     guard windowInputRectIsValid(rect) else { throw NativeWindowInputError.refused("invalid CG geometry") }
     return rect
+}
+
+/// AX can retain a popup subtree after its physical window disappears.
+/// Absence is evidence only in a complete, successfully read on-screen list.
+func nativePopupVisibility(_ windowID:CGWindowID,_ pid:pid_t,
+    scope:NativeWindowReadScope?=nil,
+    read:(()->[[String:Any]]?)?=nil) throws -> Bool {
+    guard windowID>0,pid>0 else {throw NativeWindowInputError.refused("popup identity unavailable")}
+    try scope?.ready()
+    let entries=read != nil ? read!():CGWindowListCopyWindowInfo(.optionOnScreenOnly,0) as? [[String:Any]]
+    guard let entries else {throw NativeWindowInputError.refused("popup visibility unavailable")}
+    var matches:[[String:Any]]=[]
+    for entry in entries {
+        try scope?.ready()
+        if try windowInputNumber(entry[kCGWindowNumber as String])==Double(windowID) {matches.append(entry)}
+    }
+    guard matches.count<=1 else {throw NativeWindowInputError.refused("popup window not unique")}
+    guard let entry=matches.first else {return false}
+    guard try windowInputNumber(entry[kCGWindowOwnerPID as String])==Double(pid),
+          try windowInputNumber(entry[kCGWindowLayer as String])==0,
+          let visible=entry[kCGWindowIsOnscreen as String] as? NSNumber,
+          CFGetTypeID(visible)==CFBooleanGetTypeID(),visible.boolValue else {
+        throw NativeWindowInputError.refused("popup ownership or visibility mismatch")
+    }
+    return true
 }
 
 /// Full exposed-tree modal check; AXSheets unsupported is not an empty list.
@@ -385,8 +624,12 @@ func nativeReadinessBatch(_ element: AXUIElement, names: [String],
     // Unsupported batch transport can fall back to the existing strict reads;
     // timeout/other failures cannot be hidden by trying a different API.
     if reply.0 == .attributeUnsupported || reply.0 == .notImplemented { return nil }
-    guard reply.0 == .success, let values = reply.1 as? [AnyObject], values.count == names.count else {
-        throw NativeWindowInputError.refused("readiness batch unavailable or malformed")
+    guard reply.0 == .success else {
+        scope?.recordReadinessAXFailure(reply.0)
+        throw NativeWindowInputError.refused("readiness batch failed")
+    }
+    guard let values = reply.1 as? [AnyObject], values.count == names.count else {
+        throw NativeWindowInputError.refused("readiness batch malformed")
     }
     return try values.map { value in
         if CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetType(value as! AXValue) == .axError {
@@ -400,8 +643,27 @@ func nativeReadinessBatch(_ element: AXUIElement, names: [String],
     }
 }
 
+// Resource ceiling, separate from the shared input deadline. Full modal/sheet
+// validation must finish within both bounds; a larger tree gets no exemption.
+let nativeWindowReadinessNodeLimit = 20000
+
 func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
-                              maxNodes: Int = 5000, maxDepth: Int = 64,
+                              maxNodes: Int = nativeWindowReadinessNodeLimit, maxDepth: Int = 64,
+                              scope: NativeWindowReadScope? = nil,
+                              read injected: AXRead? = nil,
+                              readBatch injectedBatch: AXBatchRead? = nil,
+                              isFinder knownFinder: Bool? = nil) throws {
+    scope?.beginReadiness(0)
+    let traversal = {
+        try nativeRequireWindowReadyTraversal(window, pid, maxNodes: maxNodes, maxDepth: maxDepth,
+            scope: scope, read: injected, readBatch: injectedBatch, isFinder: knownFinder)
+    }
+    if let scope { try scope.withReadinessContext(traversal) }
+    else { try traversal() }
+}
+
+private func nativeRequireWindowReadyTraversal(_ window: AXUIElement, _ pid: pid_t,
+                              maxNodes: Int = nativeWindowReadinessNodeLimit, maxDepth: Int = 64,
                               scope: NativeWindowReadScope? = nil,
                               read injected: AXRead? = nil,
                               readBatch injectedBatch: AXBatchRead? = nil,
@@ -410,8 +672,18 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
     guard maxNodes > 0, maxDepth >= 0 else { throw NativeWindowInputError.refused("invalid readiness budget") }
     var packetNode: AXUIElement?
     var packet: [String: (AXError, CFTypeRef?)] = [:]
+    // Diagnostic context only: where the last value came from, and how deep.
+    var source = "scalar", depthNow = 0, absentError: AXError?
+    func failed(_ name: String, _ kind: String, _ error: AXError? = nil) {
+        scope?.recordReadinessFailure(attribute: name, source: source, kind: kind,
+                                      error: error, depth: depthNow)
+    }
     func raw(_ node: AXUIElement, _ name: String) throws -> (AXError, CFTypeRef?) {
-        if let packetNode, CFEqual(packetNode, node), let result = packet[name] { return result }
+        if let packetNode, CFEqual(packetNode, node), let result = packet[name] {
+            source = "batch_field"
+            return result
+        }
+        source = "scalar"
         if let injected { return try injected(node, name) }
         if let scope { return try scope.read(node, name) }
         var value: CFTypeRef?
@@ -427,17 +699,22 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
     func optional(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
         let (error, value) = try budgeted { try raw(node, name) }
         if error == .success, let value = value { return value }
-        if [-25205, -25212].contains(error.rawValue) { return nil }
+        if [-25205, -25212].contains(error.rawValue) { absentError = error; return nil }
+        if error != .success { scope?.recordReadinessAXFailure(error) }
+        failed(name, error == .success ? "null_value" : "ax_error", error)
         throw NativeWindowInputError.refused("window state unavailable: \(name)")
     }
     func required(_ node: AXUIElement, _ name: String) throws -> CFTypeRef {
         guard let value = try optional(node, name) else {
+            failed(name, "required_absent", absentError)
             throw NativeWindowInputError.refused("required AX attribute unavailable: \(name)")
         }
         return value
     }
     func role(_ node: AXUIElement) throws -> String {
-        guard let text = try required(node, kAXRoleAttribute) as? String else {
+        let value = try required(node, kAXRoleAttribute)
+        guard let text = value as? String else {
+            failed(kAXRoleAttribute, CFGetTypeID(value) == CFNumberGetTypeID() ? "numeric" : "malformed")
             throw NativeWindowInputError.refused("invalid AX role")
         }
         return text
@@ -461,63 +738,115 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
     }
     func windows() throws -> [AXUIElement] {
         guard let result = try required(app, kAXWindowsAttribute) as? [AXUIElement] else {
+            failed(kAXWindowsAttribute, "malformed")
             throw NativeWindowInputError.refused("application windows malformed")
         }
         return result
     }
+    scope?.markReadinessStage("windows")
     let before = try windows()
+    scope?.setReadinessWindows(before.count)
     guard before.filter({ CFEqual($0, window) }).count == 1,
           try explicitlyFalse(window, kAXMinimizedAttribute) else {
         throw NativeWindowInputError.refused("target window missing, ambiguous or minimized")
     }
     var remaining = maxNodes
     var roles: [String] = []
-    for top in before {
+    for (topIndex, top) in before.enumerated() {
+        scope?.beginReadinessTop(topIndex, target: CFEqual(top, window))
+        depthNow = 0
+        try scope?.ready(forceFull: true)
         let topRole = try role(top)
         roles.append(topRole)
         guard try topNotModal(top, topRole) else { throw NativeWindowInputError.refused("modal or unknown window") }
         if let value = try optional(top, "AXSheets") {
             guard let sheets = value as? [AXUIElement], sheets.isEmpty else {
+                if !(value is [AXUIElement]) { failed("AXSheets", "malformed") }
                 throw NativeWindowInputError.refused("sheet or malformed sheet list")
             }
         }
         var stack: [(AXUIElement, Int)] = [(top, 0)]
         while let (node, depth) = stack.popLast() {
+            depthNow = depth
             remaining -= 1
             guard remaining >= 0, depth <= maxDepth else {
                 throw NativeWindowInputError.refused("readiness budget exceeded: nodes")
             }
+            scope?.visitReadinessNode()
+            scope?.recordReadinessIdentity(node)
+            let timing = scope?.readinessNodeTiming()
+            var measuredRole: String?
+            defer { if let timing { scope?.recordReadinessRole(measuredRole, since: timing) } }
             // Cache only this DFS iteration. Top-level post-walk modal/sheet
             // reads below MUST query the provider again, even for a leaf top.
             defer { packetNode = nil; packet.removeAll(keepingCapacity: true) }
             if injectedBatch != nil || (injected == nil && scope != nil) {
                 let names = [kAXRoleAttribute as String, "AXModal", kAXChildrenAttribute as String]
-                if let values = try budgeted({ try nativeReadinessBatch(node, names: names,
-                                              scope: scope, read: injectedBatch) }) {
-                    guard values.count == names.count else { throw NativeWindowInputError.refused("readiness batch malformed") }
+                let batch: [(AXError, CFTypeRef?)]?
+                do {
+                    batch = try budgeted({ try nativeReadinessBatch(node, names: names,
+                                                                    scope: scope, read: injectedBatch) })
+                } catch NativeWindowInputError.refused(let why) where why.hasPrefix("readiness batch") {
+                    source = "batch_call"
+                    let callFailed = why == "readiness batch failed"
+                    failed("batch", callFailed ? "batch_failed" : "batch_malformed",
+                           callFailed ? scope?.readinessAXError.flatMap { AXError(rawValue: Int32($0)) } : nil)
+                    throw NativeWindowInputError.refused(why)
+                }
+                if let values = batch {
+                    guard values.count == names.count else {
+                        source = "batch_call"
+                        failed("batch", "batch_malformed")
+                        throw NativeWindowInputError.refused("readiness batch malformed")
+                    }
                     packetNode = node
                     packet = Dictionary(uniqueKeysWithValues: zip(names, values))
                 }
             }
             let nodeRole = try role(node)
+            measuredRole = nodeRole
+            if nodeRole.isEmpty { failed(kAXRoleAttribute, "empty") }
             guard !nodeRole.isEmpty, nodeRole != "AXSheet" else { throw NativeWindowInputError.refused("attached sheet or malformed role") }
             if depth > 0, let modal = try optional(node, "AXModal"),
                !(CFGetTypeID(modal) == CFBooleanGetTypeID() && (modal as? Bool) == false) {
+                if CFGetTypeID(modal) != CFBooleanGetTypeID() { failed("AXModal", "malformed") }
                 throw NativeWindowInputError.refused("modal or unknown element")
             }
             if let value = try optional(node, kAXChildrenAttribute) {
-                guard let children = value as? [AXUIElement] else { throw NativeWindowInputError.refused("window children malformed") }
-                guard children.count <= remaining else { throw NativeWindowInputError.refused("readiness budget exceeded: nodes") }
+                guard let children = value as? [AXUIElement] else {
+                    failed(kAXChildrenAttribute, "malformed")
+                    throw NativeWindowInputError.refused("window children malformed")
+                }
+                // Queued siblings also need a visit. Bound all pending nodes,
+                // rather than allowing every branch to enqueue the full cap.
+                guard children.count <= remaining - stack.count else {
+                    throw NativeWindowInputError.refused("readiness budget exceeded: nodes")
+                }
                 stack.append(contentsOf: children.reversed().map { ($0, depth + 1) })
             }
         }
+        scope?.finishReadinessTop()
     }
+    depthNow = 0
+    scope?.markReadinessStage("recheck")
+    try scope?.ready(forceFull: true)
     let after = try windows()
     guard after.count == before.count, zip(before, after).allSatisfy({ CFEqual($0.0, $0.1) }),
           try explicitlyFalse(window, kAXMinimizedAttribute) else {
-        throw NativeWindowInputError.refused("window state changed during validation")
+        let sameOrder = after.count == before.count && zip(before, after).allSatisfy({ CFEqual($0.0, $0.1) })
+        let sameMembers = after.count == before.count && before.allSatisfy { prior in after.filter { CFEqual(prior, $0) }.count == 1 }
+        let addedRoles = after.filter { next in !before.contains { CFEqual(next, $0) } }.map { node -> String in
+            let nodeRole = (try? role(node)) ?? "unavailable"
+            let title = (try? optional(node, kAXTitleAttribute)) as? String ?? ""
+            let subrole = (try? optional(node, kAXSubroleAttribute)) as? String ?? ""
+            return "\(nodeRole)|\(subrole)|\(title)"
+        }
+        throw NativeWindowInputError.refused("window state changed during validation: before=\(before.count), after=\(after.count), same_order=\(sameOrder), same_members=\(sameMembers), added_roles=\(addedRoles)")
     }
-    for (top, topRole) in zip(before, roles) {
+    for (topIndex, pair) in zip(before, roles).enumerated() {
+        let (top, topRole) = pair
+        scope?.beginReadinessTop(topIndex, target: CFEqual(top, window), stage: "recheck")
+        try scope?.ready(forceFull: true)
         guard try role(top) == topRole else {
             throw NativeWindowInputError.refused("window role changed during validation")
         }
@@ -525,10 +854,12 @@ func nativeRequireWindowReady(_ window: AXUIElement, _ pid: pid_t,
         // A sheet attached after the walk is caught here too (Codex review of 97398cb).
         if let value = try optional(top, "AXSheets") {
             guard let sheets = value as? [AXUIElement], sheets.isEmpty else {
+                if !(value is [AXUIElement]) { failed("AXSheets", "malformed") }
                 throw NativeWindowInputError.refused("sheet attached during validation")
             }
         }
     }
+    scope?.markReadinessStage("complete")
 }
 
 func nativeTitlebarPoints(_ bounds: CGRect, _ anchor: CGRect) throws -> [CGPoint] {
@@ -537,7 +868,87 @@ func nativeTitlebarPoints(_ bounds: CGRect, _ anchor: CGRect) throws -> [CGPoint
           bounds.minY <= anchor.minY, anchor.maxY <= bounds.minY + min(bounds.height / 4, 50) else {
         throw NativeWindowInputError.refused("titlebar anchor outside upper window band")
     }
-    return [0.5, 0.75, 0.25].map { CGPoint(x: bounds.minX + bounds.width * $0, y: anchor.midY) }
+    // Keep the cheap original probes first, then search bounded gaps in unified
+    // toolbars. A candidate still must hit the window itself before dispatch.
+    let fractions: [CGFloat] = [0.5, 0.75, 0.25, 0.625, 0.375, 0.875, 0.125,
+        0.5625, 0.4375, 0.6875, 0.3125, 0.8125, 0.1875, 0.9375, 0.0625]
+    return fractions.map { CGPoint(x: bounds.minX + bounds.width * $0, y: anchor.midY) }
+}
+
+/// Reject narrow gaps beside buttons: the whole cross must remain blank chrome.
+func nativeTitlebarPointIsClear(_ point: CGPoint, _ bounds: CGRect,
+                               _ window: AXUIElement, _ pid: pid_t,
+                               scope: NativeWindowReadScope?) throws -> Bool {
+    let points = [point, CGPoint(x: point.x-4, y: point.y), CGPoint(x: point.x+4, y: point.y),
+                  CGPoint(x: point.x, y: point.y-4), CGPoint(x: point.x, y: point.y+4)]
+    guard points.allSatisfy({ bounds.contains($0) }) else { return false }
+    for sample in points {
+        try scope?.ready()
+        let hit = try windowInputHit(sample, pid, scope: scope)
+        guard try windowInputPID(hit) == pid, CFEqual(hit, window) else { return false }
+    }
+    try scope?.ready()
+    return true
+}
+
+/// Read-only diagnostic: never returns coordinates, text, or an input binding.
+func nativeTitlebarHitSummary(_ window: AXUIElement, _ pid: pid_t,
+                             scope: NativeWindowReadScope) throws -> [[String: Any]] {
+    func row(_ status: String, role: String = "other", owner: Bool = false,
+             isWindow: Bool = false, sameWindow: Bool = false,
+             readable: Bool = false, actions: Bool = false, clear: Bool = false) -> [String: Any] {
+        ["status":status,"role":role,"same_owner":owner,"is_window":isWindow,
+         "same_window":sameWindow,"actions_readable":readable,"has_actions":actions,"clear_margin":clear]
+    }
+    let points: [CGPoint]
+    do {
+        let bounds = try windowInputFrame(window, scope: scope)
+        let close = try windowInputElement(windowInputAttribute(window, "AXCloseButton", scope: scope))
+        guard try windowInputPID(close) == pid,
+              try windowInputAttribute(close, kAXSubroleAttribute, scope: scope) as? String == "AXCloseButton",
+              try CFEqual(windowInputAncestor(close, pid, scope: scope), window) else {
+            throw NativeWindowInputError.refused("native titlebar anchor unavailable")
+        }
+        points = try nativeTitlebarPoints(bounds, windowInputFrame(close, scope: scope))
+    } catch {
+        try scope.ready(forceFull: true) // Budget/identity failures remain failures.
+        return Array(repeating: row("anchor_unavailable"), count: 15)
+    }
+    let allowed = ["AXWindow", "AXToolbar", "AXGroup", "AXButton", "AXStaticText", "AXImage"]
+    return try points.map { point in
+        try scope.ready()
+        let hit: AXUIElement
+        do { hit = try windowInputHit(point, pid, scope: scope) }
+        catch { try scope.ready(forceFull: true); return row("hit_unavailable") }
+        let owner: Bool
+        do { owner = try windowInputPID(hit) == pid }
+        catch { try scope.ready(forceFull: true); return row("owner_unavailable") }
+        guard owner else { return row("cross_process") }
+        let role: String
+        let ancestor: AXUIElement
+        do {
+            role = try windowInputRole(hit, scope: scope)
+            ancestor = try windowInputAncestor(hit, pid, scope: scope)
+        } catch { try scope.ready(forceFull: true); return row("ancestry_unavailable", owner: true) }
+        var actions: CFArray?
+        let actionError = try scope.withTimeout(hit) { AXUIElementCopyActionNames(hit, &actions) }
+        try scope.ready()
+        var clear = false
+        if CFEqual(hit, window) {
+            do {
+                clear = try nativeTitlebarPointIsClear(point, windowInputFrame(window, scope: scope), window, pid, scope: scope)
+            } catch {
+                try scope.ready(forceFull: true)
+                return row("margin_unavailable", role: allowed.contains(role) ? role : "other", owner: true,
+                           isWindow: true, sameWindow: CFEqual(ancestor, window),
+                           readable: actionError == .success, actions: actionError == .success && (actions as? [String])?.isEmpty == false)
+            }
+        }
+        return row("read_complete", role: allowed.contains(role) ? role : "other", owner: true,
+                   isWindow: CFEqual(hit, window), sameWindow: CFEqual(ancestor, window),
+                   readable: actionError == .success, actions: actionError == .success && (actions as? [String])?.isEmpty == false,
+                   clear: clear)
+    }
 }
 
 func captureNativeWindowBinding(_ element: AXUIElement, _ pid: pid_t,
@@ -610,7 +1021,8 @@ func captureNativeWindowBinding(_ element: AXUIElement, _ pid: pid_t,
             try scope?.ready()
             let hit = try windowInputHit(point, pid, scope: scope)
             try scope?.ready()
-            if try windowInputPID(hit) == pid, CFEqual(hit, window) {
+            if try windowInputPID(hit) == pid, CFEqual(hit, window),
+               try nativeTitlebarPointIsClear(point, bounds, window, pid, scope: scope) {
                 guard nativeProcessStartIdentity(pid) == expectedStart else {
                     throw NativeWindowInputError.refused("process changed during capture")
                 }
@@ -648,15 +1060,69 @@ func validateNativeWindowBinding(_ binding: NativeWindowBinding, scope: NativeWi
           fresh.point == binding.point else { throw NativeWindowInputError.refused("window binding changed") }
 }
 
+/// A popup can report its logical parent's AXWindow while its SPI window ID
+/// identifies a different physical window. Keep both identities: readiness
+/// and app focus belong to the parent; pointer events belong to the popup.
+/// Caller must separately pin the control/list/row relationship and options.
+func captureNativePopupWindowBinding(_ element:AXUIElement,_ popup:AXUIElement,
+    _ pid:pid_t,expectedStart:Double,scope:NativeWindowReadScope) throws -> NativeWindowBinding {
+    try scope.ready()
+    guard pid>0,nativeProcessStartIdentity(pid)==expectedStart,
+          try windowInputPID(element)==pid,try windowInputPID(popup)==pid,
+          try windowInputRole(popup,scope:scope)=="AXScrollArea" else {
+        throw NativeWindowInputError.refused("popup identity unavailable")
+    }
+    let parent=try windowInputAncestor(element,pid,scope:scope)
+    guard try CFEqual(windowInputAncestor(popup,pid,scope:scope),parent) else {
+        throw NativeWindowInputError.refused("popup logical window changed")
+    }
+    let getWindow=try WindowInputSPI.windowFunction()
+    func number(_ node:AXUIElement) throws -> CGWindowID {
+        var id:CGWindowID=0
+        let error=try scope.withTimeout(node) {getWindow(node,&id)}
+        guard error==0,id>0 else {throw NativeWindowInputError.refused("popup window ID unavailable")}
+        return id
+    }
+    let parentID=try number(parent),popupID=try number(popup)
+    let parentBounds=try windowInputFrame(parent,scope:scope)
+    let bounds=try windowInputFrame(popup,scope:scope),rect=try windowInputFrame(element,scope:scope)
+    guard popupID != parentID,try number(element)==popupID,
+          try windowInputCGFrame(parentID,pid,scope:scope)==parentBounds,
+          try windowInputCGFrame(popupID,pid,scope:scope)==bounds,
+          rect.minX>=bounds.minX,rect.minY>=bounds.minY,
+          rect.maxX<=bounds.maxX,rect.maxY<=bounds.maxY else {
+        throw NativeWindowInputError.refused("popup physical geometry changed")
+    }
+    let point=CGPoint(x:rect.midX,y:rect.midY)
+    var current=try windowInputHit(point,pid,scope:scope)
+    var seen:[AXUIElement]=[]
+    for depth in 0...20 {
+        guard try windowInputPID(current)==pid,!seen.contains(where:{CFEqual($0,current)}) else {break}
+        if CFEqual(current,element) {
+            guard nativeProcessStartIdentity(pid)==expectedStart else {
+                throw NativeWindowInputError.refused("popup process changed")
+            }
+            return NativeWindowBinding(element:element,window:parent,pid:pid,processStart:expectedStart,
+                windowID:popupID,windowBounds:bounds,elementBounds:rect,point:point)
+        }
+        guard depth<20,try windowInputRole(current,scope:scope) != kAXWindowRole else {break}
+        seen.append(current)
+        current=try windowInputElement(windowInputAttribute(current,kAXParentAttribute,scope:scope))
+    }
+    throw NativeWindowInputError.refused("popup hit-test does not identify element or descendant")
+}
+
 /// The window server's id for an accessibility window, or nil.
 ///
 /// The SPI that answers this is private to this file, and a capture needs the
 /// same answer a click does — the window the OBSERVATION described, not one
 /// that merely shares its title.
-func nativeWindowID(_ element: AXUIElement) -> CGWindowID? {
+func nativeWindowID(_ element: AXUIElement, scope:NativeWindowReadScope? = nil) -> CGWindowID? {
     guard let ask = try? WindowInputSPI.windowFunction() else { return nil }
     var id = CGWindowID(0)
-    return ask(element, &id) == 0 && id != 0 ? id : nil   // kAXErrorSuccess
+    guard let result = try? scope?.withTimeout(element, {ask(element, &id)}) ?? ask(element, &id),
+          result == 0,id != 0 else {return nil}   // kAXErrorSuccess
+    return id
 }
 
 struct NativeWindowClick {
@@ -809,6 +1275,12 @@ typealias AXRead = (AXUIElement, String) throws -> (AXError, CFTypeRef?)
 /// child entry seen twice, or none.
 func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRead,
                             maxNodes: Int = 5000, maxDepth: Int = 64) throws {
+    guard maxNodes > 0, maxDepth >= 0 else {
+        throw NativeWindowInputError.refused("invalid readiness budget")
+    }
+    guard tops.count <= maxNodes else {
+        throw NativeWindowInputError.refused("readiness traversal budget exceeded")
+    }
     func value(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
         let (error, result) = try read(node, name)
         if error == .success, let result { return result }
@@ -861,6 +1333,12 @@ func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRea
             if let raw = try value(node, kAXChildrenAttribute as String) {
                 guard let children = raw as? [AXUIElement] else {
                     throw NativeWindowInputError.refused("window children malformed")
+                }
+                // Every pending sibling still consumes a visit. Refuse an
+                // impossible full traversal before allocating its queue; do
+                // not prune rows or silently skip a possible modal element.
+                guard children.count <= remaining - stack.count else {
+                    throw NativeWindowInputError.refused("readiness traversal budget exceeded")
                 }
                 stack.append(contentsOf: children.reversed().map { ($0, depth + 1) })
             }

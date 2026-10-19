@@ -4,7 +4,7 @@ import Foundation
   var state = SetupState()
   func json(_ text:String)->Data { text.data(using:.utf8)! }
   assert(state.receive(json("{\"accessibility_trusted\":true,\"screen_capture_preflight\":false,\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":123}"),expected:"ai.callabo.nlc.helper"))
-  assert(state.accessibility && !state.screen && !state.ready)
+  assert(state.accessibility && !state.screen && state.ready && !state.captureReady)
   for text in ["{}", "{\"accessibility_trusted\":true,\"screen_capture_preflight\":true,\"bundle_id\":\"wrong\",\"pid\":123}", "{\"accessibility_trusted\":true,\"screen_capture_preflight\":true,\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":0}", "{\"accessibility_trusted\":\"true\",\"screen_capture_preflight\":true,\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":123}", "not json"] {
    assert(!state.receive(json(text),expected:"ai.callabo.nlc.helper"))
    assert(!state.accessibility && !state.screen)
@@ -13,7 +13,8 @@ import Foundation
    for screen in [false, true] {
     let receipt = "{\"accessibility_trusted\":\(ax),\"screen_capture_preflight\":\(screen),\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":123}"
     assert(state.receive(json(receipt),expected:"ai.callabo.nlc.helper"))
-    assert(state.ready == (ax && screen))
+    assert(state.ready == ax)
+    assert(state.captureReady == (ax && screen))
    }
   }
   assert(state.ready)
@@ -22,7 +23,7 @@ import Foundation
   state.accessibility = true; state.screen = true
   assert(!state.refresh(json("{}"), expected: "ai.callabo.nlc.helper"))
   assert(!state.ready)
-  print("Permission state: 12 cases PASS; both grants required for readiness")
+  print("Permission state: 12 cases PASS; AX required; capture permission optional for readiness")
 
   let helper = URL(fileURLWithPath: "/checkout/helper/Tacto Helper.app")
   let setup = URL(fileURLWithPath: "/Applications/Tacto.app")

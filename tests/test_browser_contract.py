@@ -318,3 +318,100 @@ class BrowserContract(unittest.TestCase):
             result = d.upload(obs['obs_id'],'page',indices[1],[str(path)],approved=True)
         self.assertEqual('acted',result['type'],result)
         self.assertEqual([0,1],d._page.evaluate("[...document.querySelectorAll('input')].map(e => e.files.length)"))
+
+    def test_upload_cleared_or_replaced_by_change_callback_is_unknown_not_retryable(self):
+        import tempfile
+        from pathlib import Path
+        d = self.driver
+        for change in ("attachment.value=''", "attachment.replaceWith(attachment.cloneNode())"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as folder:
+                path = Path(folder)/'owned.txt'; path.write_text('owned bytes')
+                d.goto("data:text/html,<input id='attachment' type='file' aria-label='attachment'>"
+                       "<script>let changes=0;attachment.onchange=()=>{changes++;"+change+"}</script>")
+                obs=d.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='attachment')
+                response=d.upload(obs['obs_id'],'page',index,[str(path)],approved=True)
+                self.assertEqual(('upload_selection_unverified','unknown'),
+                                 (response.get('error'),response.get('effect')))
+                self.assertEqual(1,d._page.evaluate('changes'))
+                self.assertEqual(0 if change == "attachment.value=''" else 1,
+                                 d._page.evaluate('attachment.files.length'))
+
+    def test_explicit_empty_file_selection_clears_the_observed_input(self):
+        import tempfile
+        from pathlib import Path
+        d=self.driver
+        d.goto("data:text/html,<input id='attachment' type='file' aria-label='attachment'>")
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'owned.txt';path.write_text('owned bytes')
+            obs=d.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='attachment')
+            self.assertEqual('acted',d.upload(obs['obs_id'],'page',index,[str(path)],approved=True)['type'])
+            self.assertEqual(1,d._page.evaluate('attachment.files.length'))
+            obs=d.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='attachment')
+            response=d.upload(obs['obs_id'],'page',index,[],approved=True)
+            self.assertEqual('acted',response.get('type'),response)
+            self.assertTrue(response['note'].startswith('files cleared;'))
+            self.assertEqual(0,d._page.evaluate('attachment.files.length'))
+
+    def test_upload_refuses_redirected_chooser_without_disclosing_file(self):
+        import tempfile
+        from pathlib import Path
+        d=self.driver
+        d.goto("data:text/html,<input id='approved' type='file' aria-label='approved'><input id='other' type='file' aria-label='other'><script>approved.onclick=e=>{e.preventDefault();other.click()}</script>")
+        obs=d.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='approved')
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'owned.txt';path.write_text('owned only')
+            response=d.upload(obs['obs_id'],'page',index,[str(path)],approved=True)
+        self.assertEqual(('upload_target_changed','unknown'),(response.get('error'),response.get('effect')))
+        self.assertEqual([0,0],d._page.evaluate('[approved.files.length,other.files.length]'))
+
+    def test_upload_button_requires_observed_chooser_and_supports_exact_pin(self):
+        import tempfile
+        from pathlib import Path
+        d=self.driver
+        d.goto("data:text/html,<button id='open' onclick='attachment.click()'>Attach</button><input id='attachment' type='file' aria-label='file'>")
+        obs=d.observe();nodes=d._latest['page']['nodes']
+        opener=next(i for i,n in enumerate(nodes) if n['name']=='Attach')
+        chooser=next(i for i,n in enumerate(nodes) if n['name']=='file')
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'owned.txt';path.write_text('owned only')
+            denied=d.upload(obs['obs_id'],'page',opener,[str(path)],approved=True)
+            self.assertEqual(('upload_target_required','not_started'),(denied.get('error'),denied.get('effect')))
+            accepted=d.upload(obs['obs_id'],'page',opener,[str(path)],approved=True,chooser_selector=chooser)
+            self.assertEqual('acted',accepted.get('type'),accepted)
+            self.assertEqual(1,d._page.evaluate('attachment.files.length'))
+
+    def test_upload_truthy_non_boolean_approval_never_opens_chooser(self):
+        d=self.driver
+        d.goto("data:text/html,<input id='attachment' type='file' aria-label='file'><script>let clicks=0;attachment.onclick=()=>clicks++</script>")
+        obs=d.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='file')
+        for approved in ('false',1,[],{}):
+            with self.subTest(approved=approved):
+                response=d.upload(obs['obs_id'],'page',index,[],approved=approved)
+                self.assertEqual('confirm_request',response.get('type'))
+        self.assertEqual(0,d._page.evaluate('clicks'))
+
+    def test_upload_disabled_or_changed_input_type_refused_before_click(self):
+        d=self.driver
+        for change in ("attachment.disabled=true", "attachment.type='text'"):
+            with self.subTest(change=change):
+                d.goto("data:text/html,<input id='attachment' type='file' aria-label='file'><script>let clicks=0;attachment.onclick=()=>clicks++</script>")
+                obs=d.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='file')
+                d._page.evaluate(change)
+                response=d.upload(obs['obs_id'],'page',index,[],approved=True)
+                self.assertEqual(('upload_target_required','not_started'),(response.get('error'),response.get('effect')))
+                self.assertEqual(0,d._page.evaluate('clicks'))
+
+    def test_registered_upload_honors_modal_expectation_before_selection(self):
+        from tacto.browser_upload import BrowserUploadDriver, BrowserUploadFile, BrowserUploadScope
+        from tacto.flow import Selector
+        d=self.driver
+        d.goto("data:text/html,<dialog open aria-modal='true'>Owned modal</dialog><input id='file' type='file' aria-label='attachment'><script>let clicks=0;file.onclick=()=>clicks++</script>")
+        selector=Selector(title='attachment')
+        adapter=BrowserUploadDriver(d,{'owned':BrowserUploadScope(d.identity(),selector,selector,
+            (BrowserUploadFile('owned.txt',b'owned'),))})
+        obs=adapter.observe();index=next(i for i,n in enumerate(d._latest['page']['nodes']) if n['name']=='attachment')
+        response=adapter.act(obs['obs_id'],'page',{'name':'upload','element_index':index,**adapter.parameters('owned')},
+            expect={'no_modal':True},risk_class='confirm',approved=True)
+        self.assertEqual(('target_changed','not_started'),(response.get('error'),response.get('effect')))
+        self.assertEqual(0,d._page.evaluate('clicks'))
+        self.assertEqual(0,d._page.evaluate('file.files.length'))

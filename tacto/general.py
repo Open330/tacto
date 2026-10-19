@@ -45,6 +45,7 @@ from .flow import Selector, _same_role
 from .outcome import OutcomeSpec
 from .model_budget import model_deadline
 from .provider_observation import capture_provider_calls, provider_failure_reason
+from .protocol import RETURN_BOUND_CAPABILITY
 
 # What can be done to a thing depends on what it is, and saying so is what
 # stops "read the answer" from being offered as "click the answer". The first
@@ -93,6 +94,12 @@ def candidates(tree: str, *, capabilities=()) -> list[dict]:
         # A list row or cell opens on a double click (Finder, a chat list).
         if role in ("Row", "Cell") and "action.double_click" in capabilities:
             can = (*can, "double_click")
+        # Return as a submit: a chat input sends, a selected row opens. Only
+        # where the helper binds the key to this very element; never a
+        # read-only field, and never offered together with navigation.
+        if (role in ("TextField", "TextArea", "Row") and RETURN_BOUND_CAPABILITY in capabilities
+                and "press_key.element_bound" in capabilities and "[readonly]" not in line):
+            can = (*can, "submit")
         bucket = act if "click" in can or "prepare_window" in can else read
         # What to CALL it and what it IS are different questions, and a
         # display answers them differently: the useful name for a readout is
@@ -104,17 +111,70 @@ def candidates(tree: str, *, capabilities=()) -> list[dict]:
         ident = _pick(line, ("Identifier", "Description", "Title")
                       if "click" not in can
                       else ("Title", "Description", "Identifier", "Value"))
+        via_child = None
+        if (not show or not ident) and role in ("Row", "Cell"):
+            # A chat list row says nothing itself; its name is the text
+            # inside it. That text is how it is told apart and found again,
+            # while the row stays what is acted on (Selector click_ancestor).
+            named = _row_name(tree, lines, i, role, container)
+            if named is not None:
+                via_child, label_text = named
+                show = ident = (via_child["attr"], label_text)
         if not show or not ident:
             continue
         from .ask import NAVIGATION_KEYS
         keys = NAVIGATION_KEYS - ({"Escape"} if "press_key.no_escape" in capabilities else set())
         bucket.append({"element_index": int(toks[0]), "role": toks[1].rstrip(","),
                        "navigation_keys": sorted(keys),
-                       "label": show[1][:80], "match": ident[1],
+                       "label": show[1][:80],
+                       "match": via_child["match"] if via_child else ident[1],
                        "attr": ident[0], "container": container,
                        "where": where, "can": list(can),
-                       "disabled": "[disabled]" in line, "line": line})
+                       "disabled": "[disabled]" in line, "line": line,
+                       **({"via_child": via_child} if via_child else {})})
     return act + read
+
+
+_TEXT_ROLES = ("StaticText", "TextField", "TextArea", "Image", "Button")
+
+
+def _row_name(tree: str, lines: list[str], i: int, role: str, container: str):
+    """(identity, label) of an unlabeled row from the text inside it, or None.
+
+    Only a text that finds THIS row again, and nothing else, is an identity:
+    two rows reading "홍길동" are not told apart by their text, so neither is
+    offered rather than one being guessed (the other would be opened).
+    """
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    texts, identity = [], None
+    for line in lines[i + 1:i + 61]:
+        if not line.strip():
+            continue
+        if len(line) - len(line.lstrip()) <= indent:
+            break
+        toks = line.strip().split()
+        if len(toks) < 2:
+            continue
+        child_role = toks[1].rstrip(",")
+        if not any(_same_role(child_role, r) for r in _TEXT_ROLES):
+            continue
+        got = _pick(line, ("Value", "Title", "Description"))
+        if not got or not got[1].strip() or got[1] in (t for _, t in texts):
+            continue
+        texts.append((got[0], got[1]))
+        if identity is None:
+            sel = Selector(role=child_role, ancestor=container or None,
+                           click_ancestor=[role], **{_ATTR_FIELD[got[0]]: got[1]})
+            try:
+                if sel.resolve(tree)[0] == int(lines[i].split()[0]):
+                    identity = {"role": child_role, "attr": got[0], "match": got[1]}
+            except (LookupError, ValueError):
+                pass
+        if len(texts) >= 3 and identity is not None:
+            break
+    if identity is None:
+        return None
+    return identity, " · ".join(t for _, t in texts[:3])
 
 
 def _pick(line: str, keys) -> tuple[str, str] | None:
@@ -196,7 +256,7 @@ def _selection(driver, target: str) -> str:
 
 
 def _witness(driver, obs, target: str, field_name: str, cands: list,
-             ask_where, say) -> str | None:
+             ask_where, say, memo: dict | None = None) -> str | None:
     """Read what the screen currently says for one named fact.
 
     Returns None when nothing on this screen shows it — which is not a failure
@@ -208,17 +268,39 @@ def _witness(driver, obs, target: str, field_name: str, cands: list,
     readable = [c for c in cands if "read" in c.get("can", ())]
     if not readable:
         return None
-    try:
-        answer = ask_where(field_name, readable)
-    except Exception:
-        return None
-    if not answer or answer.get("pick") is None:
-        return None
-    c = answer["candidate"]
-    line = _probe(driver, obs["obs_id"], target, c["element_index"])
-    if not line:
+    # WHERE a fact is shown is a question about the screen's layout; its
+    # VALUE is read fresh below every time. The commit check runs before and
+    # again after approval on the same screen, and asked the model again for
+    # each field both times (one call per field per check). Same screen, same
+    # place: found again by name, never by a stale index.
+    key = (field_name, screen_key(cands))
+    c = None
+    if memo is not None and key in memo:
+        idx = reacquire(memo[key], obs["tree"])
+        c = next((x for x in readable if x["element_index"] == idx), None) if idx is not None else None
+    if c is None:
+        try:
+            answer = ask_where(field_name, readable)
+        except Exception:
+            return None
+        if not answer or answer.get("pick") is None:
+            return None
+        c = answer["candidate"]
+        if memo is not None:
+            memo[key] = {k: c.get(k) for k in ("role", "attr", "match", "container", "via_child")
+                         if c.get(k) is not None}
+    response = _probe_response(driver, obs["obs_id"], target, c["element_index"])
+    if response is None:
         return None                   # stale snapshots cannot witness a commit
-    value = _value_of({**c, "line": line})
+    node = response.get('node')
+    if type(node) is dict and 'value' in node:
+        # BrowserDriver's fresh, document/element-bound CDP probe retains
+        # exact text. Its display line flattens newlines for tree rendering.
+        if type(node['value']) is not str:
+            return None
+        value = node['value']
+    else:
+        value = _value_of({**c, "line": response['line']})
     say(f"  ({field_name}: {value})")
     return value
 
@@ -231,14 +313,22 @@ def _probe(driver, obs_id: str, target: str, idx: int) -> str:
     off the line captured before a single key was pressed. Asking the element
     is a millisecond; asking the screen is most of a minute in a big app.
     """
+    response = _probe_response(driver, obs_id, target, idx)
+    return response['line'] if response is not None else ''
+
+
+def _probe_response(driver, obs_id: str, target: str, idx: int) -> dict | None:
+    """Fresh host probe only; never reuse a tree snapshot after refusal."""
     probe = getattr(driver, "probe", None)
     if probe is None:
-        return ""
+        return None
     try:
         r = probe(obs_id, target, idx)
     except Exception:
-        return ""
-    return r.get("line", "") if r.get("type") == "probe" else ""
+        return None
+    if type(r) is dict and r.get('type') == 'probe' and type(r.get('line')) is str and r['line']:
+        return r
+    return None
 
 
 def reacquire(c: dict, tree: str) -> int | None:  # noqa: C901
@@ -258,6 +348,16 @@ def reacquire(c: dict, tree: str) -> int | None:  # noqa: C901
     field = _ATTR_FIELD.get(c.get("attr") or "")
     if field is None:
         return None
+    child = c.get("via_child")
+    if child:
+        # Found again by the text inside it, then the row around that text.
+        try:
+            idx, _ = Selector(role=child["role"], ancestor=c.get("container") or None,
+                              click_ancestor=[c["role"]],
+                              **{_ATTR_FIELD[child["attr"]]: child["match"]}).resolve(tree)
+            return idx
+        except (LookupError, KeyError):
+            return None
     try:
         # A previously observed container remains part of the identity even
         # when another same-named field becomes the only remaining match.
@@ -400,6 +500,9 @@ class GeneralResult:
     # expectation that showed up. `ok` says the run reached its end; this says
     # there is evidence it got somewhere, and they are different claims.
     verified: bool = False
+    # Ended on the planner's "this batch finishes it" plus the evidence it
+    # named, without a final "are we done?" question over the last screen.
+    finished_without_asking: bool = False
     # Every effect this run actually caused, for a verifier that does not take
     # the run's word for how it went.
     effects: set = field(default_factory=set)
@@ -574,8 +677,15 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 c['can'] = [a for a in c['can'] if a not in ('click', 'set_value')]
                 c['options'] = custom.get('options', [])
                 operation = {'closed': 'open_select', 'open': 'select_custom_option'}.get(custom.get('state'))
+                if (operation=='select_custom_option' and 'selection_supported' in custom
+                        and custom['selection_supported'] is not True):
+                    operation=None
                 if operation is not None and 'action.' + operation in capabilities:
                     c['can'].append(operation)
+        if 'action.upload' in capabilities:
+            registered = getattr(driver, 'upload_candidates', None)
+            if callable(registered):
+                result = registered(target, tree, result)
         return result + menus.candidates()
 
     def observe():
@@ -597,7 +707,40 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         except Exception as exc:
             return {"type": "error", "error": "observation_failed", "detail": str(exc)}
 
+    def finish(obs, cands):
+        """End the run on a done: after-checks, then what was seen."""
+        if spec is not None:
+            for check in spec.required:
+                if check.when == "after" and check.kind in ("reports", "unchanged") \
+                        and check.name in spec.expected:
+                    if stopped():
+                        return res
+                    value = _witness(driver, obs, target, check.name, cands, ask_where, say, where_memo)
+                    if stopped():
+                        return res
+                    if value is not None:
+                        res.witnessed[check.name] = value
+        # The model saying it is done is where the run STOPS, not proof it
+        # succeeded (advisor finding). Something has to have been seen: a
+        # value read, an `expect`, or a valid causal host receipt. Without that this is a
+        # run that ended, and saying so is the honest report.
+        res.ok = True
+        from .commit_evidence import CommitEvidence, DeliveryEvidence, ProducerArtifactEvidence
+        causal_receipt = any(
+            event.get('state') == 'confirmed'
+            and type(res.commit_evidence.get(event.get('event_id'))) is CommitEvidence
+            and type(res.commit_evidence[event['event_id']].evidence)
+                in (DeliveryEvidence, ProducerArtifactEvidence)
+            and evidence_error({**event, 'commit_evidence': res.commit_evidence[event['event_id']]},
+                               spec.expected if spec else {}) is None
+            for event in res.events)
+        res.verified = bool(res.said) or any(v.verified for v in res.visits) or causal_receipt
+        res.why = ("목표에 도달했습니다" if res.verified else
+                   "끝났다고 하는데, 확인할 수 있는 결과는 못 봤습니다")
+        return res
+
     planned_on = None     # the tree the previous batch was planned against
+    where_memo: dict = {}  # (fact, screen) -> where it is shown; values re-read
     for _ in range(max_screens):
         if stopped():
             return res
@@ -681,26 +824,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                        f"입력 {details.get('token_count', '?')}/{details.get('budget', '?')})")
             return res
         if answer.get("done"):
-            if spec is not None:
-                for check in spec.required:
-                    if check.when == "after" and check.kind in ("reports", "unchanged") \
-                            and check.name in spec.expected:
-                        if stopped():
-                            return res
-                        value = _witness(driver, obs, target, check.name, cands, ask_where, say)
-                        if stopped():
-                            return res
-                        if value is not None:
-                            res.witnessed[check.name] = value
-            # The model saying it is done is where the run STOPS, not proof it
-            # succeeded (advisor finding). Something has to have been seen: a
-            # value read, or an `expect` that showed up. Without that this is a
-            # run that ended, and saying so is the honest report.
-            res.ok = True
-            res.verified = bool(res.said) or any(v.verified for v in res.visits)
-            res.why = ("목표에 도달했습니다" if res.verified else
-                       "끝났다고 하는데, 확인할 수 있는 결과는 못 봤습니다")
-            return res
+            return finish(obs, cands)
         acts = answer.get("actions") or []
         if not acts:
             res.why = "이 화면에서 할 수 있는 일이 없습니다"
@@ -722,7 +846,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 continue
 
         plan = tuple((a["do"], a["candidate"]["match"],
-                      repr(a.get("value")), a.get("option_label"), a.get("direction"), a.get("pages")) for a in acts)
+                      repr(a.get("value")), a.get("option_label"), a.get("direction"), a.get("pages"), a.get("scope"), a.get("attachment_digest")) for a in acts)
         # Scrolling can change the viewport without changing the AX tree.
         # Permit repeated navigation, bounded by max_screens, and replan each
         # time instead of mistaking the stable tree for a failed action.
@@ -749,6 +873,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
         selected = _selection(driver, target)
         visit = Visit(screen=key, expect=answer.get("expect"))
         event_start = len(res.events)
+        said_start = len(res.said)
         pre_satisfied = bool(visit.expect and visit.expect in obs["tree"])
         moved = False
         for n, a in enumerate(acts):
@@ -783,6 +908,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 if probed:
                     c = {**c, "line": probed}
             action = {"name": a["do"], "element_index": c["element_index"]}
+            if c.get("via_child"):
+                # The row has no name of its own to check; its text was
+                # checked when it was found again (below), against a fresh
+                # observation, and the row's role still is.
+                for field in ("label", "attribute"):
+                    expect.pop(field, None)
             if a["do"] == "menu":
                 try:
                     with model_deadline(deadline):
@@ -800,7 +931,18 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     res.why = "관측된 창의 준비 capability가 없습니다"
                     res.visits.append(visit)
                     return res
-            if a["do"] in ("set_value", "select_option"):
+            if a['do'] == 'upload':
+                from .browser_upload import upload_params_valid
+                upload_params = {k: a.get(k) for k in ('scope', 'attachment_digest')}
+                if ('action.upload' not in capabilities or 'upload' not in c.get('can', ())
+                        or not upload_params_valid(upload_params)
+                        or sum(all(u.get(k) == v for k, v in upload_params.items())
+                               for u in c.get('uploads', [])) != 1):
+                    res.why = '등록된 첨부와 일치하지 않아 업로드하지 않았습니다'
+                    res.visits.append(visit)
+                    return res
+                action.update(upload_params)
+            elif a["do"] in ("set_value", "select_option"):
                 if a["do"] == "select_option" and "action.select_option" not in capabilities:
                     res.why = "이 드라이버에서 선택 상자를 지원하지 않습니다"
                     res.visits.append(visit)
@@ -831,9 +973,28 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                         res.why = "선택 항목이 없거나 모호하거나 비활성 상태입니다"
                         res.visits.append(visit)
                         return res
+                    if options[0].get('visible') is False:
+                        res.why = "선택 항목이 잘려 있습니다 — 해당 목록을 스크롤하고 다시 관측하세요"
+                        res.visits.append(visit)
+                        return res
                     action['option_label'] = label
                     if 'value' in a:
                         action['value'] = a['value']
+            elif a["do"] == "submit":
+                # Return commits, so it needs what a recipe's submit step
+                # needs: the bound element, and a result that is not already
+                # on screen — otherwise nothing could show the key did it.
+                if ("submit" not in c.get("can", ()) or RETURN_BOUND_CAPABILITY not in capabilities
+                        or "press_key.element_bound" not in capabilities):
+                    res.why = "이 대상에서는 Return으로 제출할 수 없습니다"
+                    res.visits.append(visit)
+                    return res
+                if not visit.expect or pre_satisfied:
+                    res.why = ("Return 결과로 나타날 글자가 없거나 이미 화면에 있어 "
+                               "누르지 않았습니다")
+                    res.visits.append(visit)
+                    return res
+                action = {"name": "press_key", "key": "Return", "element_index": c["element_index"]}
             elif a["do"] == "press_key":
                 from .ask import NAVIGATION_KEYS
                 if ("action.press_key" not in capabilities or a.get("key") not in NAVIGATION_KEYS
@@ -933,12 +1094,17 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     c = next((item for item in cands if item["element_index"] == idx), None)
                     if c is None or c["disabled"]:
                         return "실행 대상이 없거나 비활성 상태입니다"
+                    if a['do'] == 'upload' and (
+                            'upload' not in c.get('can', ()) or sum(
+                                all(u.get(k) == action[k] for k in ('scope', 'attachment_digest'))
+                                for u in c.get('uploads', [])) != 1):
+                        return '등록된 첨부 또는 실행 대상이 바뀌었습니다'
                     action["element_index"] = idx
                 current = {}
                 for field_name in required:
                     if stopped():
                         return res.why
-                    value = _witness(driver, obs, target, field_name, cands, ask_where, say)
+                    value = _witness(driver, obs, target, field_name, cands, ask_where, say, where_memo)
                     if stopped():
                         return res.why
                     if value is not None:
@@ -957,6 +1123,9 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     return res
             if risk == "confirm":
                 description = describe(env.contract_for(effects, c["label"]), decision)
+                if a['do'] == 'upload':
+                    selected_upload = next(u for u in c['uploads'] if u['scope'] == action['scope'])
+                    description += ' — 첨부 ' + json.dumps(selected_upload, ensure_ascii=False)
                 if required:
                     description += " — " + ", ".join(f"{k}: {res.witnessed[k]}" for k in required)
                 accepted = approve is not None and approve(description)
@@ -974,6 +1143,24 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                         res.why = problem
                         res.visits.append(visit)
                         return res
+            if c.get("via_child") and not consequential:
+                # Rows are reused and reordered (a chat list moves on every
+                # new message): act on the row whose text is the planned text
+                # NOW, or not at all. Consequential steps did this above.
+                fresh = observe()
+                if stopped(visit):
+                    return res
+                idx = reacquire(c, fresh["tree"]) if fresh.get("type") == "observation" else None
+                fresh_c = (None if idx is None else next(
+                    (x for x in available(fresh["tree"]) if x["element_index"] == idx), None))
+                if (fresh_c is None or fresh_c["disabled"]
+                        or fresh_c.get("via_child") != c["via_child"]):
+                    res.why = f"'{c['label']}' 행을 다시 찾지 못했습니다"
+                    res.visits.append(visit)
+                    return res
+                obs, c = fresh, fresh_c
+                cands = available(obs["tree"])
+                action["element_index"] = idx
             say(f"  {c['label']}")
             if stopped(visit):
                 return res
@@ -993,6 +1180,10 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 dispatch_parameters = save_panel_dispatch_parameters(event, commit_context, capabilities)
                 if dispatch_parameters and (risk not in ('confirm', 'preapproved') or approved is not True):
                     raise ValueError('save-panel dispatch requires explicit approval')
+                if a["do"] == "submit":
+                    # Not an approval: the loop checked the submit contract.
+                    # A consequential submit was still gated by `risk` above.
+                    dispatch_parameters = {**dispatch_parameters, "submit_authorized": True}
             except Exception:
                 res.why = "커밋 전 호스트 dispatch 결합 검증에 실패했습니다"
                 res.visits.append(visit)
@@ -1006,6 +1197,8 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                    risk_class=risk, intent_text=what, approved=approved, **dispatch_parameters)
             except Exception as exc:
                 r = {"type": "error", "error": "driver_exception", "effect": "unknown", "detail": str(exc)}
+            from .protocol import normalize_action_response
+            r = normalize_action_response(r)
             dispatched = r.get("type") == "acted" or (
                 r.get("type") == "error" and r.get("error") != "target_changed"
                 and r.get("effect", "unknown") != "not_started")
@@ -1031,7 +1224,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                   else "dispatched" if r.get("type") == "acted" and (not r.get("unverified") or needs_observation)
                                   else "unknown")
                 res.events.append(event)
-                if action.get("name") == "menu" and event["state"] != "confirmed":
+                if event["state"] == "unknown" or (action.get("name") == "menu" and event["state"] != "confirmed"):
                     res.certainty = "unknown"
                 if needs_observation:
                     res.certainty = "unknown"
@@ -1051,15 +1244,37 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                                      spec.expected if spec else {})
                             if problem is None:
                                 res.commit_evidence[event["event_id"]] = proof
+                                from .commit_evidence import SavedFileStateEvidence
+                                if type(proof.evidence) is SavedFileStateEvidence:
+                                    event['saved_state_verified'] = True
+                                    event['commit_evidence_kind'] = 'saved_file_state'
+                                    acknowledged = r.get('type')=='acted' and not r.get('unverified')
+                                    event['state'] = 'state_verified' if acknowledged else 'unknown'
+                                    res.why = '파일 상태는 확인했지만 이번 저장의 인과적 완료는 확인하지 못했습니다'
+                                    visit.actions.append({**c,'do':a['do'],'result':'saved_state_verified'})
+                                    res.visits.append(visit)
+                                    return res
                                 event["state"] = "confirmed"
+                                event['commit_evidence_kind'] = type(proof.evidence).__name__
+                                if r.get('type') == 'error':
+                                    # The operation-bound receipt resolves the
+                                    # lost response, not the transport itself.
+                                    event['dispatch_response'] = {'type':'error','effect':'unknown'}
+                                    r = {'type':'acted', 'action':action['name'],
+                                         'obs_id':obs['obs_id'], 'commit_confirmed':True,
+                                         'dispatch_response_unavailable':True}
                                 if all(e["state"] == "confirmed" for e in res.events):
                                     res.certainty = "confirmed"
                             else:
                                 event["evidence_error"] = problem
                         except Exception:
                             event["evidence_error"] = "host_commit_evidence_failed"
-                    if r.get('unverified') and event['state'] != 'confirmed':
-                        res.why = "불확실한 커밋을 확인할 호스트 영수증이 없습니다"
+                    if event['state'] != 'confirmed':
+                        # An acknowledged click is not causal completion.
+                        # Stop before another plan/batch action can repeat an
+                        # irreversible operation whose receipt is missing.
+                        if not stopped():
+                            res.why = "커밋 완료를 확인할 호스트 영수증이 없습니다"
                         visit.actions.append({**c, 'do':a['do'], 'result':'commit_unverified'})
                         res.visits.append(visit)
                         return res
@@ -1115,7 +1330,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                       for x in cands if "read" in x.get("can", ())
                                       and ("click" not in x.get("can", ())
                                            or "set_value" in x.get("can", ()))][:12],
-                                  **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label") if k in action},
+                                  **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label", "scope", "attachment_digest") if k in action},
                                   **({'window_key_bound': True} if window_key_reobservation(action, r, capabilities) else {})})
             if a["do"] == "menu":
                 # Recorded so the recipe made from this run can check the
@@ -1135,10 +1350,13 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                    json.dumps(_value_of(c), ensure_ascii=False))
             else:
                 done_so_far.append(f"{c['label']} ({a['do']})")
-            if needs_observation or a["do"] in ("scroll", "press_key", "double_click", "select_option", "open_select", "select_custom_option", "menu"):
-                if needs_observation:
+            if needs_observation or a["do"] in ("scroll", "press_key", "submit", "double_click", "select_option", "open_select", "select_custom_option", "menu"):
+                if needs_observation and n < len(acts) - 1:
                     # The expectation described the whole original batch,
                     # including actions we deliberately did not execute.
+                    # When this was the batch's last action, all of it ran,
+                    # and the expectation is exactly what should now show —
+                    # a Return submit is planned last with it for that reason.
                     visit.expect = None
                 visit.cut_short = f"{c['label']} 다음 — 탐색 뒤 재관찰"
                 moved = True
@@ -1158,8 +1376,6 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             return res
         if visit.expect:
             try:
-                # Keep the old settling behavior if a non-idempotent batch
-                # could leave an already-true label visible before its effect.
                 got = driver.observe(target, "tree_full") if pre_satisfied and any(
                     a.get("do") not in ("read", "set_value") for a in visit.actions) else None
                 if got is None or (got.get("type") == "observation" and visit.expect not in got["tree"]):
@@ -1177,6 +1393,29 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                     res.certainty = "confirmed"
             elif not visit.verified:
                 say(f"  ({visit.expect!r} 가 나타나지 않았습니다)")
+
+        # The planner said this batch finishes the goal, and the screen
+        # agrees: every action ran, nothing beyond a UI change happened, and
+        # either the text it expected newly appeared or the batch was all
+        # reading and those values were read. Asking "are we done?" over the
+        # resulting screen cost a whole planning question per run — half of
+        # a two-question Calculator task — to hear what was already shown.
+        batch = res.events[event_start:]
+        only_reads = bool(visit.actions) and all(x.get("do") == "read" for x in visit.actions)
+        if (answer.get("finishes") is True and len(visit.actions) == len(acts)
+                and all(set(e["effects"]) <= {"read", "write_ephemeral"}
+                        and e["state"] == "confirmed" for e in batch)
+                and ((visit.expect and visit.verified and not pre_satisfied)
+                     or (only_reads and len(res.said) > said_start))):
+            after = observe()
+            if stopped(visit):
+                return res
+            if after["type"] == "observation":
+                cands = available(after["tree"])
+                visit.next_screen = screen_key(cands)
+                res.visits.append(visit)
+                res.finished_without_asking = True
+                return finish(after, cands)
 
         if moved:
             # Not a failure: the screen advanced, which is often exactly what

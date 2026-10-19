@@ -50,7 +50,7 @@ class ExistingFileReceiptTests(unittest.TestCase):
         r = self.receipt()
         event, proof = self.run_save(r, lambda: Path(self.path).write_text('new text 4417', encoding='utf-8'))
         self.assertIs(type(proof), CommitEvidence)
-        self.assertIsNone(evidence_error({**event, 'commit_evidence': proof}, {}))
+        self.assertIsNone(evidence_error({**event, 'commit_evidence': proof}, r.commit_expected))
         self.assertEqual(self.path, proof.evidence.path)
 
     def test_a_file_already_holding_the_text_is_the_saved_state(self):
@@ -61,12 +61,21 @@ class ExistingFileReceiptTests(unittest.TestCase):
         self.assertIs(type(proof), CommitEvidence)
 
     def test_no_write_no_receipt(self):
+        now = [0.0]
+        def sleep(seconds):
+            now[0] += seconds
         with self.assertRaisesRegex(ArtifactReceiptError, 'file_does_not_hold_text'):
-            self.run_save(self.receipt())
+            self.run_save(self.receipt(clock=lambda: now[0], sleep=sleep))
+        self.assertAlmostEqual(0.2, now[0])
 
     def test_different_bytes_no_receipt(self):
+        now = [0.0]
+        def sleep(seconds):
+            now[0] += seconds
         with self.assertRaisesRegex(ArtifactReceiptError, 'file_does_not_hold_text'):
-            self.run_save(self.receipt(), lambda: Path(self.path).write_text('new text 4417\n', encoding='utf-8'))
+            self.run_save(self.receipt(clock=lambda: now[0], sleep=sleep),
+                          lambda: Path(self.path).write_text('new text 4417\n', encoding='utf-8'))
+        self.assertAlmostEqual(0.2, now[0])
 
     def test_text_or_document_changing_during_the_save_refuses(self):
         r = self.receipt()
@@ -114,14 +123,15 @@ class ExistingFileReceiptTests(unittest.TestCase):
             self.receipt()
 
     def test_only_file_save_menu_and_once(self):
-        r = self.receipt()
         for action in ({'name': 'menu', 'path': ['File', 'Save As…'], 'focused_document': self.path},
                        {'name': 'menu', 'path': SAVE_PATH},                       # unbound press
                        {'name': 'menu', 'path': SAVE_PATH, 'focused_document': self.path + 'x'},
                        {'name': 'click', 'element_index': 3}):
+            r = self.receipt()
             event = make_event(action, {'write_persistent'}, 'com.apple.TextEdit', obs_id='o')
             with self.subTest(action=action), self.assertRaises(ArtifactReceiptError):
                 r.prepare_commit(event)
+        r = self.receipt()
         event = save_event(self.path); ctx = r.prepare_commit(event)
         with self.assertRaises(ArtifactReceiptError):
             r.prepare_commit(save_event(self.path))
@@ -300,7 +310,7 @@ class FocusedDocumentSwiftTests(unittest.TestCase):
         tail = (root / 'tests/fixtures/focused_document_judge.swift.txt').read_text(encoding='utf-8')
         tail = tail.replace('DECOMPOSED', decomposed).replace('COMPOSED', composed)
         harness = 'import Foundation\nimport ApplicationServices\n' + code + tail
-        with tempfile.TemporaryDirectory(prefix='tacto-focused-doc-') as d:
+        with tempfile.TemporaryDirectory(prefix='nlc-focused-doc-') as d:
             src = Path(d) / 'main.swift'
             src.write_text(harness, encoding='utf-8')
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
@@ -331,7 +341,7 @@ class FocusedDocumentTimeoutTests(unittest.TestCase):
         pure = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,')]
         harness = ('import Foundation\nimport ApplicationServices\n' + pure + tail_fn +
                    (root / 'tests/fixtures/focused_document_timeout.swift.txt').read_text())
-        with tempfile.TemporaryDirectory(prefix='tacto-focused-timeout-') as d:
+        with tempfile.TemporaryDirectory(prefix='nlc-focused-timeout-') as d:
             src = Path(d) / 'main.swift'; src.write_text(harness, encoding='utf-8')
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)

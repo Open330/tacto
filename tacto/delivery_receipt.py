@@ -18,14 +18,16 @@ import re
 import time
 
 from .artifact_receipt import ArtifactReceiptError
-from .commit_evidence import CommitEvidence, DeliveryEvidence, action_digest
+from .commit_evidence import (CommitEvidence, DeliveryEvidence, AttachmentEvidence,
+                              attachment_manifest_valid, action_digest, _event_binding_matches)
 
 
 PUBLIC_CODES = frozenset({
     'invalid_delivery_event', 'inbox_read_unavailable', 'inbox_receipt_mismatch',
-    'already_prepared', 'delivery_binding_unavailable', 'delivery_binding_mismatch',
+    'already_prepared', 'delivery_binding_unavailable', 'delivery_binding_mismatch', 'delivery_binding_changed',
     'delivery_already_present', 'already_used', 'delivery_commit_mismatch',
-    'delivery_not_observed_before_deadline',
+    'delivery_not_observed_before_deadline', 'delivery_dispatch_not_started',
+    'delivery_dispatch_unverified',
 })
 
 
@@ -55,6 +57,7 @@ class PendingDelivery:
     account: str
     recipient: str
     body_sha256: str
+    attachments: tuple[AttachmentEvidence, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,7 @@ class InboxDelivery:
     recipient: str
     body_sha256: str
     state: str  # exactly 'delivered'; queued/accepted/sent are insufficient
+    attachments: tuple[AttachmentEvidence, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,12 @@ class DeliveredMessageReceipt:
     read outage. Only after dispatch is that read repeated within the deadline;
     preparation still refuses because absence could not be verified.
 
+    Attachments are host-observed immutable (filename, SHA256, byte count)
+    tuples in the declared order. None means unobserved/body-only legacy scope;
+    an explicit empty tuple requires both readers to observe zero attachments.
+    Readers must derive hashes from selected/received bytes, not copy expected
+    values. This adapter neither reads source files nor uploads attachments.
+
     The service must bind request_id to this one immutable payload and stable
     message identity. The host owns/exclusively uses that request identity;
     no receipt before dispatch may already exist. Each adapter allows one
@@ -116,7 +126,7 @@ class DeliveredMessageReceipt:
     clicks or retries the transmission. Deadlines cannot cancel OS/API calls.
     """
     def __init__(self, *, target, account, recipient, text, bind_request, read_inbox,
-                 timeout_seconds=2.0, poll_interval=.02, clock=None, sleep=None):
+                 timeout_seconds=2.0, poll_interval=.02, clock=None, sleep=None, attachments=None):
         if not all(_text(v) for v in (target, account, recipient)):
             raise ValueError('delivery target/account/recipient must be nonempty strings')
         if type(text) is not str or len(text.encode('utf-8')) > 4 * 1024 * 1024:
@@ -126,18 +136,24 @@ class DeliveredMessageReceipt:
         for value in (timeout_seconds, poll_interval):
             if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
                 raise ValueError('delivery polling budgets must be finite and positive')
+        if attachments is not None and not attachment_manifest_valid(attachments):
+            raise ValueError("delivery requires a valid immutable attachment manifest")
+        self._attachments=attachments
         self._target, self._account, self._recipient = target, account, recipient
         self._hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
         self._bind, self._inbox = bind_request, read_inbox
         self._timeout, self._poll = float(timeout_seconds), float(poll_interval)
-        self._clock, self._sleep = clock or time.monotonic, sleep or time.sleep
+        from .receipt_clock import checked_receipt_clock
+        self._clock, self._sleep = checked_receipt_clock(clock), sleep or time.sleep
         self._prepare_used = self._after_used = False
         self._prepared = None
 
     @property
     def commit_expected(self):
-        return {'받는 사람': self._recipient, '보내는 계정': self._account,
-                '보낸 내용 sha256': self._hash}
+        expected={'받는 사람': self._recipient, '보내는 계정': self._account,
+                  '보낸 내용 sha256': self._hash}
+        if self._attachments is not None:expected['attachments']=self._attachments
+        return expected
 
     def _digest(self, event):
         try:
@@ -146,7 +162,7 @@ class DeliveredMessageReceipt:
             effects, action = set(event['effects']), event['action']
             if (event['target'] != self._target or not _text(event['event_id'])
                     or not _text(event['obs_id']) or type(action) is not dict
-                    or action.get('name') not in {'click', 'press_key'}
+                    or action.get('name') not in {'click', 'press_key', 'upload'}
                     or 'transmit' not in effects
                     or effects - {'transmit', 'read', 'write_ephemeral'}):
                 raise ValueError()
@@ -157,6 +173,11 @@ class DeliveredMessageReceipt:
                         (set(action) not in ({'name', 'key'}, {'name', 'key', 'element_index'})
                          or action['key'] != 'Return'))):
                 raise ValueError()
+            if action['name'] == 'upload':
+                from .browser_upload import upload_params_valid
+                if (set(action) != {'name', 'element_index', 'scope', 'attachment_digest'}
+                        or not upload_params_valid({k: action[k] for k in ('scope', 'attachment_digest')})):
+                    raise ValueError()
             digest = action_digest(action, effects, self._target, obs_id=event['obs_id'])
             if event['action_digest'] != digest:
                 raise ValueError()
@@ -180,15 +201,13 @@ class DeliveredMessageReceipt:
                 or result.request_id != request_id
                 or not _message_identity(result.message_id) or result.state != 'delivered'
                 or result.account != self._account or result.recipient != self._recipient
-                or result.body_sha256 != self._hash):
+                or result.body_sha256 != self._hash
+                or (result.attachments is not None and not attachment_manifest_valid(result.attachments))
+                or (self._attachments is not None and result.attachments!=self._attachments)):
             raise _refuse('inbox_receipt_mismatch')
         return result
 
-    def prepare_commit(self, event):
-        if self._prepare_used:
-            raise _refuse('already_prepared')
-        self._prepare_used = True
-        digest = self._digest(event)
+    def _binding(self, event, digest):
         try:
             binding = self._bind(deepcopy(event))
         except Exception:
@@ -200,11 +219,28 @@ class DeliveredMessageReceipt:
                 or not _identity(binding.request_id)
                 or binding.target != self._target or binding.obs_id != event['obs_id']
                 or binding.action_digest != digest or binding.account != self._account
-                or binding.recipient != self._recipient or binding.body_sha256 != self._hash):
+                or binding.recipient != self._recipient or binding.body_sha256 != self._hash
+                or (binding.attachments is not None and not attachment_manifest_valid(binding.attachments))
+                or (self._attachments is not None and binding.attachments!=self._attachments)):
             raise _refuse('delivery_binding_mismatch')
+        return binding
+
+    def prepare_commit(self, event):
+        if self._prepare_used:
+            raise _refuse('already_prepared')
+        self._prepare_used = True
+        digest = self._digest(event)
+        identifier = event['event_id']
+        binding = self._binding(event, digest)
         if self._read(binding.request_id) is not None:
             raise _refuse('delivery_already_present')
-        self._prepared = _Prepared(event['event_id'], digest, binding)
+        # Receiving-service reads can outlast the UI/payload binding. Re-read
+        # the exact observed control before granting a dispatch context.
+        if self._binding(event, digest) != binding:
+            raise _refuse('delivery_binding_changed')
+        if self._digest(event) != digest or event['event_id'] != identifier:
+            raise _refuse('delivery_binding_changed')
+        self._prepared = _Prepared(identifier, digest, binding)
         return self._prepared
 
     def after_commit(self, event, driver_result, context):
@@ -216,7 +252,13 @@ class DeliveredMessageReceipt:
                 or event.get('event_id') != prepared.event_id
                 or self._digest(event) != prepared.digest):
             raise _refuse('delivery_commit_mismatch')
-        deadline = self._clock() + self._timeout
+        if type(driver_result) is dict and (driver_result.get('effect') == 'not_started'
+                or driver_result.get('type') in ('confirm_request','handoff_request','observation','probe')):
+            raise _refuse('delivery_dispatch_not_started')
+        if type(driver_result) is not dict or driver_result.get('type') not in ('acted','error'):
+            raise _refuse('delivery_dispatch_unverified')
+        from .receipt_clock import receipt_deadline
+        deadline = receipt_deadline(self._clock, self._timeout)
         last_code = 'delivery_not_observed_before_deadline'
         while True:
             # Do not start another remote read when the budget is already spent.
@@ -234,7 +276,12 @@ class DeliveredMessageReceipt:
             if remaining <= 0:
                 raise _refuse(last_code)
             if delivered is not None:
+                # Receiving reads and the final clock hook may execute host
+                # code. Preserve the original event through that last read,
+                # not just when after_commit was entered.
+                if not _event_binding_matches(event, prepared.event_id, prepared.digest):
+                    raise _refuse('delivery_commit_mismatch')
                 return CommitEvidence(prepared.event_id, prepared.digest,
                                       DeliveryEvidence(delivered.message_id, self._recipient,
-                                                       self._account, self._hash))
+                                                       self._account, self._hash, self._attachments))
             self._sleep(min(self._poll, remaining))

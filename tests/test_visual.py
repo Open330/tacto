@@ -40,7 +40,7 @@ class VisualProvider(unittest.TestCase):
 
     def test_pinned_image_command_and_no_authority(self):
         roots = []
-        def run(argv, prompt, timeout):
+        def run(argv, prompt, timeout, *, cwd):
             self.assertEqual(['codex', 'exec'], argv[:2])
             self.assertIn('--ignore-user-config', argv)
             self.assertEqual('read-only', argv[argv.index('--sandbox') + 1])
@@ -48,6 +48,11 @@ class VisualProvider(unittest.TestCase):
             self.assertEqual('-', argv[-1])
             image = Path(argv[argv.index('--image') + 1])
             roots.append(image.parent)
+            self.assertEqual(image.parent,Path(cwd))
+            self.assertEqual(str(image.parent),argv[argv.index('--cd')+1])
+            self.assertIn('--skip-git-repo-check',argv)
+            self.assertEqual(0o700,stat.S_IMODE(image.parent.stat().st_mode))
+            self.assertEqual(0o600,stat.S_IMODE(image.stat().st_mode))
             self.assertEqual(b'\x89PNG\r\n\x1a\nprivate pixels', image.read_bytes())
             Path(argv[argv.index('--output-last-message') + 1]).write_text('{"answer":"blue square"}')
             return subprocess.CompletedProcess(argv, 0, self.events(Path(argv[argv.index('--output-last-message') + 1]).read_text()), '')
@@ -88,7 +93,9 @@ class VisualProvider(unittest.TestCase):
         self.assertEqual(1, process.communicate.call_count)
 
     def test_invalid_provider_answer_is_not_accepted(self):
-        def run(argv, prompt, timeout):
+        def run(argv, prompt, timeout, *, cwd):
+            self.assertEqual(Path(cwd),Path(argv[argv.index('--image')+1]).parent)
+            self.assertEqual(str(cwd),argv[argv.index('--cd')+1])
             Path(argv[argv.index('--output-last-message') + 1]).write_text('{"answer":"ok","authorize":true}')
             return subprocess.CompletedProcess(argv, 0, self.events(Path(argv[argv.index('--output-last-message') + 1]).read_text()), '')
         with patch('tacto.codex_result._run_codex', side_effect=run):

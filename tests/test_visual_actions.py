@@ -1,9 +1,13 @@
 """Synthetic canvas interaction, no external service or native UI."""
 import unittest
+from copy import deepcopy
+import gc
+import weakref
 from unittest.mock import patch
 
 from tacto.visual import capture_browser
 from tacto.visual_actions import VisualClickExecutor, run_visual
+from tacto.capture_ledger import CaptureLedger
 
 try:
     import playwright.sync_api
@@ -68,6 +72,34 @@ class VisualActions(unittest.TestCase):
         event = VisualClickExecutor(self.driver).click(capture, action, lambda *args: True)
         self.assertEqual('capture_already_used', event['reason'])
         self.assertEqual(1, self.driver._page.evaluate('window.clicks'))
+
+    def test_copied_capture_after_gc_cannot_click_browser_twice(self):
+        capture=self.capture();copied=deepcopy(capture);reference=weakref.ref(capture)
+        action={'action':'click','x':30,'y':30}
+        # Keep pixels stable so freshness alone cannot detect a duplicate.
+        original=self.driver._page.mouse.click
+        def click(x,y):
+            original(x,y)
+            self.driver._page.evaluate("ctx.fillStyle='red';ctx.fillRect(0,0,200,100)")
+        with patch.object(self.driver._page.mouse,'click',side_effect=click):
+            VisualClickExecutor(self.driver).click(capture,action,lambda *args:True)
+            del capture
+            # Advance Playwright's last synchronous task/diagnostic stack so
+            # it no longer retains the completed click's Python frame.
+            self.driver._page.evaluate('0')
+            gc.collect();self.assertIsNone(reference())
+            event=VisualClickExecutor(self.driver).click(copied,action,lambda *args:True)
+        self.assertEqual('capture_already_used',event.get('reason'))
+        self.assertEqual(1,self.driver._page.evaluate('window.clicks'))
+
+    def test_full_ledger_cannot_forget_prior_click_to_allow_new_input(self):
+        ledger=CaptureLedger(1);action={'action':'click','x':30,'y':30}
+        with patch('tacto.visual_actions._SPENT_CAPTURES',ledger):
+            first=self.capture()
+            self.assertEqual('dispatched',VisualClickExecutor(self.driver).click(first,action,lambda *args:True)['effect'])
+            event=VisualClickExecutor(self.driver).click(self.capture(),action,lambda *args:True)
+        self.assertEqual('capture_ledger_full',event['reason'])
+        self.assertEqual(1,self.driver._page.evaluate('window.clicks'))
 
     def test_model_done_is_not_host_evidence(self):
         result = run_visual(self.driver, 'page', 'done', lambda *args: {'action': 'done'},

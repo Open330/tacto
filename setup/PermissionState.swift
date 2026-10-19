@@ -75,7 +75,7 @@ enum Permission: CaseIterable {
     var title: String {
         switch self {
         case .control: return "앱 조작"
-        case .screen: return "화면 기록"
+        case .screen: return "화면 캡처 (선택)"
         }
     }
     /// Why, in the person's terms. Accurate to what the helper uses each grant for.
@@ -103,7 +103,8 @@ enum Permission: CaseIterable {
 struct SetupState {
     var accessibility = false
     var screen = false
-    var ready: Bool { accessibility && screen }
+    var ready: Bool { accessibility }
+    var captureReady: Bool { accessibility && screen }
     func granted(_ permission: Permission) -> Bool {
         permission == .control ? accessibility : screen
     }
@@ -203,7 +204,6 @@ func permissionAppName(_ app: URL) -> String {
     }
     return app.deletingPathExtension().lastPathComponent
 }
-
 
 /// Select the full Settings window, not a small authentication dialog. Once
 /// chosen, keep its window number while a modal window moves to the front.

@@ -136,7 +136,7 @@ class CommitEvidenceTests(unittest.TestCase):
         result = run(Noop(), 'mail', 'send', plan, spec=spec, ask_where=where,
                      approve=lambda _: True,
                      envelope=Envelope(quote='send', allows=frozenset({'transmit'}), scope='entry'))
-        self.assertTrue(result.ok, result.why)
-        self.assertTrue(result.visits[0].verified)
+        self.assertFalse(result.ok, result.why)
+        self.assertEqual('commit_unverified', result.visits[0].actions[-1]['result'])
         self.assertEqual('dispatched', result.events[0]['state'])
         self.assertNotEqual(DONE, verify(spec, result).state)

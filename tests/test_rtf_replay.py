@@ -41,7 +41,7 @@ class RTFReplayTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         directory = Path(temporary.name).resolve()
-        path = directory / ('tacto-replay-' + uuid.uuid4().hex + '.rtf')
+        path = directory / ('nlc-replay-' + uuid.uuid4().hex + '.rtf')
         driver = FileWritingUI(path, raw, wrong_document)
         adapter = FreshRTFReceipt(directory, path.name, text,
                                   document_path=lambda: driver.document,

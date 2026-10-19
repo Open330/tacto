@@ -294,6 +294,20 @@ class ClaudeResultTests(unittest.TestCase):
             self.assertEqual(('error', reason), (result.status, result.error.code))
             self.assertNotIn('SECRET', json.dumps(result.to_dict()))
 
+    def test_gemini_auth_diagnostic_in_failed_claude_output_is_not_gemini_refusal(self):
+        output='Error authenticating: IneligibleTierError: SECRET UNSUPPORTED_CLIENT'
+        with patch('tacto.claude_result._run_claude',return_value=(1,'',output)):
+            result=claude_result('q')
+        self.assertEqual('error',result.status)
+        self.assertNotEqual('unsupported_client',result.error.code)
+        self.assertNotIn('SECRET',json.dumps(result.to_dict()))
+
+    def test_closed_unsupported_client_reason_preserves_error_envelope(self):
+        with patch('tacto.claude_result._run_claude',return_value=(1,'','')), \
+             patch('tacto.claude_result.classify_unavailable',return_value='unsupported_client'):
+            result=claude_result('q')
+        self.assertEqual(('error','unsupported_client'),(result.status,result.error.code))
+
     def test_an_answer_about_quotas_is_still_an_answer(self):
         def launch(argv, payload, timeout, cwd):
             sid = argv[argv.index('--session-id') + 1]

@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import os
+import threading
 from copy import deepcopy
 from pathlib import Path
 
 from .artifact_receipt import ArtifactReceiptError
 from .rtf_receipt import FreshRTFReceipt
-from .commit_evidence import SavePanelCommitPreparation, save_panel_dispatch_parameters
+from .commit_evidence import SavePanelCommitPreparation, save_panel_dispatch_parameters, _event_binding_matches
 
 
 TARGET = 'com.apple.TextEdit'
@@ -65,6 +66,8 @@ class TextEditReceipt:
                 or '\\' in filename or '\0' in filename):
             raise ValueError('filename must be an explicit single-component .rtf name')
         self._driver = driver
+        self._prepare_attempted = False
+        self._prepare_lock = threading.Lock()
         self._initial = _snapshot(driver)
         self._expected_panel = dict(document_token=self._initial['document_token'],
                                     directory=directory, filename=filename, format='rtf')
@@ -84,6 +87,13 @@ class TextEditReceipt:
         return current
 
     def prepare_commit(self, event):
+        with self._prepare_lock:
+            if self._prepare_attempted:
+                raise ArtifactReceiptError('adapter already prepared a commit')
+            self._prepare_attempted = True
+        identifier, digest = event.get('event_id'), event.get('action_digest')
+        if not _event_binding_matches(event, identifier, digest):
+            raise ArtifactReceiptError('save requires a valid event binding')
         if event.get('target') != TARGET:
             raise ArtifactReceiptError('commit belongs to a different application')
         action = event.get('action')
@@ -96,6 +106,8 @@ class TextEditReceipt:
                 or action['element_index'] < 0):
             raise ArtifactReceiptError('save requires an observation-bound button click')
         current = self._current()
+        if not _event_binding_matches(event, identifier, digest):
+            raise ArtifactReceiptError('commit changed during preparation')
         if (current['document_path'] != self._initial['document_path']
                 or current['source_format'] != self._initial['source_format']):
             raise ArtifactReceiptError('source document changed before commit')
@@ -115,7 +127,7 @@ class TextEditReceipt:
         token = panel.get('panel_token')
         if not isinstance(token, str) or not token or len(token) > 128:
             raise ArtifactReceiptError('save panel lacks a bounded native token')
-        prepared = SavePanelCommitPreparation(event['event_id'], event['action_digest'],
+        prepared = SavePanelCommitPreparation(identifier, digest,
             obs_id, token, self._receipt.prepare_commit(event))
         save_panel_dispatch_parameters(event, prepared, getattr(self._driver, 'capabilities', ()))
         return prepared

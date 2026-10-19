@@ -26,20 +26,33 @@ def manifest_valid(value):
     return value.get('sha256') == digest
 
 
+def instruction_profile_valid(value):
+    if (type(value) is not dict or set(value) != {'schema', 'nlc_template_sha256',
+            'sky_template_sha256', 'sky_guide_sha256', 'sky_guide_provided'}
+            or value['schema'] != 'comparison-instructions-v1'
+            or type(value['sky_guide_provided']) is not bool):
+        return False
+    def digest(v):
+        return type(v) is str and len(v) == 64 and all(c in '0123456789abcdef' for c in v)
+    return (digest(value['nlc_template_sha256']) and digest(value['sky_template_sha256'])
+            and (digest(value['sky_guide_sha256']) if value['sky_guide_provided']
+                 else value['sky_guide_sha256'] is None))
+
+
 def audit(rows):
     groups = {}
     invalid_rows = []
     for index, row in enumerate(rows):
         if (not isinstance(row, dict) or not isinstance(row.get('task'), str)
                 or not row['task'] or type(row.get('rep')) is not int or row['rep'] < 0
-                or row.get('arm') not in ('tacto', 'sky')):
+                or row.get('arm') not in ('nlc', 'sky')):
             invalid_rows.append(index)
             continue
         groups.setdefault((row['task'], row['rep']), []).append((index, row))
     pairs = []
     for (task, rep), group in sorted(groups.items()):
         issues = set()
-        nlcs = [r for i, r in group if r['arm'] == 'tacto']
+        nlcs = [r for i, r in group if r['arm'] == 'nlc']
         skies = [r for i, r in group if r['arm'] == 'sky']
         if len(nlcs) != 1 or len(skies) != 1:
             issues.add('missing_or_duplicate_arm')
@@ -71,6 +84,14 @@ def audit(rows):
                 issues.add('oracle_contract_not_recorded')
             if not isinstance(row.get('runtime_policy'), str) or not row['runtime_policy']:
                 issues.add('runtime_policy_not_recorded')
+            profile = row.get('comparison_instruction_profile')
+            if not instruction_profile_valid(profile):
+                issues.add('instruction_profile_missing_or_invalid')
+            else:
+                if row.get('agent_prompt_template_sha256') != profile[row['arm'] + '_template_sha256']:
+                    issues.add('prompt_template_not_bound_to_profile')
+            if row.get('instruction_profile_stable') is not True:
+                issues.add('instruction_profile_not_observed_stable')
             constraint = row.get('background_constraint')
             if not isinstance(constraint, str) or not 0 < len(constraint) <= 4096:
                 issues.add('runtime_constraint_not_recorded')
@@ -84,7 +105,8 @@ def audit(rows):
                     ('source_manifest_before', 'source_cohort_differs'),
                     ('runtime_policy', 'runtime_policy_differs'),
                     ('background_constraint', 'runtime_constraint_differs'),
-                    ('timeout_seconds', 'timeout_differs')):
+                    ('timeout_seconds', 'timeout_differs'),
+                    ('comparison_instruction_profile', 'instruction_profile_differs')):
                 if tacto.get(key) != sky.get(key):
                     issues.add(reason)
         pairs.append({'task': task, 'rep': rep, 'row_indices': [i for i, r in group],
@@ -94,7 +116,7 @@ def audit(rows):
                       'issues': sorted(issues), 'same_conditions_verified': False,
                       'additional_evidence_required': ['independent_initial_task_state',
                                                        'serving_model_identity_and_configuration']})
-    return {'schema': 'tacto-sky-recorded-prerequisites-v1', 'rows': len(rows),
+    return {'schema': 'nlc-sky-recorded-prerequisites-v2', 'rows': len(rows),
             'invalid_row_indices': invalid_rows, 'pairs': pairs,
             'comparison_rates_computed': False,
             'scope': 'recorded_prerequisites_only_not_complete_condition_parity'}

@@ -285,7 +285,7 @@ def _run_bounded(argv, timeout):
             raise
 
 
-def run_task(manifest, task_id, system='tacto', provider='codex', *, manifest_path=None):
+def run_task(manifest, task_id, system='nlc', provider='codex', *, manifest_path=None):
     validate_manifest(manifest)
     task = next((t for t in manifest['tasks'] if t['id'] == task_id), None)
     if task is None or system not in manifest['systems']:
@@ -294,10 +294,10 @@ def run_task(manifest, task_id, system='tacto', provider='codex', *, manifest_pa
     environment = environment_versions()
     result = dict(task_id=task_id, condition_id=condition_id(task), system=system,
                   provider=None,
-                  requested_provider=provider if system == 'tacto' else None, model=None,
+                  requested_provider=provider if system == 'nlc' else None, model=None,
                   run_id=str(uuid.uuid4()), elapsed_seconds=0.0, status='unavailable',
                   reason=None, evidence=[])
-    if system != 'tacto':
+    if system != 'nlc':
         result['reason'] = 'No Codex computer-use baseline adapter is available; not executed.'
     elif task.get('runner') == 'benchmark_web_runner':
         spec = importlib.util.spec_from_file_location('benchmark_web_runner', ROOT / 'examples/benchmark_web_runner.py')
@@ -400,7 +400,7 @@ def main():
     commands = parser.add_subparsers(dest='command', required=True)
     run = commands.add_parser('run')
     run.add_argument('--task', default='input-next-read')
-    run.add_argument('--system', choices=['tacto', 'codex-computer-use'], default='tacto')
+    run.add_argument('--system', choices=['nlc', 'codex-computer-use'], default='nlc')
     run.add_argument('--provider', default='codex')
     external = commands.add_parser('import-baseline')
     external.add_argument('record', type=Path)

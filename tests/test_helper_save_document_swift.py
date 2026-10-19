@@ -79,6 +79,7 @@ func saveDirectoryResource(_ raw: AnyObject) throws -> NativeSaveDirectoryResour
     NativeSaveDirectoryResource(path: "/owned")
 }
 final class NativeSavePanelReader {
+    var budgetUsage: [String:Int] { [:] }
     let readAttribute: (AXUIElement, String) throws -> (AXError, AnyObject?)
     let check: () throws -> Void
     init(readAttribute: @escaping (AXUIElement, String) throws -> (AXError, AnyObject?),
@@ -137,7 +138,7 @@ refused(readSavePanel(request), "aborted_by_user")
 precondition(reads == beforeStop + 3)
 print("SWIFT_SAVE_DOCUMENT_HANDLER_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-save-document-handler-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-save-document-handler-') as directory:
             main = Path(directory) / 'main.swift'
             binary = Path(directory) / 'check'
             main.write_text(harness + pins + handler + checks)

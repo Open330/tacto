@@ -5,7 +5,7 @@ serving models, reasoning, account state, or initial app state; those require
 separate recorded evidence. The requested computer-use layers are:
 
   sky  — Codex's own Computer Use plugin (@oai/sky through node_repl `js`)
-  tacto  — the NLC skill and the `tacto` command
+  nlc  — the NLC skill and the `nlc` command
 
 Each task names an independent oracle — read by this harness after the run,
 from the app or the file system — and never trusts what the agent says it did.
@@ -14,7 +14,7 @@ personal (Calculator, TextEdit documents this harness creates, Finder on
 /Applications, the macOS version); nothing reads mail, calendars or browsing.
 
     python examples/product_comparison.py --reps 1             # every task, both arms
-    python examples/product_comparison.py --only calc_mult --arms tacto
+    python examples/product_comparison.py --only calc_mult --arms nlc
     python examples/product_comparison.py --list
 
 Each run is a fresh Codex session in /tmp and spends model tokens (measured
@@ -40,6 +40,8 @@ sys.path.insert(0, str(ROOT / "examples" / "probes"))
 
 _AGENT_EXECUTABLE = "codex"
 _AGENT_REQUESTED_EXECUTABLE = "codex"
+_SKY_SKILL_FILE = None
+_COLD_START = False
 
 CALC = "com.apple.calculator"
 NO_SHORTCUTS = ("Do not use a command-line calculator, Python, AppleScript/osascript, "
@@ -59,10 +61,10 @@ BACKGROUND_CONSTRAINT = (
 ARM_CLAUSE = {
     "sky": ("Use the Computer Use plugin: the `js` tool of the node_repl MCP server with "
             "the @oai/sky interface (search your deferred tools for it if it is not listed). "
-            "Do not use the `tacto` command."),
-    "tacto": ("Use the tacto skill and the `tacto` command to drive the app. "
+            "Do not use the `nlc` command."),
+    "nlc": ("Use the nlc skill and the `nlc` command to drive the app. "
             "Do not use the Computer Use plugin or node_repl. "
-            "Use the installed signed tacto (typically ~/.local/bin/tacto) with --helper for GUI operations."),
+            "Use the installed signed nlc (typically ~/.local/bin/nlc) with --helper for GUI operations."),
 }
 
 
@@ -83,6 +85,12 @@ def _agent_env():
     return env
 
 
+def _agent_executable_available():
+    """Check the exact spawn environment without executing a CLI or opening UI."""
+    import os,shutil
+    return shutil.which(_AGENT_EXECUTABLE,path=_agent_env().get('PATH',os.defpath)) is not None
+
+
 def _run_agent(argv, prompt, timeout, diagnostics):
     """Same owned process-group lifecycle for both arms; tool events stay raw.
 
@@ -90,7 +98,91 @@ def _run_agent(argv, prompt, timeout, diagnostics):
     Process diagnostics grant neither GUI authority nor comparison eligibility.
     """
     from tacto.codex_result import _run_codex
-    return _run_codex([_AGENT_EXECUTABLE, *argv[1:]], prompt, timeout, diagnostics, cwd="/tmp")
+    if not _COLD_START:
+        return _run_codex([_AGENT_EXECUTABLE, *argv[1:]], prompt, timeout, diagnostics, cwd="/tmp")
+    if len(argv) < 2 or argv[1] != 'exec' or any(arg in ('resume','fork','--last') for arg in argv[2:]):
+        raise ValueError('cold_start_requires_new_exec')
+    import hashlib
+    with tempfile.TemporaryDirectory(prefix='nlc-cold-agent-') as directory:
+        work = Path(directory).resolve()
+        arguments = [_AGENT_EXECUTABLE, *argv[1:]]
+        if '-C' in arguments:
+            arguments[arguments.index('-C')+1] = str(work)
+        else:
+            arguments[2:2] = ['-C',str(work)]
+        if '--ephemeral' not in arguments:
+            arguments.insert(2,'--ephemeral')
+        evidence = {'mode':'fresh_exec_empty_workspace_v1','workspace':str(work),
+            'workspace_empty_before_launch':not any(work.iterdir()),'ephemeral_requested':True,
+            'resume_or_fork_requested':False,'prior_conversation_supplied_by_harness':False,
+            'task_prompt_sha256':hashlib.sha256(prompt.encode()).hexdigest(),
+            'task_prompt_utf8_bytes':len(prompt.encode()),
+            'ancestor_instruction_files':[str(parent/'AGENTS.md') for parent in work.parents if (parent/'AGENTS.md').is_file()],
+            'global_instructions_absent_verified':False,'server_cache_cleared_verified':False,
+            'hidden_provider_context_verified':False}
+        try:
+            result = _run_codex(arguments, prompt, timeout, diagnostics, cwd=str(work))
+        except Exception as error:
+            error.comparison_context = evidence
+            raise
+        result.comparison_context = evidence
+        return result
+
+
+def _preserve_agent_trace(stdout, stderr):
+    """Private raw CLI evidence; never a claim of actual serving model/TCC."""
+    import hashlib, os, uuid
+    directory = ROOT / 'reviews' / datetime.date.today().isoformat()
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    prefix = 'comparison-agent-' + uuid.uuid4().hex
+    result = {'scope': 'raw_cli_stdout_and_stderr', 'streams': {}}
+    for name, value, suffix in (('stdout', stdout, '.jsonl'), ('stderr', stderr, '.txt')):
+        data = value.encode('utf-8') if isinstance(value, str) else value or b''
+        path = directory / (prefix + '-' + name + suffix)
+        with open(path, 'xb', opener=lambda p, f: os.open(p, f, 0o600)) as output:
+            output.write(data)
+        result['streams'][name] = {'path': str(path), 'bytes': len(data),
+                                   'sha256': hashlib.sha256(data).hexdigest()}
+    return result
+
+
+def _sky_skill_evidence():
+    if _SKY_SKILL_FILE is None:
+        return None
+    import hashlib
+    try:
+        with open(_SKY_SKILL_FILE, 'rb') as source:
+            data = source.read(65537)
+        if len(data) > 65536:
+            raise ValueError('guide_over_budget')
+        data.decode('utf-8')
+        return {'path': _SKY_SKILL_FILE, 'sha256': hashlib.sha256(data).hexdigest(),
+                'bytes': len(data), 'scope': 'host_selected_local_skill_not_runtime_attestation'}
+    except (OSError, ValueError):
+        return {'path': _SKY_SKILL_FILE, 'error': 'guide_unavailable'}
+
+
+def _instruction_profile():
+    import hashlib
+    guide = _sky_skill_evidence()
+    return {'schema': 'comparison-instructions-v1',
+            'nlc_template_sha256': hashlib.sha256(_arm_prompt('{TASK}', 'nlc').encode()).hexdigest(),
+            'sky_template_sha256': hashlib.sha256(_arm_prompt('{TASK}', 'sky').encode()).hexdigest(),
+            'sky_guide_sha256': guide.get('sha256') if guide else None,
+            'sky_guide_provided': _SKY_SKILL_FILE is not None}
+
+
+def _arm_prompt(ask, arm):
+    clause = ARM_CLAUSE[arm]
+    if arm == 'sky' and _SKY_SKILL_FILE is not None:
+        clause += (' Read the host-selected bundled Computer Use skill at ' +
+                   json.dumps(_SKY_SKILL_FILE) +
+                   ' before invoking UI methods. Use its public API signatures; do not guess arguments. '
+                   'The task scope and background constraints below remain binding.')
+    cold = (" Start from this task only; do not reuse prior task conversations, saved task-specific "
+            "flows, or earlier execution traces. Built-in product instructions are allowed. "
+            "All instruction discovery and tool calls count toward this run." if _COLD_START else "")
+    return f"{ask}\n\n{clause} {NO_SHORTCUTS} {BACKGROUND_CONSTRAINT}{cold}"
 
 
 def _live_agent_probe():
@@ -99,12 +191,20 @@ def _live_agent_probe():
     import secrets
     from tacto.codex_result import parse_codex_events
     from tacto.process_responsibility import observe_responsibility
+    if not _agent_executable_available():
+        manifest=source_manifest()
+        return {'scope':'agent_executable_preflight_no_model_or_UI','oracle_passed':False,
+                'reason':'agent_executable_unavailable_in_spawn_environment',
+                'agent_requested_executable':_AGENT_REQUESTED_EXECUTABLE,
+                'agent_executable':_AGENT_EXECUTABLE,'agent_executed':False,
+                'native_task_executed':False,'comparison_eligible':False,
+                **_source_evidence(manifest,source_manifest())}
     a, b = secrets.randbelow(10000), secrets.randbelow(10000)
     records = []
     controller = observe_responsibility(os.getpid())
     before = source_manifest()
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix='tacto-agent-probe-') as folder:
+    with tempfile.TemporaryDirectory(prefix='nlc-agent-probe-') as folder:
         final = Path(folder) / 'answer.txt'
         fd = os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
@@ -133,18 +233,47 @@ def _live_agent_probe():
 
 
 _SIGNED_OWNED = {}
+_FIXTURE_WORKER = None
+_WORKER_SETUP = None
+_WORKER_EVIDENCE = None
+_WORKER_METADATA = None
+
+
+def signed_owned_prepare():
+    from signed_owned_textedit import SignedOwnedTextEdit
+    if _SIGNED_OWNED:raise RuntimeError('previous_owned_fixture_not_cleaned')
+    fixture=SignedOwnedTextEdit(_driver(),OWNED_NAME)
+    _SIGNED_OWNED['fixture']=fixture
+    fixture.prepare()
+    return signed_fixture_evidence(fixture)
 
 
 def signed_owned_setup():
+    global _WORKER_SETUP, _WORKER_EVIDENCE
+    if _FIXTURE_WORKER is not None:
+        _WORKER_SETUP = _WORKER_EVIDENCE = None
+        # Receive creator identity before setup may open UI or lose its reply.
+        # After a failure, retain this evidence without any follow-up RPC.
+        _WORKER_EVIDENCE = _FIXTURE_WORKER.request('prepare')
+        _WORKER_SETUP = _FIXTURE_WORKER.request('setup')
+        _WORKER_EVIDENCE = _WORKER_SETUP['evidence']
+        return {'fixture_worker_setup': _WORKER_EVIDENCE,
+                'fixture_worker_task_setup': _WORKER_SETUP.get('setup_evidence')}
     from signed_owned_textedit import SignedOwnedTextEdit
-    if _SIGNED_OWNED:
+    fixture=_SIGNED_OWNED.get('fixture')
+    if fixture is None:
+        fixture = SignedOwnedTextEdit(_driver(), OWNED_NAME)
+        _SIGNED_OWNED['fixture'] = fixture
+    elif getattr(fixture,'setup_started',None) is not False:
         raise RuntimeError('previous_owned_fixture_not_cleaned')
-    fixture = SignedOwnedTextEdit(_driver(), OWNED_NAME)
-    _SIGNED_OWNED['fixture'] = fixture  # Keep a failed setup's artifact reachable.
     fixture.setup()
 
 
 def signed_owned_oracle(text):
+    if _FIXTURE_WORKER is not None:
+        if text != TEXT:
+            raise RuntimeError('unsupported_worker_oracle')
+        return tuple(_FIXTURE_WORKER.request('oracle'))
     fixture = _SIGNED_OWNED.get('fixture')
     body = fixture.read() if fixture is not None else None
     if body is None:
@@ -153,6 +282,11 @@ def signed_owned_oracle(text):
 
 
 def signed_owned_cleanup():
+    global _WORKER_EVIDENCE
+    if _FIXTURE_WORKER is not None:
+        result = _FIXTURE_WORKER.request('cleanup')
+        _WORKER_EVIDENCE = result['evidence']
+        return result['status']
     fixture = _SIGNED_OWNED.get('fixture')
     if fixture is None:
         return 'nothing_owned'
@@ -163,12 +297,17 @@ def signed_owned_cleanup():
 
 
 def signed_fixture_evidence(fixture=None):
+    if _FIXTURE_WORKER is not None:
+        return _WORKER_EVIDENCE
     fixture = fixture or _SIGNED_OWNED.get('fixture')
     if fixture is None:
         return None
     return {'path':str(fixture.path) if fixture.path is not None else None,
             'directory_identity':fixture.directory_identity,
-            'initial_empty_text_verified':fixture.token is not None,
+            'prepared_file_identity':getattr(fixture,'prepared_file_identity',None),
+            'setup_started':getattr(fixture,'setup_started',None),
+            'initial_empty_text_verified':getattr(fixture,'initial_empty_text_verified',False),
+            'initial_expected_text_verified':getattr(fixture,'initial_expected_text_verified',False),
             'status_observations':[dict(record) for record in fixture.status_observations],
             'status_observations_truncated':fixture.status_observations_truncated,
             'close_requested':fixture.close_requested,
@@ -177,6 +316,8 @@ def signed_fixture_evidence(fixture=None):
 
 
 def signed_owned_edit_ask():
+    if _FIXTURE_WORKER is not None:
+        return _WORKER_SETUP['ask']
     fixture = _SIGNED_OWNED.get('fixture')
     if fixture is None or fixture.path is None:
         raise RuntimeError('owned_fixture_not_prepared')
@@ -194,6 +335,8 @@ def signed_owned_save_ask():
 
 
 def signed_chain_ask():
+    if _FIXTURE_WORKER is not None:
+        return _WORKER_SETUP['ask']
     fixture=_SIGNED_OWNED.get('fixture')
     if fixture is None or fixture.path is None:raise RuntimeError('owned_fixture_not_prepared')
     return ('Compute 23 × 19 in the macOS Calculator app, then type the result (digits only) '
@@ -201,7 +344,7 @@ def signed_chain_ask():
             'Do not create, rename or close any document.')
 
 
-def _owned_lifecycle_probe(resume_directory=None, resume_identity=None, fixture_text=None):
+def _owned_lifecycle_probe(resume_directory=None, resume_identity=None, fixture_text=None, resume_text=""):
     from focus_witness import FocusWitness
     from signed_owned_textedit import SignedOwnedTextEdit
     fixture = SignedOwnedTextEdit(_driver(), OWNED_NAME)
@@ -210,16 +353,23 @@ def _owned_lifecycle_probe(resume_directory=None, resume_identity=None, fixture_
         if resume_directory is None:
             fixture.setup()
         else:
-            fixture.resume(resume_directory, resume_identity)
+            fixture.resume(resume_directory, resume_identity, expected_text=resume_text)
         opened = fixture.status()
-        empty = fixture.read() == ''
+        initial_text=fixture.read()
+        empty = initial_text == ''
+        initial_verified=initial_text==(resume_text if resume_directory is not None else '')
+        if not initial_verified or opened!='open':
+            raise RuntimeError('owned_fixture_initial_state_unverified')
         receiving = fixture.write(fixture_text) if fixture_text is not None else None
         cleanup = fixture.cleanup()
-    return {'scope':'signed_owned_empty_textedit_window_lifecycle' if fixture_text is None else 'signed_owned_edited_textedit_window_lifecycle',
+    return {'scope':('signed_owned_resumed_textedit_window_lifecycle' if resume_directory is not None
+                     else 'signed_owned_empty_textedit_window_lifecycle' if fixture_text is None
+                     else 'signed_owned_edited_textedit_window_lifecycle'),
             'receiving_text_verified':receiving,'status_observations':fixture.status_observations,
             'status_observations_truncated':fixture.status_observations_truncated,
             'owned_fixture_evidence':signed_fixture_evidence(fixture),
             'opened_state':opened, 'initial_empty_text_verified':empty,
+            'initial_expected_text_verified':initial_verified,
             'cleanup_status':cleanup, 'closed_observed':fixture.closed_observed,
             'artifact_removed':not fixture.directory.exists(),
             'focus':witness.summary(), 'model_requests':0,
@@ -478,7 +628,7 @@ def owned_setup():
     import os
     import tempfile
     _OWNED.clear()
-    directory = tempfile.mkdtemp(prefix="tacto-compare-owned-")       # 0700, unique
+    directory = tempfile.mkdtemp(prefix="nlc-compare-owned-")       # 0700, unique
     # Real path: mkdtemp answers /var/…, TextEdit reports /private/var/….
     directory = os.path.realpath(directory)
     path = os.path.join(directory, OWNED_NAME)
@@ -636,10 +786,10 @@ OWNED_NAME = "NLC 비교 문서.txt"
 # and AX window that showed it. Nothing is assumed from a fixed path.
 _OWNED: dict = {}
 FOLDER_ITEMS = 7
-FOLDER_PREFIX = "tacto-compare-folder-"
+FOLDER_PREFIX = "nlc-compare-folder-"
 # The folder task's own directory: a fresh mkdtemp per run, so its name (the
 # only thing a Finder window shows) is unique to the run, and no fixed path is
-# ever removed. The first version reused /tmp/tacto-compare-folder and removed it
+# ever removed. The first version reused /tmp/nlc-compare-folder and removed it
 # before checking anything (Codex review of 1bf10aa).
 _FOLDER: dict = {}
 
@@ -868,12 +1018,17 @@ def signed_owned_saved_oracle(text):
 
 
 def signed_calc_then_owned_setup():
+    if _FIXTURE_WORKER is not None:
+        return signed_owned_setup()
     evidence=calc_reset()
     signed_owned_setup()
     return evidence
 
 
 def signed_chain_oracle(text):
+    if _FIXTURE_WORKER is not None:
+        if text != '437':raise RuntimeError('unsupported_worker_oracle')
+        return tuple(_FIXTURE_WORKER.request('oracle'))
     shown,_=signed_owned_oracle(text)
     calculated=_calc_display()
     return shown and calculated==text, f'calculator_exact={calculated==text} document_exact={shown}; no_explicit_save_required'
@@ -900,18 +1055,27 @@ def newdir_setup():
     """An empty folder of the harness's own (mkdtemp), its inode remembered."""
     import os
     import tempfile
-    _NEWDIR.clear()
-    path = os.path.realpath(tempfile.mkdtemp(prefix="tacto-compare-newdir-", dir="/tmp"))
+    if _NEWDIR:raise RuntimeError('previous_owned_folder_not_cleaned')
+    path = os.path.realpath(tempfile.mkdtemp(prefix="nlc-compare-newdir-", dir="/tmp"))
     st = os.stat(path)
-    _NEWDIR.update(path=path, inode=(st.st_dev, st.st_ino))
+    _NEWDIR.update(path=path, inode=(st.st_dev, st.st_ino), ui_may_have_opened=False)
+    return newdir_evidence()
+
+
+def newdir_evidence():
+    if not _NEWDIR:return None
+    return {'path':_NEWDIR['path'],'directory_identity':list(_NEWDIR['inode']),
+            'ui_may_have_opened':_NEWDIR.get('ui_may_have_opened',True),
+            'window_close_verified':False}
 
 
 def _newdir_children():
-    import os
+    import os,stat
     path = _NEWDIR.get("path")
+    if not isinstance(path,str):return None
     try:
-        st = os.stat(path)
-        if (st.st_dev, st.st_ino) != _NEWDIR.get("inode"):
+        st = os.lstat(path)
+        if not stat.S_ISDIR(st.st_mode) or (st.st_dev, st.st_ino) != _NEWDIR.get("inode"):
             return None
         return sorted(os.listdir(path))
     except (TypeError, OSError):
@@ -951,6 +1115,10 @@ def newdir_cleanup():
     if not all(_real_folder(os.path.join(base, c)) and not os.listdir(os.path.join(base, c))
                for c in children):
         return "unexpected_contents_left_as_is"
+    if _NEWDIR.get('ui_may_have_opened',True):
+        # Removing a displayed folder can redirect Finder to its parent. The
+        # model's claim/exit does not prove this exact window was closed.
+        return 'owned_directory_retained_without_window_close_proof'
     shutil.rmtree(base)
     _NEWDIR.clear()
     return "folder_removed"
@@ -996,7 +1164,7 @@ def source_manifest():
              "helper/Tacto Helper.app/Contents/Info.plist", "signing.sh",
              "pyproject.toml", "uv.lock"]
     paths = {ROOT / name for name in fixed}
-    for directory, pattern in (("tacto", "**/*.py"), ("helper", "*.swift"),
+    for directory, pattern in (("tacto", "**/*.py"), ("nlc", "**/*.py"), ("helper", "*.swift"),
                                ("examples", "*.py"), ("examples/probes", "*.py"),
                                ("tests/fixtures", "*.swift"), ("flows", "*.json")):
         paths.update((ROOT / directory).glob(pattern))
@@ -1077,8 +1245,10 @@ TASKS = [
 def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     from focus_witness import FocusWitness
     source_before = source_manifest()
+    instruction_before = _instruction_profile()
+    sky_skill_before = _sky_skill_evidence() if arm == 'sky' else None
     from tacto.helper import InheritedHelperDriver
-    signed_channel_available = InheritedHelperDriver.available()
+    signed_channel_available = InheritedHelperDriver.available() or _FIXTURE_WORKER is not None
     if not signed_channel_available or task.cleanup is owned_cleanup:
         # Legacy owned TextEdit cleanup still sends direct AXPress. Do not create
         # that fixture until its close/document binding has a signed equivalent.
@@ -1100,6 +1270,17 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 "locked": [initial_lock, initial_lock], "process_exit": None,
                 "comparison_eligible": False, "cleanup_status": "not_requested",
                 **_source_evidence(source_before, source_manifest())}
+    if not _agent_executable_available():
+        return {"task":task.name,"arm":arm,"status":"not_run","seconds":0,
+                "oracle_contract":task.oracle_contract,"oracle_passed":None,
+                "observed":"agent_executable_unavailable_before_setup",
+                "agent_launch_error":"agent_executable_unavailable",
+                "agent_requested_executable":_AGENT_REQUESTED_EXECUTABLE,
+                "agent_executable":_AGENT_EXECUTABLE,"timeout_seconds":timeout,
+                "answer":"","calls":{},"usage":None,"activations":[],
+                "process_exit":None,"comparison_eligible":False,
+                "cleanup_status":"not_requested","locked":[initial_lock,initial_lock],
+                **_source_evidence(source_before,source_manifest())}
     setup_evidence=None
     if task.setup:
         try:
@@ -1109,6 +1290,11 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                     "oracle_contract": task.oracle_contract,
                     "observed": f"setup failed: {type(exc).__name__}: {str(exc)[:120]}", "seconds": 0,
                     "owned_fixture_evidence":signed_fixture_evidence() if task.cleanup is signed_owned_cleanup else None,
+                    "comparison_eligible":False, "cleanup_status":"setup_failed_left_as_is",
+                    "finder_fixture_evidence":newdir_evidence() if task.cleanup is newdir_cleanup else None,
+                    "setup_outcome":"unverified_after_failure",
+                    "owned_fixture_evidence_scope":("prepare_reply_before_setup" if _FIXTURE_WORKER is not None
+                                                    else "host_fixture_snapshot_after_setup_failure"),
                     "answer": "", "calls": {}, "usage": None, "activations": [],
                     **_source_evidence(source_before, source_manifest())}
     locked_before = _locked()
@@ -1119,22 +1305,29 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                 "answer": "", "calls": {}, "usage": None, "activations": [],
                 "locked": [initial_lock, locked_before], "process_exit": None,
                 "comparison_eligible": False, "cleanup_status": "environment_unavailable_left_as_is",
+                "finder_fixture_evidence":newdir_evidence() if task.cleanup is newdir_cleanup else None,
+                "owned_fixture_evidence":signed_fixture_evidence() if task.cleanup is signed_owned_cleanup else None,
                 **_source_evidence(source_before, source_manifest())}
     report_fixture = _SIGNED_OWNED.get('fixture') if task.cleanup is signed_owned_cleanup else None
     hidden_before = textedit_hidden() if task.name.startswith("textedit") else None
     ask = task.ask() if callable(task.ask) else task.ask
-    prompt = f"{ask}\n\n{ARM_CLAUSE[arm]} {NO_SHORTCUTS} {BACKGROUND_CONSTRAINT}"
+    prompt = _arm_prompt(ask, arm)
+    context_evidence = None
     with tempfile.NamedTemporaryFile("r", suffix=".txt") as last, FocusWitness() as witness:
         started = time.monotonic()
         process_diagnostics = []
         proc, launch_error = None, None
         try:
+            if task.cleanup is newdir_cleanup and _NEWDIR:
+                _NEWDIR['ui_may_have_opened']=True
             proc = _run_agent(
                 ["codex", "exec", "--skip-git-repo-check", "--sandbox", "danger-full-access",
                  "-C", "/tmp", "--json", "-o", last.name, "-"],
                 prompt, timeout, process_diagnostics)
+            context_evidence = getattr(proc, "comparison_context", None)
             stdout, timed_out = proc.stdout, False
         except subprocess.TimeoutExpired as exc:
+            context_evidence = getattr(exc, "comparison_context", None)
             stdout, timed_out = (exc.stdout or b"").decode(errors="replace") if isinstance(
                 exc.stdout, bytes) else (exc.stdout or ""), True
         except OSError:
@@ -1143,37 +1336,66 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                             else 'agent_launch_unavailable')
         seconds = time.monotonic() - started
         answer = Path(last.name).read_text(errors="replace").strip()
+    try:
+        trace = _preserve_agent_trace(stdout, proc.stderr if proc is not None else '')
+    except OSError:
+        trace = {'scope': 'raw_cli_stdout_and_stderr', 'error': 'trace_preservation_failed'}
+    from tacto.tool_item_usage import ToolItemUsage
+    tool_items=ToolItemUsage()
     calls, usage, layer_violation, shortcut = {}, None, False, False
+    usage_events = []
     preparation_diagnostics = []
+    pin_diagnostics = []
+    terminal_completed=False
+    terminal_failed=False
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
         except ValueError:
+            if line.strip():tool_items.note_unparsed()
             continue
-        item = event.get("item") or {}
+        if not isinstance(event,dict):
+            tool_items.note_unparsed()
+            continue
+        item = event.get("item")
+        if not isinstance(item,dict):
+            if event.get('type') in ('item.started','item.updated','item.completed'):
+                tool_items.note_unparsed()
+            item={}
         if item.get("type") == "mcp_tool_call":
             key = f"{item.get('server')}:{item.get('tool')}"
             calls[key] = calls.get(key, 0) + 1
-            if arm == "tacto" and item.get("server") in ("node_repl", "cua_repl"):
+            tool_items.record(event,key)
+            if arm == "nlc" and item.get("server") in ("node_repl", "cua_repl"):
                 layer_violation = True
         elif item.get("type") == "command_execution":
             cmd = item.get("command", "")
-            if re.search(r"(^|[\s'\"/])tacto\s", cmd):
+            if not isinstance(cmd,str):cmd=""
+            if re.search(r"(^|[\s'\"/])nlc\s", cmd):
                 if event.get('type') == 'item.completed':
                     from tacto.preparation_diagnostic import diagnostic_lines
                     # Tool-reported diagnostics, not a completion oracle or
                     # attestation of a command's execution provenance.
                     preparation_diagnostics.extend(diagnostic_lines(item.get('aggregated_output')))
                     preparation_diagnostics = preparation_diagnostics[:64]
-                calls["shell:tacto"] = calls.get("shell:tacto", 0) + 1
+                    from tacto.pin_diagnostic import diagnostic_lines as pin_lines
+                    pin_diagnostics.extend(pin_lines(item.get('aggregated_output')))
+                    pin_diagnostics = pin_diagnostics[:64]
+                calls["shell:nlc"] = calls.get("shell:nlc", 0) + 1
+                tool_items.record(event,"shell:nlc")
                 if arm == "sky":
                     layer_violation = True
             else:
                 calls["shell:other"] = calls.get("shell:other", 0) + 1
+                tool_items.record(event,"shell:other")
             if re.search(r"osascript|\bbc\b|python3? -c|\bopen -a|System Events", cmd):
                 shortcut = True
         if event.get("type") == "turn.completed":
+            terminal_completed=True
             usage = event.get("usage")
+            usage_events.append(usage)
+        elif event.get("type") in ("turn.failed","error"):
+            terminal_failed=True
     passed, observed = (False, "not checked")
     if launch_error is None and (answer or not timed_out):
         try:
@@ -1191,10 +1413,14 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     focus = witness.summary()
     result = {"task": task.name, "arm": arm, "status": status, "seconds": round(seconds, 1),
               "oracle_contract": task.oracle_contract, "agent_launch_error":launch_error,
+              "agent_trace": trace,
               "timeout_seconds":timeout, "runtime_policy":RUNTIME_POLICY,
               "background_constraint":BACKGROUND_CONSTRAINT,
               "reported_preparation_diagnostics": preparation_diagnostics,
+              "reported_document_pin_diagnostics": pin_diagnostics,
               "observed": observed, "answer": answer[-400:], "calls": calls, "usage": usage,
+              "calls_scope":"legacy_tool_event_items_including_started_completed",
+              "tool_item_usage":tool_items.snapshot(stream_complete=not timed_out and launch_error is None and proc is not None and proc.returncode==0 and terminal_completed and not terminal_failed),
               "activations": focus["activations"],
               "initial_frontmost_bundle": focus.get("initial"),
               "focus_observation_scope":"agent_execution_only_excludes_setup_cleanup",
@@ -1221,8 +1447,9 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         except Exception as error:
             result["cleanup_status"] = "failed"
             result["cleanup_error"] = type(error).__name__[:80]
-    if report_fixture is not None:
+    if report_fixture is not None or _FIXTURE_WORKER is not None:
         result['owned_fixture_evidence'] = signed_fixture_evidence(report_fixture)
+    if task.cleanup is newdir_cleanup:result['finder_fixture_evidence']=newdir_evidence()
     if isinstance(setup_evidence,dict):result['setup_evidence']=setup_evidence
     result.update(_source_evidence(source_before, source_manifest()))
     if result["source_changed"]:
@@ -1233,28 +1460,68 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
         result["comparison_eligible"] = False
     # Environment variables are not a TCC responsibility boundary. A Codex
     # spawned by this signed controller may inherit its responsible identity.
-    # Keep task outcomes, but exclude them from product parity until an external
-    # agent boundary or independently observed responsibility is implemented.
-    result['agent_spawn_parent_boundary'] = 'signed_nlc_controller'
+    # Even the external worker mode lacks complete descendant/Sky route and
+    # initial-state evidence. Keep task outcomes but exclude product parity.
+    result['agent_spawn_parent_boundary'] = ('external_python_controller' if _FIXTURE_WORKER is not None
+                                              else 'signed_nlc_controller')
+    if _FIXTURE_WORKER is not None:
+        result['fixture_worker_metadata'] = _WORKER_METADATA
     result['agent_requested_executable'] = _AGENT_REQUESTED_EXECUTABLE
     result['agent_executable'] = _AGENT_EXECUTABLE
-    result['agent_cli_cwd'] = '/tmp'
+    result['agent_cli_cwd'] = context_evidence['workspace'] if context_evidence else '/tmp'
+    result['cold_start_requested'] = _COLD_START
+    result['context_evidence'] = context_evidence
+    from tacto.comparison_tokens import reported_turn_tokens
+    result['token_accounting'] = reported_turn_tokens(usage_events, stream_complete=not timed_out and
+        launch_error is None and process_exit == 0 and terminal_completed and not terminal_failed)
     result['agent_started_in_new_session'] = True
     result['agent_responsible_process_observed'] = None
     result['agent_primary_process_diagnostics'] = process_diagnostics
+    from tacto.process_responsibility import summarize_primary_responsibility
+    result['agent_primary_responsibility_summary'] = summarize_primary_responsibility(process_diagnostics)
     result['comparison_eligible'] = False
     result['comparison_exclusion_reason'] = 'agent_responsibility_not_isolated_or_observed'
+    instruction_after = _instruction_profile()
+    result['comparison_instruction_profile'] = instruction_before
+    result['instruction_profile_stable'] = instruction_before == instruction_after
+    result['agent_prompt_template_sha256'] = instruction_before[arm + '_template_sha256']
+    if instruction_before != instruction_after:
+        result.setdefault('observed_status', result['status'])
+        result['status'] = 'invalid'
+        result['invalid_reason'] = 'instruction_profile_changed'
+    if arm == 'sky':
+        skill_after = _sky_skill_evidence()
+        result['sky_skill_evidence'] = {'before': sky_skill_before, 'after': skill_after,
+                                      'provided': _SKY_SKILL_FILE is not None,
+                                      'stable': sky_skill_before == skill_after if _SKY_SKILL_FILE is not None else None}
+        if _SKY_SKILL_FILE is not None and (sky_skill_before != skill_after or
+                sky_skill_before is None or 'error' in sky_skill_before):
+            result.setdefault('observed_status', result['status'])
+            result['status'] = 'invalid'
+            result['invalid_reason'] = 'sky_skill_unavailable_or_changed'
     return result
 
 
-def main() -> int:
-    global _AGENT_EXECUTABLE, _AGENT_REQUESTED_EXECUTABLE
+def main(argv=None) -> int:
+    global _AGENT_EXECUTABLE, _AGENT_REQUESTED_EXECUTABLE, _FIXTURE_WORKER, _WORKER_METADATA, _SKY_SKILL_FILE, _COLD_START
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    from comparison_fixture_worker import WORKER_TASKS
+    ap.add_argument('--fixture-worker-task', choices=WORKER_TASKS, default='textedit_edit_owned', help=argparse.SUPPRESS)
+    ap.add_argument('--fixture-worker', action='store_true', help=argparse.SUPPRESS)
+    ap.add_argument('--external-owned-worker', metavar='SIGNED_LAUNCHER',
+                    help='external controller with a separate signed worker; one owned TextEdit task or Calculator-to-TextEdit')
+    worker_checks = ap.add_mutually_exclusive_group()
+    worker_checks.add_argument('--check-worker-lifecycle', action='store_true',
+                    help='open/read/close one owned empty TextEdit document through separate worker; no model')
+    worker_checks.add_argument('--check-worker-boundary', action='store_true',
+                    help='check separate worker/helper metadata without GUI setup or model requests')
+    ap.add_argument('--cold-start', action='store_true', help='fresh exec, ephemeral session, empty private workspace; global/system context and server cache remain unverified')
+    ap.add_argument('--sky-skill-file', help='host-selected absolute bundled Computer Use SKILL.md path; no installation changes')
     ap.add_argument('--agent-executable', help='host-selected absolute Codex CLI path; does not change PATH')
     ap.add_argument('--timeout', type=int, default=600,
                     help='per-arm model timeout in seconds (same for both arms)')
     ap.add_argument("--reps", type=int, default=1)
-    ap.add_argument("--arms", nargs="+", default=["tacto", "sky"], choices=["tacto", "sky"])
+    ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
     checks = ap.add_mutually_exclusive_group()
@@ -1269,10 +1536,26 @@ def main() -> int:
     ap.add_argument('--owned-fixture-text', help='host-authored text for a newly owned lifecycle probe fixture; sends signed UI input')
     ap.add_argument('--resume-owned-fixture-directory', help='trusted host path of a prior owned fixture; lifecycle probe only')
     ap.add_argument('--resume-owned-fixture-identity', help='trusted host recorded dev:ino of that prior fixture')
+    ap.add_argument('--resume-owned-fixture-text', help='non-sensitive host fixture body for read-only resume; argv is visible to local processes; defaults to empty')
     ap.add_argument('--diagnose-owned-document-pin', help='read only the explicitly host-selected owned fixture path; no input')
     checks.add_argument('--check-owned-save-receipt', action='store_true',help='owned native Save callback and fresh-file receipt; no model')
     checks.add_argument('--check-owned-textedit-save',action='store_true',help='actual owned TextEdit preparation and bound in-place Save; saved-state evidence only')
-    args = ap.parse_args()
+    checks.add_argument('--check-owned-document-observe',action='store_true',help='installed signed CLI scopes observation to one of two owned TextEdit documents')
+    checks.add_argument('--check-owned-document-observe-escaped',action='store_true',help='same-name scoped observation with literal UI markers and quotes in the filename')
+    checks.add_argument('--check-owned-document-run',action='store_true',help='installed scoped CLI replay reads one of two owned documents')
+    checks.add_argument('--check-owned-scoped-save',action='store_true',help='native document-token Save and exact saved-state receipt')
+    checks.add_argument('--check-owned-scoped-cli-save',action='store_true',help='installed scoped CLI built-in Save with disk-state check')
+    args = ap.parse_args(argv)
+    _COLD_START = args.cold_start
+    if args.sky_skill_file is not None:
+        guide = Path(args.sky_skill_file)
+        if not guide.is_absolute() or any(ord(c) < 32 for c in str(guide)):
+            ap.error('--sky-skill-file requires an absolute path without control characters')
+        _SKY_SKILL_FILE = str(guide.resolve())
+        if 'error' in _sky_skill_evidence():
+            ap.error('--sky-skill-file requires readable UTF-8 content within 64 KiB')
+    else:
+        _SKY_SKILL_FILE = None
     if args.agent_executable is not None:
         import os
         agent = Path(args.agent_executable)
@@ -1295,6 +1578,12 @@ def main() -> int:
                 raise ValueError
         except ValueError:
             ap.error('resume identity must be dev:ino')
+    if args.resume_owned_fixture_text is not None:
+        if not args.resume_owned_fixture_directory or args.owned_fixture_text is not None:
+            ap.error('--resume-owned-fixture-text requires resume identity and forbids new text input')
+        from signed_owned_textedit import SignedOwnedTextEdit
+        try:SignedOwnedTextEdit._text_budget(args.resume_owned_fixture_text)
+        except ValueError:ap.error('resume text must be valid Unicode within the pin budget')
     if args.timeout <= 0:
         ap.error('--timeout must be positive')
     if args.reps <= 0:
@@ -1309,9 +1598,66 @@ def main() -> int:
         for t in tasks:
             print(f"{t.name:16} {t.preview if t.preview is not None else (t.ask() if callable(t.ask) else t.ask)}")
         return 0
+    if args.fixture_worker:
+        from tacto.helper import InheritedHelperDriver
+        if not InheritedHelperDriver.available():
+            print('fixture_worker_requires_signed_launcher', file=sys.stderr)
+            return 2
+        from comparison_fixture_worker import serve
+        return serve(sys.modules[__name__], sys.stdin, sys.stdout, task=args.fixture_worker_task)
+    if (args.check_worker_boundary or args.check_worker_lifecycle) and not args.external_owned_worker:
+        ap.error('worker checks require --external-owned-worker')
+    if args.external_owned_worker:
+        import os
+        from comparison_fixture_worker import FixtureWorker
+        from tacto.helper import InheritedHelperDriver
+        if InheritedHelperDriver.available() or any(os.environ.get(k) for k in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN')):
+            ap.error('external controller must run outside the signed launcher')
+        launcher = Path(args.external_owned_worker)
+        if not launcher.is_absolute() or not launcher.is_file() or not os.access(launcher, os.X_OK):
+            ap.error('worker launcher must be an absolute executable path')
+        if any(value for key, value in vars(args).items() if key.startswith('check_') and key not in ('check_worker_boundary', 'check_worker_lifecycle')) or args.diagnose_owned_document_pin or args.resume_owned_fixture_directory or args.owned_fixture_text:
+            ap.error('external worker mode supports no other probes')
+        is_worker_check = args.check_worker_boundary or args.check_worker_lifecycle
+        if not is_worker_check and (not args.only or len(args.only) != 1 or args.only[0] not in WORKER_TASKS):
+            ap.error('external worker requires exactly one supported owned task')
+        selected_task = 'textedit_edit_owned' if is_worker_check else args.only[0]
+        worker = FixtureWorker(str(launcher), task=selected_task)
+        try:
+            metadata = worker.request('check')
+            from tacto.process_responsibility import observe_responsibility
+            _WORKER_METADATA = {'worker': metadata, 'controller': observe_responsibility(os.getpid()),
+                                'agent_descendants_observed': False, 'tcc_permission_verified': False}
+            if args.check_worker_boundary:
+                from tacto.process_responsibility import observe_responsibility
+                print(json.dumps({'scope': 'external_controller_signed_worker_metadata_only',
+                                  'controller': observe_responsibility(os.getpid()),
+                                  'worker': metadata, 'gui_task_executed': False,
+                                  'agent_executed': False, 'comparison_eligible': False}))
+                return 0
+            if args.check_worker_lifecycle:
+                from comparison_fixture_worker import probe_lifecycle
+                from focus_witness import FocusWitness
+                result = probe_lifecycle(worker, _locked, FocusWitness)
+                print(json.dumps(result))
+                return 0 if result['status'] == 'passed' else 2
+            _FIXTURE_WORKER = worker
+            # Reuse the ordinary runner; the agent is spawned only here, never
+            # by the worker. Anonymous pipes are non-inheritable/close_fds.
+            forwarded = ['--only', selected_task, '--reps', str(args.reps),
+                         '--timeout', str(args.timeout), '--arms', *args.arms]
+            if args.sky_skill_file:
+                forwarded += ['--sky-skill-file', _SKY_SKILL_FILE]
+            if args.agent_executable:
+                forwarded += ['--agent-executable', args.agent_executable]
+            return main(forwarded)
+        finally:
+            _FIXTURE_WORKER = None
+            _WORKER_METADATA = None
+            worker.close()
     from tacto.helper import InheritedHelperDriver
-    if not InheritedHelperDriver.available():
-        print('Use the signed launcher: tacto eval --product-comparison [options]')
+    if not InheritedHelperDriver.available() and _FIXTURE_WORKER is None:
+        print('Use the signed launcher: nlc eval --product-comparison [options]')
         return 2
     if args.diagnose_owned_document_pin:
         reply = _driver().document_text('com.apple.TextEdit', document_path=args.diagnose_owned_document_pin)
@@ -1322,18 +1668,29 @@ def main() -> int:
             observation = _driver().observe('com.apple.TextEdit', document_token=reply['document_token'])
             print(json.dumps({'type':observation.get('type'), 'buttons':[line for line in observation.get('tree','').splitlines() if re.match(r'^\s*\d+ Button(?:\s|$)',line)]}))
         return 0 if reply.get('type') == 'document_text' else 2
-    if args.check_owned_textedit_save:
+    if args.check_owned_textedit_save or args.check_owned_document_observe or args.check_owned_document_observe_escaped or args.check_owned_document_run or args.check_owned_scoped_save or args.check_owned_scoped_cli_save:
         if _locked() is not False:
             print('owned_save_environment_unavailable')
             return 2
-        from signed_textedit_save import run
+        if args.check_owned_document_observe or args.check_owned_document_observe_escaped or args.check_owned_document_run:
+            from signed_document_observe import run
+        else:
+            from signed_textedit_save import run
         from tacto.driver import Driver
         from tacto.native_frontmost import frontmost_pid
         def can_cleanup():
             try:return _locked() is False and frontmost_pid()!=Driver()._resolve('com.apple.TextEdit',launch=False)
             except Exception:return False
         before=source_manifest()
-        result=run(_driver(),can_cleanup=can_cleanup)
+        if args.check_owned_scoped_cli_save:
+            result=run(_driver(),can_cleanup=can_cleanup,scoped_save=True,cli_save=True)
+        elif args.check_owned_scoped_save:
+            result=run(_driver(),can_cleanup=can_cleanup,scoped_save=True)
+        elif args.check_owned_document_run:
+            result=run(_driver(),can_cleanup=can_cleanup,escaped_name=True,run_read=True)
+        elif args.check_owned_document_observe_escaped:
+            result=run(_driver(),can_cleanup=can_cleanup,escaped_name=True)
+        else:result=run(_driver(),can_cleanup=can_cleanup)
         result.update(_source_evidence(before,source_manifest()))
         print(json.dumps(result,ensure_ascii=False))
         return 0 if result['passed'] and not result['source_changed'] else 2
@@ -1356,12 +1713,12 @@ def main() -> int:
             print('owned_document_lifecycle_environment_unavailable')
             return 2
         try:
-            result = _owned_lifecycle_probe(args.resume_owned_fixture_directory, resume_identity, args.owned_fixture_text)
+            result = _owned_lifecycle_probe(args.resume_owned_fixture_directory, resume_identity, args.owned_fixture_text, args.resume_owned_fixture_text or "")
         except Exception as error:
             print('owned_document_lifecycle_unavailable:' + type(error).__name__)
             return 2
         print(json.dumps(result))
-        return 0 if result['opened_state'] == 'open' and result['initial_empty_text_verified'] and result['cleanup_status'] == 'closed' and result['receiving_text_verified'] is not False and result['artifact_removed'] and not result['source_changed'] else 2
+        return 0 if result['opened_state'] == 'open' and result['initial_expected_text_verified'] and result['cleanup_status'] == 'closed' and result['receiving_text_verified'] is not False and result['artifact_removed'] and not result['source_changed'] else 2
     if args.check_agent_responsibility:
         try:
             result = _live_agent_probe()

@@ -22,8 +22,8 @@ class StandalonePreviewTests(unittest.TestCase):
             root=Path(folder)/'runtime';root.mkdir();module=root/'module.py';module.write_text('')
             helper=root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
             helper.parent.mkdir(parents=True);helper.write_text('native fixture')
-            def receipt(tacto=module, native=helper):
-                return {'tacto':str(tacto),'prefix':str(root),'helper':str(native)}
+            def receipt(nlc=module, native=helper):
+                return {'tacto':str(nlc),'prefix':str(root),'helper':str(native)}
             self.assertTrue(builder.bundled_import_valid(receipt(),root))
             outside=Path(folder)/'outside.py';outside.write_text('')
             self.assertFalse(builder.bundled_import_valid(receipt(outside),root))

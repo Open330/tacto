@@ -17,7 +17,7 @@ import threading
 import time
 import uuid
 
-from .commit_evidence import ArtifactEvidence, CommitEvidence, action_digest
+from .commit_evidence import ArtifactEvidence, CommitEvidence, action_digest, _event_binding_matches
 
 
 class ArtifactReceiptError(ValueError):
@@ -69,10 +69,12 @@ class FreshFileReceipt:
         self._bytes = text.encode('utf-8')
         self._timeout = timeout_seconds
         self._interval = poll_interval
-        self._clock = clock or time.monotonic
+        from .receipt_clock import checked_receipt_clock
+        self._clock = checked_receipt_clock(clock)
         self._sleep = sleep or time.sleep
         self._lock = threading.Lock()
         self._prepared = None
+        self._prepare_attempted = False
         self._finished = False
 
     @property
@@ -125,10 +127,11 @@ class FreshFileReceipt:
         return identifier, digest
 
     def prepare_commit(self, event):
-        identifier, digest = self._event(event)
         with self._lock:
-            if self._prepared is not None:
+            if self._prepare_attempted:
                 raise ArtifactReceiptError('adapter already prepared a commit')
+            self._prepare_attempted = True
+            identifier, digest = self._event(event)
             descriptor = self._open_directory()
             try:
                 identity = self._check_directory(descriptor)
@@ -141,6 +144,8 @@ class FreshFileReceipt:
                 self._check_directory(descriptor, identity)
             finally:
                 os.close(descriptor)
+            if not _event_binding_matches(event, identifier, digest):
+                raise ArtifactReceiptError('commit changed during preparation')
             self._prepared = _Prepared(identifier, digest, identity, uuid.uuid4().hex)
             return self._prepared
 
@@ -186,7 +191,7 @@ class FreshFileReceipt:
             raise ArtifactReceiptError('artifact changed after readback')
         return True
 
-    def after_commit(self, event, driver_result, context):
+    def after_commit(self, event, driver_result, context, *, deadline=None):
         identifier, digest = self._event(event)
         with self._lock:
             if (self._finished or context is not self._prepared or context is None
@@ -196,7 +201,13 @@ class FreshFileReceipt:
         if (not isinstance(driver_result, dict) or driver_result.get('type') not in ('acted', 'error')
                 or driver_result.get('effect') == 'not_started'):
             raise ArtifactReceiptError('driver did not report dispatch')
-        deadline = self._clock() + self._timeout
+        from .receipt_clock import receipt_deadline
+        local_deadline = receipt_deadline(self._clock, self._timeout)
+        if deadline is not None:
+            if type(deadline) not in (int,float) or not math.isfinite(deadline):
+                raise ArtifactReceiptError('invalid readback deadline')
+            local_deadline = min(local_deadline,deadline)
+        deadline = local_deadline
         while self._clock() < deadline:
             descriptor = self._open_directory()
             try:

@@ -10,7 +10,7 @@ from unittest.mock import patch
 from shutil import rmtree as _real_rmtree
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('tacto_product_provenance', ROOT / 'examples/product_comparison.py')
+spec = importlib.util.spec_from_file_location('nlc_product_provenance', ROOT / 'examples/product_comparison.py')
 comparison = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = comparison
 spec.loader.exec_module(comparison)
@@ -67,7 +67,7 @@ class SessionAvailabilityTests(unittest.TestCase):
              patch.object(comparison, 'source_manifest', return_value=manifest), \
              patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison.subprocess, 'run') as run:
-            result = comparison.run_one(task, 'tacto')
+            result = comparison.run_one(task, 'nlc')
         self.assertEqual('not_run', result['status'])
         self.assertEqual('session_unobservable', result['observed'])
         self.assertFalse(result['comparison_eligible'])
@@ -111,7 +111,7 @@ class Provenance(unittest.TestCase):
         self.assertNotEqual(before['sha256'], comparison.source_manifest()['sha256'])
         self.assertIn('tacto/a.py', before['files'])
 
-    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="tacto", launch_error=False):
+    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="nlc", launch_error=False, stdout=""):
         class Witness:
             def __enter__(self): return self
             def __exit__(self, *args): pass
@@ -123,13 +123,53 @@ class Provenance(unittest.TestCase):
             pathlib.Path(argv[argv.index('-o') + 1]).write_text('claimed success')
             if change:
                 self.write('helper/tacto-helper', 'rebuilt-during-run')
-            return subprocess.CompletedProcess(argv, exit_code, '', '')
+            return subprocess.CompletedProcess(argv, exit_code, stdout, '')
         task = comparison.Task('owned-test', 'owned goal', lambda answer: (True, 'oracle satisfied'), setup=setup, cleanup=cleanup)
         with patch.dict(sys.modules, {'focus_witness': types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', return_value=False), \
+             patch.object(comparison, '_agent_executable_available',return_value=True), \
              patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison, '_run_agent', side_effect=fake_run):
             return comparison.run_one(task, arm)
+
+    def test_finder_agent_attempt_retains_folder_and_reports_identity(self):
+        with patch.dict(comparison._NEWDIR,{},clear=True):
+            row=self.execute(setup=comparison.newdir_setup,cleanup=comparison.newdir_cleanup)
+            base=comparison._NEWDIR['path']
+            self.addCleanup(lambda:_real_rmtree(base,True))
+            self.assertEqual('owned_directory_retained_without_window_close_proof',row['cleanup_status'])
+            self.assertEqual(base,row['finder_fixture_evidence']['path'])
+            self.assertTrue(row['finder_fixture_evidence']['ui_may_have_opened'])
+            self.assertFalse(row['finder_fixture_evidence']['window_close_verified'])
+            self.assertTrue(pathlib.Path(base).exists())
+
+    def test_tool_lifecycle_counts_are_distinct_from_legacy_event_counts(self):
+        import json
+        item={'id':'call-1','type':'command_execution','command':'nlc observe fixture --helper'}
+        events=[{'type':kind,'item':item} for kind in ('item.started','item.updated','item.completed','item.completed')]
+        events.append({'type':'turn.completed','usage':{}})
+        result=self.execute(stdout='\n'.join(json.dumps(event) for event in events))
+        self.assertEqual({'shell:nlc':4},result['calls'])
+        self.assertEqual({'shell:nlc':1},result['tool_item_usage']['observed_unique_items'])
+        self.assertEqual({'shell:nlc':1},result['tool_item_usage']['completed_unique_items'])
+        self.assertTrue(result['tool_item_usage']['complete_unique_counts'])
+        self.assertFalse(result['comparison_eligible'])
+
+    def test_abnormal_or_unfinished_stream_does_not_claim_complete_counts(self):
+        import json
+        start={'type':'item.started','item':{'id':'one','type':'command_execution','command':'nlc list'}}
+        cases=[([start],0),([start,{'type':'turn.failed'}],0),
+               ([start,{'type':'turn.completed'}],1),([start,{'type':'turn.completed'}],0)]
+        for events,code in cases:
+            with self.subTest(events=events,code=code):
+                result=self.execute(stdout='\n'.join(json.dumps(event) for event in events),exit_code=code)
+                self.assertFalse(result['tool_item_usage']['complete_unique_counts'])
+
+    def test_malformed_cli_records_do_not_create_complete_tool_counts(self):
+        result=self.execute(stdout='not-json\n[]\n{"type":"item.completed","item":null}')
+        self.assertTrue(result['oracle_passed'])
+        self.assertEqual(3,result['tool_item_usage']['unparsed_records'])
+        self.assertFalse(result['tool_item_usage']['complete_unique_counts'])
 
     def test_drifting_source_cannot_pass_even_when_oracle_passes(self):
         result = self.execute(change=True)
@@ -249,7 +289,7 @@ class OwnedDocumentTests(unittest.TestCase):
                 self.P.owned_setup()
         directory = self.P._OWNED['directory']
         self.assertEqual(0o700, os.stat(directory).st_mode & 0o777)
-        self.assertTrue(os.path.basename(directory).startswith('tacto-compare-owned-'))
+        self.assertTrue(os.path.basename(directory).startswith('nlc-compare-owned-'))
         import shutil; shutil.rmtree(directory)
 
     def test_only_local_file_urls_are_paths(self):
@@ -411,7 +451,7 @@ class FinderFolderTaskTests(unittest.TestCase):
                 self.P.finder_setup()
 
     def test_a_failed_read_is_not_an_empty_finder(self):
-        self.P._FOLDER['path'] = '/tmp/tacto-compare-folder-x'
+        self.P._FOLDER['path'] = '/tmp/nlc-compare-folder-x'
         for failing in ('AXTitle', 'AXChildren', 'AXIdentifier'):
             def ax(el, name, failing=failing):
                 if name == failing:
@@ -469,6 +509,31 @@ class FinderFolderTaskTests(unittest.TestCase):
 class NewTaskOracleTests(unittest.TestCase):
     """2026-10-09 tasks: saved-on-disk, a new folder, appearance."""
     P = comparison
+
+    def setUp(self):
+        self.P._NEWDIR.clear()
+        self.addCleanup(self.P._NEWDIR.clear)
+
+    def test_displayed_folder_is_retained_and_identity_cannot_be_overwritten(self):
+        self.P.newdir_setup();base=self.P._NEWDIR['path']
+        self.addCleanup(lambda:_real_rmtree(base,True))
+        identity=self.P.newdir_evidence()['directory_identity']
+        self.P._NEWDIR['ui_may_have_opened']=True
+        self.assertEqual('owned_directory_retained_without_window_close_proof',self.P.newdir_cleanup())
+        with self.assertRaisesRegex(RuntimeError,'previous_owned_folder_not_cleaned'):
+            self.P.newdir_setup()
+        self.assertEqual(identity,self.P.newdir_evidence()['directory_identity'])
+        self.assertTrue(pathlib.Path(base).exists())
+
+    def test_parent_symlink_back_to_original_inode_is_not_owned_path(self):
+        self.P.newdir_setup();base=pathlib.Path(self.P._NEWDIR['path'])
+        prior=base.with_name(base.name+'-original')
+        base.rename(prior);base.symlink_to(prior,target_is_directory=True)
+        self.addCleanup(lambda:_real_rmtree(prior,True));self.addCleanup(base.unlink)
+        (prior/'created').mkdir()
+        self.assertFalse(self.P.newdir_oracle('created')[0])
+        self.assertEqual('not_observable_left_as_is',self.P.newdir_cleanup())
+        self.assertTrue((prior/'created').exists())
 
     def test_saved_means_on_disk_and_shown(self):
         import tempfile, os

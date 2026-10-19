@@ -21,7 +21,32 @@ import math
 import json
 
 
+class _ProviderTermination(BaseException):
+    """Unwind CLI runners on the launcher's local SIGTERM cleanup request."""
+
+
 def main() -> int:
+    import os
+    import signal
+    if os.name != 'posix':
+        return _main()
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def terminate(signum, frame):
+        # A second request must not interrupt the owned group's kill/reap.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise _ProviderTermination()
+
+    signal.signal(signal.SIGTERM, terminate)
+    try:
+        return _main()
+    except _ProviderTermination:
+        return 128 + int(signal.SIGTERM)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _main() -> int:
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--image-envelope", action="store_true")

@@ -1,4 +1,4 @@
-"""An explicit backbone must reach every model boundary of tacto do."""
+"""An explicit backbone must reach every model boundary of nlc do."""
 import contextlib
 import io
 from types import SimpleNamespace
@@ -51,8 +51,7 @@ class CLIProvider(unittest.TestCase):
         modules = {'tacto.onboard':SimpleNamespace(run=lambda **kw:True),
                    'tacto.session':SimpleNamespace(preflight=lambda:{'verdict':'ready'}, sandboxed=lambda:False, SANDBOXED='',
                                                  KeepAwake=contextlib.nullcontext)}
-        # Relative `from . import onboard` can use the parent package's cached
-        # attribute, so isolate both import surfaces regardless of test order.
+        # Relative package imports may use an already cached tacto.onboard.
         with patch.dict('sys.modules',modules), \
              patch('tacto.onboard',modules['tacto.onboard'],create=True), \
              patch.object(cli,'Agent',Host), \

@@ -58,6 +58,7 @@ let nodes: [[String: Any]] = [
 func attr(_ element: Int, _ key: String) -> Any? { nodes[element][key] }
 func str(_ element: Int, _ key: String) -> String { attr(element,key) as? String ?? "" }
 func filtered(_ byRole: [Int], _ frames: [CGRect?]) -> [Int] {
+ var filteredWindowCount = byRole.count
 ''' + body + '''
 }
 let parent = CGRect(x:0,y:0,width:800,height:600)

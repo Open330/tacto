@@ -43,7 +43,7 @@ POLICY_VERSION = 1
 # What the action does to the world.
 EFFECTS = {
     "read",              # observe only
-    "write_ephemeral",   # edits an entry/field; lost on close, trivially undone
+    "write_ephemeral",   # edits session/entry state; does not outlive that scope
     "write_persistent",  # stores something that outlives the session
     "delete",            # removes something
     "transmit",          # sends data to a third party (message, form, upload)

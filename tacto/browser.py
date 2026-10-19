@@ -48,21 +48,32 @@ class BrowserDriver:
             raise RuntimeError("playwright not installed: pip install playwright "
                                "&& python -m playwright install chromium")
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=headless)
-        self._page = self._browser.new_page()
-        self._cdp = self._page.context.new_cdp_session(self._page)
-        self._cdp.send("Accessibility.enable")
-        self._latest = {}          # target(url key) -> {obs_id, nodes}
-        self._target = "page"
-        from .web_select import CustomSelect
-        self._custom_select = CustomSelect(self)
+        self._browser = None
+        self._custom_select = None
+        try:
+            self._browser = self._pw.chromium.launch(headless=headless)
+            self._page = self._browser.new_page()
+            self._cdp = self._page.context.new_cdp_session(self._page)
+            self._cdp.send("Accessibility.enable")
+            self._latest = {}          # target(url key) -> {obs_id, nodes}
+            self._target = "page"
+            from .web_select import CustomSelect
+            self._custom_select = CustomSelect(self)
+        except BaseException:
+            self.close()
+            raise
 
     def close(self):
-        self._custom_select.close()
-        try:
-            self._browser.close(); self._pw.stop()
-        except Exception:
-            pass
+        # Initialization may fail at any stage. One cleanup failure must not
+        # strand Playwright's sync event loop and poison the next connection.
+        for name, method in (("_custom_select", "close"), ("_browser", "close"), ("_pw", "stop")):
+            resource = getattr(self, name, None)
+            setattr(self, name, None)
+            if resource is not None:
+                try:
+                    getattr(resource, method)()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------ navigation
 
@@ -124,7 +135,7 @@ class BrowserDriver:
             lines.append(self._line(idx, nodes[-1], depth))
         obs_id = f"b{uuid.uuid4().hex[:8]}"
         self._latest[self._target] = {"obs_id": obs_id, "nodes": nodes,
-                                    "document": self._document()}
+                                    "document": self._document(), "tree": "\n".join(lines)}
         custom_selects = {}
         for i, node in enumerate(nodes):
             if node['role'] == 'combobox' and node.get('options') is None:
@@ -299,13 +310,15 @@ class BrowserDriver:
              "shift": "Shift", "Return": "Enter", "KP_0": "Numpad0"}
         return "+".join(m.get(p, m.get(p.lower(), p)) for p in parts)
 
-    def upload(self, obs_id, target, open_selector, paths, approved=False):
+    def upload(self, obs_id, target, open_selector, paths, approved=False, *, chooser_selector=None):
         """File upload via the chooser pattern (codex guidance): subscribe to the
         filechooser BEFORE clicking the control that opens it, then setFiles.
         Selecting files != server upload success — the caller verifies upload
         with a separate postcondition. Uploads are confirm/handoff-worthy, so a
-        caller must pass approved=True."""
-        if not approved:
+        caller must pass approved=True. The chooser must belong to the observed
+        file input. A separate opener needs chooser_selector from the same
+        observation; a click callback cannot redirect file disclosure."""
+        if approved is not True:
             return {"type": "confirm_request", "what": "파일 업로드",
                     "detail": "resend with approved=true"}
         if target != self._target:
@@ -317,24 +330,51 @@ class BrowserDriver:
             return {"type": "error", "error": "stale_observation", "effect": "not_started"}
         if type(open_selector) is not int or not 0 <= open_selector < len(cur["nodes"]):
             return {"type": "error", "error": "target_missing", "effect": "not_started"}
-        handle = None
+        chooser_index = open_selector if chooser_selector is None else chooser_selector
+        if type(chooser_index) is not int or not 0 <= chooser_index < len(cur["nodes"]):
+            return {"type": "error", "error": "target_missing", "effect": "not_started"}
+        handle = expected = selected = None
         dispatched = False
         try:
             handle = self._locator(cur["nodes"][open_selector])
+            expected = handle if chooser_index == open_selector else self._locator(cur["nodes"][chooser_index])
+            if not expected.evaluate("el => el.isConnected && el.tagName === 'INPUT' && el.type === 'file' && !el.matches(':disabled')"):
+                return {"type": "error", "error": "upload_target_required", "effect": "not_started"}
             with self._page.expect_file_chooser(timeout=10000) as fc:
                 dispatched = True
                 handle.click(timeout=4000)
+            selected = fc.value.element
+            if (cur["document"] != self._document()
+                    or not selected.evaluate("(el, expected) => el === expected && el.isConnected && el.tagName === 'INPUT' && el.type === 'file' && !el.matches(':disabled')", expected)):
+                # The click already occurred. Refuse file disclosure; this is
+                # not permission to retry the opener or claim no effect.
+                return {"type": "error", "error": "upload_target_changed", "effect": "unknown"}
             fc.value.set_files(paths)
-        except Exception as e:
-            return {"type": "error", "error": "upload_failed", "detail": str(e)[:200],
+            clearing = paths is None or (isinstance(paths, (list, tuple)) and len(paths) == 0)
+            if (cur['document'] != self._document()
+                    or not selected.evaluate("""(el, clearing) => el.isConnected &&
+                        el.tagName === 'INPUT' && el.type === 'file' &&
+                        (clearing ? el.files.length === 0 : el.files.length > 0)""", clearing)):
+                # onchange may clear/replace the field or navigate after it
+                # receives files. Disclosure may already have happened; only
+                # an independent receiving receipt can settle the operation.
+                return {'type': 'error', 'error': 'upload_selection_unverified', 'effect': 'unknown'}
+        except Exception:
+            return {"type": "error", "error": "upload_failed",
                     "effect": "unknown" if dispatched else "not_started"}
         finally:
+            self._dispose(selected)
+            if expected is not handle:
+                self._dispose(expected)
             self._dispose(handle)
-        return {"type": "acted", "action": "upload", "note": "files selected; "
+        return {"type": "acted", "action": "upload",
+                "note": ("files cleared; " if clearing else "files selected; ") +
                 "verify server-side completion with a separate postcondition"}
 
     def act(self, obs_id, target, action, expect=None, risk_class="none", intent_text="",
             approved=False):
+        if action.get('name')=='open_select' and 'opening_action' in action:
+            return {'type':'error','error':'unsupported_opening_action','effect':'not_started'}
         # D6 gate parity with the native driver: preapproved gates too (the
         # driver has no view of the original request, so it fails closed).
         if risk_class == "blocked" or risk_class not in ("none", "preapproved", "confirm", "handoff"):

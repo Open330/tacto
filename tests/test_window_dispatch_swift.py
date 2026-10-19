@@ -11,6 +11,102 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('xcrun'), 'macOS Swift required')
 class WindowDispatchSwiftTests(unittest.TestCase):
+    def test_popup_transition_only_after_complete_click_and_receiving_proof(self):
+        harness = r'''import Foundation
+import AppKit
+import ApplicationServices
+let element=AXUIElementCreateApplication(10001),window=AXUIElementCreateApplication(10002),focus=AXUIElementCreateApplication(10003)
+let binding=NativeWindowBinding(element:element,window:window,pid:42,processStart:10,
+ windowID:17,windowBounds:CGRect(x:100,y:200,width:300,height:200),
+ elementBounds:CGRect(x:110,y:230,width:100,height:40),point:CGPoint(x:160,y:250))
+for mode in ["valid","lost_after_down","unconfirmed","user_changed","double","key"] {
+ var posted=0,proofs=0
+ do {
+  let result=try dispatchNativeWindowPreparation(binding,deadline:100,stopped:{false},context:{},now:{0},
+   readInput:{_ in NativeUserInputState(foreground:77,pointer:mode=="user_changed" && posted==2 ? CGPoint(x:1,y:1):.zero,focused:focus)},
+   validate:{_ in if posted>0 && (mode=="lost_after_down" || posted==2) {throw NativeWindowInputError.refused("popup destroyed")}},
+   post:{event,pid in precondition(pid==42);precondition(event.type==(posted==0 ? .leftMouseDown:.leftMouseUp));posted+=1},
+   key:mode=="key" ? "Down":nil,routing:{_,_ in},elementClicks:mode=="key" ? 0:mode=="double" ? 2:1,
+   finalTransition:{checkpoint in try checkpoint();proofs+=1;precondition(posted==2);if mode=="unconfirmed" {throw NativeWindowInputError.refused("receiving state unconfirmed")}})
+  precondition(mode=="valid" && result.posted==2 && proofs==1)
+ } catch let failure as NativeWindowDispatchFailure {
+  precondition(mode != "valid")
+  let expected=mode=="double" || mode=="key" ? 0:mode=="lost_after_down" ? 1:2
+  precondition(failure.attempted==expected && posted==expected)
+  precondition(proofs==(mode=="unconfirmed" ? 1:0))
+ } catch {fatalError("unexpected failure: \(error)")}
+}
+print("SWIFT_POPUP_TRANSITION_PASS")
+'''
+        with tempfile.TemporaryDirectory(prefix='nlc-popup-transition-') as directory:
+            source,binary=Path(directory)/'main.swift',Path(directory)/'check'
+            source.write_text(harness)
+            built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
+                str(ROOT/'helper/WindowInput.swift'),str(ROOT/'helper/WindowDispatch.swift'),
+                str(ROOT/'helper/FrontmostProcess.swift'),'-o',str(binary)],capture_output=True,text=True,timeout=90)
+            self.assertEqual(0,built.returncode,built.stderr)
+            result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=10)
+            self.assertEqual(0,result.returncode,result.stderr)
+            self.assertEqual('SWIFT_POPUP_TRANSITION_PASS',result.stdout.strip())
+
+    def test_measured_sequence_headroom_refuses_slow_checks_before_first_post(self):
+        harness = r'''
+import Foundation
+import AppKit
+import ApplicationServices
+let element = AXUIElementCreateApplication(10001)
+let window = AXUIElementCreateApplication(10002)
+let focus = AXUIElementCreateApplication(10003)
+let binding = NativeWindowBinding(element:element,window:window,pid:42,
+    processStart:10,windowID:17,windowBounds:CGRect(x:100,y:200,width:300,height:200),
+    elementBounds:CGRect(x:110,y:230,width:100,height:40),point:CGPoint(x:160,y:250))
+for mode in ["fast", "slow_validation", "slow_routing", "slow_input", "slow_context", "latency_spike", "submit", "diagnostic_delay"] {
+    var clock = 0.0, posted = 0
+    var headroom:[String:Any]?
+    do {
+        let result = try dispatchNativeWindowPreparation(binding,deadline:5,
+            stopped:{ false },context:{ clock += mode == "slow_context" ? 0.15 : 0.001 },
+            now:{ clock },readInput:{ _ in
+                clock += mode == "slow_input" ? 0.5 : 0.001
+                return NativeUserInputState(foreground:77,pointer:.zero,focused:focus)
+            },validate:{ _ in
+                clock += mode == "slow_validation" ? 0.7 : 0.01
+                if mode == "latency_spike" && posted > 0 { clock = 6 }
+            },post:{ _, pid in precondition(pid == 42); posted += 1 },
+            key:mode == "submit" ? "Return" : nil,
+            routing:{ _, _ in clock += mode == "slow_routing" ? 0.7 : 0.01 },
+            elementClicks:mode == "submit" ? 0 : 2,submitKey:mode == "submit",headroomDiagnostic:{headroom=$0;if mode=="diagnostic_delay" {clock=6}})
+        precondition(mode == "fast" || mode == "submit", "slow sequence admitted: \(mode)")
+        precondition(posted == (mode == "submit" ? 1 : 4) && result.posted == posted)
+    } catch let failure as NativeWindowDispatchFailure {
+        if mode == "latency_spike" {
+            precondition(posted == 1 && failure.attempted == 1 && !failure.stopped)
+        } else {
+            precondition((mode.hasPrefix("slow_") || mode=="diagnostic_delay") && posted == 0 && failure.attempted == 0)
+            precondition(failure.detail == "window validation headroom insufficient")
+        }
+    } catch { fatalError("unexpected error: \(error)") }
+    precondition(headroom != nil)
+    precondition(headroom!["saturated"] as? Bool == false)
+    precondition(headroom!["event_count"] as? Int == (mode=="submit" ? 1:4))
+    if mode.hasPrefix("slow_") {
+        precondition(headroom!["required_ms"] as! Int > headroom!["remaining_ms"] as! Int)
+    }
+}
+print("SWIFT_WINDOW_HEADROOM_PASS")
+'''
+        with tempfile.TemporaryDirectory(prefix='nlc-window-headroom-') as directory:
+            source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
+            source.write_text(harness)
+            built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),
+                str(ROOT / 'helper/WindowInput.swift'), str(ROOT / 'helper/WindowDispatch.swift'),
+                str(ROOT / 'helper/FrontmostProcess.swift'), '-o', str(binary)],
+                capture_output=True, text=True, timeout=90)
+            self.assertEqual(built.returncode, 0, built.stderr)
+            result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), 'SWIFT_WINDOW_HEADROOM_PASS')
+
     def test_key_construction_and_routing_stop_before_next_event(self):
         harness = r'''
 import Foundation
@@ -65,7 +161,7 @@ for mode in ["preflight", "target_before"] { run(mode, expected: 0) }
 for mode in ["target_after", "stop", "deadline", "post", "pointer", "binding"] { run(mode, expected: 1) }
 print("SWIFT_WINDOW_KEYS_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-window-keys-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-window-keys-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(harness)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),
@@ -168,7 +264,7 @@ catch NativeWindowInputError.refused { }
 precondition(calls == 1)
 print("SWIFT_WINDOW_DISPATCH_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-window-dispatch-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-window-dispatch-') as directory:
             source = Path(directory) / 'main.swift'
             binary = Path(directory) / 'check'
             source.write_text(harness)

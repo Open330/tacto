@@ -15,6 +15,48 @@ from tacto.authoring import ask_model_result, reach_model_result, _run_provider
 
 
 class ProviderResultTests(unittest.TestCase):
+    def test_opencode_zero_exit_auth_error_is_never_an_answer(self):
+        frame={'type':'error','timestamp':1791684300370,'sessionID':'ses_owned',
+            'error':{'name':'UnknownError','data':{'message':'Error: Token refresh failed: 401'}}}
+        from tacto.provider_result import classify_unavailable
+        output=json.dumps(frame)
+        self.assertEqual('authentication_failed',classify_unavailable(output,provider='opencode'))
+        self.assertIsNone(classify_unavailable(output,provider='claude'))
+        for want_json in (False,True):
+            with patch('tacto.authoring.shutil.which',return_value='/owned/opencode'), \
+                 patch('tacto.authoring._run_provider',return_value=subprocess.CompletedProcess([],0,output,'')):
+                result=ask_model_result('q','opencode',expect_json=want_json)
+            self.assertEqual('authentication_failed',result.error.code)
+            self.assertEqual('error',result.status);self.assertIsNone(result.text)
+            self.assertIsNone(result.cost);self.assertIsNone(result.input_tokens)
+
+    def test_opencode_generic_model_error_object_is_not_cli_auth_refusal(self):
+        from tacto.provider_result import classify_unavailable
+        for value in ('Token refresh failed: 401','an explanation of Error: Token refresh failed: 401',
+                      json.dumps({'type':'error','error':{'message':'Error: Token refresh failed: 401'}})):
+            self.assertIsNone(classify_unavailable(value,provider='opencode'))
+
+
+    def test_observed_unsupported_client_is_closed_and_keeps_usage_unknown(self):
+        from tacto.provider_result import classify_unavailable
+        from tacto.provider_observation import provider_failure_reason
+        output='Error authenticating: IneligibleTierError: PRIVATE account details UNSUPPORTED_CLIENT'
+        self.assertEqual('unsupported_client',classify_unavailable('',output,provider='gemini'))
+        for provider in (None,'claude','codex','opencode'):
+            self.assertIsNone(classify_unavailable(output,provider=provider))
+        for value in ('UNSUPPORTED_CLIENT','This client is no longer supported',
+                      'Error authenticating: IneligibleTierError: other reason'):
+            self.assertIsNone(classify_unavailable(value,provider='gemini'))
+        with patch('tacto.authoring.shutil.which',return_value='/owned/gemini'), \
+             patch('tacto.authoring._run_provider',return_value=subprocess.CompletedProcess([],55,'',output)):
+            result=ask_model_result('private prompt','gemini',expect_json=True)
+        self.assertEqual('error',result.status)
+        self.assertEqual('unsupported_client',result.error.code)
+        self.assertIsNone(result.input_tokens);self.assertIsNone(result.cost)
+        self.assertNotIn('PRIVATE',json.dumps(result.to_dict()))
+        self.assertIn('클라이언트',provider_failure_reason([result.to_dict()]))
+
+
     def test_auto_records_actual_fallback_without_inventing_telemetry(self):
         def muxa(provider, prompt, timeout):
             return '{"ok":true}' if provider == 'codex' else None
@@ -94,18 +136,19 @@ class CliUnavailableTests(unittest.TestCase):
             return _try_cli('opencode', 'q', 5)
 
     def test_failed_run_is_named_when_a_person_can_fix_it(self):
-        from tacto.provider_result import ProviderUnavailable
         for code, out, err, reason in ((1, '', 'usage limit reached SECRET', 'usage_limit'),
-                                       (0, 'Please run /login', '', 'not_logged_in')):
-            with self.assertRaises(ProviderUnavailable) as caught:
-                self.run_cli(code, out, err)
-            self.assertEqual(reason, caught.exception.reason)
-            self.assertNotIn('SECRET', str(caught.exception))
+                                       (0, '', 'Please run /login', 'not_logged_in')):
+            result=self.run_cli(code,out,err)
+            self.assertEqual('error',result.status)
+            self.assertEqual(reason,result.error.code)
+            self.assertNotIn('SECRET',str(result.to_dict()))
 
-    def test_unknown_failure_stays_no_answer_and_answers_stay_answers(self):
-        self.assertIsNone(self.run_cli(1, '', 'something else'))
-        self.assertEqual('the quota and rate limit are explained here',
-                         self.run_cli(0, 'the quota and rate limit are explained here'))
+    def test_unknown_failure_and_unframed_text_are_not_answers(self):
+        for code,text in ((1,''),(0,'ordinary unframed answer'),(0,'Please run /login')):
+            result=self.run_cli(code,text,'something else')
+            self.assertEqual('error',result.status)
+            self.assertIsNone(result.text)
+            self.assertEqual('OpenCodeProtocolError',result.error.code)
 
     def test_attempts_carry_the_reason_code_not_provider_output(self):
         from tacto.provider_result import ProviderUnavailable

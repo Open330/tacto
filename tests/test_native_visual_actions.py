@@ -1,4 +1,8 @@
 from dataclasses import replace
+from copy import deepcopy
+import gc
+import uuid
+import weakref
 import hashlib
 from pathlib import Path
 import struct
@@ -8,11 +12,12 @@ from unittest.mock import Mock, patch
 from tacto.native_visual import NativeVisualCapture, NativeVisualError
 from tacto.native_visual_actions import capture_window, NativeVisualClickExecutor, run_native_visual
 from tacto.visual import plan_visual
+from tacto.capture_ledger import CaptureLedger
 
 
 def shot(identity='nv1'):
     png = b'\x89PNG\r\n\x1a\n' + struct.pack('>I', 13) + b'IHDR' + struct.pack('>II', 800, 400)
-    return NativeVisualCapture(identity, 'o1', 'owned', 42, 17, 3,
+    return NativeVisualCapture(identity+uuid.uuid4().hex, 'o1', 'owned', 42, 17, 3,
         hashlib.sha256(png).hexdigest(), {'width':800, 'height':400, 'coordinate_space':'window_pixels'},
         1, 'helper_native_window_id', png, (100, 200, 400, 200))
 
@@ -79,6 +84,26 @@ class NativeVisualActions(unittest.TestCase):
         again=NativeVisualClickExecutor(self.driver,'owned').click(capture,self.proposal,lambda *args:True)
         self.assertEqual('capture_already_used',again['reason']);self.driver.act.assert_called_once()
 
+    def test_copy_cannot_respend_after_original_is_collected(self):
+        capture=shot('copy');copied=deepcopy(capture);reference=weakref.ref(capture)
+        with patch('tacto.native_visual_actions.capture_window',return_value=shot('fresh')):
+            self.assertEqual('dispatched',self.executor.click(capture,self.proposal,lambda *args:True)['effect'])
+        del capture;gc.collect();self.assertIsNone(reference())
+        with patch('tacto.native_visual_actions.capture_window',return_value=shot('fresh')) as fresh:
+            event=NativeVisualClickExecutor(self.driver,'owned').click(copied,self.proposal,lambda *args:True)
+        self.assertEqual('capture_already_used',event.get('reason'));fresh.assert_not_called()
+        self.driver.act.assert_called_once()
+
+    def test_full_ledger_refuses_new_attempt_before_authority_or_capture(self):
+        ledger=CaptureLedger(1)
+        self.assertIsNone(ledger.reserve('already-spent'))
+        authority=Mock(return_value=True)
+        with patch('tacto.native_visual_actions._SPENT',ledger), \
+             patch('tacto.native_visual_actions.capture_window') as fresh:
+            event=self.executor.click(shot(),self.proposal,authority)
+        self.assertEqual('capture_ledger_full',event['reason'])
+        authority.assert_not_called();fresh.assert_not_called();self.driver.act.assert_not_called()
+
     def test_refused_dispatch_preserves_no_effect(self):
         self.driver.act.return_value={'type':'error','effect':'not_started','error':'target_changed'}
         with patch('tacto.native_visual_actions.capture_window',return_value=shot('fresh')):
@@ -130,3 +155,45 @@ class NativeVisualActions(unittest.TestCase):
     def test_zero_deadline_does_not_observe(self):
         result=run_native_visual(self.driver,'owned','green',Mock(),Mock(),Mock(),Mock(),timeout_seconds=0)
         self.assertEqual('STOPPED',result.state);self.driver.observe.assert_not_called()
+
+    def test_verifier_returning_true_after_deadline_or_cancellation_never_reports_done(self):
+        self.driver.observe.return_value={'type':'observation','obs_id':'o1','tree':'owned'}
+        selector=Mock();selector.resolve.return_value=(3,'title')
+        for mode in ('deadline','cancelled','cancellation_error'):
+            now=[0.0];cancel=[False]
+            def verify(*args):
+                if mode=='deadline':now[0]=2.0
+                else:cancel[0]=True
+                return True
+            def cancelled():
+                if cancel[0] and mode=='cancellation_error':raise RuntimeError('private cancellation details')
+                return cancel[0]
+            planner=Mock()
+            with self.subTest(mode=mode),patch('tacto.native_visual_actions.time.monotonic',side_effect=lambda:now[0]), \
+                    patch('tacto.native_visual_actions.capture_window',return_value=shot(mode)):
+                result=run_native_visual(self.driver,'owned','green',selector,planner,lambda *args:True,
+                    verify,timeout_seconds=1,cancelled=cancelled)
+            expected='deadline_exceeded' if mode=='deadline' else 'cancellation_check_failed' if mode=='cancellation_error' else 'cancelled'
+            self.assertEqual(('STOPPED',expected),(result.state,result.reason))
+            planner.assert_not_called();self.driver.act.assert_not_called()
+
+    def test_late_receiving_verification_preserves_dispatched_pair_and_never_retries(self):
+        self.driver.observe.return_value={'type':'observation','obs_id':'o1','tree':'owned'}
+        selector=Mock();selector.resolve.return_value=(3,'title')
+        for mode in ('deadline','cancelled'):
+            now=[0.0];cancel=[False];self.driver.act.reset_mock()
+            def verify(capture,history):
+                if not history:return False
+                if mode=='deadline':now[0]=2.0
+                else:cancel[0]=True
+                return True
+            planner=Mock(return_value=self.proposal)
+            with self.subTest(mode=mode),patch('tacto.native_visual_actions.time.monotonic',side_effect=lambda:now[0]), \
+                    patch('tacto.native_visual_actions.capture_window',side_effect=lambda *a,**k:shot(mode)):
+                result=run_native_visual(self.driver,'owned','green',selector,planner,lambda *args:True,
+                    verify,timeout_seconds=1,cancelled=lambda:cancel[0])
+            self.assertEqual(('STOPPED','deadline_exceeded' if mode=='deadline' else 'cancelled'),(result.state,result.reason))
+            self.assertEqual(1,planner.call_count);self.driver.act.assert_called_once()
+            self.assertEqual(1,len(result.history))
+            self.assertEqual('dispatched',result.history[0]['effect'])
+            self.assertEqual(2,result.history[0]['dispatch']['posted_events'])

@@ -99,7 +99,7 @@ def main():
     audit=None
     timer=None
     try:
-        with tempfile.TemporaryDirectory(prefix='tacto-menu-timeout-') as tmp:
+        with tempfile.TemporaryDirectory(prefix='nlc-menu-timeout-') as tmp:
             app=Path(tmp)/'Timeout Fixture.app'
             exe=app/'Contents/MacOS/Fixture'
             exe.parent.mkdir(parents=True)

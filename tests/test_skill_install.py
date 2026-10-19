@@ -25,7 +25,7 @@ class SkillInstallTests(unittest.TestCase):
 
     def run_script(self, *args):
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
-               "NLC_BIN_DIR": str(self.bin)}
+               "TACTO_BIN_DIR": str(self.bin)}
         return subprocess.run(["bash", str(SCRIPT), *args], env=env,
                               capture_output=True, text=True, timeout=30)
 
@@ -34,6 +34,35 @@ class SkillInstallTests(unittest.TestCase):
             if os.access(candidate, os.X_OK):
                 return candidate
         self.skipTest("no built entry point in this checkout")
+
+    def test_explicit_destinations_do_not_touch_default_profiles(self):
+        self.entry()
+        selected=self.home/'selected skills';selected_bin=self.home/'selected bin'
+        result=self.run_script('--bin-dir',str(selected_bin),'--skill-dir',str(selected))
+        self.assertEqual(0,result.returncode,result.stdout+result.stderr)
+        self.assertTrue((selected/'tacto').is_symlink());self.assertTrue((selected_bin/'nlc').is_symlink())
+        for path in (self.home/'.claude/skills/tacto',self.home/'.codex/skills/tacto',self.bin/'nlc'):
+            self.assertFalse(path.exists());self.assertFalse(path.is_symlink())
+        result=self.run_script('--check','--bin-dir',str(selected_bin),'--skill-dir',str(selected))
+        self.assertEqual(0,result.returncode,result.stdout+result.stderr)
+
+    def test_relative_explicit_target_is_rejected_before_linking(self):
+        self.entry()
+        result=self.run_script('--skill-dir','relative')
+        self.assertEqual(2,result.returncode)
+        self.assertFalse((self.bin/'nlc').exists())
+        result=self.run_script('--bin-dir')
+        self.assertEqual(2,result.returncode)
+
+    def test_record_preconditions_fail_before_installation(self):
+        self.entry()
+        for args in (('--check','--record',str(self.home/'record.json')),
+                     ('--record',str(self.home/'missing/record.json'))):
+            with self.subTest(args=args):
+                result=self.run_script(*args)
+                self.assertEqual(2,result.returncode,result.stdout+result.stderr)
+                self.assertFalse((self.bin/'nlc').is_symlink())
+                self.assertFalse((self.home/'.codex/skills/tacto').is_symlink())
 
     def test_installs_the_command_and_links_the_skill_everywhere(self):
         entry = self.entry()
@@ -111,9 +140,11 @@ class SandboxTests(unittest.TestCase):
 
     def test_the_skill_tells_an_agent_what_to_do_in_a_sandbox(self):
         skill = "\n".join(p.read_text() for p in [ROOT / "skill/SKILL.md", *sorted((ROOT / "skill/references").glob("*.md"))])
-        self.assertIn("require_escalated", skill)
-        self.assertIn("danger-full-access", skill)
-        self.assertIn("exit code 3", skill)
+        self.assertIn("references/setup.md", skill)
+        setup = (ROOT / "skill" / "references" / "setup.md").read_text()
+        self.assertIn("require_escalated", setup)
+        self.assertIn("danger-full-access", setup)
+        self.assertIn("exit code 3", setup)
 
 
 class DoctorUnderTheLauncherTests(unittest.TestCase):
@@ -233,6 +264,35 @@ class AgentFrictionTests(unittest.TestCase):
             flow = cli._load_recipe("textedit_write_note")
         store.return_value.load.assert_not_called()
         self.assertEqual(builders()["textedit_write_note"]().to_json(), flow.to_json())
+
+    def test_parameterize_builtin_name_uses_current_contract(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest.mock import patch
+        from tacto import cli
+        from tacto.flow import Flow
+        with tempfile.TemporaryDirectory() as directory:
+            output=Path(directory)/'parameterized.json'
+            with patch('tacto.cli.FlowStore') as store,redirect_stdout(StringIO()):
+                self.assertEqual(0,cli.main(['parameterize','textedit_write_note','-p','안녕하세요=body','-o',str(output)]))
+            store.return_value.load.assert_not_called()
+            result=Flow.from_json(output.read_text())
+        self.assertEqual(['write_persistent'],result.steps[0].safety.effects)
+
+    def test_parameterize_explicit_file_preserves_authored_contract(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from tacto import cli
+        from tacto.library import textedit_write_note
+        from tacto.flow import Flow
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'explicit.json';output=Path(directory)/'parameterized.json'
+            flow=textedit_write_note();flow.steps[0].safety.effects=['write_ephemeral']
+            source.write_text(flow.to_json())
+            with redirect_stdout(StringIO()):
+                self.assertEqual(0,cli.main(['parameterize',str(source),'-p','안녕하세요=body','-o',str(output)]))
+            result=Flow.from_json(output.read_text())
+        self.assertEqual(['write_ephemeral'],result.steps[0].safety.effects)
 
     def test_an_unsaved_document_write_is_reported_as_unverified_not_failed(self):
         from contextlib import redirect_stdout

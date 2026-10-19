@@ -24,7 +24,7 @@ for code in [-25206, -25204, -25200, -25201, -25202, -25208, -25211] as [Int32] 
 }
 print("AX_EFFECT_CLASSIFICATION_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-ax-effects-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-ax-effects-') as directory:
             script = Path(directory)/'main.swift'
             binary = Path(directory)/'check'
             script.write_text('import ApplicationServices\n' + match.group() + '\n' + harness)

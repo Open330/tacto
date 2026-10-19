@@ -6,11 +6,64 @@ import subprocess
 import tempfile
 import time
 import hashlib
+import os
 
 TARGET = 'ai.callabo.nlc.navigation-fixture'
 
 
 def main(driver, output, *, model_provider=None, require_selection=False):
+    if type(require_selection) is not bool:
+        raise ValueError('require_selection must be boolean')
+    if model_provider not in (None, 'claude', 'codex'):
+        raise ValueError('unsupported model provider')
+    # Reserve the private output before imports, compilation or native work.
+    descriptor=os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+    report={'passed':False,'all_dependencies_frozen':False,
+            'scope':'owned two-window custom navigation controls',
+            'model_provider_requested':model_provider,'require_selection':require_selection}
+    interrupted=None
+    with os.fdopen(descriptor,'w') as stream:
+        try:
+            _run_navigation(driver,report,model_provider=model_provider,require_selection=require_selection)
+        except BaseException as error:
+            report['passed']=False
+            report['error_class']=type(error).__name__
+            # A lost observation/response cannot establish no input effects.
+            report['effect']='unknown'
+            interrupted=error
+        try:
+            serialized=json.dumps(report,ensure_ascii=False,indent=2)
+        except BaseException as serialization_error:
+            if interrupted is None:interrupted=serialization_error
+            retained={};omitted=[]
+            for key,value in report.items():
+                try:json.dumps({key:value},ensure_ascii=False)
+                except BaseException:omitted.append(key)
+                else:retained[key]=value
+            retained.update(passed=False,effect='unknown',all_dependencies_frozen=False,
+                error_class=type(interrupted).__name__,serialization_failed=True,
+                serialization_error_class=type(serialization_error).__name__,
+                report_fields_omitted=omitted)
+            report=retained
+            serialized=json.dumps(report,ensure_ascii=False,indent=2)
+        stream.write(serialized);stream.flush();os.fsync(stream.fileno())
+    if interrupted is not None:raise interrupted
+    return report
+
+
+def source_hashes(root):
+    paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+        root/'examples/probes/native-navigation.py',root/'examples/eval.py',
+        root/'tests/fixtures/NativeNavigationFixture.swift',root/'launcher/tacto.swift',
+        root/'launcher/tacto',root/'helper/tacto-helper',
+        root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper',
+        root/'helper/Tacto Helper.app/Contents/Info.plist',root/'helper/build.sh',
+        root/'helper/bundle.sh',root/'signing.sh']
+    return {str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(paths)}
+
+
+def _run_navigation(driver, report, *, model_provider=None, require_selection=False):
     from tacto.driver import Driver, _attr
     from tacto.flow import Selector
     from tacto.model_budget import model_deadline
@@ -23,22 +76,15 @@ def main(driver, output, *, model_provider=None, require_selection=False):
     assert model_provider in (None, 'claude', 'codex'), 'unsupported model provider'
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3,
                              max_samples=30000 if model_provider else 10000, require_selection=require_selection)
-    report = {'passed': False, 'scope': 'owned two-window custom navigation controls',
+    report.update({'passed': False, 'scope': 'owned two-window custom navigation controls',
               'transport': type(driver).__name__, 'actions': [], 'refusals': [],
-              'model_provider_requested': model_provider, 'require_selection': require_selection}
-    sources = ['tests/fixtures/NativeNavigationFixture.swift', 'examples/probes/native-navigation.py',
-        'tacto/driver.py', 'tacto/native_key_events.py', 'tacto/native_window_binding.py',
-        'tacto/native_window_dispatch.py', 'tacto/native_window_ready.py', 'tacto/general.py', 'tacto/flow.py', 'tacto/protocol.py',
-        'tacto/input_audit.py', 'tacto/input_audit_process.py', 'tacto/native_frontmost.py',
-        'helper/WindowInput.swift', 'helper/WindowDispatch.swift', 'helper/TactoHelper.swift',
-        'launcher/tacto.swift', 'tacto/helper.py', 'tacto/promote.py', 'tacto/authoring.py']
-    def source_hashes():
-        return {name: hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
-    report['source_hashes_before'] = source_hashes()
+              'model_provider_requested': model_provider, 'require_selection': require_selection})
+    report['source_hashes_before'] = source_hashes(root)
+    report['source_manifest_scope']='listed checkout Python/native sources, signed runtime artifacts and fixture source; excludes installed dependencies, compiler and OS'
     child = None
     try:
         assert host_driver._resolve(TARGET, launch=False) is None, 'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='tacto-native-navigation-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-native-navigation-') as directory:
             bundle = Path(directory) / 'Navigation.app'
             binaries = bundle / 'Contents/MacOS'; binaries.mkdir(parents=True)
             binary = binaries / 'Navigation'
@@ -50,6 +96,9 @@ def main(driver, output, *, model_provider=None, require_selection=False):
                 check=True, capture_output=True, timeout=60)
             with audit:
                 try:
+                    report['fixture_artifact']={
+                        'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
+                        'info_plist_sha256':hashlib.sha256((bundle/'Contents/Info.plist').read_bytes()).hexdigest()}
                     child = subprocess.Popen([str(binary)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     report['fixture_pid'] = child.pid
                     until = time.monotonic() + 15
@@ -224,9 +273,10 @@ def main(driver, output, *, model_provider=None, require_selection=False):
                         report['owned_child_reaped'] = child.poll() is not None
     except Exception as error:
         report['passed'] = False
+        report['error_class'] = type(error).__name__
         report['error'] = type(error).__name__ + ':' + str(error)
     report['input_audit'] = audit.report()
-    report['source_hashes_after'] = source_hashes()
+    report['source_hashes_after'] = source_hashes(root)
     report['source_stable_during_run'] = report['source_hashes_before'] == report['source_hashes_after']
     if not report['source_stable_during_run']:
         report['passed'] = False
@@ -234,8 +284,4 @@ def main(driver, output, *, model_provider=None, require_selection=False):
     if report['input_audit'].get('status') != 'UNCHANGED_SAMPLED':
         report['passed'] = False
         report.setdefault('error', 'input changed or inconclusive; cause not attributed')
-    with Path(output).open('x') as stream:
-        import os
-        os.chmod(output, 0o600)
-        json.dump(report, stream, ensure_ascii=False, indent=2)
     return report

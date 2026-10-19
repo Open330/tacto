@@ -1,7 +1,12 @@
 ## When a run fails
 
+A compiler correction may stop with a model deadline error after a long
+`--verify` run: verification time consumes the shared authoring deadline.
+Inspect the verified/unverified result before requesting another compile.
+
 | error | what it means |
 |---|---|
+| `runtime_value_missing` | a required captured/runtime value is unavailable; resume from a verified checkpoint that produces it |
 | `target_missing` / `target_ambiguous` | selector matched 0 / >1 — re-observe and tighten it |
 | `unverifiable_input_step` | a typing step has no `expect` |
 | `contract_invalidated` | the recorded facts changed; re-author, don't force it |
@@ -21,10 +26,11 @@
 | `navigation_contract_required` | Python window-bound keys without the capability, input selector/binding or explicit observed result; no input was sent |
 | `coordinate_authorization_required` | direct/signed `click_point` requires host-approved confirm/preapproved scope and helper support; no input was sent. This raw API is not a flow action or an AX click fallback. |
 | `window_preparation_contract_required` / `window_preparation_target_required` | `prepare_window` without the capability, a window selector and an exact observed result |
-| `unsupported_schema` | not a schema 2 flow |
+| `unsupported_schema` | this runtime does not support the flow schema; schema 4 carries literal data and must not be downgraded |
 | `decision_unavailable` / `decision_invalid` / `decision_failed` | a `decide` step had no model, got an answer outside what it allows, or the call failed |
 | `decision_drives_consent` / `composed_text_aims` | a decided value would reach a consent step with no way to ask, or written text would aim at an element |
 | `branch_unwalked` / `branch_walk_failed` | a branch answer has no steps and no walker, or the walk did not get there |
+| `window_list_unavailable` | AX window-list or role data could not be read reliably; this does not establish that a window is absent. Use the diagnostic guidance below |
 | `no_window_content` | no accessible window was observed; inspect the reported `reason` and follow the window diagnostics below. This alone does not prove screen lock or require a user handoff |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
@@ -42,9 +48,22 @@ Use the installed signed backend consistently. Check `tacto apps --helper` and
 `tacto doctor --check` for connection or permission errors before attributing the
 failure to the target window. Never change permissions automatically.
 
+If a window was observed but preparation or input was refused, inspect
+`preparation_diagnostic` instead of treating it as an absent window.
+`readiness_deadline`/`readiness_nodes` mean the full readiness check did not
+finish; `identity_changed` needs its closed cause, not an assumed app exit.
+See [window preparation diagnostics](../docs/window-preparation-diagnostics.md)
+for interpreting these refusals and the effect of earlier actions.
+
 - If observation succeeded but the expected dialog/control is missing, read
   `tacto observe <app> --helper --all-windows` once. File choosers can be separate
   windows; scope selectors to the intended dialog rather than another document.
+- `window_list_unavailable` means the window list is unreadable or malformed,
+  rather than empty. Keep the signed backend; do not use that error as grounds
+  for `reopen_window`, unhide or new/open commands. The runtime's read-only
+  waits can re-observe classified transient AX failures within their original
+  deadline. If the error remains, report its closed diagnostic and permission
+  check result; do not claim a user action will resolve an unknown cause.
 - For `no_window_content`, use the reported `reason`. `screen_locked` requires
   the person to unlock; report it and stop screen actions. Never try to unlock.
 - `app_hidden`: the current backend already attempts one bounded unhide without
@@ -85,7 +104,7 @@ window and reversible ephemeral operation region; the Envelope still bounds
 its effects. Host verification of the receiving result is required before
 completion or further input, including when switching back to AX. Consequential
 save/send effects and AX recipe promotion are not enabled by a pixel plan.
-See [native visual contracts](../../docs/native-visual.md).
+See [native visual contracts](../docs/native-visual.md).
 
 
 Python host integrations may explicitly author `visual` steps referencing a
@@ -99,3 +118,10 @@ independent host receiving proof; input may already have occurred, so do not
 retry. `visual_reobserve_failed` stops after a verified image step when fresh AX
 observation for the following step fails. These steps may consume model tokens
 and do not supply consequential save receipts or automatic pixel promotion.
+
+For closing the final window, use the development runtime's explicit
+`"postcondition":{"absent_role":"Window"}`. It accepts only a successfully
+enumerated empty AX window list plus a fresh windowless observation. Missing
+permissions, a locked session, a failed window-list read, or an app that exited
+remain errors. Text `absent` alone cannot authorize this exception. Older helpers
+without the structured evidence keep their refusal. Do not resend the close click.

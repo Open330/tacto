@@ -137,6 +137,39 @@ class FixtureTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             m.SignedOwnedTextEdit(self.driver,'한글.txt').resume(self.directory,(0,0))
 
+    def test_resume_nonempty_unicode_reads_exact_body_without_input(self):
+        expected='437 한글 🧪'
+        fixture=m.SignedOwnedTextEdit(self.driver,'한글.txt')
+        self.driver.document_text.return_value={'type':'document_text','document_path':str(self.fixture.path),
+            'text_complete':True,'text':expected,'document_token':'resumed-token'}
+        with patch.object(m.subprocess,'run') as open_app:
+            fixture.resume(self.directory,self.fixture.directory_identity,expected_text=expected)
+        self.assertEqual('resumed-token',fixture.token)
+        self.assertFalse(fixture.initial_empty_text_verified)
+        self.assertTrue(fixture.initial_expected_text_verified)
+        self.assertEqual(len(expected.encode('utf-16-le'))//2,self.driver.document_text.call_args.kwargs['max_utf16_units'])
+        open_app.assert_not_called();self.driver.act.assert_not_called()
+        with self.assertRaisesRegex(RuntimeError,'already_created'):
+            fixture.resume(self.directory,self.fixture.directory_identity,expected_text=expected)
+
+    def test_resume_mismatched_body_never_authorizes_cleanup_or_input(self):
+        fixture=m.SignedOwnedTextEdit(self.driver,'한글.txt')
+        self.driver.document_text.return_value={'type':'document_text','document_path':str(self.fixture.path),
+            'text_complete':True,'text':'other','document_token':'resumed-token'}
+        with patch.object(m.time,'monotonic',side_effect=[0,1,11]),patch.object(m.time,'sleep'), \
+             self.assertRaisesRegex(RuntimeError,'pin_unavailable'):
+            fixture.resume(self.directory,self.fixture.directory_identity,expected_text='437')
+        self.assertIsNone(fixture.token)
+        self.assertEqual('document_status_unavailable_left_as_is',fixture.cleanup())
+        self.driver.act.assert_not_called()
+        self.assertTrue(self.fixture.path.exists())
+
+    def test_resume_invalid_or_oversized_body_precedes_document_access(self):
+        for expected in (None,'\ud800','x'*1_000_001):
+            with self.subTest(kind=type(expected).__name__),self.assertRaises(ValueError):
+                m.SignedOwnedTextEdit(self.driver,'한글.txt').resume(self.directory,self.fixture.directory_identity,expected_text=expected)
+        self.driver.document_text.assert_not_called();self.driver.act.assert_not_called()
+
 class EvaluationIntegrationTests(unittest.TestCase):
     def test_textedit_edit_uses_signed_setup_oracle_cleanup_and_no_live_setup_for_listing(self):
         from tests.test_product_comparison_provenance import comparison
@@ -165,6 +198,21 @@ class EvaluationIntegrationTests(unittest.TestCase):
         self.assertEqual('closed',fixture.status_observations[0]['state'])
         self.assertFalse(report['status_observations_truncated'])
 
+    def test_resume_body_changed_after_pin_stops_before_write_or_cleanup(self):
+        from tests.test_product_comparison_provenance import comparison
+        fixture=Mock()
+        fixture.status.return_value='open'
+        fixture.read.return_value='changed'
+        class Witness:
+            def __enter__(self):return self
+            def __exit__(self,*args):pass
+        with patch('signed_owned_textedit.SignedOwnedTextEdit',return_value=fixture), \
+             patch.object(comparison,'_driver',return_value=Mock()), \
+             patch('focus_witness.FocusWitness',Witness), \
+             self.assertRaisesRegex(RuntimeError,'initial_state_unverified'):
+            comparison._owned_lifecycle_probe('/owned',(1,2),resume_text='437')
+        fixture.write.assert_not_called();fixture.cleanup.assert_not_called()
+
     def test_owned_text_oracle_rejects_whitespace_changes(self):
         from tests.test_product_comparison_provenance import comparison
         fixture=Mock()
@@ -181,5 +229,63 @@ class EvaluationIntegrationTests(unittest.TestCase):
             self.assertIs(fixture,comparison._SIGNED_OWNED['fixture'])
             with self.assertRaisesRegex(RuntimeError,'previous_owned_fixture_not_cleaned'):
                 comparison.signed_owned_setup()
+
+class PreparedFixtureTests(unittest.TestCase):
+    def fixture(self):
+        import tempfile
+        root=tempfile.TemporaryDirectory();self.addCleanup(root.cleanup)
+        self.folder=Path(root.name)/'owned'
+        def allocate(**kwargs):
+            self.folder.mkdir(mode=0o700)
+            return str(self.folder)
+        d=Mock(capabilities=m.CAPS)
+        with patch.object(m.tempfile,'mkdtemp',side_effect=allocate):
+            fixture=m.SignedOwnedTextEdit(d,'owned.txt')
+            with patch.object(m.subprocess,'run') as open_app:
+                fixture.prepare()
+            open_app.assert_not_called();d.document_text.assert_not_called()
+        return fixture
+
+    def test_prepare_records_owned_empty_file_before_any_gui(self):
+        fixture=self.fixture()
+        self.assertEqual(b'',fixture.path.read_bytes())
+        self.assertIsNotNone(fixture.directory_identity)
+        self.assertIsNotNone(fixture.prepared_file_identity)
+        self.assertFalse(fixture.setup_started)
+        self.assertIsNone(fixture.token)
+
+    def test_failed_pin_consumes_setup_and_never_reopens(self):
+        fixture=self.fixture()
+        with patch.object(m.subprocess,'run',return_value=Mock(returncode=0)) as open_app, \
+             patch.object(fixture,'_pin',side_effect=RuntimeError('unavailable')):
+            with self.assertRaises(RuntimeError):fixture.setup()
+            with self.assertRaisesRegex(RuntimeError,'already_started'):fixture.setup()
+        self.assertEqual(1,open_app.call_count)
+        self.assertTrue(fixture.path.exists())
+
+    def test_changed_prepared_file_is_refused_before_open(self):
+        fixture=self.fixture();fixture.path.write_text('changed')
+        with patch.object(m.subprocess,'run') as open_app, self.assertRaisesRegex(RuntimeError,'prepared_artifact_changed'):
+            fixture.setup()
+        open_app.assert_not_called()
+
+    def test_replaced_empty_file_is_refused_before_open(self):
+        fixture=self.fixture()
+        replacement=fixture.directory/'replacement'
+        replacement.write_bytes(b'')
+        replacement.chmod(0o600)
+        replacement.replace(fixture.path)
+        with patch.object(m.subprocess,'run') as open_app, self.assertRaisesRegex(RuntimeError,'prepared_artifact_changed'):
+            fixture.setup()
+        open_app.assert_not_called()
+
+    def test_symlink_to_empty_file_is_refused_before_open(self):
+        fixture=self.fixture()
+        original=fixture.directory/'original'
+        fixture.path.rename(original)
+        fixture.path.symlink_to(original)
+        with patch.object(m.subprocess,'run') as open_app, self.assertRaisesRegex(RuntimeError,'prepared_artifact_changed'):
+            fixture.setup()
+        open_app.assert_not_called()
 
 if __name__=='__main__':unittest.main()

@@ -8,12 +8,34 @@ import plistlib
 import subprocess
 import tempfile
 import time
+from contextlib import ExitStack
 
 TARGET = 'ai.callabo.nlc.opaque-input-fixture'
 TITLE = 'NLC Opaque Input Fixture '
 
 
-def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixed", require_selection=False):
+def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixed", require_selection=False, journal_barrier=False, general_visual=False):
+    if type(visual_flow) is not bool or vision_provider not in ('fixed','codex','claude'):
+        raise ValueError('explicit visual Flow and supported provider required')
+    if type(require_selection) is not bool:
+        raise ValueError('require_selection must be boolean')
+    if type(journal_barrier) is not bool or (journal_barrier and (not visual_flow or vision_provider!='fixed')):
+        raise ValueError('journal probe requires fixed visual flow')
+    if type(general_visual) is not bool or (general_visual and (not visual_flow or journal_barrier)):
+        raise ValueError('general visual input requires explicit visual mode without a journal')
+    # Reserve private evidence before any fixture launch or UI input.
+    descriptor=os.open(output,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+    with os.fdopen(descriptor,'w') as stream:
+        try:
+            return _main(stream,public_driver=public_driver,visual_flow=visual_flow,
+                         vision_provider=vision_provider,require_selection=require_selection,journal_barrier=journal_barrier,general_visual=general_visual)
+        except BaseException as error:
+            if stream.tell()==0:
+                json.dump({'passed':False,'error_class':type(error).__name__},stream)
+            raise
+
+
+def _main(stream, *, public_driver, visual_flow, vision_provider, require_selection, journal_barrier, general_visual):
     from tacto.driver import Driver, _attr
     from tacto.flow import Selector
     from tacto.input_audit_process import ProcessInputAudit
@@ -31,21 +53,19 @@ def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixe
         'tacto/flow.py','tacto/visual_replay.py','tacto/visual.py','tacto/provider_observation.py',
         'tacto/provider_images.py','tacto/provider_result.py','tacto/model_budget.py',
         'tacto/claude_result.py','tacto/codex_result.py','tacto/ask_provider.py',
-        'tacto/authoring.py']
+        'tacto/authoring.py','tacto/provider_io.py','tacto/dispatch_journal.py','launcher/tacto','helper/tacto-helper',
+        'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
     hashes = lambda:{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
-    if type(visual_flow) is not bool or vision_provider not in ('fixed','codex','claude'):
-        raise ValueError('explicit visual Flow and supported provider required')
-    if type(require_selection) is not bool:
-        raise ValueError('require_selection must be boolean')
     native = Driver(); public_driver = public_driver or native
     report = {'passed':False,'transport':type(public_driver).__name__,'scope':'owned opaque first responder only',
-        'source_hashes_before':hashes(),'visual_flow':visual_flow,'vision_provider':vision_provider,'dispatches':[],'user_document_read':False,'foreground_activation':False,'require_selection':require_selection}
+        'comparison_eligible':False,'journal_barrier':journal_barrier,
+        'source_hashes_before':hashes(),'visual_flow':visual_flow and not general_visual,'general_visual':general_visual,'vision_provider':vision_provider,'dispatches':[],'user_document_read':False,'foreground_activation':False,'require_selection':require_selection}
     audit = ProcessInputAudit(interval=.005,startup_timeout=10,stop_timeout=3,max_samples=10000,require_selection=require_selection)
     child = None
     try:
         assert WINDOW_INPUT_CAPABILITIES <= set(public_driver.capabilities),'opaque input capability absent'
         assert native._resolve(TARGET,launch=False) is None,'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='tacto-opaque-input-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-opaque-input-') as directory, ExitStack() as resources:
             bundle=Path(directory)/'OpaqueInput.app';binaries=bundle/'Contents/MacOS';binaries.mkdir(parents=True)
             binary=binaries/'OpaqueInput'
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors',str(root/sources[0]),'-o',str(binary)],
@@ -133,13 +153,52 @@ def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixe
                             verify_step=receiving,input_actions=frozenset({'key','text'}),label='owned opaque keyboard entry')
                         step=Step('visual',params={'scope':'input','max_screens':3,'timeout_seconds':120},
                             intent_text=goal,safety=Envelope.minimal().contract_for({'write_ephemeral'},goal))
-                        result=replay(public_driver,Flow.from_json(Flow('opaque-input',TARGET,[step],schema=2).to_json()),
-                            visual_scopes={'input':scope})
-                        report['flow_result']={'ok':result.ok,'log':result.log,'events':result.events,
-                            'visual_history':result.visual_history,'provider_calls':result.provider_calls,'visual_used':result.visual_used}
-                        assert result.ok and result.visual_used,report['flow_result']
-                        assert len(result.events)==2 and all(e['state']=='confirmed' for e in result.events),report['flow_result']
-                        assert len(result.visual_history)==2,report['flow_result']
+                        flow_driver=public_driver
+                        if journal_barrier:
+                            from tacto.dispatch_journal import DurableDispatchDriver
+                            journal=Path(directory)/'journal'
+                            flow_driver=resources.enter_context(DurableDispatchDriver(public_driver,journal))
+                        if general_visual:
+                            from tacto.general import run
+                            def no_ax(*args):raise AssertionError('unexpected AX planner fallback')
+                            result=run(public_driver,TARGET,goal,no_ax,visual_scope=scope,
+                                envelope=Envelope(quote=goal,allows=frozenset({'read','write_ephemeral'})),
+                                max_screens=3,timeout_seconds=120)
+                            report['general_result']={'ok':result.ok,'verified':result.verified,
+                                'certainty':result.certainty,'asked':result.asked,'events':result.events,
+                                'visual_history':result.visual_history,'provider_calls':result.provider_calls}
+                            assert result.verified and result.certainty=='confirmed' and result.asked==2,report['general_result']
+                        else:
+                            result=replay(flow_driver,Flow.from_json(Flow('opaque-input',TARGET,[step],schema=2).to_json()),
+                                visual_scopes={'input':scope})
+                            report['flow_result']={'ok':result.ok,'log':result.log,'events':result.events,
+                                'visual_history':result.visual_history,'provider_calls':result.provider_calls,'visual_used':result.visual_used}
+                        if journal_barrier:
+                            assert not result.ok and result.visual_used,report['flow_result']
+                            assert len(result.events)==1 and len(result.visual_history)==2,report['flow_result']
+                            assert result.visual_history[-1]['reason']=='dispatch_journal_unavailable',report['flow_result']
+                            current=state()
+                            assert 'keyDowns=1 keyUps=1 rights=1 ' in current['opaque-A-state'],current
+                            assert current['opaque-A-state'].endswith('textB64=') and current['opaque-B-state']==before['opaque-B-state'],current
+                            flow_driver.close_journal()
+                            class NoInput:
+                                calls=0
+                                def act(self,*args,**kwargs):
+                                    self.calls+=1;raise AssertionError('restart must refuse before underlying input')
+                            sentinel=NoInput()
+                            with DurableDispatchDriver(sentinel,journal) as restarted:
+                                refusal=restarted.act('fresh',TARGET,{'name':'window_input','element_index':index,'key':'Right'})
+                            assert refusal.get('error')=='dispatch_journal_requires_reconciliation' and sentinel.calls==0,refusal
+                            assert state()==current,'restart changed receiver'
+                            records=[json.loads(line) for line in (journal/'00000.jsonl').read_text().splitlines()]
+                            assert len(records)==2 and records[1]['category']=='unknown',records
+                            report['journal_evidence']={'records':records,'restart_reply':refusal,
+                                'underlying_restart_input_calls':sentinel.calls,'worker_process_restarted':False}
+                        else:
+                            summary=report['general_result'] if general_visual else report['flow_result']
+                            assert result.ok and (general_visual or result.visual_used),summary
+                            assert len(result.events)==2 and all(e['state']=='confirmed' for e in result.events),summary
+                            assert len(result.visual_history)==2,summary
                         report['final']=state();report['passed']=True
                     else:
                         expected=''
@@ -167,6 +226,9 @@ def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixe
                             report['dispatches'][-1]['receiving_host_verified']=True
                         report['final']=receiving;report['passed']=True
                 finally:
+                    if child is not None and child.poll() is None and 'state' in locals():
+                        try:report['last_owned_state']=state()
+                        except Exception as final_error:report['last_owned_state_error']=type(final_error).__name__
                     if child is not None:
                         if child.poll() is None:
                             child.terminate()
@@ -179,6 +241,5 @@ def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixe
     report['source_stable_during_run']=report['source_hashes_before']==report['source_hashes_after']
     if not report['source_stable_during_run'] or report['input_audit']['status']!='UNCHANGED_SAMPLED':
         report['passed']=False;report.setdefault('error','source/input state changed or inconclusive; cause not attributed')
-    with Path(output).open('x') as stream:
-        os.chmod(output,0o600);json.dump(report,stream,ensure_ascii=False,indent=2)
+    json.dump(report,stream,ensure_ascii=False,indent=2)
     return report

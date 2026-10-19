@@ -7,7 +7,7 @@ from tacto.driver import _document_path, _line_attr
 from tacto.flow import Selector
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-LINE = "0 Window  Title: 노트.txt, Identifier: _NS:31, Document: /tmp/a/노트.txt [focused]"
+LINE = '0 Window  Title: "노트.txt", Identifier: "_NS:31", Document: "/tmp/a/노트.txt" [focused]'
 
 
 class DocumentOnWindowLineTests(unittest.TestCase):
@@ -29,9 +29,10 @@ class DocumentOnWindowLineTests(unittest.TestCase):
 
     def test_helper_renders_it_for_windows_only(self):
         swift = (ROOT / "helper/TactoHelper.swift").read_text()
-        self.assertIn('if role == kAXWindowRole as String, let doc = str(el, "AXDocument")', swift)
-        self.assertIn('let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/")', swift)
-        self.assertIn('precomposedStringWithCanonicalMapping', swift)
+        walker = swift[swift.index('func walk(_ el:'):swift.index('// MARK: - Session state')]
+        self.assertIn('if role == kAXWindowRole as String, let doc = document,', walker)
+        self.assertIn('let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/")', walker)
+        self.assertIn('precomposedStringWithCanonicalMapping', walker)
 
 
 
@@ -61,7 +62,7 @@ class SyntaxParityTests(unittest.TestCase):
         harness = ("import Foundation\n" + code + "\nlet cases = " + json.dumps(self.CASES) +
                    "\nlet out = cases.map { documentURLSyntaxPath($0) ?? \"<nil>\" }\n"
                    "print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)\n")
-        with tempfile.TemporaryDirectory(prefix="tacto-url-parity-") as d:
+        with tempfile.TemporaryDirectory(prefix="nlc-url-parity-") as d:
             src = pathlib.Path(d) / "main.swift"; src.write_text(harness, encoding="utf-8")
             run = subprocess.run(["swift", str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)

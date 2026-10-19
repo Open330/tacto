@@ -127,9 +127,54 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
 class ReturnSheetSwiftTests(unittest.TestCase):
     maxDiff = None
 
+    def test_budget_refuses_impossible_queue_before_reading_its_children(self):
+        harness=HARNESS.split('// 1 window >',1)[0]+r'''
+func check(_ tree: [Int32:Attrs], budget: Int, depth: Int = 64,
+           tops: [Int32] = [1]) -> (String, Set<Int32>) {
+    var visited = Set<Int32>()
+    let base = reader(tree)
+    let read: AXRead = { e, name in visited.insert(pidOf(e)); return try base(e,name) }
+    do {
+        try nativeSheetSubmitReady(tops:tops.map { el($0) },sheet:el(2),read:read,
+            maxNodes:budget,maxDepth:depth)
+        return ("ok",visited)
+    } catch NativeWindowInputError.refused(let reason) { return (reason,visited) }
+    catch { fatalError("unexpected error") }
+}
+let field: Attrs = ["AXRole":"AXTextField"]
+let window: Attrs = ["AXRole":"AXWindow","AXModal":false,"AXChildren":[Int32(2),Int32(4)]]
+let tree: [Int32:Attrs] = [1:window,2:["AXRole":"AXSheet","AXChildren":[Int32(5),Int32(6)]],
+    4:field,5:field,6:field]
+let pending=check(tree,budget:4)
+precondition(pending.0=="readiness traversal budget exceeded" && pending.1==Set([Int32(1),Int32(2)]))
+precondition(check(tree,budget:5).0=="ok")
+var wide=tree;wide[1]!["AXChildren"]=Array(repeating:Int32(2),count:10000)
+let excessive=check(wide,budget:5000)
+precondition(excessive.0=="readiness traversal budget exceeded" && excessive.1==Set([Int32(1)]))
+for budget in [0,-1,Int.min] {
+    let result=check(tree,budget:budget)
+    precondition(result.0=="invalid readiness budget" && result.1.isEmpty)
+}
+let depth=check(tree,budget:5,depth:-1)
+precondition(depth.0=="invalid readiness budget" && depth.1.isEmpty)
+let tops=check(tree,budget:1,tops:[1,4])
+precondition(tops.0=="readiness traversal budget exceeded" && tops.1.isEmpty)
+print("SHEET_BUDGET_PASS")
+'''
+        with tempfile.TemporaryDirectory(prefix='nlc-sheet-budget-') as directory:
+            source,binary=Path(directory)/'main.swift',Path(directory)/'check'
+            source.write_text(harness)
+            built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
+                str(ROOT/'helper/WindowInput.swift'),str(ROOT/'helper/WindowDispatch.swift'),
+                str(ROOT/'helper/FrontmostProcess.swift'),'-o',str(binary)],capture_output=True,text=True,timeout=120)
+            self.assertEqual(0,built.returncode,built.stderr)
+            result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=20)
+            self.assertEqual(0,result.returncode,result.stderr)
+            self.assertEqual('SHEET_BUDGET_PASS',result.stdout.strip())
+
     def test_readiness_and_dispatch(self):
         import json
-        with tempfile.TemporaryDirectory(prefix='tacto-return-sheet-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-return-sheet-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(HARNESS)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),

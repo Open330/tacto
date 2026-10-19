@@ -101,7 +101,7 @@ class InheritedChannelLifetimeTests(unittest.TestCase):
         for response, error in (({'type': 'pong', 'trusted': False}, HelperUnavailable),
                                 ({'type': 'pong', 'trusted': True}, HelperUnavailable),
                                 ([], HelperUnavailable),
-                                ('malformed', ValueError)):
+                                ('malformed', HelperUnavailable)):
             with self.subTest(response=response):
                 child, peer = socket.socketpair()
                 descriptor = child.detach()

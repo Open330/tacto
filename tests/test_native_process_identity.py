@@ -2,6 +2,7 @@ import ctypes
 import os
 import sys
 import time
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -40,6 +41,27 @@ class ProcessIdentityTests(unittest.TestCase):
         self.assertLessEqual(first,time.time())
         with self.assertRaises(identity.ProcessIdentityError):
             identity.process_start_identity(0x7FFFFFFF)
+
+    @unittest.skipUnless(sys.platform=='darwin','libproc requires macOS')
+    def test_actual_owned_child_zombie_is_distinguished_before_reaping(self):
+        from tacto.helper_identity import HelperProcessIdentity, helper_instance_status
+        child=subprocess.Popen([sys.executable,'-c',
+            'import os,sys; print("ready",flush=True); sys.stdin.readline(); os._exit(0)'],
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(child.stdout.readline().strip(),'ready')
+            captured=identity.process_start_identity(child.pid)
+            child.stdin.close()
+            deadline=time.monotonic()+3
+            while True:
+                observed=helper_instance_status(HelperProcessIdentity(child.pid,captured))
+                if observed=='zombie': break
+                self.assertLess(time.monotonic(),deadline)
+                time.sleep(.01)
+            self.assertGreater(captured,0)
+        finally:
+            child.wait(timeout=3)
+            child.stdout.close()
 
 
 if __name__=='__main__': unittest.main()

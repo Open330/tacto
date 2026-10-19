@@ -179,7 +179,7 @@ class InheritedHelperDriver:
 
     def __init__(self):
         if getattr(self, "_poisoned", False):
-            raise HelperUnavailable("모델 시간 초과로 권한 채널이 종료되었습니다")
+            raise HelperUnavailable("오류 또는 시간 초과로 권한 채널이 종료되었습니다")
         if getattr(self, "_ready", False):
             return                      # already connected on this channel
         fd = _environment_value("HELPER_FD")
@@ -206,7 +206,7 @@ class InheritedHelperDriver:
             if not pong.get("trusted"):
                 raise HelperUnavailable(
                     "도우미에 접근성 권한이 없습니다 — "
-                    f"시스템 설정에서 '{helper_display_name()}' 를 켜주세요")
+                    "시스템 설정에서 'Tacto Helper' 를 켜주세요")
             caps = set(pong.get("capabilities") or ())
             missing = REQUIRED_CAPABILITIES - caps
             if missing:
@@ -217,6 +217,11 @@ class InheritedHelperDriver:
                 raise HelperUnavailable(
                     "도우미가 오래된 판입니다 — 다시 빌드해 주세요 "
                     f"(./helper/build.sh). 빠진 기능: {', '.join(sorted(missing))}")
+            from .helper_identity import parse_helper_identity, HelperIdentityError
+            try:
+                self.helper_process_identity = parse_helper_identity(pong.get('helper_process'), pong.get('helper_peer'))
+            except HelperIdentityError:
+                raise HelperUnavailable('도우미 프로세스 메타데이터가 올바르지 않습니다') from None
         except BaseException:
             # Leave nothing a later construction could mistake for a working
             # channel, and drop the shared instance so the next attempt starts
@@ -228,7 +233,7 @@ class InheritedHelperDriver:
                         resource.close()
                     except Exception:
                         pass
-            for attr in ("_sock", "_f", "capabilities"):
+            for attr in ("_sock", "_f", "capabilities", "helper_process_identity"):
                 if hasattr(self, attr):
                     delattr(self, attr)
             self._ready = False
@@ -356,13 +361,45 @@ class InheritedHelperDriver:
 
     def _send(self, msg: dict) -> dict:
         if getattr(self, "_poisoned", False):
-            raise HelperUnavailable("model channel is permanently closed")
-        self._f.write(json.dumps(msg, ensure_ascii=False) + "\n")
-        self._f.flush()
-        line = self._f.readline()
-        if not line:
-            raise HelperUnavailable("권한 채널이 닫혔습니다")
-        return json.loads(line)
+            raise HelperUnavailable("권한 채널이 영구적으로 종료되었습니다")
+        # A caller's serialization error happens before sending anything and
+        # does not desynchronize the stream. Once IO starts, a lost or malformed
+        # reply leaves the effect unknown; a queued reply must never answer the
+        # next request, and this channel cannot be reused or silently reattached.
+        payload = json.dumps(msg, ensure_ascii=False) + "\n"
+        try:
+            self._f.write(payload)
+            self._f.flush()
+            line = self._f.readline()
+            if not line:
+                raise HelperUnavailable("권한 채널이 닫혔습니다")
+            response = json.loads(line)
+            if (not isinstance(response, dict) or not isinstance(response.get('type'), str)
+                    or not response['type']):
+                raise HelperUnavailable("권한 채널 응답 형식이 잘못되었습니다")
+            return response
+        except BaseException as exc:
+            self._poisoned = True
+            try:
+                self._sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                # macOS returns ENOTCONN for SHUT_RDWR after peer write-EOF,
+                # even though our write half remains open. Close that half
+                # before a buffered file close could flush pending bytes.
+                try:
+                    self._sock.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+            for resource in (self._f, self._sock):
+                try:
+                    resource.close()
+                except (OSError, ValueError):
+                    pass
+            if isinstance(exc, (OSError, ValueError, HelperUnavailable)):
+                # Never leak a malformed reply or OS diagnostic (possibly
+                # containing observed document text) through the exception.
+                raise HelperUnavailable("권한 채널의 응답을 확인할 수 없어 종료했습니다") from None
+            raise
 
 
 # `SocketHelperDriver` was removed here. It spawned the helper with `--listen`
@@ -407,7 +444,8 @@ class HelperDriver:
                 if self._proc.returncode == 3:
                     raise HelperUnavailable(
                         "도우미가 이 클라이언트를 거부했습니다. 서명된 런처를 통해 "
-                        "실행하세요:  ./launcher/tacto <명령> --helper") from None
+                        "실행하세요:  ./launcher/tacto <명령> --helper\n"
+                        "동일한 서명으로 런처와 도우미를 함께 빌드하세요.") from None
                 raise HelperUnavailable(f"도우미가 시작되지 못했습니다: {(err or '').strip()[:200]}")
             self.handshake = pong           # what the helper said about itself
             if not isinstance(pong, dict) or pong.get("type") != "pong":
@@ -415,8 +453,13 @@ class HelperDriver:
             if not pong.get("trusted"):
                 raise HelperUnavailable(
                     "도우미에 접근성 권한이 없습니다 — 시스템 설정 > 개인정보 보호 및 "
-                    f"보안 > 손쉬운 사용 에서 '{helper_display_name()}' 를 켜주세요 "
+                    "보안 > 손쉬운 사용 에서 'Tacto Helper' 를 켜주세요 "
                     "(macOS 27 에서는 'Device Control and Data Access')")
+            from .helper_identity import parse_helper_identity, HelperIdentityError
+            try:
+                self.helper_process_identity = parse_helper_identity(pong.get('helper_process'), pong.get('helper_peer'))
+            except HelperIdentityError:
+                raise HelperUnavailable('도우미 프로세스 메타데이터가 올바르지 않습니다') from None
         except BaseException:
             self.close()
             raise
@@ -481,14 +524,30 @@ class HelperDriver:
                 # back without it being made frontmost, then look once more.
                 # Without this the `--helper` path still told agents to "click
                 # TextEdit in the Dock" (2026-10-07 comparison, run 0).
-                again = self._send({"type": "observe", "target": target,
-                                    "require_window": require_window})
-                if again.get("type") == "observation":
-                    return again
+                again = self._send(message)
+                if again.get("error") == "no_window_content" and "reason" not in again:
+                    again = {**again, **_explain_no_window(target)}
+                # Preserve the latest refusal; a failed re-observation is not
+                # evidence that the old hidden-window diagnosis still applies.
+                return again
         return out
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
             intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
+        if action.get('name') == 'open_select':
+            from .protocol import native_opening_parameters_problem
+            problem = native_opening_parameters_problem(action)
+            if problem:
+                return {'type':'error','error':'invalid_selection_parameters',
+                        'effect':'not_started','detail':problem}
+            if 'opening_action' in action and 'action.open_select.explicit_ax' not in getattr(self,'capabilities',()):
+                return {'type':'error','error':'unsupported_opening_action','effect':'not_started'}
+        if action.get('name') in ('select_option', 'select_custom_option'):
+            from .protocol import native_selection_parameters_problem
+            problem = native_selection_parameters_problem(action)
+            if problem:
+                return {'type':'error', 'error':'invalid_selection_parameters',
+                        'effect':'not_started', 'detail':problem}
         if save_panel_token is not None:
             if (not isinstance(save_panel_token, str) or not save_panel_token
                     or len(save_panel_token) > 128
@@ -522,10 +581,10 @@ class HelperDriver:
                     or 'press_key.return_bound' not in getattr(self, 'capabilities', ())):
                 return {'type': 'error', 'error': 'submit_authorization_invalid',
                         'effect': 'not_started'}
-        if action.get('name') == 'click_point':
+        if action.get('name') in ('click_point', 'vroid_drag', 'vroid_focus'):
             if risk_class not in ('confirm','preapproved') or approved is not True:
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started'}
-            if 'action.click_point' not in getattr(self,'capabilities',()):
+            if ('action.' + action['name'] if action['name'] in ('vroid_drag','vroid_focus') else 'action.click_point') not in getattr(self,'capabilities',()):
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started',
                         'detail':'helper does not support authorized window points'}
         if risk_class not in RISK_CLASSES:
@@ -548,13 +607,13 @@ class HelperDriver:
                "action": action}
         if save_panel_token is not None:
             msg['save_panel_token'] = save_panel_token
-        if action.get('name') == 'click_point':
+        if action.get('name') in ('click_point', 'vroid_drag', 'vroid_focus'):
             msg['coordinate_authorized'] = True
         if action.get('name') == 'window_input':
             msg['window_input_authorized'] = True
         if submit_authorized is True:
             msg['submit_authorized'] = True
-        if action.get("name") in ("click", "click_point", "prepare_window", "press_key", "window_input"):
+        if action.get("name") in ("click", "click_point", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"):
             from .model_budget import remaining_model_seconds
             # Capture before computing remaining time; never extend the budget
             # by serialization or time spent waiting for the helper.
@@ -707,6 +766,55 @@ class HelperDriver:
             return {'type':'error', 'error':'document_rtf_export_unavailable', 'effect':'not_started'}
         return response
 
+    def document_attachment_metadata(self, target, document_token, *, max_utf16_units=100000,
+                                     timeout_seconds=3):
+        """Live attributed attachment references; never certify payload bytes."""
+        unavailable = {'type':'error', 'error':'document_attachment_metadata_unavailable', 'effect':'not_started'}
+        if (target != 'com.apple.TextEdit' or not isinstance(document_token, str)
+                or not document_token or len(document_token) > 128
+                or type(max_utf16_units) is not int or not 0 <= max_utf16_units <= 100000
+                or type(timeout_seconds) not in (int, float)
+                or not 0 < timeout_seconds <= 6
+                or 'evidence.document_attachment_metadata' not in getattr(self, 'capabilities', ())):
+            return unavailable
+        response = self._send({'type':'document_attachment_metadata', 'target':target,
+            'document_token':document_token, 'max_utf16_units':max_utf16_units,
+            'timeout_seconds':timeout_seconds})
+        import re
+        try:
+            if not isinstance(response, dict) or response.get('type') != 'document_attachment_metadata':
+                return unavailable
+            allowed = {'type','document_token','document_path','utf16_length','text_sha256','occurrences',
+                       'evidence_kind','sampled_stable','proves_no_intermediate_change','source_format_verified',
+                       'attachment_completeness_verified','attachment_payload_verified','authorizes_save'}
+            count = response['utf16_length']
+            rows = response['occurrences']
+            if (set(response) != allowed or response['document_token'] != document_token
+                    or type(count) is not int or not 0 <= count <= max_utf16_units
+                    or response['evidence_kind'] != 'ax_attributed_attachment_metadata'
+                    or response['sampled_stable'] is not True
+                    or any(response[k] is not False for k in ('proves_no_intermediate_change','source_format_verified',
+                        'attachment_completeness_verified','attachment_payload_verified','authorizes_save'))
+                    or not isinstance(response['text_sha256'], str)
+                    or re.fullmatch('[0-9a-f]{64}', response['text_sha256']) is None
+                    or type(rows) is not list or len(rows) > 256):
+                raise ValueError('invalid attachment metadata')
+            previous = -1
+            for row in rows:
+                if (type(row) is not dict or set(row) != {'utf16_index','ax_attachment_present','ax_element_reference'}
+                        or type(row['utf16_index']) is not int or not previous < row['utf16_index'] < count
+                        or type(row['ax_attachment_present']) is not bool
+                        or type(row['ax_element_reference']) is not bool
+                        or (row['ax_element_reference'] and not row['ax_attachment_present'])):
+                    raise ValueError('invalid attachment occurrence')
+                previous = row['utf16_index']
+            if response['document_path'] is not None:
+                from .native_document import validate_document_selection_path
+                validate_document_selection_path(response['document_path'])
+        except (KeyError, ValueError, TypeError, UnicodeError):
+            return unavailable
+        return response
+
     def document_window_status(self, target, document_token):
         """Read a pinned window's lifecycle; errors never mean absence."""
         unavailable = {'type':'error', 'error':'document_window_status_unavailable', 'effect':'not_started'}
@@ -769,16 +877,21 @@ class HelperDriver:
         return self._send(message)
 
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
+        from .observation_state import retryable_observation_error
         deadline = time.monotonic() + timeout_ms / 1000
         last = None
         while True:
-            # A checked postcondition is the readiness witness. Read first;
-            # retain settling only for ordinary observations without a check.
+            # The predicate is the readiness witness. Check immediately;
+            # sleeping first adds a second wait ahead of the polling loop.
             obs = self.observe(target, _settle_after_action=False)
             last = obs
             if obs.get("type") == "observation" and predicate(obs["tree"]):
                 return obs
+            if obs.get("type") != "observation" and not retryable_observation_error(obs):
+                return obs
             if time.monotonic() >= deadline:
+                if obs.get("type") != "observation":
+                    return obs
                 return {"type": "timeout", "last_obs": last}
             time.sleep(min(poll_ms / 1000, max(0, deadline - time.monotonic())))
 
@@ -787,7 +900,7 @@ class HelperDriver:
 # `_send`, so the inherited-socket driver borrows the spawn driver's
 # implementations rather than keeping a second copy in step with the first.
 for _name in ("identity", "list_targets", "observe", "act", "probe",
-              "selection", "menu_state", "menu_items", "document_text", "document_window_status", "document_rtf_export", "save_panel", "capture",
+              "selection", "menu_state", "menu_items", "document_text", "document_window_status", "document_rtf_export", "document_attachment_metadata", "save_panel", "capture",
               "wait_until"):
     impl = getattr(HelperDriver, _name)
     setattr(InheritedHelperDriver, _name, impl)

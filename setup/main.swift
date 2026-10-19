@@ -415,9 +415,9 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         root = runtime
         bundledRuntime = object["bundledRoot"] == "runtime"
-        let canonicalHelper = root.appendingPathComponent("helper/Tacto Helper.app")
-        helper = FileManager.default.fileExists(atPath: canonicalHelper.path)
-            ? canonicalHelper : root.appendingPathComponent("helper/NLC Helper.app")
+        let currentHelper = root.appendingPathComponent("helper/Tacto Helper.app")
+        let legacyHelper = root.appendingPathComponent("helper/NLC Helper.app")
+        helper = FileManager.default.fileExists(atPath: currentHelper.path) ? currentHelper : legacyHelper
         refreshConnection()
         build()
         installMenus()
@@ -569,7 +569,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         if connection == .missing && !installing && !state.ready {
-            connectionInfo.stringValue = known ? "두 권한을 켜면 Claude Code · Codex에 연결할 수 있어요." : "먼저 ‘상태 새로고침’으로 권한을 확인해 주세요."
+            connectionInfo.stringValue = known ? "앱 조작 권한을 켜면 Claude Code · Codex에 연결할 수 있어요. 화면 캡처는 선택 사항입니다." : "먼저 ‘상태 새로고침’으로 권한을 확인해 주세요."
         }
         let scope = ProcessInfo.processInfo.environment
         let custom = ["TACTO_BIN_DIR", "NLC_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
@@ -578,7 +578,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
         if let notice { status.stringValue = notice }
-        else if state.ready { status.stringValue = "두 권한이 모두 켜져 있습니다. 다시 설정할 필요가 없어요." }
+        else if state.ready { status.stringValue = "앱 조작을 시작할 수 있습니다. 이미지 캡처가 필요할 때 화면 기록 권한을 추가하세요." }
         else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 넘어갑니다." }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
         else if connection == .other && !state.accessibility { status.stringValue = "이전 설치에서 허용했더라도 이 버전의 권한을 다시 확인하세요. ‘설정 열기’에서 표시된 앱을 추가하거나 켜 주세요." }
@@ -687,7 +687,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         render()
         if granted, finished != nil, state.ready {
-            status.stringValue = "두 권한이 모두 켜졌어요. 이제 에이전트에 연결하세요."
+            status.stringValue = "앱 조작 준비가 됐어요. 이제 에이전트에 연결하세요."
         }
     }
 
@@ -874,7 +874,6 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             notice = "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요."
         }
         render()
-        // Design review of the pressed fill; offscreen rendering never presses.
         if CommandLine.arguments.contains("--pressed") { connectButton.isHighlighted = true }
         if CommandLine.arguments.contains("--compact") { window.setContentSize(NSSize(width: mainWidth, height: 520)) }
         assert(connectButton.isEnabled == (known && state.ready && connection != .current))

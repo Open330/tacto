@@ -8,8 +8,11 @@ PID-addressed 이벤트 경로를 제공한다. 과거 창별 이벤트 실측(�
 
 ## 클릭과 좌표
 
-관측한 요소의 클릭은 대상 앱의 AXPress를 실행한다. 지원되지 않는 요소에
-합성 마우스 이벤트를 보내거나 전역 포인터를 이동하는 fallback은 없다.
+관측한 요소의 클릭은 대상 앱의 AXPress를 먼저 실행한다. signed helper에서
+AXPress가 없는 행·버튼(`click.window_bound_element`)과 `double_click`(AXOpen이
+없을 때)은 그 요소의 중심을 대상 앱 AX hit test로 다시 확인한 뒤 해당 PID·창에만
+mouse 이벤트를 보낸다. 전역 포인터는 이동하지 않으며 save panel 토큰이 붙은 클릭은
+거절한다. 실측 범위는 아래 signed_element_click 항목을 참고한다.
 `click`의 `point`는 선택한 창의 좌상단 기준 좌표다. 대상 앱의 AX hit test에서
 요소를 찾고 그 요소의 PID와 창 소유 관계를 확인한 뒤 AXPress를 사용한다.
 다른 전경 앱의 요소가 나오도록 system-wide hit test를 쓰지 않는다. 여러 창이면
@@ -35,7 +38,7 @@ caller의 관측/context·중단·기한과 사용자 입력 상태를 매 전�
 최대 간격은0.200259초였다. 이 최초 시험은 내부 부품 검증이었다. 이후 direct/signed
 driver의 별도 `click_point` raw action에 연결했다. 아래 공개 경로 계약을 따른다.
 일반 앱·이미지/모델 계획과 flow/general 연결은 아직 증명하지 않는다.
-일반 `click`의 AX fallback 거절 동작은 그대로다.
+일반 `click`의 창 단위 요소 fallback은 위 요소 hit test 경로만 사용한다.
 
 ### 명시적 `click_point` raw action
 
@@ -315,3 +318,364 @@ probe의 실행 시간과 겹쳤으므로 독립 환경 성능 비교로 사용�
 소유 fixture 자식은 모두 회수했다. 후속 role 재조회 보강은 이 GUI trial 뒤
 추가됐으며 최종 소스와 바이너리에 반영했다. 이번 변경만으로 receiving 성공,
 대규모 트리의 node budget 또는 Finder 지원 완료를 주장하지 않는다.
+
+## 큰 트리의 용량과 첫 입력 전 시간 여유 (10/11)
+
+readiness 기본 노드 상한은 전체 창을 합쳐 20,000개다. 각 노드의 전체
+AXRole/AXModal/AXChildren 검사, 깊이64, shared input deadline 최대5초,
+순회 뒤 windows/role/modal/sheets 재조회는 유지한다. enqueue 시 남은 예산에서
+대기 중인 sibling도 빼므로 pending 노드 전체가 상한을 넘지 않는다.
+Swift 함수에서 명시적으로 더 작은 maxNodes를 지정하는 호출도 유지한다.
+이 용량 확대는 가시 행이나 Finder desktop의 깊은 검사를 생략하지 않는다.
+
+첫 이벤트를 보내기 직전에 남은 모든 이벤트의 검사 시간을 추정한다.
+validate/routing/user input read/context의 최대 관측 시간을 사용해
+남은 validate와 routing 각각2N-1회, input read3N-1회, context12N회를 계산하고,
+합계의2배와50ms를 남길 수 없으면 validation_headroom/not_started로 거절한다.
+현재 첫 post 이후 ready 호출은4회와 후속 이벤트당8회로8N-4회이며12N은
+여유를 포함한 상한이다. 단일 Return submit은 post 뒤 validate/routing을 하지
+않으므로 input read1회/context1회만 남긴다. 이벤트별 기존 검사는 모두 실행한다.
+이 수치는 미래 지연의 상한을 증명하지 않는다. 이후 급격한 slowdown·context
+변경·중단·전송 오류는 기존처럼 attempted>0이면 unknown이며 자동 재시도하지 않는다.
+
+실제 Swift 단건/batch 경로에서6,000개 child와 마지막 modal/sheet/deadline,
+20,000개 경계, 더 작은 명시적 cap, cycle/depth, pending sibling 예산을 검증했다.
+고정 지연 validation/routing/input/context에서는 첫 post0, 빠른 double click은
+4이벤트, 첫 post 뒤 latency spike는 attempted1을 확인했다. 최종 관련47개/
+37.142초 OK는 `reviews/2026-10-11/large-tree-headroom-final-tests.log`에 보존했다.
+Muxa e8의 부분 입력 위험 지적을 admission으로 반영했고 ea 리뷰 P1/P2 없음이다.
+
+실제 signed Finder 시행 `finder-owned-preparation-cap-headroom.json`은 여전히
+FAIL이었다. binding/readiness_deadline4976ms/scoped AX1752/context2354ms/
+AX2559ms이며 effect not_started, 미보고 attempted counter는 null이다.
+source manifest 전후 동일, 소유 empty directory만 제거하고 창은 남겼다.
+이전 nodes 실패를 성공으로 바꾸거나 다른 tree 상태의 latency 개선으로 환산하지 않는다.
+
+같은 runtime의 signed_element_click 시행은24.207초 PASS였다. 원시는
+`signed-element-click-1791651524246422000.json`, 상위 평가는
+`native-element-cap-headroom-eval.json`이다. Profile 수신1/routeErrors0,
+double click과 replay 및 row Return의 opens3, ephemeral Return의 sent0,
+승인된 transmit의 sent1/lastSent second, 메뉴 취소 picks0, reopens1을 확인했다.
+이는 소유 AppKit fixture의 수신 상태이며 실제 메시징 서비스 delivery가 아니다.
+source subset stable/owned child reaped, dependencies frozen=false다.
+입력 audit는 UNCHANGED_SAMPLED/require_selection=false이며 fixture active=true
+자기 보고를 전경 불변 증거로 쓰지 않는다. 동시 typing·caret·표본 사이 무변화 및
+Finder 지원 완료는 아직 미검증이다.
+
+### 관측한 프로세스에 고정하는 context 검사
+
+명시한 번들 ID가 트랜잭션 시작 시 관측 PID의 번들과 일치하면, 입력 context는
+그 PID와 창에 고정한다. 매 AX 조회 전후 OS의 프로세스 시작 신원을 확인한다.
+일반 binding/dispatch, 이름 별칭과 문서 token은 새
+NSRunningApplication(processIdentifier:) wrapper의 PID·번들·terminated
+메타데이터를 매 조회마다 보조 확인한다. 정확한 번들·문서 token 없는 readiness
+순회의 보조 확인 빈도는 아래 읽기 구간 검사 항목과 같다. SDK 속성은 비동기로 갱신될 수 있으므로
+종료·PID 재사용의 근거로 단독 사용하지 않는다. observation ID, target, element
+generation/count, abort와 문서 범위 검사는 계속 적용한다.
+
+이 의미는 번들로 앱 목록을 매번 다시 해석하는 것과 다르다. 같은 번들의 다른
+프로세스가 나타나도 이미 관측한 창을 그 프로세스로 바꾸지 않는다. 기존
+프로세스가 재시작했으면 시작 신원 불일치로 거부한다. 이름 별칭은 기존
+namespace resolver의 우선순위와 재조회 경로를 유지한다. 전체 modal/sheet
+순회,20,000 노드/depth64/최대5초 deadline와 입력 headroom은 완화하지 않는다.
+
+signed_finder_preparation은 모델 없이 owned 폴더 열기/준비를 실행하고
+observe·open_folder·wait_until·prepare_window의 시작과 종료를 즉시
+fsync하는0600/O_EXCL stage journal에 기록한다. tree·label·오류 본문은 기록하지
+않는다.90초에 응답이 없으면 자신의 권한 채널을 폐기하고 실패를 남긴다.
+이 로컬 중단은 원격 동작 취소나 not_started의 증명이 아니며 재시도 허가가
+아니다. 타임아웃·예외에서는 폴더를 그대로 두고, 정상 종료 뒤에도 같은 inode의
+빈 owned 폴더만 제거한다. Finder 창은 닫지 않는다.
+
+### 노드별 관측 attribute 배치
+
+화면을 설명하는 tree walker는 각 노드의 Role·7개 label attribute·Enabled·
+Selected·Children·Document를 AXUIElementCopyMultipleAttributeValues 한 번으로
+읽는다. 전체 요청 실패, 반환 배열 없음 또는 길이 불일치에서는 기존 개별
+읽기와 label 배치로 돌아간다. 배열 안의 개별 AX error는 기존 descriptive
+읽기의 속성 부재 처리와 같다. 숫자 label, Boolean 제외, 빈 값, 버튼 Subrole,
+창의 JSON 인용·Document NFC 표현, disabled/selected, 무제목 Sheet와 순서를
+유지한다. Secondary Actions는 별도 AXCopyActionNames 조회를 계속 사용한다.
+
+이 packet은 해당 노드의 이번 관측에만 쓰며 원자적 snapshot이 아니다. probe·
+입력·readiness가 재사용하지 않는다. 창별 공정 예산·2500 nodes·자식60·depth25,
+전체 준비 검사와 거절 기준은 유지한다. observation_metrics는 packet_attempts,
+packet_successes, packet_fallbacks, secondary_action_reads만 제공한다. successes는
+전체 요청과 배열 형태가 성공했다는 뜻이며 모든 attribute의 성공을 뜻하지
+않는다. 시간 비중·정합성·입력 권한 증거로 사용하지 않는다. Finder stage journal은
+정확한 네 키·0~2500 정수·성공+fallback=시도 조건을 만족하는 값만 보존한다.
+
+historical 0a2dda2 walker와 실제 Swift slice의 비교 fixture는 정상/unsupported/
+짧은/nil 배치를 검사한다. 정상5노드에서 배치5회·개별 조회0회이고 렌더링과
+secondary action 조회가 같다. 전체 historical checkout나 실제 앱 속도 비교가
+아니다. 실측 결과와 실패 cohort는 completion-plan.md에 구분하여 보존한다.
+
+### 창 목록 실패와 실제 빈 관측 구분
+
+signed observe는 AXWindows의 transport 실패·잘못된 배열/원소·읽지 못한 Role을
+window_list_unavailable로 반환한다. require_window=false도 이 상태를 빈 관측으로
+사용하지 않는다. 따라서 창 읽기 실패를 근거로 자동 unhide/reopen/new 명령에
+진입하지 않는다. 실제 빈 배열, 명시적 AX NoValue 또는 성공 응답의 없는 값은
+no_window_content 경로를 유지한다. NoValue는 해당 AX 값의 부재이며 화면 전체에
+창이 없다는 증명은 아니다. 문서 token 관측은 기존 별도 검증 경로를 유지한다.
+
+window_listing_diagnostic v1은 status(ok/ax_error/no_value/malformed_array/
+role_unavailable), AX error 숫자, raw_count/role_window_count/role_unavailable_count/
+role_transient_count/filtered_count/badge_count만 담는다. 제목·Role 문자열·좌표·
+원소 identity는 담지 않는다. SDK wait 분류와 journal의 닫힌 validator는 정확한 키,
+정수 타입·범위·개수 관계를 확인하며 진단은 입력 권한 증거가 아니다.
+
+read-only wait는 valid diagnostic의 AXWindows cannotComplete(-25204), 또는 모든
+실패 Role이 cannotComplete/invalidUIElement인 경우에만 원래 deadline 내에서
+재관측한다. 마감 뒤에도 실패면 같은 오류를 돌려준다. malformed·분류되지 않은
+실패·진단 누락과 잠금/hidden/minimized 보고는 즉시 종료한다. 입력·프로세스
+재시작·강제 활성화로 회복을 시도하지 않는다. 기존 action callers의 realWindows
+wrapper는 목록/role 필터 의미를 유지한다. 배지 geometry는 CF/AXValue 타입,
+GetValue 성공과 유한 좌표를 확인해 잘못된 geometry에서 crash하거나 배지로
+판정하지 않는다.
+
+기존 one-unhide 후 재관측에서도 최신 응답을 유지한다. 재관측이 다른 읽기 실패로
+끝나면 이전 app_hidden 응답으로 바꾸지 않는다. 다시 no_window_content이면 원인을
+한 번 새로 설명하며 추가 unhide는 보내지 않는다.
+
+### 읽기 전용 readiness의 보조 검사 주기
+
+정확한 번들로 관측 PID에 고정되고 문서 token이 없을 때만 전체 readiness 순회
+안에서 보조 메타데이터 조회를 묶는다. OS 시작 신원·관측 ID·대상 PID/이름·
+element generation/개수·문서 token·abort와 deadline은 각 AX 조회 전후 계속
+확인한다. 전체 context는 순회 진입/종료, 최대16 AX operations마다, 모든 top
+창 before/after 비교 경계에서 새로 검사한다. 성공 결과도 마지막 full checkpoint
+이후에만 반환한다. 실패 시 모드를 복원하고 오류를 전달한다.
+
+별칭/문서 token과 readiness 밖 binding/dispatch/routing은 기존 full per-RPC
+검사를 사용한다. 전체20k/depth64 순회, top/window 목록과 role/modal/sheets
+재검사,5초 공유 기한·입력 직전 revalidation/headroom·객체별 timeout set/reset를
+유지한다. 병렬 AX 조회나 다른 창/파일 목록 가지치기, node packet 재사용은 없다.
+보조 번들 검사의 빈도는 의도적으로 바뀌었으며 모든 guard가 이전과 같은
+빈도라고 주장하지 않는다. API 관측은 원자적이지 않으며 중간의 짧은 보조
+메타데이터 변화까지 검출한다는 보장도 없다.
+
+preparation_diagnostic의 full_context_checks/incremental_context_checks는 검사
+시도 횟수이며 context_elapsed_ms는 둘의 합계 시간이다. 각각의 평균·시간
+비중은 이 값만으로 분리 계산하지 않는다. readonly AX batch 전체 통신 실패,
+잘못된 packet과 개별 attribute 조회 실패를 readiness_batch_failed/
+readiness_batch_malformed/readiness_attribute_failed로 구분하고, 관측된 실패의
+AX status 숫자만 readiness_ax_error에 보존한다. cannotComplete는 통신 실패
+코드이며 그 자체가 timeout/프로세스 종료의 증명은 아니다. 완료·입력 권한이나
+자동 재시도 근거로 이 진단을 쓰지 않는다.
+
+`readiness_progress`는 마지막 readiness 호출의 진단 전용 카운터다.
+`pass`는 같은 scope에서 호출한 횟수, `windows`는 읽은 top 목록 수,
+`completed`는 DFS를 끝낸 top 수다. 모든 top의 재검사까지 끝났다는 뜻은
+아니다. `index`는0부터 시작하는 현재 top 순번이며 대상 미지정은-1,
+`target`은 그 top과 요청 창의 AX identity 비교 결과다. `nodes`는 현재 top의
+DFS에 진입한 노드 수, `total_nodes`는 이번 호출의 합계다. 실패한 attribute
+읽기의 노드도 포함하므로 모두 검증된 노드 수가 아니다. `stage`는
+entry/windows/top/tree/recheck/complete 중 하나다. 재검사에서는 현재 top을
+갱신하고nodes를0으로 둔다. 최초 window-list/문맥 검사 실패도 새 호출로
+초기화하여 앞선 성공의 카운터를 남기지 않는다.
+
+정수·Boolean·닫힌 stage만 기록하며 창 제목·경로·본문·AX node는 포함하지
+않는다. Python은 정확한 중첩 키/타입/수치 범위를 검사하고 복사한다.
+CLI marker는1024자·출력1MiB·최대64개로 제한한다. 이 카운터는 순회 순서,
+모달·시트 검사,20k/depth64 예산과5초 기한 또는 입력 허가를 바꾸지 않는다.
+
+큰 트리의 소유 실기 평가:
+
+```sh
+~/.local/bin/nlc eval signed_readiness_scale --report /absolute/new-report.json
+```
+
+별도 signed launcher 프로세스에서만 실행한다. 앱 A는 작은 창이고 B에만
+0/512/6000개의 합성 AX leaf를 만든다. 새 프로세스마다 실제 AX group 배열의
+leaf 수를 독립적으로 확인한 뒤 A의prepare_window를 한 번 요청한다.
+준비 뒤 최초 수신 스냅샷보다 큰seq의 A/B key·mouseDown·routeErrors를 읽고,
+표본 입력 감사와 소유 child 회수를 검증한다. 거절된 준비는 실패 과제로
+남긴다. 실제 helper는 준비/dispatch 재검증을 여러 번 수행하므로 요청 시간과
+scoped_ax_operations를 단일 DFS의 노드당 비용으로 계산하지 않는다.
+
+가상 요소는 [AppKit NSAccessibilityElement](https://developer.apple.com/documentation/appkit/nsaccessibilityelement-swift.class)를
+사용한다. 이 fixture는 합성 hierarchy의 순회/IPC/검사 비용을 측정하며 Finder의
+아이콘·파일 이름 계산이나 노드별 AX 제공 비용을 재현하지 않는다. Finder의
+실패를 이 평가의 성공으로 대신하지 않는다. 앱 내부activation callback과
+사용자 frontmost 변화는 별개로 기록하며, 표본 감사는 중간의 무변화나 동시
+사람 typing/caret 보존의 증명이 아니다.
+
+Finder 읽기 비용의 진단 평가:
+
+```sh
+~/.local/bin/nlc eval signed_finder_read_cost --report /absolute/new-report.json
+```
+
+`diagnostic.readiness_read_cost`를 제공하는 signed helper와 런처가 필요하다.
+관측된 Finder 요소의 Role/Modal/Children만 배치1회와 개별3회로 읽으며,
+각 요소에서 두 번 순서를 교차한다. 요청은 Finder 고정·최신obs_id·문서
+token 없음·중복 없는1~16개 정수 인덱스로 제한한다. 런처의0..<2500 상한은
+helper 관측의maxTreeNodes와 같은 값이며, 관측 상한 변경 시 함께 검토한다.
+다른 요청에element_indices를 섞으면 거부한다. helper는 각 RPC 전후 PID/
+OS 시작 identity/관측 generation/번들/중단/2초 deadline과timeout set/reset을
+검사한다. 기존 표시 경계를 적용하며 입력·활성화 요청은 보내지 않는다.
+
+AX 호출 내부의microsecond 시간만 기록한다. context 검사·timeout 설정/복원·
+packet 해석 비용은 그 값에서 제외한다. 반환 데이터는 AX 상태 코드·자료형·
+배열 크기이며 실제 값/제목/파일명/본문은 반환하지 않는다. 배열 크기도 사용자
+메타데이터이므로 raw report는0600으로 보존하고 외부 공유 시 크기는 구간으로
+표현한다. 실패 시 완성된 행과 현재 부분 행을 남기며 누락된 측정은unknown이다.
+unsupported batch도0비용이나 단건과 동등한 지원으로 계산하지 않는다.
+
+평가는2500-node/prefix60 관측에 노출된 role별 첫/마지막 요소만 사용한다.
+`attribute_shapes_equal`은 상태/자료형/배열 크기의 일치이며 Boolean·문자열
+값 자체의 일치나 원자적 snapshot을 뜻하지 않는다. 반복 읽기의 캐시 영향이
+있고 차가운 미관측 노드 전체를 대표하지 않는다. 이 진단의 PASS는 읽기 측정과
+표본 감사의 완료이며 Finder 창 준비/폴더 생성 또는 입력 허가를 증명하지 않는다.
+
+
+읽기 전용 사전 점검 실험은 다음처럼 별도 프로세스에서 실행한다.
+
+```sh
+~/.local/bin/nlc eval signed_finder_preflight --report /absolute/new-report.json
+```
+
+Finder의 최신 Window를15초/20k/depth64로 읽으며 입력·활성화 API를 호출하지
+않는다. 결과는read_only=true/authorizes_input=false이고 입력 binding/permit으로
+저장하지 않는다. 실패하면 준비 요청을 전달하지 않는다. 완료해도 원래
+prepare_window의 새5초 기한/전체 native pre/post 검사를 그대로 수행한다.
+일반 실행에는 자동 적용하지 않는다. 이 읽기 단계의 시간은 기존 입력 기한의
+연장이 아니며 전체 작업에는 추가 비용이다. 현재 실제18-top 상태에서는
+15초 사전 점검도 실패했으므로 Finder 해결책으로 권하지 않는다.
+
+Finder 시험 도구는 창 생성/닫힘 소유권을 입증하지 못한다. 폴더 열기를 요청한
+뒤 빈 디렉터리를 삭제하면 Finder가 큰 부모 폴더로 이동할 수 있어 이후 환경이
+달라진다. staged/standalone 준비 probe는 창 닫힘이 입증되지 않은 디렉터리를
+보존한다. cleanup=owned_directory_retained_without_window_close_proof이며,
+잔여 디렉터리·창의 정리는 미완료다. 기존 창을 제목만으로 닫거나 이전 실패를
+깨끗한 초기 상태의 평가로 승격하지 않는다.
+
+
+소유 앱의 모달 표현을 읽기 전용으로 비교하는 진단:
+
+```sh
+~/.local/bin/nlc eval signed_modality_inventory --report /absolute/new-report.json
+```
+
+signed helper의 preflight 대상은 Finder와 예약된 modality fixture로 제한한다.
+평가는 clear·창 시트·깊은 합성 AXSheet·앱 모달·floating panel·popover 2종·
+중첩 시트의 실제 AppKit 상태 callback과 전체/경계 판정을 기록한다.
+PASS는 측정 완료이고 입력 차단 안전성이나 Finder 작업 성공을 뜻하지 않는다.
+깊은 합성 AXSheet는 실제 비교에서 경계 clear/전체 거절로 달랐다. 기존 전체
+검사를 유지하며 입력·활성화를 보내지 않고 생성한 자식 프로세스만 회수한다.
+누락 callback/알 수 없는 응답/감사 실패는 실패로 남기며 raw report는0600이다.
+
+
+preflight의refusal_cause는 닫힌 원인 코드다. native guard가 Sheet 또는 잘못된
+role, Modal 또는 미관측 상태를 함께 거절하므로 sheet_or_malformed_role/list,
+modal_or_unknown_top/element는 확정 모달 감지와 구분한다. deadline/nodes/
+identity_or_abort/malformed/unavailable도 별도로 남긴다. 팝오버 열림은 이번
+두 검사에서 clear였으며, 첫 클릭이 팝오버 닫힘에 소비되는지 실제 수신으로
+검증하지 않았다. clear를 팝오버가 없는 상태나 입력 전달 보장으로 해석하지 않는다.
+
+
+## 첫 클릭의 실제 내용 수신과 명시적 준비
+
+새 진단은 다음 두 조건을 별도로 실행한다. 둘 다 소유 앱만 사용하며 기존
+사용자 창을 닫지 않는다. 실패한 unprepared 결과를 prepared 결과로 덮어쓰지 않는다.
+
+```sh
+~/.local/bin/nlc eval signed_popover_receipt --report /absolute/new-unprepared.json
+~/.local/bin/nlc eval signed_popover_prepared_receipt --report /absolute/new-prepared.json
+```
+
+clear/transient/semitransient × A/B 창 × acceptsFirstMouse true/false의12개
+조건이다. 대상 창을 먼저 생성하고 소유 PID/시작 identity/AXFocusedWindow를
+독립적으로 확인한다. 앱 내부 AXFocusedWindow와 AppKit isKeyWindow는 다르다.
+팝오버 표시와 실제 팝오버 창 가시성도 확인한다. NSWindow 이벤트 도착과
+내용 NSView의mouseDown/up 카운터를 분리하며 새 nonce/sequence로 검증한다.
+각 자식에게 내용 클릭은 한 번만 보내고 불확실한 입력을 재시도하지 않는다.
+
+현재 signed click_point는 암묵적인 제목 표시줄 준비 없이 down/up2개만 보낸다.
+미준비 fixture에서는 first-mouse를 거절한6개 조건이 acted/posted2와 올바른
+창 이벤트2를 보고했지만 내용 수신은0이었다. first-mouse를 허용한6개는정확히
+1쌍을 받았다. clear에서도 실패했으므로 팝오버에만 해당하는 문제가 아니다.
+
+명시적 prepare_window를 먼저 보내고 새 sequence/소유 key-window 상태와
+준비 중 내용 수신0을 확인한 뒤, 새 observe에서 클릭한12개 조건은모두
+정확히1쌍을 수신했다. 준비가 generic 앱의실제 key 상태를 보장한다고 주장하지
+않는다. 실제 앱에서는 선언한 준비 후조건과 클릭의실제 작업 후조건을 검증한다.
+준비 없이 이미 보낸 클릭을 효과 확인 없이 반복하지 않는다. 이 절차는
+호스트가 승인한 pointer action의명시적 단계이며 자동 준비 입력은 추가하지 않았다.
+
+prepared transient는준비 단계에서 팝오버가닫혔다. 그러므로 그4개 조건은
+열린 팝오버 클릭 소비 측정이아니다. semitransient는내용 dispatch 진입에도
+열린 채로수신했다. before/preparation/dispatch/after를 나눠 보고하며 사용자
+직접 클릭·다른 앱·AXPress·일반 double_click로 이결과를 확대하지 않는다.
+AppKit 내부 활성화 알림1회와 전역 전경 보존은별도로 기록한다. 표본 감사는
+동시 사람 입력/caret 유지나 표본 사이의변화 부재를증명하지 않는다.
+
+
+입력 대상 포커스 거절은 preparation_diagnostic의 닫힌 reason으로 구분한다:
+`target_window_not_focused`, `target_input_changed`, `target_focus_outside_window`,
+`target_input_not_focused`, `target_row_not_in_focused_list`. 앞의세 종류는
+창/요소/소속 창, 뒤의두 종류는bound Return의키보드 입력/선택 행 포커스다.
+이 metadata는권한이나 준비 완료 상태가 아니다. 같은 코드라도 입력 시도 이후
+실패면 effect는unknown이다. not_started를 실제 응답에서확인한 뒤에만 새
+관측으로 다음 단계를 계획하며, unknown을 코드만보고 재시도하지 않는다.
+
+```sh
+~/.local/bin/nlc eval signed_popover_routing_refusal --report /absolute/new-diagnostic.json
+```
+
+이 진단은 소유 A가앱 내부 focused 창인 상태에서 B를요청한다. 팝오버3종과
+first-mouse2종에서 입력 전거절·닫힌 코드·전송 시도0·새 callback의내용/창
+이벤트 변화0을 검증한다. passed는진단 검증만 뜻하고task_succeeded는false다.
+일반 앱의준비나 실제 Return 전송 성공으로계산하지 않는다. `[focused]` marker는
+현재 AXMain 또는AXFocused이며 전역 전경/실제 AppKit key창의증거가아니다.
+
+### 정확한 문서 pin의 거절 원인
+
+`observe --document`와 document-scoped replay가 `pin_unavailable`로 거절되면,
+가능한 경우 `pin_reason=<닫힌 코드>`를 함께 표시한다. 예를 들어
+`selection_ambiguous_or_absent`, `window_subrole_unreadable`, `read_deadline`,
+`traversal_budget`, `text_range_unreadable`은 알려진 helper 거절의 분류다.
+알 수 없는 오류/앱 문자열은 출력하지 않으므로 원인 코드가 없을 수도 있다.
+이 metadata는 추가 입력 권한이나 준비 완료 증거가 아니다.
+
+`pin_unavailable`만으로 권한 부족, 창 숨김 또는 foreground 필요를 판단하지
+않는다. 특히 `pin_reason=user_aborted`는 사용자 중단이며 일반 실패와 구분한다.
+pin 거절 뒤 app 전체 tree로 넓히거나 다른 문서로 대체하지 않는다. 이 진단은
+재-pin 또는 자동 재시도를 추가하지 않는다.
+
+CLI는 알려진 pin 원인에만 `document-pin-diagnostic: {JSON}` 줄을 함께 출력한다.
+이 줄은 schema/phase/reason/effect로 제한되며 경로나 본문을 담지 않는다.
+비교 report의 reported_document_pin_diagnostics는 completed CLI item에서
+읽은 도구 보고 값이다. 완료 영수증이나 실행 출처 증명으로 사용하지 않는다.
+
+
+`reason="identity_changed"`의 optional `identity_cause`는 실패 검사의 닫힌
+종류다: initial_binding, observation_id, process_id, target_name, process_start,
+element_map, document_token, document_pin, document_live, target_resolution.
+원문 UI·경로·PID·document token을 담지 않으며 다른 reason에서 사용하면 validator가
+거부한다. initial_binding은 여러 초기 조건을 묶은 분류다. 이 metadata는 추가
+입력·재바인딩·재전송을 승인하지 않고 OS 원인 귀속이나 과거 실패의 원인을
+증명하지 않는다. 필드가 없는 과거 응답은 구체 원인이 미관측인 상태로 유지한다.
+
+
+### Python readiness의 중첩 modal과 검사 후 상태 재확인
+
+Python direct의 `require_window_ready`도 하위 요소의 AXModal이 제공되면
+정확한 False만 허용하고 읽기 실패·malformed·True를 거부한다. AXModal의
+attributeUnsupported/noValue는 기존 Swift 계약처럼 선택적 부재로 처리한다.
+전체 순회 후 top role과 AXSheets를 다시 읽어 늦게 붙은 sheet·역할 변경을
+거부한다. 자식을 추가하기 전에 대기 중인 sibling 수까지 node 예산에 포함한다.
+Python의 기존5000 nodes/depth64와 signed helper의 기존 예산은 변경하지 않았다.
+검사는 AX 표본이며 UI 전체에 대한 atomic lock이 아니다.
+
+수정 전(비공개 로컬 기록: `reviews/readiness-parity-before-a.log`; 공개 원본 미포함)13 tests/9 failures에는
+late sheet·late role·nested modal 및 unreadable/malformed 값·pending budget의
+반례를 보존했다. 준비 검사 회귀(비공개 로컬 기록: `reviews/readiness-parity-regression-a.log`; 공개 원본 미포함)는
+46 tests/23.948s/OK, 실제 Swift traversal과 주입 AX의 비교를 포함한다.
+입력/시각 회귀(비공개 로컬 기록: `reviews/readiness-parity-integration-b.log`; 공개 원본 미포함)는69 tests/
+4.124s/OK이며 production capture→validate→dispatch에 늦은 상태 변화를
+주입해 attempted0/read_input0/event construction0/post0를 확인했다.
+두 명시 source subset은 전후 stable이며 두 suite의 겹치는 검사를 합쳐 고유
+검사 수로 주장하지 않는다. 실제 native GUI 입력이나 Finder 성능·과제 성공,
+사람 typing 보존을 검증한 결과는 아니다.

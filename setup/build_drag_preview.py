@@ -66,7 +66,7 @@ def build(app,output):
     with os.fdopen(fd,'wb') as sink:
         if platform.system()!='Darwin':raise RuntimeError('macOS_required')
         began=time.monotonic();before=app_manifest(app);verify_app(app)
-        with tempfile.TemporaryDirectory(prefix='tacto-drag-preview-',dir=output.parent) as folder:
+        with tempfile.TemporaryDirectory(prefix='nlc-drag-preview-',dir=output.parent) as folder:
             base=Path(folder);stage=base/'volume';stage.mkdir(mode=0o700)
             copied=stage/'Tacto.app';shutil.copytree(app,copied,symlinks=True)
             # The output artifact stays private; the app root has normal drag

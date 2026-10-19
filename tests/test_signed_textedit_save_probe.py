@@ -22,7 +22,7 @@ class Witness:
 
 
 class ProbeTests(unittest.TestCase):
-    def run_probe(self,*,menus=(True,True),preparation=None,cleanup_allowed=True):
+    def run_probe(self,*,menus=(True,True),preparation=None,cleanup_allowed=True,menu_response=None):
         fixture=Mock(path=Path('/owned/note.txt'),directory=Path('/missing-owned-probe-directory'),
                      directory_identity=(1,2),token='owned-token',closed_observed=True)
         fixture.write.return_value=True;fixture.cleanup.return_value='closed'
@@ -30,9 +30,9 @@ class ProbeTests(unittest.TestCase):
         driver.menu_state.side_effect=[{'type':'menu_state','enabled':enabled} for enabled in menus]
         driver.observe.return_value={'type':'observation','obs_id':'fresh','document_token':'owned-token',
                                      'truncated':False,'tree':'0 Window'}
-        driver.act.side_effect=lambda obs,target,action,**kw:preparation if action['name']=='prepare_window' else {'type':'acted'}
+        driver.act.side_effect=lambda obs,target,action,**kw:preparation if action['name']=='prepare_window' else (menu_response or {'type':'acted'})
         receipt=Mock()
-        body='NLC 실제 저장 검증 aa\n두 번째 줄\n'.encode()
+        body='Tacto 실제 저장 검증 aa\n두 번째 줄\n'.encode()
         with patch.object(probe,'SignedOwnedTextEdit',return_value=fixture),patch.object(probe.secrets,'token_hex',return_value='aa'),\
              patch.dict(sys.modules,{'focus_witness':types.SimpleNamespace(FocusWitness=Witness)}),\
              patch('tacto.existing_file_receipt.ExistingTextFileReceipt',return_value=receipt),\
@@ -58,14 +58,37 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual('prepare_window',driver.act.call_args.args[2]['name'])
         self.assertEqual('window_preparation_unverified',report['failure_code'])
 
+    def test_preparation_keeps_closed_diagnostics_without_raw_reply_text(self):
+        diagnostic={'phase':'context','reason':'readiness_deadline','elapsed_ms':3000,
+                    'scoped_ax_operations':200,'context_elapsed_ms':2900}
+        response={'type':'error','effect':'not_started','detail':'PRIVATE_DOCUMENT_SENTINEL',
+                  'preparation_diagnostic':diagnostic}
+        report,fixture,driver=self.run_probe(menus=(False,),preparation=response)
+        self.assertEqual(diagnostic,report['preparation_diagnostic'])
+        self.assertNotIn('PRIVATE_DOCUMENT_SENTINEL',str(report))
+        driver.act.assert_called_once()
+        response['preparation_diagnostic']={**diagnostic,'document':'PRIVATE_DOCUMENT_SENTINEL'}
+        report,_,driver=self.run_probe(menus=(False,),preparation=response)
+        self.assertNotIn('preparation_diagnostic',report)
+        self.assertNotIn('PRIVATE_DOCUMENT_SENTINEL',str(report))
+        driver.act.assert_called_once()
+
     def test_preparation_must_reobserve_enabled_menu(self):
         report,fixture,driver=self.run_probe(menus=(False,False),preparation={'type':'acted'})
         self.assertFalse(report['passed'])
         driver.act.assert_called_once()
-        self.assertEqual('save_menu_not_enabled_after_prepare',report['failure_code'])
+        self.assertEqual('save_menu_read_unavailable',report['failure_code'])
 
     def test_changed_environment_leaves_owned_document_open(self):
         report,fixture,driver=self.run_probe(cleanup_allowed=False)
         self.assertFalse(report['passed'])
         fixture.cleanup.assert_not_called()
+        fixture.write.assert_not_called();driver.act.assert_not_called()
         self.assertEqual('environment_changed_left_as_is',report['cleanup_status'])
+
+    def test_observed_save_activation_is_not_overruled_by_empty_witness(self):
+        report,fixture,driver=self.run_probe(menu_response={'type':'acted','activated_target':True})
+        self.assertTrue(report['save_observed_activation'])
+        self.assertFalse(report['passed'])
+        self.assertEqual(report['cleanup_status'],'activation_observed_left_as_is')
+        fixture.cleanup.assert_not_called()

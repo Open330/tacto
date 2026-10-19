@@ -4,7 +4,7 @@ let appElement = AXUIElementCreateApplication(4242)
 let windowElement = AXUIElementCreateApplication(4343)
 func pidOf(_ e: AXUIElement) -> Int32 { var p: pid_t = 0; AXUIElementGetPid(e, &p); return p }
 // realpath, not resolvingSymlinksInPath (which drops /private from /private/var).
-let raw = FileManager.default.temporaryDirectory.path + "/tacto-focused-doc-fixture-\(getpid()).txt"
+let raw = FileManager.default.temporaryDirectory.path + "/nlc-focused-doc-fixture-\(getpid()).txt"
 FileManager.default.createFile(atPath: raw, contents: Data())
 let file: String = { let r = realpath(raw, nil)!; defer { free(r) }; return String(cString: r) }()
 func run(_ failSetOn: Int32?, _ failResetOn: Int32?) -> String {

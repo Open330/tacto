@@ -100,7 +100,7 @@ class WindowReadySwiftTests(unittest.TestCase):
     maxDiff = None
 
     def test_cases(self):
-        with tempfile.TemporaryDirectory(prefix='tacto-window-ready-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-window-ready-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(HARNESS)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),
@@ -129,7 +129,7 @@ class WindowReadySwiftTests(unittest.TestCase):
             "children unreadable refuses": "window state unavailable: AXChildren",
             "deadline while checking is a budget reason": "readiness budget exceeded: deadline",
             "target missing refuses": "target window missing, ambiguous or minimized",
-            "windows changing during the check refuse": "window state changed during validation",
+            "windows changing during the check refuse": "window state changed during validation: before=3, after=2, same_order=false, same_members=false, added_roles=[]",
         }, json.loads(result.stdout))
 
 

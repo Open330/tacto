@@ -9,6 +9,46 @@ from tacto.delivery_receipt import (DeliveredMessageReceipt, DeliveryReceiptErro
 
 
 class DeliveryReceiptTests(unittest.TestCase):
+    def test_binding_changes_during_absence_read_refuse_context_and_reuse(self):
+        for changes,code in (({'request_id':'request-2'},'delivery_binding_changed'),
+                            ({'attachments':()},'delivery_binding_changed'),
+                            ({'recipient':'foreign'},'delivery_binding_mismatch'),
+                            ({'account':'foreign'},'delivery_binding_mismatch'),
+                            ({'body_sha256':'0'*64},'delivery_binding_mismatch')):
+            with self.subTest(changes=changes):
+                self.pending_override=None;before=self.bind_calls
+                original=PendingDelivery('request-1',self.event['target'],self.event['obs_id'],
+                    self.event['action_digest'],'sender','recipient',self.digest)
+                reads=[]
+                def absence(request):
+                    reads.append(request);self.pending_override=replace(original,**changes);return None
+                receipt=self.new_receipt(read_inbox=absence)
+                with self.assertRaisesRegex(DeliveryReceiptError,'^'+code+'$'):receipt.prepare_commit(self.event)
+                self.assertIsNone(receipt._prepared)
+                self.assertEqual(before+2,self.bind_calls)
+                self.assertEqual(['request-1'],reads)
+                with self.assertRaisesRegex(DeliveryReceiptError,'^already_prepared$'):receipt.prepare_commit(self.event)
+                self.assertEqual(before+2,self.bind_calls)
+
+    def test_private_rebinding_error_and_event_change_refuse_before_context(self):
+        for mode in ('private_error','event_changed'):
+            with self.subTest(mode=mode):
+                calls=[]
+                def binding(event):
+                    calls.append(event)
+                    if len(calls)==2:
+                        if mode=='private_error':raise RuntimeError('PRIVATE_REBIND_SENTINEL')
+                        self.event['event_id']='changed-during-binding'
+                    return self.bind(event)
+                receipt=self.new_receipt(bind_request=binding)
+                expected='delivery_binding_unavailable' if mode=='private_error' else 'delivery_binding_changed'
+                with self.assertRaisesRegex(DeliveryReceiptError,'^'+expected+'$') as error:receipt.prepare_commit(self.event)
+                self.assertIsNone(error.exception.__cause__)
+                self.assertNotIn('PRIVATE_REBIND_SENTINEL',str(error.exception))
+                self.assertIsNone(receipt._prepared)
+                with self.assertRaisesRegex(DeliveryReceiptError,'^already_prepared$'):receipt.prepare_commit(self.event)
+                self.assertEqual(2,len(calls))
+
     def setUp(self):
         self.now = 0
         self.sleeps = []
@@ -52,7 +92,7 @@ class DeliveryReceiptTests(unittest.TestCase):
     def test_common_verifier_independently_checks_host_body_digest(self):
         context = self.receipt.prepare_commit(self.event)
         self.observed = self.delivered
-        proof = self.receipt.after_commit(self.event, {}, context)
+        proof = self.receipt.after_commit(self.event, {'type':'acted'}, context)
         expected = self.receipt.commit_expected
         self.assertEqual(self.digest, expected['보낸 내용 sha256'])
         damaged = replace(proof, evidence=replace(proof.evidence, body_sha256='0'*64))
@@ -63,7 +103,7 @@ class DeliveryReceiptTests(unittest.TestCase):
     def test_bad_or_conflicting_host_digest_never_passes_common_verifier(self):
         context = self.receipt.prepare_commit(self.event)
         self.observed = self.delivered
-        proof = self.receipt.after_commit(self.event, {}, context)
+        proof = self.receipt.after_commit(self.event, {'type':'acted'}, context)
         for value in (None, True, [], '0'*64, 'bad', self.digest.upper()):
             with self.subTest(value=value):
                 self.assertEqual('delivery_content_mismatch', evidence_error(
@@ -77,7 +117,7 @@ class DeliveryReceiptTests(unittest.TestCase):
             self.observed = None
             receipt = self.new_receipt();context = receipt.prepare_commit(self.event)
             self.observed = replace(self.delivered, message_id=identity)
-            self.assertEqual(identity, receipt.after_commit(self.event, {}, context).evidence.receipt_id)
+            self.assertEqual(identity, receipt.after_commit(self.event, {'type':'acted'}, context).evidence.receipt_id)
 
     def test_control_characters_whitespace_and_overlong_message_id_are_refused(self):
         for identity in (' message', 'message ', 'message\nother', 'message\x00other', 'x'*1025):
@@ -85,7 +125,7 @@ class DeliveryReceiptTests(unittest.TestCase):
             receipt = self.new_receipt();context = receipt.prepare_commit(self.event)
             self.observed = replace(self.delivered, message_id=identity)
             with self.assertRaisesRegex(DeliveryReceiptError, 'inbox_receipt_mismatch'):
-                receipt.after_commit(self.event, {}, context)
+                receipt.after_commit(self.event, {'type':'acted'}, context)
 
     def test_old_record_cannot_be_reused_as_a_new_send(self):
         self.observed = self.delivered
@@ -97,7 +137,37 @@ class DeliveryReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(DeliveryReceiptError, 'delivery_not_observed_before_deadline'):
             self.receipt.after_commit(self.event, {'type':'acted', 'said':'Sent'}, context)
         self.assertAlmostEqual(.03, sum(self.sleeps))
-        self.assertEqual(1, self.bind_calls)
+        self.assertEqual(2, self.bind_calls)
+
+    def test_known_non_dispatch_is_not_overridden_by_an_inbox_record(self):
+        from unittest.mock import Mock
+        context=self.receipt.prepare_commit(self.event)
+        reader=Mock(return_value=self.delivered);self.receipt._inbox=reader
+        with self.assertRaisesRegex(DeliveryReceiptError,'^delivery_dispatch_not_started$'):
+            self.receipt.after_commit(self.event,{'type':'error','effect':'not_started'},context)
+        reader.assert_not_called()
+        with self.assertRaisesRegex(DeliveryReceiptError,'^already_used$'):
+            self.receipt.after_commit(self.event,{'type':'error','effect':'unknown'},context)
+        reader.assert_not_called()
+
+    def test_non_dispatch_and_unrecognized_replies_never_read_inbox_or_allow_reuse(self):
+        from unittest.mock import Mock
+        for response,code in [(None,'delivery_dispatch_unverified'),({},'delivery_dispatch_unverified'),
+                ({'type':'other'},'delivery_dispatch_unverified'),
+                ({'type':'confirm_request'},'delivery_dispatch_not_started'),
+                ({'type':'handoff_request'},'delivery_dispatch_not_started'),
+                ({'type':'observation'},'delivery_dispatch_not_started'),
+                ({'type':'probe'},'delivery_dispatch_not_started'),
+                ({'type':'acted','effect':'not_started'},'delivery_dispatch_not_started')]:
+            with self.subTest(response=response):
+                self.observed=None;receipt=self.new_receipt();context=receipt.prepare_commit(self.event)
+                reader=Mock(return_value=self.delivered);receipt._inbox=reader
+                with self.assertRaisesRegex(DeliveryReceiptError,'^'+code+'$'):
+                    receipt.after_commit(self.event,response,context)
+                reader.assert_not_called()
+                with self.assertRaisesRegex(DeliveryReceiptError,'^already_used$'):
+                    receipt.after_commit(self.event,{'type':'error','effect':'unknown'},context)
+                reader.assert_not_called()
 
     def test_lost_response_can_be_resolved_by_new_authoritative_record(self):
         context = self.receipt.prepare_commit(self.event)
@@ -116,13 +186,13 @@ class DeliveryReceiptTests(unittest.TestCase):
                 context = receipt.prepare_commit(self.event)
                 self.observed = replace(self.delivered, **{field:value})
                 with self.assertRaisesRegex(DeliveryReceiptError, 'inbox_receipt_mismatch'):
-                    receipt.after_commit(self.event, {}, context)
+                    receipt.after_commit(self.event, {'type':'acted'}, context)
 
     def test_model_json_is_not_a_typed_host_receipt(self):
         context = self.receipt.prepare_commit(self.event)
         self.observed = asdict(self.delivered)
         with self.assertRaisesRegex(DeliveryReceiptError, 'inbox_receipt_mismatch'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
 
     def test_binding_checks_live_observation_action_and_payload(self):
         for field, value in [('request_id',''), ('target','other'), ('obs_id','old'),
@@ -141,9 +211,9 @@ class DeliveryReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(DeliveryReceiptError, 'already_prepared'):
             self.receipt.prepare_commit(self.event)
         self.observed = self.delivered
-        self.receipt.after_commit(self.event, {}, context)
+        self.receipt.after_commit(self.event, {'type':'acted'}, context)
         with self.assertRaisesRegex(DeliveryReceiptError, 'already_used'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
 
     def test_event_mutation_and_context_copy_are_refused(self):
         for change in ('event_id', 'action', 'context'):
@@ -155,7 +225,7 @@ class DeliveryReceiptTests(unittest.TestCase):
                 elif change == 'event_id': event['event_id'] = 'other'
                 else: event['action'] = {'name':'click', 'element_index':4}
                 with self.assertRaises(DeliveryReceiptError):
-                    receipt.after_commit(event, {}, context)
+                    receipt.after_commit(event, {'type':'acted'}, context)
 
     def test_mixed_consequential_effects_and_invalid_input_fail_before_binding(self):
         for action, effects in [({'name':'click','element_index':True}, {'transmit'}),
@@ -173,7 +243,7 @@ class DeliveryReceiptTests(unittest.TestCase):
                            'owned-mail', obs_id='observed')
         context = self.receipt.prepare_commit(event)
         self.observed = self.delivered
-        self.assertEqual(event['action_digest'], self.receipt.after_commit(event, {}, context).action_digest)
+        self.assertEqual(event['action_digest'], self.receipt.after_commit(event, {'type':'acted'}, context).action_digest)
 
     def test_reader_and_binding_errors_are_closed_and_not_model_text(self):
         def broken(*args): raise RuntimeError('PRIVATE_SENTINEL')
@@ -191,7 +261,34 @@ class DeliveryReceiptTests(unittest.TestCase):
             return self.delivered
         self.receipt._inbox = late
         with self.assertRaisesRegex(DeliveryReceiptError, 'delivery_not_observed_before_deadline'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
+
+    def test_event_changes_during_receiving_read_or_final_clock_refuse_completion(self):
+        from tacto.commit_evidence import action_digest
+        for hook in ('inbox','clock'):
+            for mutation in ('event_id','action','rehash','malformed'):
+                with self.subTest(hook=hook,mutation=mutation):
+                    self.setUp();context=self.receipt.prepare_commit(self.event)
+                    def change():
+                        if mutation=='event_id':self.event['event_id']='changed'
+                        elif mutation=='malformed':self.event['effects']=None
+                        else:
+                            self.event['action']['element_index']=4
+                            if mutation=='rehash':self.event['action_digest']=action_digest(
+                                self.event['action'],self.event['effects'],self.event['target'],obs_id=self.event['obs_id'])
+                    def read(_):
+                        if hook=='inbox':change()
+                        return self.delivered
+                    calls=[]
+                    def clock():
+                        calls.append(None)
+                        if hook=='clock' and len(calls)==3:change()
+                        return self.now
+                    self.receipt._inbox=read;self.receipt._clock=clock
+                    with self.assertRaisesRegex(DeliveryReceiptError,'^delivery_commit_mismatch$'):
+                        self.receipt.after_commit(self.event,{'type':'error','effect':'unknown'},context)
+                    with self.assertRaisesRegex(DeliveryReceiptError,'^already_used$'):
+                        self.receipt.after_commit(self.event,{'type':'acted'},context)
 
     def test_configuration_rejects_unbounded_or_non_host_readers(self):
         for field, value in [('timeout_seconds',True), ('timeout_seconds',float('inf')),
@@ -210,7 +307,7 @@ class DeliveryReceiptTests(unittest.TestCase):
             receipt.prepare_commit(self.event)
         self.assertEqual([], self.sleeps)
 
-    def test_explicit_temporary_read_outage_recovers_without_rebinding(self):
+    def test_explicit_temporary_read_outage_recovers_without_post_dispatch_rebinding(self):
         context = self.receipt.prepare_commit(self.event)
         calls = []
 
@@ -225,7 +322,7 @@ class DeliveryReceiptTests(unittest.TestCase):
         self.assertEqual('message-1', proof.evidence.receipt_id)
         self.assertEqual(['request-1', 'request-1'], calls)
         self.assertEqual([.01], self.sleeps)
-        self.assertEqual(1, self.bind_calls)
+        self.assertEqual(2, self.bind_calls)
 
     def test_permanent_explicit_outage_expires_without_a_read_at_deadline(self):
         context = self.receipt.prepare_commit(self.event)
@@ -237,11 +334,11 @@ class DeliveryReceiptTests(unittest.TestCase):
 
         self.receipt._inbox = reader
         with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
         self.assertEqual([0, .01, .02], calls)
         self.assertAlmostEqual(.03, self.now)
         with self.assertRaisesRegex(DeliveryReceiptError, '^already_used$'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
         self.assertEqual(3, len(calls))
 
     def test_generic_read_failure_is_not_retried_or_exposed(self):
@@ -254,7 +351,7 @@ class DeliveryReceiptTests(unittest.TestCase):
 
         self.receipt._inbox = reader
         with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
         self.assertEqual(1, len(calls))
         self.assertEqual([], self.sleeps)
 
@@ -272,7 +369,7 @@ class DeliveryReceiptTests(unittest.TestCase):
 
         self.receipt._inbox = reader
         with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_receipt_mismatch$'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
         self.assertEqual(2, len(calls))
 
     def test_slow_temporary_failure_cannot_extend_deadline(self):
@@ -284,9 +381,77 @@ class DeliveryReceiptTests(unittest.TestCase):
 
         self.receipt._inbox = reader
         with self.assertRaisesRegex(DeliveryReceiptError, '^inbox_read_unavailable$'):
-            self.receipt.after_commit(self.event, {}, context)
+            self.receipt.after_commit(self.event, {'type':'acted'}, context)
         self.assertEqual([], self.sleeps)
 
+
+
+
+class AttachmentDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        from tacto.commit_evidence import AttachmentEvidence
+        self.attachment=AttachmentEvidence('검토.pdf',hashlib.sha256(b'owned bytes').hexdigest(),11)
+        self.manifest=(self.attachment,)
+        self.event=make_event({'name':'click','element_index':3},{'transmit'},'owned-mail',obs_id='o')
+        self.body_hash=hashlib.sha256(b'hello').hexdigest()
+        self.pending=PendingDelivery('request-1','owned-mail','o',self.event['action_digest'],
+            'sender','recipient',self.body_hash,self.manifest)
+        self.delivered=InboxDelivery('request-1','message-1','sender','recipient',self.body_hash,'delivered',self.manifest)
+        self.observed=None
+        self.receipt=DeliveredMessageReceipt(target='owned-mail',account='sender',recipient='recipient',
+            text='hello',attachments=self.manifest,bind_request=lambda e:self.pending,
+            read_inbox=lambda r:self.observed)
+
+    def test_exact_attachment_is_in_event_bound_delivery_evidence(self):
+        context=self.receipt.prepare_commit(self.event);self.observed=self.delivered
+        proof=self.receipt.after_commit(self.event,{'type':'acted'},context)
+        self.assertEqual(self.manifest,proof.evidence.attachments)
+        event={**self.event,'commit_evidence':proof}
+        self.assertIsNone(evidence_error(event,self.receipt.commit_expected))
+        self.assertEqual('delivery_attachment_mismatch',evidence_error(event,{'attachments':()}))
+
+    def test_missing_or_changed_attachment_before_dispatch_is_refused(self):
+        self.pending=replace(self.pending,attachments=())
+        with self.assertRaisesRegex(DeliveryReceiptError,'delivery_binding_mismatch'):
+            self.receipt.prepare_commit(self.event)
+
+    def test_receiving_missing_extra_renamed_corrupt_or_resized_attachment_refuses(self):
+        from tacto.commit_evidence import AttachmentEvidence
+        changed=[None,(),(replace(self.attachment,filename='other.pdf'),),
+            (replace(self.attachment,sha256='0'*64),),(replace(self.attachment,size_bytes=10),),
+            (self.attachment,AttachmentEvidence('extra.txt','0'*64,0))]
+        for manifest in changed:
+            with self.subTest(manifest=manifest):
+                self.setUp()
+                context=self.receipt.prepare_commit(self.event)
+                self.observed=replace(self.delivered,attachments=manifest)
+                with self.assertRaisesRegex(DeliveryReceiptError,'inbox_receipt_mismatch'):
+                    self.receipt.after_commit(self.event,{'type':'acted'},context)
+
+    def test_unobserved_is_not_evidence_of_zero_attachments(self):
+        self.pending=replace(self.pending,attachments=None)
+        with self.assertRaisesRegex(DeliveryReceiptError,'delivery_binding_mismatch'):
+            self.receipt.prepare_commit(self.event)
+        from tacto.commit_evidence import DeliveryEvidence
+        proof=CommitEvidence(self.event['event_id'],self.event['action_digest'],
+            DeliveryEvidence('message-1','recipient','sender',self.body_hash))
+        self.assertEqual('delivery_attachments_unobserved',evidence_error(
+            {**self.event,'commit_evidence':proof},{'attachments':()}))
+        self.assertIsNone(evidence_error({**self.event,'commit_evidence':proof},{}))
+
+    def test_invalid_manifest_is_refused_before_host_readers(self):
+        from tacto.commit_evidence import attachment_manifest_valid
+        malformed=[list(self.manifest),(self.attachment,self.attachment),
+            (replace(self.attachment,filename='../outside'),),(replace(self.attachment,filename='a\n'),),
+            (replace(self.attachment,size_bytes=True),),(replace(self.attachment,size_bytes=-1),),
+            (replace(self.attachment,sha256='not a hash'),),({'filename':'model claim'},)]
+        for manifest in malformed:
+            with self.subTest(manifest=manifest):
+                self.assertFalse(attachment_manifest_valid(manifest))
+                with self.assertRaises(ValueError):
+                    DeliveredMessageReceipt(target='owned-mail',account='sender',recipient='recipient',
+                        text='hello',attachments=manifest,bind_request=lambda e:self.fail('unexpected read'),
+                        read_inbox=lambda r:self.fail('unexpected read'))
 
 if __name__ == '__main__':
     unittest.main()

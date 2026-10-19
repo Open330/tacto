@@ -22,6 +22,11 @@ def require_window_ready(window, windows, read, equal, *, array_types=(list, tup
             return None
         raise WindowNotReady('window state unavailable: ' + name)
 
+    def require_no_sheets(top):
+        sheets = value(top, 'AXSheets', optional=True)
+        if sheets is not None and (not isinstance(sheets, array_types) or len(sheets)):
+            raise WindowNotReady('application has a sheet or malformed sheet list')
+
     before = windows()
     if not isinstance(before, array_types) or sum(bool(equal(w, window)) for w in before) != 1:
         raise WindowNotReady('target window absent or ambiguous')
@@ -29,13 +34,11 @@ def require_window_ready(window, windows, read, equal, *, array_types=(list, tup
     if value(window, 'AXMinimized') is not False:
         raise WindowNotReady('target window minimized or unknown')
     remaining = max_nodes
+    roles = []
     for top in before:
         if value(top, 'AXModal') is not False:
             raise WindowNotReady('application has a modal or unknown window')
-        sheets = value(top, 'AXSheets', optional=True)
-        if sheets is not None:
-            if not isinstance(sheets, array_types) or len(sheets):
-                raise WindowNotReady('application has a sheet or malformed sheet list')
+        require_no_sheets(top)
         # Even supported AXSheets may be stale/incomplete. Read the exposed
         # children without the ordinary observation's per-container truncation.
         stack = [(top, 0)]
@@ -49,12 +52,18 @@ def require_window_ready(window, windows, read, equal, *, array_types=(list, tup
                 raise WindowNotReady('window role malformed')
             if role == 'AXSheet':
                 raise WindowNotReady('application has an attached sheet')
+            if depth == 0:
+                roles.append(role)
+            else:
+                modal = value(node, 'AXModal', optional=True)
+                if modal is not None and modal is not False:
+                    raise WindowNotReady('application has a modal or unknown element')
             children = value(node, 'AXChildren', optional=True)
             if children is None:
                 continue
             if not isinstance(children, array_types):
                 raise WindowNotReady('window children malformed')
-            if len(children) > remaining:
+            if len(children) > remaining - len(stack):
                 raise WindowNotReady('window readiness traversal budget exceeded')
             stack.extend((child, depth + 1) for child in reversed(children))
     after = windows()
@@ -71,4 +80,8 @@ def require_window_ready(window, windows, read, equal, *, array_types=(list, tup
         raise WindowNotReady('application window identities changed during validation')
     if value(window, 'AXMinimized') is not False or any(value(w, 'AXModal') is not False for w in before):
         raise WindowNotReady('window became minimized or modal during validation')
+    for top, role in zip(before, roles):
+        if value(top, 'AXRole') != role:
+            raise WindowNotReady('window role changed during validation')
+        require_no_sheets(top)
     return True

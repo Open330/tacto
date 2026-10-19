@@ -107,7 +107,7 @@ class WindowIndexMeansOneThing(unittest.TestCase):
         """
         helper_walk = HELPER[HELPER.index("let processStart = nativeProcessStartIdentity(p)"):]
         helper_walk = helper_walk[:helper_walk.index("if windows.isEmpty")]
-        self.assertIn("realWindows(of: app)", helper_walk)
+        self.assertIn("realWindows(of: app, diagnostic: &windowListing)", helper_walk)
         driver_walk = DRIVER[DRIVER.index("def _walk_windows"):]
         driver_walk = driver_walk[:driver_walk.index("\n    def ", 10)]
         self.assertIn("_real_windows(obs.pid)", driver_walk)

@@ -9,6 +9,7 @@ silently submit that page as if it satisfied the budget.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 from dataclasses import dataclass
@@ -61,9 +62,12 @@ def page_candidates(
     candidates: Sequence[dict], *, budget: int, cursor: str | None = None,
     token_counter: Callable[[str], int] | None = None,
     render: Callable[[IndexedCandidates], str] | None = None,
-    context: str = "",
+    context: str = "", order: Sequence[int] | None = None,
 ) -> CandidatePage:
     """Return the next ordered page, preserving every field and original pick.
+
+    Candidates are JSON-serializable plain data. Their nested fields are copied
+    for this page; a custom renderer must not mutate the candidate snapshot.
 
     ``render`` receives indexed candidates and may return the complete prompt,
     including instructions and goal. ``context`` should include the observation
@@ -74,6 +78,10 @@ def page_candidates(
     Empty pages occur only for an empty candidate collection. If the first
     candidate cannot fit, it is emitted alone with an explicit overflow flag;
     the next cursor still allows inspection of subsequent candidates.
+
+    ``order`` optionally presents the same candidates in another sequence: a
+    permutation of every index, so nothing is dropped or repeated. Items keep
+    their original picks, and a cursor is bound to the order it was issued for.
     """
     if type(budget) is not int or budget <= 0:
         raise ValueError("budget must be a positive integer")
@@ -82,9 +90,18 @@ def page_candidates(
     rows = tuple(candidates)
     if any(not isinstance(candidate, dict) for candidate in rows):
         raise TypeError("candidates must contain dictionaries")
-    fingerprint = hashlib.sha256(
-        _json({"context": context, "candidates": rows}).encode("utf-8")
-    ).hexdigest()
+    _json(rows)  # Reject non-data values before invoking copy hooks.
+    rows = deepcopy(rows)
+    if order is None:
+        sequence = tuple(range(len(rows)))
+        bound = {"context": context, "candidates": rows}
+    else:
+        sequence = tuple(order)
+        if (any(type(pick) is not int for pick in sequence)
+                or sorted(sequence) != list(range(len(rows)))):
+            raise ValueError("order must be a permutation of every candidate index")
+        bound = {"context": context, "candidates": rows, "order": list(sequence)}
+    fingerprint = hashlib.sha256(_json(bound).encode("utf-8")).hexdigest()
     start = 0
     if cursor is not None:
         if not isinstance(cursor, str):
@@ -102,7 +119,10 @@ def page_candidates(
     renderer = render or _render
 
     def measure(items: IndexedCandidates) -> tuple[str, int]:
+        before = _json(items) if render is not None else None
         text = renderer(items)
+        if before is not None and _json(items) != before:
+            raise ValueError("renderer modified candidates")
         if not isinstance(text, str):
             raise TypeError("renderer must return a string")
         count = counter(text)
@@ -112,7 +132,8 @@ def page_candidates(
 
     accepted: IndexedCandidates = ()
     text, count = measure(accepted)
-    for pick in range(start, len(rows)):
+    for position in range(start, len(rows)):
+        pick = sequence[position]
         trial = (*accepted, (pick, rows[pick]))
         trial_text, trial_count = measure(trial)
         if trial_count > budget and accepted:

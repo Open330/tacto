@@ -98,7 +98,7 @@ def main(driver, output: Path):
                                   'not forced'}
     process = None
     witness = None
-    work = tempfile.TemporaryDirectory(prefix='tacto-menu-')
+    work = tempfile.TemporaryDirectory(prefix='nlc-menu-')
     try:
         binary = _build(work.name)
         process = subprocess.Popen([str(binary), '--timeout', '90'],
@@ -109,10 +109,10 @@ def main(driver, output: Path):
         while time.monotonic() < deadline:
             probe._pump()
             pid = probe._resolve(TARGET, launch=False)
-            if pid is not None and _witness(pid, 'tacto-fixture-state') is not None:
+            if pid is not None and _witness(pid, 'nlc-fixture-state') is not None:
                 break
             time.sleep(0.2)
-        if pid is None or _witness(pid, 'tacto-fixture-state') is None:
+        if pid is None or _witness(pid, 'nlc-fixture-state') is None:
             raise RuntimeError('fixture_did_not_start')
         report['fixture_pid'] = pid
 
@@ -127,7 +127,7 @@ def main(driver, output: Path):
             raise RuntimeError('frontmost application is not observable')
         if front_before == TARGET:
             raise RuntimeError('fixture_is_frontmost_before_we_started')
-        state = _witness(pid, 'tacto-fixture-state') or ''
+        state = _witness(pid, 'nlc-fixture-state') or ''
         report['steps'].append({'step': 'fixture is in the background',
                                 'frontmost': front_before, 'state': state})
         if 'iskeywindow=true' in state.lower().replace(' ', ''):
@@ -145,14 +145,14 @@ def main(driver, output: Path):
             raise RuntimeError(f'responder target should be disabled: {responder_state}')
 
         # The direct one works, from the background, and its own counter says so.
-        before = _witness(pid, 'tacto-fixture-direct-count')
+        before = _witness(pid, 'nlc-fixture-direct-count')
         if before is None:
             raise RuntimeError('direct counter is missing')
         observation = driver.observe(TARGET, 'tree_full')
         acted = driver.act(observation['obs_id'], TARGET,
                            {'name': 'menu', 'path': ['Probe', 'Direct Command']})
         time.sleep(0.5)
-        after = _witness(pid, 'tacto-fixture-direct-count')
+        after = _witness(pid, 'nlc-fixture-direct-count')
         report['steps'].append({'step': 'direct command from the background',
                                 'response': acted, 'count': [before, after]})
         if acted.get('type') != 'acted':
@@ -161,14 +161,14 @@ def main(driver, output: Path):
             raise RuntimeError(f'direct command must increment exactly once: {before}->{after}')
 
         # The responder one is REFUSED — and nothing happens.
-        before = _witness(pid, 'tacto-fixture-responder-count')
+        before = _witness(pid, 'nlc-fixture-responder-count')
         if before is None:
             raise RuntimeError('responder counter is missing')
         observation = driver.observe(TARGET, 'tree_full')
         refused = driver.act(observation['obs_id'], TARGET,
                              {'name': 'menu', 'path': ['Probe', 'Responder Command']})
         time.sleep(0.5)
-        after = _witness(pid, 'tacto-fixture-responder-count')
+        after = _witness(pid, 'nlc-fixture-responder-count')
         report['steps'].append({'step': 'responder command from the background',
                                 'response': refused, 'count': [before, after]})
         if refused.get('type') != 'error':

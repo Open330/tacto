@@ -41,13 +41,24 @@ def default_directory() -> str:
 DEFAULT_DIR = default_directory()
 
 
+def builtin_directory() -> str | None:
+    """Optional immutable assets beside the installed Python modules."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "builtin_flows")
+    return path if os.path.isdir(path) else None
+
+
 class FlowStore:
-    def __init__(self, path: str | None = None):
+    def __init__(self, path: str | None = None, *, builtin_path: str | None = None):
         self.path = default_directory() if path is None else os.fspath(path)
         if path is None and os.path.basename(os.path.dirname(self.path)) == "tacto":
             legacy = os.path.join(os.path.dirname(os.path.dirname(self.path)), "nlc", "flows")
             if os.path.isdir(legacy) and any(name.endswith(".json") for name in os.listdir(legacy)):
                 raise self.MigrationRequired(f"Both flow stores contain data: {self.path} and {legacy}. Choose FlowStore(path=...) explicitly before migrating; no files were moved or overwritten.")
+        # An explicit custom store remains isolated unless its caller opts in.
+        if builtin_path is not None:
+            self.builtin_path = os.fspath(builtin_path)
+        else:
+            self.builtin_path = builtin_directory() if path is None else None
         os.makedirs(self.path, exist_ok=True)
 
     def _file(self, name: str) -> str:
@@ -75,6 +86,10 @@ class FlowStore:
 
     def load(self, name: str) -> Flow:
         path = self._file(name)
+        # lexists retains broken links as user-owned failures. Never conceal a
+        # damaged override or a legacy flow by replaying a different builtin.
+        if not os.path.lexists(path) and self.builtin_path is not None:
+            path = os.path.join(self.builtin_path, os.path.basename(path))
         with open(path, encoding="utf-8") as f:
             text = f.read()
         try:
@@ -96,9 +111,6 @@ class FlowStore:
     def has(self, name: str) -> bool:
         """True only when the file exists AND parses — a damaged file is
         treated as absent so the caller can re-author over it."""
-        path = self._file(name)
-        if not os.path.exists(path):
-            return False
         try:
             self.load(name)
             return True
@@ -108,4 +120,7 @@ class FlowStore:
             return False
 
     def list(self) -> list[str]:
-        return sorted(f[:-5] for f in os.listdir(self.path) if f.endswith(".json"))
+        names = {f[:-5] for f in os.listdir(self.path) if f.endswith(".json")}
+        if self.builtin_path is not None and os.path.isdir(self.builtin_path):
+            names.update(f[:-5] for f in os.listdir(self.builtin_path) if f.endswith(".json"))
+        return sorted(names)

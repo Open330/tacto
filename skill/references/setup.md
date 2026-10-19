@@ -12,7 +12,6 @@ script says what is missing, and `skill/install.sh --check` changes nothing).
 Do not download or install an `tacto` from anywhere else, and do not look for a
 substitute — a different program by that name is not this one.
 
-
 ## Select the signed native backend
 
 For macOS app work, use the installed signed launcher with `--helper` on
@@ -43,17 +42,38 @@ or `.venv/bin/tacto` as a substitute for the signed native launcher.
 scenario rather than adding `--helper` to evaluator arguments. Static flow
 commands such as `list`, `show`, `parameterize` and `promote` need no native flag.
 
+For an explicitly authorized upload in a fresh headless browser, use
+`tacto web-upload /absolute/private/config.json --scope name --check` to validate
+the host registration without browser/network/input. Read the
+[configuration and independent inbox contract](../docs/api.md#cli-browser-upload-registration)
+before execution. Omit `--check` to review/approve; noninteractive execution needs
+`--yes`. This route needs the optional web backend and a trusted independent
+receiving endpoint; it does not reuse the user's native browser/profile or need
+`--helper`. Preserve the original `--journal-dir` on interruption and never resend
+an unverified upload merely because it failed or returned unknown.
+
 Driving apps needs the permissions granted to Tacto's signed helper. If
 `tacto apps --helper` reports an error or no apps, run `tacto doctor --check` and
 report its result. Do not grant permissions or change the helper's signing
-requirement yourself. See [installation and backend paths](../../docs/installation.md)
+requirement yourself. See [installation and backend paths](../docs/installation.md)
 when a launcher or helper connection fails.
 
+## Worker restart protection
+
+For a `do`, `run`, or `replay` invocation that must not repeat input after a
+worker restart, opt in with `--journal-dir /absolute/private/run-directory`.
+Retain that same directory when restarting that invocation. Existing slots
+refuse input even when a reply was logged; journal records do not prove the
+operation completed. On `dispatch_journal_requires_reconciliation`, read the
+actual receiving state before planning continuation. Do not delete slots or
+choose another directory merely to retry an uncertain operation. This is an
+input barrier, not automatic resume; it does not cover separate visual
+executors. See [dispatch journal](../docs/dispatch-journal.md) for the scope.
 
 ## Check the actual sandbox profile
 
 Tacto needs a real GUI session. An actual agent sandbox can block screen and
-accessibility APIs; Tacto then reports "Tacto가 샌드박스 안에서 실행됐습니다"
+accessibility APIs; Tacto then reports "NLC가 샌드박스 안에서 실행됐습니다"
 (exit code 3). This is separate from macOS app permissions.
 
 - With `danger-full-access` or unrestricted filesystem execution, run normally.
@@ -70,3 +90,22 @@ accessibility APIs; Tacto then reports "Tacto가 샌드박스 안에서 실행�
 Reading and writing recipes (`tacto list`, `tacto show`, `tacto candidates`,
 `tacto promote`) works inside a sandbox; only commands that touch the screen
 (`apps`, `observe`, `run`, `replay`, `do`, `doctor`, `eval`) need it.
+
+## Start from what already exists
+
+Before writing a recipe, look for one. Tacto ships recipes for common tasks, and
+replaying one costs nothing:
+
+```bash
+tacto list                                  # built-in and saved recipes
+tacto show textedit_write_note              # its steps, and its inputs under "params"
+tacto replay textedit_new_document --helper --yes
+tacto replay textedit_write_note -p text="회의 준비" --helper --yes
+```
+
+Writing into a document ends `unverified — … 확인 영수증이 없습니다` when the
+document is not saved: the text was sent, and with no file there is nothing to
+read back. That is expected — confirm with `tacto observe <app> --helper` and move on.
+
+The longer guides live beside this file: `docs/recipes.md` (recipes, decisions,
+branches) and `docs/api.md`.

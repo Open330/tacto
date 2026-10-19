@@ -11,7 +11,7 @@ import time
 TARGET = 'ai.callabo.nlc.opaque-point-fixture'
 
 
-def main(output, *, public_driver=None, vision_provider=None, general_visual=False, flow_visual=False):
+def main(output, *, public_driver=None, vision_provider=None, general_visual=False, flow_visual=False, receiving_cancel=False):
     from tacto.driver import Driver, _attr
     from tacto.flow import Selector
     from tacto.native_window_binding import capture_binding
@@ -29,7 +29,8 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                'tacto/codex_result.py', 'tacto/claude_result.py', 'tacto/provider_observation.py',
                'tacto/ask_provider.py', 'tacto/provider_images.py', 'tacto/provider_result.py',
                'tacto/general.py', 'tacto/general_visual.py', 'tacto/protocol.py', 'tacto/promote.py',
-               'tacto/contract.py', 'tacto/flow.py', 'tacto/safety.py', 'tacto/visual_replay.py']
+               'tacto/contract.py', 'tacto/flow.py', 'tacto/safety.py', 'tacto/visual_replay.py',
+               'helper/tacto-helper', 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
     hashes = lambda: {name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in sources}
     report = {'passed':False, 'scope':'public authorized point' if public_driver else 'internal Python point pair',
               'source_hashes_before':hashes(), 'public_coordinate_capability_enabled':public_driver is not None,
@@ -43,11 +44,16 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
         raise ValueError('flow visual mode requires its own explicit image planner')
     report['flow_visual'] = flow_visual
     report['general_visual'] = general_visual
+    if type(receiving_cancel) is not bool or (receiving_cancel and (vision_provider != 'fixed' or general_visual or flow_visual)):
+        raise ValueError('receiving cancellation requires the standalone fixed pixel planner')
+    report['expected_receiving_cancellation'] = receiving_cancel
     driver = Driver(); child = None
     audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3, max_samples=10000)
+    report_fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    interrupted = None
     try:
         assert driver._resolve(TARGET, launch=False) is None, 'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='tacto-opaque-point-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-opaque-point-') as directory:
             bundle = Path(directory)/'Opaque.app'; binaries = bundle/'Contents/MacOS'
             binaries.mkdir(parents=True); binary = binaries/'Opaque'
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors', str(root/sources[0]), '-o', str(binary)],
@@ -140,13 +146,18 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                             from tacto.visual import plan_visual
                             from tacto.provider_observation import capture_provider_calls
                             captures=[]
+                            cancelled=False
                             def verify(capture, history):
+                                nonlocal cancelled
                                 artifact=Path(str(output)+f'.capture-{len(captures)}.png')
                                 capture.save(artifact)
                                 captures.append({**capture.to_dict(), 'path':str(artifact)})
                                 values=state()
-                                return ('downs=1 ups=1 greens=1 last=green routeErrors=0' in values['opaque-A-state']
+                                verified=('downs=1 ups=1 greens=1 last=green routeErrors=0' in values['opaque-A-state']
                                     and 'downs=0 ups=0 greens=0 last=none routeErrors=0' in values['opaque-B-state'])
+                                if receiving_cancel and verified and history:
+                                    cancelled=True
+                                return verified
                             def planner(capture, goal, history):
                                 if vision_provider != 'fixed':
                                     return plan_visual(capture,goal,history,provider=vision_provider,timeout=60)
@@ -214,9 +225,13 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                                 else:
                                     result=run_native_visual(public_driver,TARGET,'Click once in the center of the green painted area.',
                                         Selector(role='Window',title='NLC Opaque Point Fixture A'),planner,
-                                        authorize,verify,max_steps=1,timeout_seconds=90)
+                                        authorize,verify,max_steps=1,timeout_seconds=90,cancelled=lambda:cancelled)
                                     report['visual_result']=result.to_dict()
-                                    assert result.state=='DONE',result.to_dict()
+                                    if receiving_cancel:
+                                        assert result.state=='STOPPED' and result.reason=='cancelled',result.to_dict()
+                                        report['expected_stop_verified']=True
+                                    else:
+                                        assert result.state=='DONE',result.to_dict()
                                     assert len(result.history)==1,result.to_dict()
                                     report['dispatch']=result.history[0]['dispatch']
                             report['visual_captures']=captures
@@ -243,13 +258,19 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                             try:child.wait(timeout=3)
                             except subprocess.TimeoutExpired:child.kill();child.wait(timeout=3)
                         report['owned_child_reaped']=child.poll() is not None
-    except Exception as error:
+    except BaseException as error:
         report['passed']=False;report['error']=type(error).__name__+':'+str(error)
+        if not isinstance(error, Exception):
+            interrupted = error
+            report['interrupted'] = True
     report['input_audit']=audit.report()
     report['source_hashes_after']=hashes()
     report['source_stable_during_run']=report['source_hashes_before']==report['source_hashes_after']
+    report['all_dependencies_frozen'] = False
     if not report['source_stable_during_run'] or report['input_audit']['status']!='UNCHANGED_SAMPLED':
         report['passed']=False;report.setdefault('error','source/input state changed or inconclusive; cause not attributed')
-    with Path(output).open('x') as stream:
-        os.chmod(output,0o600);json.dump(report,stream,ensure_ascii=False,indent=2)
+    with os.fdopen(report_fd, 'w') as stream:
+        json.dump(report,stream,ensure_ascii=False,indent=2)
+    if interrupted is not None:
+        raise interrupted
     return report

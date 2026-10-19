@@ -22,10 +22,11 @@ from dataclasses import dataclass
 import hashlib
 import math
 import time
+import threading
 import uuid
 
 from .artifact_receipt import ArtifactReceiptError
-from .commit_evidence import CommitEvidence, TranscriptEvidence, action_digest
+from .commit_evidence import CommitEvidence, TranscriptEvidence, action_digest, _event_binding_matches
 
 
 class TranscriptReceiptError(ArtifactReceiptError):
@@ -35,6 +36,7 @@ class TranscriptReceiptError(ArtifactReceiptError):
 PUBLIC_CODES = frozenset({
     'already_prepared', 'not_a_bound_send', 'event_malformed', 'reader_failed',
     'recipient_unreadable', 'recipient_mismatch', 'already_used', 'commit_mismatch',
+    'commit_changed_during_prepare',
     'recipient_changed', 'message_not_shown',
 })
 
@@ -102,6 +104,8 @@ class TranscriptReceipt:
         self._clock = clock or time.monotonic
         self._sleep = sleep or time.sleep
         self._prepared = None
+        self._prepare_attempted = False
+        self._prepare_lock = threading.Lock()
         self._after_used = False
 
     @property
@@ -132,8 +136,10 @@ class TranscriptReceipt:
         return recipient, shown
 
     def prepare_commit(self, event):
-        if self._prepared is not None:
-            raise _refuse('already_prepared')
+        with self._prepare_lock:
+            if self._prepare_attempted:
+                raise _refuse('already_prepared')
+            self._prepare_attempted = True
         action, effects = event.get('action'), set(event.get('effects') or ())
         sends = isinstance(action, dict) and (
             (action.get('name') == 'press_key' and action.get('key') == 'Return'
@@ -145,10 +151,13 @@ class TranscriptReceipt:
         digest = action_digest(action, event['effects'], self._target, obs_id=event.get('obs_id'))
         if event.get('action_digest') != digest or not isinstance(event.get('event_id'), str):
             raise _refuse('event_malformed')
+        identifier = event['event_id']
         recipient, shown = self._read()
         if recipient != self._recipient:
             raise _refuse('recipient_mismatch')
-        self._prepared = _Prepared(event['event_id'], digest, shown.count(self._body),
+        if not _event_binding_matches(event, identifier, digest):
+            raise _refuse('commit_changed_during_prepare')
+        self._prepared = _Prepared(identifier, digest, shown.count(self._body),
                                    f"받는 사람: {recipient} · 보낼 문장: {self._body}")
         return self._prepared
 

@@ -30,6 +30,40 @@ class Backend:
 
 
 class NativeWindowBindingTests(unittest.TestCase):
+    def test_opaque_input_revalidation_rejects_nested_modal_before_event_construction(self):
+        import time
+        from unittest.mock import Mock
+        from tacto.native_window_ready import require_window_ready
+        from tacto.native_window_dispatch import dispatch_window_input, WindowDispatchFailure
+        for change in ('nested_modal', 'late_sheet', 'late_role'):
+            with self.subTest(change=change):
+                backend=Backend()
+                backend.nodes['window'].update(AXSubrole='AXStandardWindow',AXModal=False,
+                    AXMinimized=False,AXSheets=[],AXChildren=['group'])
+                backend.nodes['group']={'AXRole':'AXGroup','AXChildren':[]}
+                armed=False
+                def read(node,name):
+                    values=backend.nodes[node]
+                    result=(0,values[name]) if name in values else (-25205,None)
+                    if armed and node=='group':
+                        if change=='late_sheet':backend.nodes['window']['AXSheets']=['sheet']
+                        if change=='late_role':backend.nodes['window']['AXRole']='AXSheet'
+                    return result
+                backend.require_ready=lambda window,pid:require_window_ready(
+                    window,lambda:['window'],read,backend.equal)
+                with patch.object(binding,'_load_backend',return_value=backend):
+                    observed=binding.capture_binding('window',4,point_kind='window_input')
+                armed=True
+                if change=='nested_modal':backend.nodes['group']['AXModal']=True
+                events=Mock();builder=Mock()
+                with self.assertRaises(WindowDispatchFailure) as failure:
+                    dispatch_window_input(observed,{'key':'Right'},deadline=time.monotonic()+10,
+                        stopped=lambda:False,context=lambda:None,backend=events,build_pair=builder)
+                self.assertEqual(0,failure.exception.attempted)
+                events.read_input.assert_not_called()
+                events.post.assert_not_called()
+                builder.assert_not_called()
+
     def test_opaque_window_point_needs_no_hit_test_and_is_revalidated(self):
         backend=Backend()
         backend.nodes['window']['AXSubrole']='AXStandardWindow'

@@ -79,7 +79,7 @@ for patch:[String:Any] in [["target":"foreign"],["document_token":true],["docume
 var absent=root;absent.removeValue(forKey:"document_token");requests.append(absent)
 print(String(data:try! JSONSerialization.data(withJSONObject:requests.map{vetted($0)==nil}),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-rtf-vet-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-rtf-vet-') as directory:
             script=Path(directory)/'main.swift'
             script.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw:Any?)->Double? {1}\n'+schema+checks)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=30)
@@ -160,7 +160,7 @@ for patch:[String:Any] in [["document_token":"unknown"],["document_token":true],
 }
 print("EXPORT_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-rtf-export-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-rtf-export-') as directory:
             script=Path(directory)/'main.swift';script.write_text(harness+handler+checks)
             result=subprocess.run(['swift',str(script)],capture_output=True,text=True,timeout=40)
         self.assertEqual(result.returncode,0,result.stderr)

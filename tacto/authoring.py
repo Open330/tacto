@@ -2,23 +2,23 @@
 
 When the agent meets an intent it has no recipe for, it observes the target app
 and asks a model to translate "what the user wants" + "the current accessibility
-tree" into a concrete Tacto Flow (selectors + steps + postcondition). The Flow is
+tree" into a concrete NLC Flow (selectors + steps + postcondition). The Flow is
 then saved, so every future run of that intent replays with zero tokens.
 
-Claude uses a tools-disabled structured CLI adapter. Other providers retain
-the muxa-first transport without an inference-only guarantee.
+Claude uses a tools-disabled structured CLI adapter. Current Muxa Global Ask
+cannot pin a provider without changing shared selection/conversation state;
+that route is refused locally and the requested provider's CLI remains available.
 """
 
 from __future__ import annotations
-from .environment import value as _environment_value
 
+from .environment import value as _environment_value
 import json
 import re
 import logging
 import math
 import os
 import shutil
-import signal
 import subprocess
 import time
 import uuid
@@ -35,6 +35,9 @@ from .flow import Capture, Flow, Step, Selector, Postcondition, pin_params
 
 _SYSTEM = """You convert a user's intent into a deterministic UI automation recipe.
 You are given the app's accessibility tree (each line: "<index> <Role>  <attrs>").
+Window attribute values are JSON-quoted; decode them before using selectors.
+Verify window titles using a field selector, attribute "Title", and equals.
+Do not use raw contains/absent patterns expecting unquoted window labels.
 Output ONLY JSON of this shape, no prose:
 {"name": "<short_snake_case>", "target": "<bundle_id>",
  "steps": [ ... ]}
@@ -120,6 +123,8 @@ with no selection returns success and changes nothing.
 A postcondition takes a `field` selector plus `equals` (exact) or `contains`,
 or `absent` when the action is verified by something GOING AWAY \u2014 a dialog
 closing adds nothing to the screen.
+Use `absent_role: "Sheet"` for disappearance of an observed role, rather than
+matching labels such as "Sheet1" or "Spreadsheet" with substring `absent`.
 
 ## Toggles
 
@@ -222,8 +227,7 @@ def _provider_env() -> dict:
     env = dict(os.environ)
     # A fresh model CLI does not own the launcher's inherited socket. Keeping
     # its markers makes grandchildren mistake a closed/reused fd for authority.
-    for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN',
-                'NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+    for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN', 'NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
         env.pop(key, None)
     if not env.get("CLAUDECODE"):
         return env                      # no Claude session markers to remove
@@ -234,34 +238,32 @@ def _provider_env() -> dict:
     return env
 
 
-def _run_provider(argv: list[str], timeout: int):
+def _run_provider(argv: list[str], timeout: int, *, env=None, cwd=None, input_text=None):
     """Bound local CLI and its process group; remote cancellation is unknown."""
+    from .provider_io import require_provider_child_ownership
+    require_provider_child_ownership()
     with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          text=True, env=_provider_env(),
+                          stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+                          text=True, env=_provider_env() if env is None else env, cwd=cwd,
                           start_new_session=(os.name == "posix")) as process:
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except BaseException:
-            if os.name == "posix":
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                process.kill()
-            # Do not wait for pipe EOF: a detached descendant can retain it.
-            process.wait()
-            raise
+        from .provider_io import communicate_owned_provider
+        stdout,stderr=communicate_owned_provider(process,timeout=timeout,
+            **({'input':input_text} if input_text is not None else {}))
         return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+
+
+class MuxaRouteUnavailable(RuntimeError):
+    reason = "muxa_isolated_ask_unavailable"
 
 
 def _try_muxa(provider: str, prompt: str, timeout: int):
     if provider == "claude":
         return None  # No verified inference-only muxa contract yet.
-    out = _run_provider(
-        ["muxa", "ask", "--agent", provider, "--timeout-secs", str(max(1, math.ceil(timeout))), prompt],
-        timeout)
-    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else None
+    # AskSend has no per-call provider; --agent changes the shared daemon's
+    # selected provider and AskSend resumes its active conversation. Reading
+    # and restoring selection cannot make this safe for concurrent clients.
+    # Do not submit a prompt or change user state under that contract.
+    raise MuxaRouteUnavailable("Muxa requires an isolated per-call Ask contract")
 
 
 def _try_cli(provider: str, prompt: str, timeout: int):
@@ -274,6 +276,12 @@ def _try_cli(provider: str, prompt: str, timeout: int):
     if provider == 'codex':
         from .codex_result import codex_result
         return codex_result(prompt, timeout=timeout)
+    if provider == 'opencode':
+        from .opencode_result import opencode_result
+        return opencode_result(prompt, timeout=timeout)
+    if provider == 'gemini':
+        from .gemini_result import gemini_result
+        return gemini_result(prompt, timeout=timeout)
     out = _run_provider(argv + [prompt], timeout)
     text = out.stdout.strip()
     # A CLI that is installed but not signed in answers with a prompt to log in
@@ -282,13 +290,13 @@ def _try_cli(provider: str, prompt: str, timeout: int):
     # answer" — the usage-limit case exits non-zero and would otherwise be
     # indistinguishable from any other failure.
     if out.returncode != 0 or not text:
-        reason = classify_unavailable(out.stdout, out.stderr)
+        reason = classify_unavailable(out.stdout, out.stderr, provider=provider)
         if reason:
             raise ProviderUnavailable(reason)
         return None
     # Exit 0 is an answer unless it is the login prompt itself. Matched on the
     # prompt, not on any mention of quotas, which a real answer may contain.
-    if classify_unavailable(text) == "not_logged_in" and len(text) < 200:
+    if classify_unavailable(text, provider=provider) == "not_logged_in" and len(text) < 200:
         raise ProviderUnavailable("not_logged_in")
     return text
 
@@ -327,14 +335,35 @@ def reach_model(prompt: str, provider: str = "auto",
     return _ask_model(prompt, provider, timeout=timeout_seconds, expect_json=expect_json)
 
 
+# A provider that answered with a closed reason it cannot serve (not logged
+# in, usage limit, organization access disabled) is skipped by `auto` for a
+# while. Measured: with Claude subscription access disabled, every question
+# of a run first spent ~2 s getting that same refusal before Codex answered.
+# In-process only, `auto` only: a pinned provider is always asked. Keyed by
+# the route that refused as well, so a replaced route starts unremembered.
+UNAVAILABLE_SKIP_SECONDS = 600.0
+_unavailable_until: dict[tuple, tuple[str, float]] = {}
+
+
+def _remembered_unavailable(key: tuple) -> str | None:
+    seen = _unavailable_until.get(key)
+    if seen is None:
+        return None
+    if time.monotonic() >= seen[1]:
+        _unavailable_until.pop(key, None)
+        return None
+    return seen[0]
+
+
 def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                expect_json: bool = False, *, _metadata: dict | None = None) -> str:
     """Reach a model for the one token-spending step.
 
     `auto` walks PROVIDER_ORDER and uses the first that actually answers, trying
-    muxa before the CLI except Claude, which uses only its tools-disabled
-    structured adapter. Other providers do not yet have an inference-only
-    guarantee. Naming a provider pins it; auto fallback is logged.
+    the CLI after locally rejecting Muxa's unisolated Global Ask contract;
+    Claude uses only its tools-disabled structured adapter. Other CLI providers
+    do not yet have an inference-only guarantee. Naming a provider pins it;
+    auto fallback is logged. Muxa route rejection invokes no subprocess/model.
 
     `expect_json` is what makes a broken provider fall through to the next one
     rather than poison the result. An agent CLI can fail while reporting
@@ -349,12 +378,21 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
         _metadata['attempts'] = attempts
     timed_out = False
     deadline = time.monotonic() + remaining_model_seconds(timeout)
+    auto = provider in ("auto", None)
     for name in order:
+        skipped = (_remembered_unavailable((name, _try_cli)) if auto and len(order) > 1
+                   else None)
+        if skipped is not None:
+            # Recorded as its own route: nothing was invoked, and the closed
+            # reason still reaches the result if no other provider answers.
+            tried.append(f"{name}/remembered: {skipped}")
+            attempts.append(_provider_attempt(name, "remembered", "error", time.monotonic(), None, skipped))
+            continue
         if tried:
             logging.getLogger(__name__).warning(
                 "Model auto fallback to provider=%s after %s", name, "; ".join(tried))
         routes = (("cli-json", _try_cli),) if name == "claude" else (
-            ("muxa", _try_muxa), ("cli-json" if name == 'codex' else "cli", _try_cli))
+            ("muxa", _try_muxa), ("cli-json" if name in ('codex','opencode','gemini') else "cli", _try_cli))
         for how, fn in routes:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -398,6 +436,9 @@ def _ask_model(prompt: str, provider: str = "auto", timeout: int = 420,
                 if not isinstance(code, str) or not re.fullmatch(r'[A-Za-z_]{1,40}', code):
                     code = type(e).__name__
                 tried.append(f"{name}/{how}: {code}")
+                if code in UNAVAILABLE_REASONS and how != "muxa":
+                    _unavailable_until[(name, _try_cli)] = (
+                        code, time.monotonic() + UNAVAILABLE_SKIP_SECONDS)
                 attempt_status = ('timeout' if isinstance(e, (TimeoutError, subprocess.TimeoutExpired))
                                   else 'invalid_response' if invalid_json or (observed is not None and observed.status == 'ok')
                                   else 'error')
@@ -541,11 +582,15 @@ def _post(d) -> Postcondition | None:
     """
     if not d:
         return None
+    role = d.get('absent_role')
+    if role is not None and (not isinstance(role,str) or not role.strip()):
+        raise ValueError('postcondition.absent_role must name a role')
     field = _sel(d.get("field")) or (
         Selector(identifier=d["field_identifier"]) if d.get("field_identifier")
         else None)
     return Postcondition(field=field, equals=d.get("equals"),
                          contains=d.get("contains"), absent=d.get("absent"),
+                         absent_role=role,
                          attribute=d.get("attribute"))
 
 
@@ -565,9 +610,11 @@ def _captures(items) -> list:
     return out
 
 
-def _to_flow(spec: dict) -> Flow:
+def _to_flow(spec: dict, *, target_identity: str | None = None) -> Flow:
     if type(spec.get("schema", 2)) is not int or spec.get("schema", 2) != 2:
         raise ValueError("authoring requires Flow schema 2")
+    if not isinstance(spec.get('literals', {}), dict):
+        raise ValueError('literals must be an object of named strings')
     steps = []
     for s in spec.get("steps", []):
         sel = _sel(s.get("selector"))
@@ -609,7 +656,7 @@ def _to_flow(spec: dict) -> Flow:
         ident = sel.identifier if sel is not None else None
         params = s.get("params", {})
         binding = ContextBinding(
-            bundle_id=spec.get("target"),
+            bundle_id=target_identity if target_identity is not None else spec.get("target"),
             role=sel.role if sel is not None else None,
             identifier=(ident[0] if isinstance(ident, list) and ident else ident),
             title=sel.title if sel else None, desc=sel.desc if sel else None,
@@ -650,9 +697,13 @@ def _to_flow(spec: dict) -> Flow:
         steps[-1].postcondition = _post(spec["postcondition"])
     flow = Flow(name=spec["name"], target=spec["target"], steps=steps,
                 params=spec.get("params", {}), tables=spec.get("tables", {}),
-                derived=spec.get("derived", {}))
+                derived=spec.get("derived", {}), literal_params=spec.get("literals", {}))
     # Exercise the same parser used for saved files.
-    return Flow.from_json(flow.to_json())
+    validated = Flow.from_json(flow.to_json())
+    if set(validated.literal_params) & (set(validated.params) | set(validated.tables)
+            | set(validated.derived) | validated.runtime_names()):
+        raise ValueError('literal names conflict with inputs or captures')
+    return validated
 
 
 _PICK = """You choose which installed app can satisfy a user's request.
@@ -720,9 +771,26 @@ def pick_target(intent: str, driver: Driver, provider: str = "auto") -> str:
 def author(intent: str, driver: Driver, target: str | None = None,
            provider: str = "auto", narrate=None, verify: bool = False,
            rounds: int = 1) -> Flow:
+    """Author with bounded correction calls sharing one local model deadline.
+
+    Ordinary compilation never executes the recipe. `verify=True` separately
+    opts into authorized UI verification. The deadline limits model requests,
+    not UI verification or remote cancellation.
+    """
+    if type(rounds) is not int or rounds < 0:
+        raise ValueError('authoring rounds must be a nonnegative integer')
+    from .model_budget import model_deadline
+    with model_deadline(time.monotonic() + remaining_model_seconds()):
+        return _author(intent, driver, target, provider, narrate, verify, rounds)
+
+
+def _author(intent: str, driver: Driver, target: str | None,
+            provider: str, narrate, verify: bool, rounds: int) -> Flow:
     """Observe `target`, ask the model for a recipe, return a validated Flow.
 
     Caller (Agent) saves it. This is the token-spending path; replay never is.
+    Invalid recipes may use up to `rounds` correction calls without executing
+    them. Only verify=True runs the separately authorized verification path.
     """
     if target is None:
         target = guess_target(intent, driver) or pick_target(intent, driver, provider)
@@ -732,10 +800,21 @@ def author(intent: str, driver: Driver, target: str | None = None,
     obs = driver.observe(target, "tree_full", require_window=False)
     if obs["type"] != "observation":
         raise RuntimeError(f"cannot observe {target}: {obs}")
+    identity = getattr(driver, 'identity', None)
+    target_identity = identity(target) if callable(identity) else target
+    if not isinstance(target_identity, str) or not target_identity:
+        raise ValueError('authoring target identity unavailable')
     base = (f"{_SYSTEM}\n\n# 사용자 의도\n{intent}\n\n"
             f"# 대상 앱 bundle id\n{target}\n\n"
             f"# Backend capabilities\n{', '.join(sorted(getattr(driver, 'capabilities', ()) or ())) or '(none advertised)'}\n\n"
             f"# 접근성 트리\n{obs['tree']}")
+    if '{{' in intent or '{{' in obs['tree']:
+        base += ('\nFor literal {{...}} screen text, declare top-level '
+                 '"literals":{"label":"{{...}}"} and use "{{label}}". '
+                 'Literal names must differ from input/capture names. '
+                 'Ordinary {{param}} references remain parameters.')
+    if target_identity != target:
+        base += f'\nBackend binding identity: {target_identity!r}; keep Flow.target as {target!r}.'
 
     # One repair round. A model reading a static tree cannot see the
     # preconditions that only appear when the recipe runs — asked to italicize
@@ -751,14 +830,16 @@ def author(intent: str, driver: Driver, target: str | None = None,
     # second to learn that the toolbar checkbox it then chose does not respond
     # to a press at all. Each round is one more model call, so the count is the
     # caller's to spend.
-    for attempt in range(1 + rounds if verify else 1):
+    for attempt in range(1 + rounds):
         try:
-            flow = _attempt(base + complaint, intent, target, provider, obs, narrate)
+            remaining_model_seconds()
+            flow = _attempt(base + complaint, intent, target, provider, obs, narrate,
+                            target_identity=target_identity)
         except (ValueError, KeyError) as e:
             last_error = e
             complaint = _complaint(f"레시피가 거부되었습니다: {e}")
             continue
-        except RuntimeError as e:
+        except (RuntimeError, TimeoutError) as e:
             # The provider fell over mid-loop. Losing the attempt that already
             # succeeded because a LATER call could not be made would throw away
             # work the person paid for; stop here and hand back what we have.
@@ -841,17 +922,22 @@ def _verify(driver: Driver, flow: Flow, narrate) -> tuple[bool, str]:
 
 
 def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
-             narrate) -> Flow:
+             narrate, *, target_identity: str | None = None) -> Flow:
     reply = reach_model(prompt, provider, expect_json=True)
     # A rejected recipe is unreadable without the reply that produced it, and
     # the reply is gone by the time the error surfaces.
-    debug = _environment_value('AUTHOR_DEBUG')
+    debug = _environment_value("AUTHOR_DEBUG")
     if debug:
         from .storage import write_private
         write_private(debug, f"# prompt ({len(prompt)} chars)\n{prompt}\n\n# reply\n{reply}\n")
     spec = _extract_json(reply)
+    # Author from one concrete observed target. Generalizing its target later
+    # is a separate operation, never a model-selected switch to another app.
+    if spec.get('target') != target:
+        raise ValueError('authored target differs from observed target')
     spec["_intent"] = intent          # provenance for the authorization scope
-    flow = _to_flow(spec)
+    flow = _to_flow(spec, target_identity=target_identity)
+    _check_authored_literal_ambiguity(flow, obs['tree'])
     # A recipe that cannot verify its own typing would be refused at run time,
     # which is a confusing way to learn the model forgot something. Give such a
     # step the obvious check — the typed text should appear — at compile time.
@@ -887,12 +973,27 @@ def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
     # honest thing is to say which steps could not be checked here. Replay
     # checks them all anyway, and fails by name when one is wrong.
     from .flow import TargetMissing, TargetAmbiguous
+    selector_context = _authoring_selector_context(flow)
     acted = False
     unchecked = []
     for i, st in enumerate(flow.steps):
         if st.selector is not None:
+            from dataclasses import replace
+            from .flow import _render
+            context = selector_context
+            if st.for_each:
+                from .flow import _RuntimeReference
+                context = {**context, 'item': _RuntimeReference('item')}
+            fields = {name: _render(getattr(st.selector, name), context)
+                      for name in ('identifier','title','desc','value','ancestor')}
+            if _has_deferred_reference(fields):
+                unchecked.append(i)
+                if st.action != 'read':
+                    acted = True
+                continue
+            selector = replace(st.selector, **fields)
             try:
-                st.selector.resolve(obs["tree"])
+                selector.resolve(obs["tree"])
             except (TargetMissing, TargetAmbiguous) as e:
                 if not acted:
                     raise ValueError(f"authored step {i} selector invalid: {e}")
@@ -903,3 +1004,68 @@ def _attempt(prompt: str, intent: str, target: str, provider: str, obs: dict,
         narrate(f"  ({len(flow.steps)}단계 중 {len(unchecked)}개는 화면이 바뀐 뒤를 "
                 f"가리켜 지금 확인할 수 없어요 — 실행할 때 검증됩니다)")
     return flow
+
+
+def _has_deferred_reference(value):
+    from .flow import _RuntimeText, _RuntimeReference
+    if isinstance(value, _RuntimeText):
+        return any(isinstance(part, _RuntimeReference) for part in value.parts)
+    if isinstance(value, dict):
+        return any(_has_deferred_reference(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_has_deferred_reference(item) for item in value)
+    return False
+
+
+def _authoring_selector_context(flow):
+    """Render known defaults without inventing missing task/runtime values."""
+    from .flow import _RuntimeReference, _render, _arith
+    context = {name: value if value is not None else _RuntimeReference(name)
+               for name, value in flow.params.items()}
+    context.update(flow.literal_params)
+    context['__tables__'] = flow.tables
+    for name, expression in flow.derived.items():
+        rendered = _render(expression, context)
+        context[name] = (_RuntimeReference(name) if _has_deferred_reference(rendered)
+                         else _arith(rendered))
+    for name in flow.runtime_names():
+        context.setdefault(name, _RuntimeReference(name))
+    return context
+
+
+def _check_authored_literal_ambiguity(flow, tree):
+    """A visible {{name}} must not silently become an authored input reference."""
+    from .flow import _TEMPLATE
+    seen = {match.group(1) for match in _TEMPLATE.finditer(tree)}
+    if not seen:
+        return
+    def step_path(path):
+        if len(path)==2:
+            return path[0]=='steps' and type(path[1]) is int
+        if (len(path)<6 or path[-4:-2]!=('params','branches')
+                or type(path[-1]) is not int):
+            return False
+        parent_path=path[:-4]
+        if not step_path(parent_path):
+            return False
+        parent=serialized
+        for part in parent_path:
+            parent=parent[part]
+        return isinstance(parent,dict) and parent.get('action')=='decide'
+    def references(value, path=()):
+        if isinstance(value, str):
+            return {match.group(1) for match in _TEMPLATE.finditer(value)}
+        if isinstance(value, dict):
+            # Evidence values are fixed provenance, never rendered by replay.
+            return set().union(*(references(item, (*path, key)) for key, item in value.items()
+                                 if not (path[-1:]==('safety',) and step_path(path[:-1])
+                                         and key=='evidence')))
+        if isinstance(value, list):
+            return set().union(*(references(item, (*path, index)) for index, item in enumerate(value)))
+        return set()
+    serialized = json.loads(flow.to_json())
+    used = references(serialized.get('steps', []), ('steps',)) | references(serialized['target'])
+    ambiguous = (seen & used) - set(flow.literal_params)
+    if ambiguous:
+        raise ValueError('literal/template name collision: ' + ', '.join(sorted(ambiguous))
+                         + '; declare literals or rename the input')

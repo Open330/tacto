@@ -38,9 +38,9 @@ class TaskBenchmarkTests(unittest.TestCase):
         baseline = bench.run_task(self.manifest, 'input-next-read', 'codex-computer-use')
         self.assertEqual('unavailable', baseline['status'])
         summary = bench.summarize(self.manifest, [self.success(), baseline])
-        self.assertEqual(0.2, summary['totals']['tacto']['planned_task_completion_rate'])
+        self.assertEqual(0.2, summary['totals']['nlc']['planned_task_completion_rate'])
         self.assertEqual(0, summary['totals']['codex-computer-use']['planned_task_completion_rate'])
-        self.assertEqual(4, summary['totals']['tacto']['missing_tasks'])
+        self.assertEqual(4, summary['totals']['nlc']['missing_tasks'])
         self.assertFalse(summary['equivalence_established'])
 
     def test_unimplemented_task_never_executes(self):
@@ -75,8 +75,8 @@ class TaskBenchmarkTests(unittest.TestCase):
         failed = copy.deepcopy(passed)
         failed.update(run_id='retry-failed', status='failed', reason='oracle failed')
         summary = bench.summarize(self.manifest, [passed, failed])
-        self.assertEqual(0, summary['totals']['tacto']['fully_passed_tasks'])
-        self.assertEqual(1, summary['totals']['tacto']['passed_runs'])
+        self.assertEqual(0, summary['totals']['nlc']['fully_passed_tasks'])
+        self.assertEqual(1, summary['totals']['nlc']['passed_runs'])
 
     def test_timeout_and_missing_outcome_do_not_pass(self):
         with patch.object(bench, '_run_bounded', side_effect=subprocess.TimeoutExpired('probe', 180)):

@@ -1,42 +1,37 @@
-## Start from what already exists
+# Save and reuse only when repetition needs it
 
-Before writing a recipe, look for one. Tacto ships recipes for common tasks, and
-replaying one costs nothing:
+For a new reusable task, start `tacto session <bundle-id> --helper --reuse-guide
+--save /absolute/new.json` with the normal interactive tools. The one guide
+includes the parameter format and observation. Send one Flow: the successful
+run saves that same unbound template privately. Do not write a duplicate Flow
+file or run the completed task again to save it. Existing output paths refuse
+before execution; failed UI tasks are not saved.
 
-```bash
-tacto list                                  # built-in and saved recipes
-tacto show textedit_write_note              # its steps, and its inputs under "params"
-tacto replay textedit_new_document --helper --yes
-tacto replay textedit_write_note -p text="회의 준비" --helper --yes
+`params` is an object of current defaults, e.g. `{"amount":"11","result":"38"}`.
+Use `{{amount}}` in `params.value` and `{{result}}` in a result check. Session
+binds those defaults for this run and saves placeholders for later jobs:
+
+```sh
+tacto run /absolute/new.json --helper --think 0 -p amount=17 -p result=85
 ```
 
-Writing into a document ends `unverified — … 확인 영수증이 없습니다` when the
-document is not saved: the text was sent, and with no file there is nothing to
-read back. That is expected — confirm with `tacto observe <app> --helper` and move on.
+To parameterize an existing concrete Flow without any model/UI input:
 
-The longer guides live beside this file: [Flow reference](../../docs/recipes.md) (recipes, decisions,
-branches) and [API reference](../../docs/api.md).
-
-
-## Turning a one-off into a reusable recipe
-
-If you already wrote a concrete recipe, promote it instead of rewriting:
-
-```bash
-tacto parameterize flows/calc_12x34.json -p 12=a -p 34=b -p 408=result \
-    --digits --derived='result={{a}} * {{b}}'
+```sh
+tacto parameterize /absolute/concrete.json -p 11=amount -p 38=result -o /absolute/template.json
 ```
 
-If the agent **walked** a task (`tacto do` with no recipe), the verified walk is
-already filed as a candidate. Promote that instead of writing one:
+For a verified `tacto do` walk candidate, use `tacto candidates` then `tacto promote
+<name> -p 25=n --no-decisions`. Digit sequences/derived formulas: read
+[parameterization details](parameterization.md) only if the task requires them.
 
-```bash
-tacto candidates                      # candidates, the values that came from the request,
-                                    # and why one cannot become a recipe yet
-tacto promote <name> -p 25=n          # 25 becomes the input n; judgment points are
-                                    # reviewed once and kept only if the walk supports them
-tacto promote <name> --no-decisions   # skip that review
-```
 
-A recipe promoted from a walk may re-aim a missing target once (`--think 0` to
-forbid it), because it recorded labels the way the screen showed them that time.
+For several checks at the same checkpoint, use schema3 and `postcondition.all_of` from the
+reuse guide. All predicates must hold on one observation. Keep a primary
+field/equals plus `answers:true` to report the answer, with completion predicates
+under all_of. Attach field/value checks directly to set_value; use captures on
+verified actions for values needed later. Keep separate reads when the checkpoint
+or data is different. This does not automatically rewrite existing Flows.
+
+For several known parameter jobs, use [batch](batch.md) to keep one signed
+connection. Read this only for repetition; a single replay still uses run.

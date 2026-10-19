@@ -60,7 +60,7 @@ class NoWindowReasonTests(unittest.TestCase):
         from pathlib import Path
         root = Path(__file__).resolve().parents[1] / "skill"
         entry = (root / "SKILL.md").read_text()
-        self.assertIn('references/recovery.md', entry)
+        self.assertIn("references/recovery.md", entry)
         skill = (root / "references/recovery.md").read_text()
         for reason in ("screen_locked", "app_hidden", "minimized", "no_visible_window",
                        "window_offscreen"):
@@ -129,3 +129,30 @@ class HelperPathUnhideTests(unittest.TestCase):
         with patch.object(helper, "_explain_no_window", return_value={"reason": "app_hidden"}), \
              patch.object(helper, "_unhide_target", return_value=False):
             self.assertEqual("app_hidden", helper.HelperDriver.observe(d, "t")["reason"])
+
+
+class HelperUnhideReobservationTests(unittest.TestCase):
+    def test_latest_window_read_failure_is_preserved_after_one_unhide(self):
+        from tacto import helper
+        for failure in ({'type':'error','error':'window_list_unavailable',
+                         'window_listing_diagnostic':{'status':'ax_error','ax_error':-25204}},
+                        {'type':'error','error':'target_not_found'}):
+            driver=object.__new__(helper.HelperDriver);driver._last_action_at=0
+            replies=iter([{'type':'error','error':'no_window_content'},failure])
+            driver._send=lambda message:next(replies)
+            with patch.object(helper,'_explain_no_window',return_value={'reason':'app_hidden'}) as explain, \
+                    patch.object(helper,'_unhide_target',return_value=True) as unhide:
+                self.assertEqual(driver.observe('owned'),failure)
+            self.assertEqual(unhide.call_count,1);self.assertEqual(explain.call_count,1)
+
+    def test_latest_empty_window_reason_is_refreshed_without_second_unhide(self):
+        from tacto import helper
+        driver=object.__new__(helper.HelperDriver);driver._last_action_at=0
+        replies=iter([{'type':'error','error':'no_window_content'},
+                      {'type':'error','error':'no_window_content'}])
+        driver._send=lambda message:next(replies)
+        with patch.object(helper,'_explain_no_window',side_effect=[{'reason':'app_hidden'},
+                {'reason':'no_visible_window'}]) as explain, \
+                patch.object(helper,'_unhide_target',return_value=True) as unhide:
+            self.assertEqual(driver.observe('owned')['reason'],'no_visible_window')
+        self.assertEqual(unhide.call_count,1);self.assertEqual(explain.call_count,2)

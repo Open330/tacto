@@ -8,8 +8,9 @@
 
 호스트는 target·보내는 계정·받는 사람·정확한 본문을 먼저 고정한다. 본문은
 UTF-8 bytes의 SHA256으로 비교한다. 뒤의 영수증이나 모델 답변으로 기대 본문을
-바꾸지 않는다. 첨부의 identity·내용은 현재 계약에 없으므로 첨부 전송의 완료를
-이 adapter로 증명할 수 없다.
+바꾸지 않는다. 첨부를 검증할 경우 host가 읽은 AttachmentEvidence manifest를
+명시적으로 전달하고 실제 전송 control 및 수신 측 바이트와 대조한다.
+이 adapter 자체는 파일을 선택하거나 업로드하지 않는다.
 
 ## 준비와 수신 계약
 
@@ -19,6 +20,17 @@ target, obs_id, action_digest, account, recipient, body_sha256을 모두 대조�
 기대값을 그대로 복사하는 callback, 버튼 이름만 확인하는 callback, 모델이
 만든 딕셔너리는 구현이 아니다. click 및 기존 프로토콜의 Return press_key가
 가능하지만 실제 runtime의 capability·submit·approval gate를 우회하지 않는다.
+
+준비는 전송 binding 읽기→수신 record 부재 조회→같은 binding 재읽기 순서다.
+`bind_request`는 준비 중 두 번 호출될 수 있는 읽기 전용 callback이어야 하며,
+호출마다 request ID를 만들거나 payload를 변경해서는 안 된다. 두 읽기의 전체
+PendingDelivery가 달라지면 `delivery_binding_changed`, host 기대와 다른 payload는
+`delivery_binding_mismatch`, 재읽기 실패는 `delivery_binding_unavailable`로 거절한다.
+준비 도중 event ID/digest가 바뀌어도 context를 반환하지 않는다. 이 실패도 준비
+시도를 소모하므로 같은 adapter를 재사용하지 않는다. after 단계의 수신함 polling은
+binding을 다시 읽거나 전송하지 않는다. 이 재확인은 마지막 읽기와 실제 입력의
+atomicity·ABA·service 인증을 증명하지 않으며, immutable request/payload와 독립된
+수신 서비스 계약은 계속 필요하다.
 
 `read_inbox(request_id)`는 인증된 수신 서비스에서 해당 요청의 실제 수신함
 record를 읽는다. record가 아직 없을 때만 None이다. 권한·연결·부분 조회 등으로
@@ -35,9 +47,32 @@ record를 읽는다. record가 아직 없을 때만 None이다. 권한·연결·
 조회가 없다면 이 adapter를 억지로 연결하지 않는다.
 
 prepare 한 번, after 한 번만 허용한다. after는 수신 record만 마감까지 읽고
-입력을 다시 보내지 않는다. 늦게 반환된 record도 수용하지 않는다. 하나의
+입력을 다시 보내지 않는다. 늦게 반환된 record도 수용하지 않는다.
+수신 reader와 최종 clock hook 뒤 원래 event ID와 target/obs/action/effects의
+재계산 digest를 다시 확인한다. 바뀌거나 malformed면 delivery_commit_mismatch로
+증거 반환을 거부하며 after attempt는 소모된 상태다. 실제 수신은 이미 일어났을
+수 있으므로 이 거부를 전송 실패나 재전송 허가로 해석하지 않는다. 이 재확인은
+host event의 ABA나 다른 thread와의 atomicity를 증명하지 않는다. 하나의
 OS/API 호출을 강제 취소하거나 원격 요청 비용을 중단하는 기능은 아니다.
 본문·주소·서비스 예외의 원문을 public refusal에 넣지 않는다.
+
+### dispatch 응답 확인
+
+직접 호출자도 실제 dispatcher의 응답을 `after_commit`에 넘겨야 한다.
+수신 record가 일치한다는 사실만으로 이 event의 입력 여부를 대신하지 않는다.
+`effect='not_started'` 또는 confirm_request/handoff_request/observation/probe는
+`delivery_dispatch_not_started`로 거절하며 inbox를 추가 조회하지 않는다.
+None, 빈 딕셔너리, 비-dict 또는 지원하지 않는 type은
+`delivery_dispatch_unverified`로 거절한다. 기존의 빈 응답 직접 호출은 더 이상
+지원하지 않는다. 어댑터는 이 경우에도 소비되므로 응답을 바꿔 다시 호출할 수 없다.
+
+허용하는 dispatch type은 acted와 error다. 실제 응답 유실로 error/unknown이
+기록된 경우에는 같은 새 요청의 권위 있는 수신 증거로 완료를 확인할 수 있다.
+acted에 unverified가 있어도 수신 측의 권위 있는 새 기록을 확인할 수 있다.
+이는 저장된 파일 상태만 확인하는 ExistingTextFileReceipt와 증거 범위가 다르다.
+이를 위해 승인·응답·전송 여부를 지어내거나 메시지를 다시 보내지 않는다.
+replay는 이미 입력 전 거절에서 after_commit을 호출하지 않으며, 어댑터의
+검사는 직접 호출자에게도 같은 경계를 적용한다.
 
 ### 일시적인 수신함 읽기 장애
 
@@ -113,3 +148,37 @@ request_id는 URL-safe ASCII `[A-Za-z0-9_-]`1~128자다. message_id는1~1024자�
 printable opaque 문자열로 colon·dot·@·Unicode를 그대로 보존한다. 앞뒤 공백·
 control 문자와 초과 길이는 거부한다. message_id를 URL·경로·명령으로 실행하거나
 자동으로 정규화하지 않는다. 실제 서비스의 요청 ID 규약은 host bridge가 맞춰야 한다.
+
+
+## 첨부 manifest (2026-10-11)
+
+`AttachmentEvidence(filename, sha256, size_bytes)`의 immutable tuple을 생성자의
+`attachments` 인자로 전달한다. PendingDelivery와 InboxDelivery에도 같은 필드가
+있다. bind callback은 실제 선택된 파일 바이트를 읽고, inbox callback은 실제
+수신된 첨부 바이트를 읽어 manifest를 만들어야 한다. 기대 manifest를 그대로
+복사하거나 파일명만 확인하는 callback은 검증이 아니다. manifest는 순서까지
+고정하며, 수신 서비스의 순서가 달라지면 일치하지 않은 것으로 거부한다.
+
+기본값 None은 첨부 미관찰/body-only 범위다. 기존 adapter가 첨부 없음까지
+검증한 것으로 승격하지 않는다. 명시적 `attachments=()`는 0개 첨부를 요구하며
+pending/inbox 양쪽에서 빈 tuple을 실제로 관찰해야 한다. 예상 첨부가 있으면
+이름·hash·바이트 수의 누락/추가/변경 모두 거부한다. DeliveryEvidence에 관찰한
+manifest가 포함된 경우 공통 evidence_error에도 host 기대 manifest가 필요하다.
+
+최대100개, 이름 UTF-8 최대1024 bytes, 파일별0..4GiB byte count를 허용한다.
+파일명 중복·경로 separator·control/앞뒤 공백·'.'/'..', bool 크기·음수·잘못된
+hash·mutable list·모델 dict를 거부한다. 이 한도는 업로드 지원 용량이 아니라
+증거 자료의 검증 한도다. 같은 이름의 여러 첨부는 현재 지원하지 않는다.
+파일명은 receipt/trace에 남을 수 있으므로 원본 trace는 private하게 보관한다.
+타입이나 hash만으로 서비스 인증, 원본 file identity 또는 수신자 전달을 증명하지
+않는다. 메시지 request identity와 수신 측 reader 계약도 계속 충족해야 한다.
+
+실제 headless Chromium에서 소유 한글 파일을 file input에 fixture bootstrap으로
+선택하고 Tacto replay가 Send를 눌렀다. loopback 수신 서비스는 받은 바이트로 hash와
+크기를 계산했으며 event-bound receipt가 완료됐다. 별도 corrupted attachment
+사례는 unverified/POST1이었다. 파일 선택 동작은 Tacto 기능 평가가 아니다.
+전체 관련71 tests/22.603s/OK/skip 없음과 원본은
+`reviews/2026-10-11/delivery-attachment-regression-20261011-a.log/.json`에 있다.
+이 중16개는 실제 Chromium/HTTP 통합, 나머지는 mock/unit 검사다. 모델 호출과
+native GUI 입력은 없었다. source stable은 report manifest.files의 측정 파일
+전후 동일만 뜻한다. 실제 메일/native 앱 및 외부 수신 서비스는 미검증이다.

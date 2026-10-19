@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 WITNESS = 'ai.callabo.nlc.user-typing-witness'
 TARGET = 'ai.callabo.nlc.navigation-fixture'
-EXPECTED = 'tacto typing 12345'
+EXPECTED = 'nlc typing 12345'
 STATE = re.compile(r'downs=(\d+) ups=(\d+) wrongWindow=(\d+) utf16=(\d+) '
                    r'selection=(\d+),(\d+) key=(true|false) focused=(true|false) sha256=([0-9a-f]{64})')
 
@@ -32,6 +32,40 @@ def write_new(path, value):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as stream:
         json.dump(value, stream, indent=2); stream.write('\n')
+
+
+def prepared_fixtures(directory, witness_build_report):
+    """Validate owned preparation artifacts before native lookup or launch.
+
+    Same-user filesystem checks, not hostile-host authentication.
+    """
+    from tacto.web_upload_cli import _snapshot, _json_object
+    directory = Path(directory)
+    witness_build_report = Path(witness_build_report)
+    reviews = (ROOT / 'reviews').resolve()
+    for path in (directory, witness_build_report):
+        if not path.is_absolute() or path.resolve(strict=True) != path or not path.is_relative_to(reviews) or path == reviews:
+            raise ValueError('owned_review_fixture_required')
+    manifest = json.loads(_snapshot(directory / 'build-report.json', 65536, private=True), object_pairs_hook=_json_object)
+    witness_raw = _snapshot(witness_build_report, 65536, private=True)
+    witness = json.loads(witness_raw, object_pairs_hook=_json_object)
+    binary = directory / 'Background Navigation.app/Contents/MacOS/Navigation'
+    witness_app = witness_build_report.parent / 'NLC Typing Witness.app'
+    for path, recorded in ((binary, manifest['binary']), (witness_app, witness['app'])):
+        if str(path) != recorded or path.resolve(strict=True) != path:
+            raise ValueError('prepared_fixture_identity_changed')
+    for source, expected in ((directory / 'NativeNavigationFixture.swift', 'NativeNavigationFixture.swift'),
+                             (witness_build_report.parent / 'NativeTypingWitnessFixture.swift', 'NativeTypingWitnessFixture.swift')):
+        actual = hashlib.sha256(_snapshot(source, 1048576)).hexdigest()
+        record = manifest if expected.startswith('NativeNavigation') else witness
+        if actual != record['source_sha256'] or actual != digest(ROOT / 'tests/fixtures' / expected):
+            raise ValueError('prepared_fixture_source_changed')
+    for path, record in ((binary, manifest), (witness_app / 'Contents/MacOS/TypingWitness', witness)):
+        if hashlib.sha256(_snapshot(path, 16777216)).hexdigest() != record['binary_sha256']:
+            raise ValueError('prepared_fixture_binary_changed')
+    if manifest.get('built_not_launched') is not True or witness.get('built_not_launched') is not True:
+        raise ValueError('prepared_fixture_required')
+    return binary, witness, hashlib.sha256(witness_raw).hexdigest()
 
 
 def prepare(directory):
@@ -58,31 +92,37 @@ def prepare(directory):
     print(json.dumps(manifest), flush=True)
 
 
-def run(directory, output, witness_build_report):
-    from AppKit import NSRunningApplication
-    from ApplicationServices import AXUIElementCreateApplication, AXUIElementSetMessagingTimeout
-    from tacto.driver import Driver, _attr
-    from tacto.flow import Selector
-    from tacto.input_audit import MacInputReader
-    manifest = json.loads((directory / 'build-report.json').read_text())
-    binary = Path(manifest['binary'])
+def run(directory, output, witness_build_report, *, driver=None, participant_confirmed=False):
+    descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     report = {'passed': False, 'scope': 'owned foreground test text / owned background navigation',
               'hardware_origin_attested': False, 'actions': [], 'samples': [],
+              'backend': 'signed_inherited', 'participant_confirmed': participant_confirmed is True,
+              'foreground_input_generated': False, 'model_requests': 0,
               'classification': 'not_run', 'expected_text_sha256': hashlib.sha256(EXPECTED.encode()).hexdigest()}
     selected = ['examples/probes/concurrent-typing.py', 'tacto/driver.py', 'tacto/input_audit.py',
                 'tacto/native_frontmost.py', 'tacto/native_window_ready.py',
-                'tacto/native_window_binding.py', 'tacto/native_window_dispatch.py', 'tacto/native_key_events.py']
-    report['selected_sources_before'] = {name: digest(ROOT / name) for name in selected}
+                'tacto/native_window_binding.py', 'tacto/native_window_dispatch.py', 'tacto/native_key_events.py',
+                'tacto/helper.py', 'tacto/protocol.py', 'helper/TactoHelper.swift', 'launcher/tacto',
+                'helper/tacto-helper', 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper', 'examples/eval.py']
     child = None
     try:
-        assert not output.exists(), 'fresh report path required'
-        assert digest(binary) == manifest['binary_sha256'], 'prepared binary changed'
+        report['selected_sources_before'] = {name: digest(ROOT / name) for name in selected}
+        from tacto.helper import InheritedHelperDriver
+        if participant_confirmed is not True:
+            raise RuntimeError('human_participation_required')
+        if not isinstance(driver, InheritedHelperDriver) or not InheritedHelperDriver.available():
+            raise RuntimeError('signed_helper_required')
+        binary, witness_build, witness_digest = prepared_fixtures(directory, witness_build_report)
+        from AppKit import NSRunningApplication
+        from ApplicationServices import AXUIElementCreateApplication, AXUIElementSetMessagingTimeout
+        from tacto.driver import Driver, _attr
+        from tacto.flow import Selector
+        from tacto.input_audit import MacInputReader
         apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_(WITNESS)
         assert len(apps) == 1, 'exactly one user typing witness required'
-        witness_build = json.loads(witness_build_report.read_text())
         assert str(Path(apps[0].bundleURL().path()).resolve()) == witness_build['app'], 'prepared witness bundle required'
         assert digest(Path(witness_build['app']) / 'Contents/MacOS/TypingWitness') == witness_build['binary_sha256'], 'witness binary changed'
-        report['witness_build_report_sha256'] = digest(witness_build_report)
+        report['witness_build_report_sha256'] = witness_digest
         report['background_binary_sha256'] = digest(binary)
         witness_pid = apps[0].processIdentifier()
         report['witness_pid'] = witness_pid
@@ -125,16 +165,16 @@ def run(directory, output, witness_build_report):
 
         baseline = sample()
         assert baseline['utf16'] == baseline['downs'] == baseline['ups'] == 0, 'fresh empty trial required'
-        driver = Driver()
-        assert driver._resolve(TARGET, launch=False) is None, 'background fixture already running'
+        metadata = Driver()
+        assert metadata._resolve(TARGET, launch=False) is None, 'background fixture already running'
         child = subprocess.Popen([str(binary)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         report['fixture_pid'] = child.pid
         deadline = time.monotonic() + 10
-        while driver._resolve(TARGET, launch=False) != child.pid:
+        while metadata._resolve(TARGET, launch=False) != child.pid:
             assert child.poll() is None and time.monotonic() < deadline, 'owned child unavailable'
             sample(); time.sleep(.1)
         def observe():
-            assert driver._resolve(TARGET, launch=False) == child.pid, 'owned child identity changed'
+            assert metadata._resolve(TARGET, launch=False) == child.pid, 'owned child identity changed'
             value = driver.observe(TARGET, 'tree_full')
             assert value.get('type') == 'observation', 'background observation failed'
             return value
@@ -149,7 +189,7 @@ def run(directory, output, witness_build_report):
         assert state['nav-A-first'] == 'position=0'
         assert all('downs=0 ups=0 routeErrors=0 key=false' in state[f'nav-{suffix}-state'] for suffix in ('A', 'B')), 'fresh background counters required'
         assert sample()['downs'] == 0, 'typing started before arming; fresh trial required'
-        print('ARMED: type "tacto typing 12345" slowly in own witness; first key starts background trial', flush=True)
+        print('ARMED: type "nlc typing 12345" slowly in own witness; first key starts background trial', flush=True)
         report['classification'] = 'waiting_for_user_typing'
         deadline = time.monotonic() + 60
         while sample()['downs'] == 0:
@@ -183,21 +223,33 @@ def run(directory, output, witness_build_report):
         report['classification'] = 'passed_sampled_owned_concurrency'
         report['passed'] = True
     except Exception as exc:
-        report['error'] = str(exc)
+        report['error_class'] = type(exc).__name__
+        if str(exc) in ('human_participation_required','signed_helper_required'):
+            report['refusal'] = str(exc)
         report['classification'] = 'incomplete_or_failed_no_cause_attribution'
+    except BaseException as exc:
+        report['error_class'] = type(exc).__name__
+        report['classification'] = 'interrupted_no_retry'
+        raise
     finally:
-        if child is not None:
-            if child.poll() is None:
-                child.terminate()
-                try: child.wait(timeout=3)
-                except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=3)
-            report['owned_child_reaped'] = child.poll() is not None
-        report['selected_sources_after'] = {name: digest(ROOT / name) for name in selected}
-        report['selected_sources_stable'] = report['selected_sources_before'] == report['selected_sources_after']
-        times = [s['time'] for s in report['samples']]
-        report['largest_sample_gap_seconds'] = max((b-a for a,b in zip(times, times[1:])), default=None)
-        if not report['selected_sources_stable']: report['passed'] = False
-        write_new(output, report)
+        try:
+            if child is not None:
+                if child.poll() is None:
+                    child.terminate()
+                    try: child.wait(timeout=3)
+                    except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=3)
+                report['owned_child_reaped'] = child.poll() is not None
+            report['selected_sources_after'] = {name: digest(ROOT / name) for name in selected}
+            report['selected_sources_stable'] = report.get('selected_sources_before') == report['selected_sources_after']
+            times = [s['time'] for s in report['samples']]
+            report['largest_sample_gap_seconds'] = max((b-a for a,b in zip(times, times[1:])), default=None)
+            if not report['selected_sources_stable']: report['passed'] = False
+        except Exception as exc:
+            report['finalization_error_class'] = type(exc).__name__
+            report['passed'] = False
+        finally:
+            with os.fdopen(descriptor, 'w') as stream:
+                json.dump(report, stream, indent=2); stream.flush(); os.fsync(stream.fileno())
     print(json.dumps({'passed': report['passed'], 'classification': report['classification'], 'report': str(output)}), flush=True)
     return 0 if report['passed'] else 1
 
@@ -208,9 +260,10 @@ if __name__ == '__main__':
     parser.add_argument('directory', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--witness-build-report', type=Path)
+    parser.add_argument('--participant-confirmed', action='store_true')
     args = parser.parse_args()
     if args.mode == 'prepare': prepare(args.directory)
     else:
         if args.output is None or args.witness_build_report is None:
             parser.error('run requires --output (fresh path) and --witness-build-report')
-        raise SystemExit(run(args.directory, args.output, args.witness_build_report))
+        raise SystemExit(run(args.directory, args.output, args.witness_build_report, participant_confirmed=args.participant_confirmed))

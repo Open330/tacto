@@ -1,4 +1,4 @@
-"""Tacto Protocol P0 driver — macOS accessibility (AX) backend.
+"""NLC Protocol P0 driver — macOS accessibility (AX) backend.
 
 L1 (OS driver) + L2 (action protocol) in one module.
 Implements the PROTOCOL.md v0.1 decisions:
@@ -10,8 +10,8 @@ Implements the PROTOCOL.md v0.1 decisions:
 """
 
 from __future__ import annotations
-from .environment import value as _environment_value
 
+from .environment import value as _environment_value
 import difflib
 import math
 import os
@@ -46,6 +46,7 @@ from Foundation import NSArray
 from ApplicationServices import (
     AXIsProcessTrusted,
     AXUIElementGetTypeID,
+    AXUIElementGetPid,
     AXUIElementCreateApplication,
     AXUIElementCopyAttributeValue,
     AXUIElementIsAttributeSettable,
@@ -74,6 +75,8 @@ AX_INTERACTABLE_ROLES = {
     "AXPopUpButton", "AXMenuButton", "AXMenuItem", "AXLink", "AXComboBox",
     "AXSlider", "AXIncrementor", "AXDisclosureTriangle", "AXTabGroup",
     "AXStaticText", "AXCell", "AXRow", "AXScrollArea", "AXGroup", "AXImage",
+    # Unlabelled sheets are structural evidence, even though not actionable.
+    "AXSheet",
 }
 
 AUTO_WAIT_BASE_S = 1.0     # D5: settle time after an action before capture
@@ -180,6 +183,12 @@ def _document_path(doc: str):
 
 def _line_attr(line: str, key: str):
     """One attribute out of a tree line, without importing the flow layer."""
+    if key=='Document':
+        from .document_label import document_attribute
+        return document_attribute(line)
+    from .document_label import window_attributes
+    window=window_attributes(line)
+    if window is not None:return window.get(key)
     import re as _re
     others = "|".join(k for k in ("Title", "Description", "Value", "Help",
                                   "Identifier", "Placeholder", "Subrole", "Secondary Actions",
@@ -275,7 +284,7 @@ _LABEL_ATTRS = ("AXTitle", "AXDescription", "AXValue", "AXHelp",
                 "AXIdentifier", "AXPlaceholderValue", "AXSubrole")
 
 
-def _elem_label(el):
+def _elem_label(el,quote_values=False):
     """Compact one-line description of an AX element.
 
     Fetched in ONE round trip rather than six. Some apps compute these lazily
@@ -303,7 +312,10 @@ def _elem_label(el):
             continue
         if not isinstance(v, (str, int, float)) or (v == "" and name != "AXValue"):
             continue
-        if isinstance(v, str):
+        if quote_values:
+            from .document_label import quote_value
+            v=quote_value(str(v))
+        elif isinstance(v, str):
             v = _one_line(v)
         parts.append(f"{name[2:]}: {v}")   # strip the AX prefix
     return ", ".join(parts)
@@ -334,7 +346,7 @@ def _real_windows(pid):
         captured and which then appears in that app's own window list: 66x20
         inside a 460x232 window, subrole AXDialog, title "Window", no close,
         minimize or zoom button (2026-09-21). Holding the control indicator is
-        what puts it there, so saying "Tacto is working on this window" was what
+        what puts it there, so saying "NLC is working on this window" was what
         made that window ambiguous.
 
     Only the measured capture badge is excluded. File panels and modal dialogs
@@ -440,21 +452,26 @@ class Observation:
         self.visited = 0           # nodes touched, emitted or not
         self.truncated = False
 
-    def walk(self, el, depth=0):
+    def walk(self, el, depth=0, *, node_limit=None, deferred=None):
         if depth > MAX_TREE_DEPTH:
             return
-        if self.visited >= MAX_TREE_NODES:
-            self.truncated = True
+        limit = MAX_TREE_NODES if node_limit is None else min(MAX_TREE_NODES, node_limit)
+        if self.visited >= limit:
+            if deferred is None:
+                self.truncated = True
+            else:
+                deferred.append((el, depth))
             return
         self.visited += 1
         role = _attr(el, "AXRole") or "?"
-        label = _elem_label(el)
+        label = _elem_label(el,quote_values=role=='AXWindow')
         if role == "AXWindow":
             # Same as the helper: a window names the file it shows.
             doc = _attr(el, "AXDocument")
             path = _document_path(doc) if isinstance(doc, str) else None
             if path:
-                label = (label + ", " if label else "") + f"Document: {_one_line(path)}"
+                from .document_label import quote_value
+                label = (label + ", " if label else "") + f"Document: {quote_value(path)}"
         if role in AX_INTERACTABLE_ROLES or label:
             idx = len(self.elements)
             self.elements.append(el)
@@ -475,7 +492,7 @@ class Observation:
                               + (f"  {label}" if label else "") + disabled + selected + actions)
         children = _attr(el, "AXChildren") or []
         for child in children[:MAX_CHILDREN_PER_NODE]:
-            self.walk(child, depth + 1)
+            self.walk(child, depth + 1, node_limit=node_limit, deferred=deferred)
         if len(children) > MAX_CHILDREN_PER_NODE:
             self.truncated = True
             self.lines.append("  " * (depth + 1)
@@ -535,7 +552,7 @@ class Driver:
         # The two-step form, for a caller that does not already know what the
         # popup contains: open it, look at the observation that follows, then
         # choose from THAT. Same words the browser backend uses.
-        "action.open_select", "action.select_custom_option", "action.prepare_window", "action.prepare_window.background", "menu_state", "menu_items",
+        "action.open_select", "action.open_select.explicit_ax", "action.select_custom_option", "action.prepare_window", "action.prepare_window.background", "menu_state", "menu_items",
         "custom_select.label_only",
         # Said separately because the browser's `press_key` includes Escape and
         # this one does not.
@@ -571,7 +588,7 @@ class Driver:
         self._indicator = None
         self._indicator_pid = None
         self._indicator_beat = None
-        self._indicate = _environment_value('NO_INDICATOR') != "1"
+        self._indicate = _environment_value("NO_INDICATOR") != "1"
         # The one menu this driver opened and has not yet spent, if any. It is
         # a registry of ONE: a second open would leave a menu standing that
         # nothing is tracking, and the caller would have no way to say which of
@@ -683,19 +700,43 @@ class Driver:
         # reason: macOS's screen-capture badge is a window in the app's own
         # AXWindows, so while the control indicator was up every observation of
         # the app being driven began with a phantom `Window  Title: Window,
-        # Identifier: _NS:8` — our own way of saying "Tacto is working here"
+        # Identifier: _NS:8` — our own way of saying "NLC is working here"
         # walked into the tree it was working on, and shifted every element
         # index behind it.
         windows = _real_windows(obs.pid) if selected_window is None else [selected_window]
-        for w in windows:
-            start = len(obs.lines)
-            obs.walk(w)
+        window_count = min(len(windows), MAX_TREE_NODES)
+        if len(windows) > MAX_TREE_NODES:
+            obs.truncated = True
+        prior_lines, prior_truncated = obs.lines, obs.truncated
+        blocks, frontiers, partial = [], [], []
+        for position, w in enumerate(windows[:window_count]):
+            obs.lines = []
+            obs.truncated = False
+            pending = []
+            window_budget = (MAX_TREE_NODES - obs.visited) // (window_count - position)
+            obs.walk(w, node_limit=obs.visited + window_budget, deferred=pending)
+            blocks.append(obs.lines); frontiers.append(pending); partial.append(obs.truncated)
+        for position in range(window_count):
+            if obs.visited >= MAX_TREE_NODES:
+                break
+            pending, frontiers[position] = frontiers[position], []
+            obs.lines, obs.truncated = blocks[position], partial[position]
+            for node, depth in pending:
+                obs.walk(node, depth, deferred=frontiers[position])
+            partial[position] = obs.truncated
+        obs.lines, obs.truncated = prior_lines, prior_truncated
+        for position, w in enumerate(windows[:window_count]):
+            block = blocks[position]
             # Mark the frontmost window so a selector can mean "the one the
             # person is looking at". Two open documents expose two identical
             # text areas, and without this every such recipe reads as ambiguous.
-            if len(obs.lines) > start and (_attr(w, "AXMain") is True
+            if block and (_attr(w, "AXMain") is True
                                            or _attr(w, "AXFocused") is True):
-                obs.lines[start] += " [focused]"
+                block[0] += " [focused]"
+            if partial[position] or frontiers[position]:
+                obs.truncated = True
+                block.append("  … (창별 관측이 잘렸습니다)")
+            obs.lines.extend(block)
         return bool(windows)
 
     # ------------------------------------------------------------ menu commands
@@ -814,12 +855,26 @@ class Driver:
 
     @staticmethod
     def _modal_sheet(pid: int) -> bool:
-        """Is a sheet or modal dialog waiting for an answer in this app?"""
+        """Present or unobservable modality both refuse no_modal input."""
+        from .modal_presence import modal_presence
         app_el = AXUIElementCreateApplication(pid)
-        for w in (_attr(app_el, "AXWindows") or []):
-            if _attr(w, "AXSheets") or _attr(w, "AXModal") is True:
-                return True
-        return False
+        deadline = time.monotonic()+2
+        def read(element,name):
+            remaining = deadline-time.monotonic()
+            if remaining<=0 or AXUIElementSetMessagingTimeout(element,min(.5,remaining))!=0:
+                raise RuntimeError('modal read unavailable')
+            try:
+                status,value = AXUIElementCopyAttributeValue(element,name,None)
+            finally:
+                if AXUIElementSetMessagingTimeout(element,0)!=0:
+                    raise RuntimeError('modal timeout reset failed')
+            if time.monotonic()>=deadline: raise RuntimeError('modal read deadline')
+            if status==0 and name in ('AXWindows','AXSheets','AXChildren') and isinstance(value,(list,tuple,NSArray)):
+                if len(value)>20000: raise RuntimeError('modal read node budget')
+                value=list(value)
+            return status,value
+        def element(value):return value is not None and CFGetTypeID(value)==AXUIElementGetTypeID()
+        return modal_presence(app_el,read,is_element=element,same_element=CFEqual)!='clear'
 
     def menu_state(self, target: str, path) -> dict:
         """Report a menu command's live state without invoking it.
@@ -1328,6 +1383,7 @@ class Driver:
         and returns bool. Returns the final observation dict (observation on
         success, or {'type':'timeout', ...} with the last tree).
         """
+        from .observation_state import retryable_observation_error
         deadline = time.monotonic() + timeout_ms / 1000
         last = None
         while True:
@@ -1335,7 +1391,11 @@ class Driver:
             last = obs
             if obs["type"] == "observation" and predicate(obs["tree"]):
                 return obs
+            if obs.get("type") != "observation" and not retryable_observation_error(obs):
+                return obs
             if time.monotonic() >= deadline:
+                if obs.get("type") != "observation":
+                    return obs
                 return {"type": "timeout", "target": target, "waited_ms": timeout_ms,
                         "last_obs": last}
             time.sleep(min(poll_ms / 1000, max(0, deadline - time.monotonic())))
@@ -1498,7 +1558,7 @@ class Driver:
     def _mismatch(self, obs, action: dict, expect: dict) -> str:
         """Why this is no longer what the caller meant — or "" if it still is."""
         if expect.get("no_modal") and self._modal_sheet(obs.pid):
-            return "화면에 대화상자가 열렸습니다"
+            return "대화상자가 열렸거나 유무를 확인할 수 없습니다"
         want_sel = expect.get("selection")
         if want_sel and want_sel != self.selection_digest(obs.pid):
             return "고른 것이 바뀌었습니다 — 같은 버튼이라도 대상이 다릅니다"
@@ -1770,7 +1830,7 @@ class Driver:
         elif name == "scroll":
             el = self._element(obs, action)
             return self._scroll(el, action.get("direction", "down"),
-                                action.get("pages", 1))
+                                action.get("pages", 1),expected_pid=obs.pid)
         elif name == "read":
             if "element_index" in action:
                 self._element(obs, action)
@@ -2049,12 +2109,48 @@ class Driver:
         return dispatch_navigation(binding, key, deadline=deadline, stopped=_aborted_now,
                                    context=context, preflight=before_pointer)
 
+    @staticmethod
+    def _foreground_preparation(pid, window):
+        """'prepared' when nothing needs writing, 'write' when a write is safe.
+
+        Choosing another window of the frontmost app is what this action is for,
+        but that app is the one the person is in. A Finder run measured the
+        write moving their focus (2026-10-18). So their keyboard focus decides:
+        typing in an editable field elsewhere is not taken without their
+        explicit approval, and a focus that cannot be read is not called safe.
+        """
+        app = AXUIElementCreateApplication(pid)
+        if _attr(window, "AXMain") is True:
+            front = _attr(app, "AXFocusedWindow")
+            if front is not None and CFEqual(front, window):
+                return "prepared"
+        status, focused = AXUIElementCopyAttributeValue(app, "AXFocusedUIElement", None)
+        if status == -25212 and focused is None:        # explicitly nothing focused
+            return "write"
+        if status != 0 or focused is None or CFGetTypeID(focused) != AXUIElementGetTypeID():
+            raise NotStarted("user focus unreadable")
+        owner = _attr(focused, "AXWindow")
+        if owner is not None and CFEqual(owner, window):
+            return "write"
+        settable = AXUIElementIsAttributeSettable(focused, "AXValue", None)
+        text = (isinstance(_attr(focused, "AXValue"), str) and isinstance(settable, tuple)
+                and settable[0] == 0 and settable[1] is True)
+        if text or _attr(focused, "AXRole") in ("AXTextField", "AXTextArea", "AXComboBox"):
+            raise _NeedsForeground(
+                "keyboard focus is in an editable field outside the target window")
+        return "write"
+
     def _prepare_window(self, obs, element, before_pointer=None):
         """Foreground AX preparation or guarded PID/window background input."""
         if not self._frontmost(obs.pid):
             return self._prepare_background_window(obs, element, before_pointer)
         if _attr(element, "AXMinimized") is not False:
             raise NotStarted("최소화된 창은 준비할 수 없습니다")
+        if self._foreground_preparation(obs.pid, element) == "prepared":
+            # Nothing written; the caller still confirms by observing again.
+            return {"input_route": "window_prepare", "wrote": [],
+                    "window_reports_key": True, "foreground_route": True,
+                    "unverified": "observe_effect", "reobserve_required": True}
         wrote = []
         attempted = False
         def ready():
@@ -2090,7 +2186,7 @@ class Driver:
         ready()
         became = _attr(element, "AXMain") is True or _attr(element, "AXFocused") is True
         return {"input_route": "window_prepare", "wrote": wrote,
-                "window_reports_key": became,
+                "window_reports_key": became, "foreground_route": True,
                 **({} if became else {"unverified": "observe_effect",
                                       "reobserve_required": True})}
 
@@ -2287,6 +2383,10 @@ class Driver:
         nothing else: it does not choose, and it does not report what it found,
         because a reading taken here would be a reading the caller never saw.
         """
+        from .protocol import native_opening_parameters_problem
+        problem=native_opening_parameters_problem(action)
+        if problem:raise NotStarted(problem)
+        opening_action=action.get('opening_action','AXShowMenu')
         el = self._element(obs, action)
         role = _attr(el, "AXRole")
         if role not in self.SELECTABLE_ROLES:
@@ -2303,7 +2403,9 @@ class Driver:
         # so the attempt is made as-is and the refusal names the reason.
         was_front = self._frontmost(obs.pid)
         before = self._app_menus(obs.pid)
-        opened = AXUIElementPerformAction(el, "AXShowMenu")
+        opened = AXUIElementPerformAction(el, opening_action)
+        if opened == AX_ACTION_UNSUPPORTED and opening_action=='AXPress':
+            raise NotStarted('explicit AXPress opening unsupported')
         if opened == AX_ACTION_UNSUPPORTED:
             # Provably nothing happened — this element has no AXShowMenu — so
             # trying the other way is not a second attempt at the same thing.
@@ -2359,14 +2461,11 @@ class Driver:
         caller looked are all reasons to go back and look again, not reasons to
         open something a second time.
         """
-        want = action.get("option_label")
-        value = action.get("value")
-        if not isinstance(want, str) or not want:
-            raise NotStarted("select_custom_option 에 option_label 이 필요합니다")
-        if value is not None and value != want:
-            raise NotStarted(
-                f"이 화면의 선택지에는 값이 따로 없습니다 — value({value!r}) 와 "
-                f"option_label({want!r}) 이 달라 무엇을 고를지 알 수 없습니다")
+        from .protocol import native_selection_parameters_problem
+        problem = native_selection_parameters_problem(action)
+        if problem:
+            raise NotStarted(problem)
+        want = action["option_label"]
         pending = self._select
         if pending is None:
             raise NotStarted("열어 둔 선택지가 없습니다 — open_select 로 먼저 여세요")
@@ -2502,18 +2601,12 @@ class Driver:
         blocks the app for whatever runs next, and Escape — the usual way to
         dismiss one — is the key this system will not press (see `_press_key`).
         """
+        from .protocol import native_selection_parameters_problem
+        problem = native_selection_parameters_problem(action)
+        if problem:
+            raise NotStarted(problem)
+        want = action["option_label"]
         el = self._element(obs, action)
-        want = action.get("option_label")
-        value = action.get("value")
-        if not isinstance(want, str) or not want:
-            raise NotStarted("select_option 에 option_label 이 필요합니다")
-        if value is not None and value != want:
-            # A native menu item has a title and nothing else — there is no
-            # value space behind it. Accepting a different `value` would be
-            # promising a distinction this surface does not have.
-            raise NotStarted(
-                f"이 화면의 선택지에는 값이 따로 없습니다 — value({value!r}) 와 "
-                f"option_label({want!r}) 이 달라 무엇을 고를지 알 수 없습니다")
         role = _attr(el, "AXRole")
         # Captured BEFORE anything is pressed, because the control itself may
         # not survive: measured on Finder's view popup, choosing an option
@@ -2762,7 +2855,7 @@ class Driver:
         # what we asked for" is not evidence about the control that vanished.
         return None
 
-    def _scroll(self, element, direction, pages):
+    def _scroll(self, element, direction, pages, *,expected_pid=None):
         """Move the scroll bar the app already exposes.
 
         A wheel event has no address: it goes to whatever is under a pointer
@@ -2773,9 +2866,13 @@ class Driver:
         `AXValue` on a scroll bar is 0.0 at the top and 1.0 at the bottom. A
         page is taken as a tenth, matching the ten lines the wheel event used.
         """
+        if type(direction) is not str or direction not in ('up','down','left','right'):
+            raise NotStarted('스크롤 방향이 올바르지 않습니다')
+        if type(pages) is not int or not 1<=pages<=10:
+            raise NotStarted('스크롤 페이지 수는 1~10 정수여야 합니다')
         step = 0.1 * pages * (-1 if direction in ("up", "left") else 1)
         want_vertical = direction in ("up", "down")
-        bar = self._scroll_bar(element, want_vertical)
+        bar = self._scroll_bar(element, want_vertical,expected_pid=expected_pid)
         if bar is None:
             raise NotStarted(
                 f"{'세로' if want_vertical else '가로'} 스크롤 막대를 찾지 못했습니다 — "
@@ -2784,37 +2881,55 @@ class Driver:
         if not (isinstance(settable, tuple) and settable[0] == 0 and settable[1] is True):
             raise NotStarted("스크롤 막대의 값을 바꿀 수 없습니다")
         current = _attr(bar, "AXValue")
-        if not isinstance(current, (int, float)):
+        if (not isinstance(current, (int, float)) or isinstance(current,bool)
+                or not 0<=current<=1 or not math.isfinite(current)):
             raise NotStarted("스크롤 막대의 현재 위치를 읽지 못했습니다")
         target = min(1.0, max(0.0, float(current) + step))
         if _aborted_now():
             raise NotStarted("사용자가 중단했습니다 — 스크롤하지 않았습니다")
         err = AXUIElementSetAttributeValue(bar, "AXValue", target)
         if err != 0:
-            raise NotStarted(f"스크롤에 실패했습니다 ({err})")
+            # The setter may have changed the app before returning an error.
+            # Driver.act classifies this as unknown, preventing blind retries.
+            raise RuntimeError(f"스크롤에 실패했습니다 ({err})")
         return {"scrolled_from": round(float(current), 4), "scrolled_to": round(target, 4)}
 
     @staticmethod
-    def _scroll_bar(element, vertical):
+    def _scroll_bar(element, vertical, *,expected_pid=None):
         """The scroll bar that governs this element, looking outward.
 
         The observed element is usually the content, not the scroller, so this
         walks up to the enclosing scroll area rather than expecting the caller
         to have named one.
         """
-        node, seen = element, 0
-        while node is not None and seen < 12:
-            seen += 1
-            if _attr(node, "AXRole") == "AXScrollArea":
-                for child in (_attr(node, "AXChildren") or [])[:40]:
-                    if _attr(child, "AXRole") != "AXScrollBar":
-                        continue
-                    orientation = _attr(child, "AXOrientation")
-                    if orientation == ("AXVerticalOrientation" if vertical
-                                       else "AXHorizontalOrientation"):
-                        return child
-                return None
-            node = _attr(node, "AXParent")
+        def owner(node):
+            try:
+                error,pid=AXUIElementGetPid(node,None)
+                return pid if error==0 and type(pid) is int and pid>0 else None
+            except Exception:return None
+        expected_pid=owner(element) if expected_pid is None else expected_pid
+        if type(expected_pid) is not int or expected_pid<=0:return None
+        node,seen=element,[]
+        try:
+            while node is not None and len(seen)<12:
+                if owner(node)!=expected_pid or any(CFEqual(node,old) for old in seen):return None
+                seen.append(node);role=_attr(node,'AXRole')
+                if not isinstance(role,str) or not role:return None
+                if role=='AXScrollArea':
+                    kids=_attr(node,'AXChildren')
+                    if not isinstance(kids,(list,tuple,NSArray)) or len(kids)>40:return None
+                    matches=[]
+                    for child in kids:
+                        role=_attr(child,'AXRole')
+                        if not isinstance(role,str) or not role:return None
+                        if role!='AXScrollBar':continue
+                        if owner(child)!=expected_pid or not CFEqual(_attr(child,'AXParent'),node):return None
+                        orientation=_attr(child,'AXOrientation')
+                        if orientation not in ('AXVerticalOrientation','AXHorizontalOrientation'):return None
+                        if orientation==('AXVerticalOrientation' if vertical else 'AXHorizontalOrientation'):matches.append(child)
+                    return matches[0] if len(matches)==1 else None
+                node=_attr(node,'AXParent')
+        except Exception:return None
         return None
 
     # ------------------------------------------------------------ L2 dispatch

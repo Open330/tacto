@@ -24,8 +24,6 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <dict>
   <key>CFBundleName</key>            <string>Tacto Helper</string>
   <key>CFBundleDisplayName</key>     <string>Tacto Helper</string>
-  <key>CFBundleDevelopmentRegion</key> <string>en</string>
-  <key>LSHasLocalizedDisplayName</key> <true/>
   <key>CFBundleIconFile</key>        <string>tacto-app.icns</string>
   <key>CFBundleIdentifier</key>      <string>ai.callabo.nlc.helper</string>
   <key>CFBundleExecutable</key>      <string>TactoHelper</string>
@@ -36,24 +34,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <!-- Background only: the helper never shows in the Dock or takes focus. -->
   <key>LSUIElement</key>             <true/>
   <key>NSAccessibilityUsageDescription</key>
-  <string>Tacto가 사용자를 대신해 앱의 버튼을 누르고 화면을 읽는 데 필요합니다. 조작 중에는 메뉴 막대에 표시가 나타나며 Esc로 즉시 멈출 수 있습니다.</string>
+  <string>Tacto가 사용자를 대신해 앱의 버튼을 누르고 화면을 읽으려면 필요합니다. 조작 중에는 해당 창에 표시가 나타나며 Esc로 즉시 멈출 수 있습니다.</string>
 </dict>
 </plist>
 PLIST
-
-# The base name matches the retained filename; Finder then uses the localized
-# product name. Bundle ID, executable, path and designated requirement stay put.
-for language in en ko; do
-  mkdir -p "$APP/Contents/Resources/$language.lproj"
-  cat > "$APP/Contents/Resources/$language.lproj/InfoPlist.strings" <<'NAMES'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleName</key><string>Tacto Helper</string>
-<key>CFBundleDisplayName</key><string>Tacto Helper</string>
-</dict></plist>
-NAMES
-done
 
 cp tacto-helper "$APP/Contents/MacOS/TactoHelper"
 

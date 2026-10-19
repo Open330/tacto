@@ -28,13 +28,24 @@ final class NativeSavePanelReader {
     let maxNodes: Int
     let maxSeconds: Double
     private var remaining = 0
+    private var arrayEntries = 0
+    private var identities: [CFHashCode: [AXUIElement]] = [:]
+    private var identityCount = 0
+    private var peakWork = 0
+    private var peakIdentities = 0
+    private var peakArrayEntries = 0
     private var deadline = 0.0
+    private var activeColumn = -1
+    private var captureCount = 0
+    private var columnRows: [Int: Int] = [:]
+    private var validatedColumnRows: [Int: Int] = [:]
 
     init(readAttribute: @escaping AttributeReader,
          directoryResource: @escaping (AnyObject) throws -> NativeSaveDirectoryResource,
          check: @escaping () throws -> Void = {}, maxNodes: Int = 5000,
          maxSeconds: Double = 3) throws {
-        guard maxNodes > 0, maxSeconds.isFinite, maxSeconds > 0, maxSeconds <= 30 else {
+        guard maxNodes > 0, maxNodes <= Int.max / 4,
+              maxSeconds.isFinite, maxSeconds > 0, maxSeconds <= 30 else {
             throw NativeSavePanelError.unavailable("invalid observation budget")
         }
         self.readAttribute = readAttribute
@@ -46,12 +57,45 @@ final class NativeSavePanelReader {
     private func charge(_ amount: Int = 1) throws {
         try check()
         remaining -= amount
-        guard remaining >= 0, ProcessInfo.processInfo.systemUptime <= deadline else {
-            throw NativeSavePanelError.unavailable("save panel observation budget exceeded")
+        peakWork = max(peakWork, maxNodes - remaining)
+        guard remaining >= 0 else {
+            throw NativeSavePanelError.unavailable("save panel observation budget exceeded: nodes")
         }
+        guard ProcessInfo.processInfo.systemUptime <= deadline else {
+            throw NativeSavePanelError.unavailable("save panel observation budget exceeded: deadline")
+        }
+    }
+    var budgetUsage: [String: Int] {
+        var result = ["accounting_version": 2, "max_work_items": maxNodes,
+         "max_distinct_elements": maxNodes, "max_array_entries": maxNodes * 4,
+         "peak_work_items": peakWork, "peak_distinct_elements": peakIdentities,
+         "peak_array_entries": peakArrayEntries,
+         "active_column_index": activeColumn, "capture_count": captureCount]
+        // Numeric diagnostics only. A count is the latest attempted array,
+        // not proof that every row was validated or that the panel is stable.
+        for (index, count) in columnRows {
+            result["column_\(index)_list_entries"] = count
+            result["column_\(index)_validated_list_entries"] = validatedColumnRows[index] ?? 0
+        }
+        return result
+    }
+    private func resetBudget() {
+        remaining = maxNodes; arrayEntries = 0; identities = [:]; identityCount = 0
+        activeColumn = -1; columnRows = [:]; validatedColumnRows = [:]; captureCount = 0
+        deadline = ProcessInfo.processInfo.systemUptime + maxSeconds
+    }
+    private func track(_ element: AXUIElement) throws {
+        let hash = CFHash(element)
+        if identities[hash, default: []].contains(where: { CFEqual($0, element) }) { return }
+        guard identityCount < maxNodes else {
+            throw NativeSavePanelError.unavailable("save panel observation budget exceeded: identities")
+        }
+        identities[hash, default: []].append(element); identityCount += 1
+        peakIdentities = max(peakIdentities, identityCount)
     }
     private func value(_ element: AXUIElement, _ name: String, optional: Bool = false) throws -> AnyObject? {
         try charge()
+        try track(element)
         let (error, result) = try readAttribute(element, name)
         try charge(0)
         if error == .success, let result { return result }
@@ -65,21 +109,37 @@ final class NativeSavePanelReader {
         }
         return text
     }
-    private func array(_ element: AXUIElement, _ name: String, optional: Bool = false) throws -> [AXUIElement] {
+    private func array(_ element: AXUIElement, _ name: String, optional: Bool = false,
+                       columnRowsObserved: Bool = false) throws -> [AXUIElement] {
         guard let raw = try value(element, name, optional: optional) else { return [] }
         guard CFGetTypeID(raw) == CFArrayGetTypeID(), let items = raw as? NSArray else {
             throw NativeSavePanelError.unavailable(name + " is not an array")
         }
-        try charge(items.count)
-        return try items.map { item in
+        if columnRowsObserved {
+            columnRows[activeColumn] = items.count
+            validatedColumnRows[activeColumn] = 0
+        }
+        // Repeated snapshots still check every entry. Bound work, distinct
+        // identities and repeated array entries separately instead of charging
+        // the same large file list against one pool on each snapshot.
+        guard items.count <= maxNodes, items.count <= maxNodes * 4 - arrayEntries else {
+            throw NativeSavePanelError.unavailable("save panel observation budget exceeded: array entries")
+        }
+        arrayEntries += items.count
+        peakArrayEntries = max(peakArrayEntries, arrayEntries)
+        return try items.enumerated().map { index, item in
+            if index % 64 == 0 { try charge(0) }
             guard CFGetTypeID(item as CFTypeRef) == AXUIElementGetTypeID() else {
                 throw NativeSavePanelError.unavailable("non-native AX array child")
             }
-            return item as! AXUIElement
+            let element = item as! AXUIElement
+            try track(element)
+            if columnRowsObserved { validatedColumnRows[activeColumn] = index + 1 }
+            return element
         }
     }
-    private func children(_ element: AXUIElement) throws -> [AXUIElement] {
-        try array(element, "AXChildren", optional: true)
+    private func children(_ element: AXUIElement, columnRowsObserved: Bool = false) throws -> [AXUIElement] {
+        try array(element, "AXChildren", optional: true, columnRowsObserved: columnRowsObserved)
     }
     private func role(_ element: AXUIElement) throws -> String {
         guard let role = try text(element, "AXRole"), !role.isEmpty else {
@@ -149,6 +209,7 @@ final class NativeSavePanelReader {
         }
         var resources: [NativeSaveDirectoryResource] = []
         for (index, column) in columns.enumerated() {
+            activeColumn = index
             guard !columns[..<index].contains(where: { CFEqual($0, column) }) else {
                 throw NativeSavePanelError.unavailable("duplicate column identity")
             }
@@ -167,7 +228,7 @@ final class NativeSavePanelReader {
                 continue
             }
             let row = try unique(selected, "selected folder absent or ambiguous")
-            guard try role(row) == "AXGroup", (try children(list)).filter({ CFEqual($0, row) }).count == 1 else {
+            guard try role(row) == "AXGroup", (try children(list, columnRowsObserved: true)).filter({ CFEqual($0, row) }).count == 1 else {
                 throw NativeSavePanelError.unavailable("selected folder is not a direct row")
             }
             try parent(row, is: list); identities.append(row)
@@ -190,9 +251,11 @@ final class NativeSavePanelReader {
             }
             resources.append(resource)
         }
+        activeColumn = -1
         return (identities, resources)
     }
     private func capture(_ window: AXUIElement, requireFormat: Bool) throws -> NativeSavePanelWitness {
+        captureCount += 1
         let (directoryIDs, resources) = try directory(window)
         guard let directory = resources.last else { throw NativeSavePanelError.unavailable("directory absent") }
         let sheet = try sheet(window)
@@ -265,7 +328,7 @@ final class NativeSavePanelReader {
         }
     }
     func read(_ window: AXUIElement, requireFormat: Bool = false) throws -> NativeSavePanelWitness {
-        remaining = maxNodes; deadline = ProcessInfo.processInfo.systemUptime + maxSeconds
+        resetBudget()
         let before = try capture(window, requireFormat: requireFormat)
         try compare(before, capture(window, requireFormat: requireFormat)); try charge(0)
         return before
@@ -281,11 +344,11 @@ final class NativeSavePanelReader {
         return try unique(matches, "save control absent or ambiguous in observation")
     }
     func revalidate(_ window: AXUIElement, witness: NativeSavePanelWitness, requireFormat: Bool = false) throws {
-        remaining = maxNodes; deadline = ProcessInfo.processInfo.systemUptime + maxSeconds
+        resetBudget()
         try compare(witness, capture(window, requireFormat: requireFormat)); try charge(0)
     }
     func validateDocument(_ window: AXUIElement, body: AXUIElement) throws {
-        remaining = maxNodes; deadline = ProcessInfo.processInfo.systemUptime + maxSeconds
+        resetBudget()
         guard try role(window) == "AXWindow" else {
             throw NativeSavePanelError.unavailable("document window role changed")
         }

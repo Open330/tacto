@@ -38,4 +38,4 @@ Rules the engine enforces:
   walker is available, and kept if the walk checks out. Without one:
   `branch_unwalked`.
 
-Details and measurements: [[Flow reference](../../docs/recipes.md)](../../docs/recipes.md).
+Details and measurements: [`docs/recipes.md`](../docs/recipes.md).

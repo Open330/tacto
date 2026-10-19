@@ -29,7 +29,7 @@ def main(driver, output, *, guarded_commit=False):
     changed = destination.with_name(destination.name + '-changed')
     try:
         assert Driver()._resolve(TARGET, launch=False) is None, 'fixture already running'
-        with tempfile.TemporaryDirectory(prefix='tacto-signed-save-panel-') as work:
+        with tempfile.TemporaryDirectory(prefix='nlc-signed-save-panel-') as work:
             app = Path(work) / 'NLC Owned Save Directory.app'
             binary = app / 'Contents/MacOS/NativeSaveSettingsFixture'
             binary.parent.mkdir(parents=True)

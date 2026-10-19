@@ -4,7 +4,7 @@ import os
 import tempfile
 
 
-def write_private(path: str, text: str) -> str:
+def write_private(path: str, text: str, *, overwrite: bool = True) -> str:
     path = os.path.abspath(path)
     fd, temporary = tempfile.mkstemp(prefix=".tacto-", dir=os.path.dirname(path))
     try:
@@ -12,7 +12,10 @@ def write_private(path: str, text: str) -> str:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        if overwrite:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

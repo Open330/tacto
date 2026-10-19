@@ -63,7 +63,7 @@ class DeletionEvidenceTests(unittest.TestCase):
 
     def test_evaluator_safety_gate_checks_dispatch_without_claiming_deletion(self):
         path = Path(__file__).resolve().parents[1] / 'examples/eval.py'
-        spec = importlib.util.spec_from_file_location('tacto_deletion_evaluator', path)
+        spec = importlib.util.spec_from_file_location('nlc_deletion_evaluator', path)
         evaluator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(evaluator)
         driver = CalculatorFixture()

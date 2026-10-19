@@ -415,11 +415,11 @@ class RuntimeContract(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual([], app.calls)
 
-    def test_commit_followed_by_another_screen_does_not_crash(self):
+    def test_unconfirmed_commit_stops_before_another_screen_without_crashing(self):
         app = App()
         result = self.general(app, spec=spec(), approve=lambda _: True)
-        self.assertTrue(result.ok, result.why)
-        self.assertEqual(["click", "read"], [c["name"] for c in app.calls])
+        self.assertFalse(result.ok, result.why)
+        self.assertEqual(["click"], [c["name"] for c in app.calls])
         self.assertEqual("mom", result.witnessed["recipient"])
         self.assertEqual("unknown", result.certainty)  # dispatch alone is not proof
         self.assertEqual("dispatched", result.events[0]["state"])
@@ -442,7 +442,7 @@ class RuntimeContract(unittest.TestCase):
         self.assertEqual({"transmit"}, result.effects)
 
     def test_schema_is_checked_before_any_observation(self):
-        for schema in (1, 0, 3, True, "2"):
+        for schema in (1, 0, 5, True, "2"):
             app = App()
             flow = Flow("bad", "app", schema=schema)
             self.assertFalse(replay(app, flow).ok)

@@ -84,12 +84,12 @@ class CodexResultTests(unittest.TestCase):
         self.assertEqual('{"done":true}', parsed['text'])
         self.assertNotIn('analysis', str(parsed))
 
-    def test_adapter_discards_answer_and_usage_after_tool_activity(self):
+    def test_adapter_rejects_tool_answer_but_preserves_complete_turn_usage(self):
         source = events()
         tool = {'type': 'item.completed', 'item': {
             'id': 'tool', 'type': 'command_execution', 'status': 'completed'}}
 
-        def launch(argv, prompt, timeout):
+        def launch(argv, prompt, timeout, *, cwd=None):
             Path(argv[argv.index('--output-last-message')+1]).write_text('{"done":true}')
             return subprocess.CompletedProcess(argv, 0,
                 stream(source[:2] + [tool] + source[2:]), '')
@@ -99,12 +99,72 @@ class CodexResultTests(unittest.TestCase):
         self.assertEqual('error', result.status)
         self.assertEqual('CodexProtocolError', result.error.code)
         self.assertIsNone(result.text)
-        self.assertIsNone(result.input_tokens)
-        self.assertIsNone(result.output_tokens)
+        self.assertEqual(100,result.input_tokens)
+        self.assertEqual(10,result.output_tokens)
+        self.assertEqual('thread-1',result.provider_thread_id)
+        self.assertIsNone(result.cost)
+        self.assertIsNone(result.model)
+
+    def test_failure_and_timeout_keep_only_valid_complete_turn_metadata(self):
+        for source in (stream(events()),stream(events()).encode()):
+            with self.subTest(source_type=type(source).__name__),patch('tacto.codex_result._run_codex',side_effect=subprocess.TimeoutExpired('PRIVATE',1,output=source)):
+                result=codex_result('q')
+            self.assertEqual('timeout',result.status)
+            self.assertIsNone(result.text)
+            self.assertEqual(100,result.input_tokens)
+            self.assertFalse(result.cancellation_supported)
+            self.assertNotIn('PRIVATE',json.dumps(result.to_dict()))
+        for source in (stream(events()[:-1]),stream(events()+[events()[-1]]),'not JSON',b'\xff'):
+            with self.subTest(source=repr(source)[:80]),patch('tacto.codex_result._run_codex',side_effect=subprocess.TimeoutExpired('PRIVATE',1,output=source)):
+                result=codex_result('q')
+            self.assertEqual('timeout',result.status);self.assertIsNone(result.text)
+            self.assertIsNone(result.input_tokens)
+        with patch('tacto.codex_result._run_codex',return_value=subprocess.CompletedProcess([],1,stream(events()),'PRIVATE STDERR')):
+            result=codex_result('q')
+        self.assertEqual('error',result.status);self.assertIsNone(result.text)
+        self.assertEqual(10,result.output_tokens)
+        self.assertNotIn('PRIVATE',json.dumps(result.to_dict()))
+
+    def test_rejected_final_file_and_invalid_usage_do_not_become_answers(self):
+        def launch(argv,prompt,timeout, *, cwd=None):
+            Path(argv[argv.index('--output-last-message')+1]).write_text('PRIVATE inconsistent answer')
+            return subprocess.CompletedProcess(argv,0,stream(events()),'')
+        with patch('tacto.codex_result._run_codex',side_effect=launch):result=codex_result('q')
+        self.assertEqual('error',result.status);self.assertIsNone(result.text)
+        self.assertEqual(100,result.input_tokens)
+        self.assertNotIn('PRIVATE',json.dumps(result.to_dict()))
+        source=events();source[-1]['usage']['input_tokens']=True
+        with patch('tacto.codex_result._run_codex',return_value=subprocess.CompletedProcess([],1,stream(source),'')):
+            result=codex_result('q')
+        self.assertIsNone(result.input_tokens);self.assertIsNone(result.output_tokens)
+
+    def test_owned_process_timeout_retains_completed_telemetry_without_an_answer(self):
+        script='import sys,time;sys.stdin.read();print('+repr(stream(events()))+',flush=True);time.sleep(5)'
+        def launch(argv,prompt,timeout, *, cwd=None):
+            return _run_codex([sys.executable,'-c',script],prompt,.3,cwd=cwd)
+        with patch('tacto.codex_result._run_codex',side_effect=launch):result=codex_result('q')
+        self.assertEqual('timeout',result.status)
+        self.assertEqual(100,result.input_tokens)
+        self.assertEqual(10,result.output_tokens)
+        self.assertIsNone(result.text);self.assertIsNone(result.cost)
+        self.assertFalse(result.cancellation_supported)
+
+    def test_failed_tool_telemetry_reaches_common_summary_without_tool_content(self):
+        from tacto.provider_observation import capture_provider_calls,record_provider_result,summarize_provider_calls
+        source=events()
+        source.insert(2,{'type':'item.completed','item':{'type':'command_execution','status':'failed','command':'PRIVATE TOOL COMMAND'}})
+        with patch('tacto.codex_result._run_codex',return_value=subprocess.CompletedProcess([],1,stream(source),'')),capture_provider_calls() as records:
+            result=record_provider_result(codex_result('q'))
+        self.assertEqual('error',result.status);self.assertIsNone(result.text)
+        self.assertEqual(100,result.input_tokens)
+        summary=summarize_provider_calls(records)
+        self.assertEqual(100,summary['tokens']['total_input_tokens']['observed_sum'])
+        self.assertEqual(1,summary['unknown_cost_records'])
+        self.assertNotIn('PRIVATE',json.dumps(records))
 
     def test_explicit_adapter_stdin_private_file_and_unknown_metadata(self):
         paths = []
-        def launch(argv, prompt, timeout):
+        def launch(argv, prompt, timeout, *, cwd=None):
             self.assertEqual('sensitive prompt', prompt)
             self.assertNotIn(prompt, argv)
             self.assertEqual('-', argv[-1])

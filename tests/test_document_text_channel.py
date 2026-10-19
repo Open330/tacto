@@ -49,7 +49,7 @@ class DocumentTextChannelTests(unittest.TestCase):
         self.assertEqual(driver.observe('com.apple.TextEdit', document_token='abc')['effect'], 'not_started')
         self.assertEqual(recorder.sent, [])
     def test_path_selector_is_sent_once_and_invalid_combinations_never_sent(self):
-        path = os.path.realpath('/tmp/tacto-owned.rtf')
+        path = os.path.realpath('/tmp/nlc-owned.rtf')
         driver, recorder = _driver()
         driver.document_text('com.apple.TextEdit', document_path=path)
         self.assertEqual(recorder.sent[0]['document_path'], path)

@@ -29,7 +29,7 @@ class IsolatedSkillInstallTests(unittest.TestCase):
 
     def run_script(self, *args, **extra_env):
         env = {'HOME': str(self.home), 'PATH': f'{self.bin}:/usr/bin:/bin',
-               'NLC_BIN_DIR': str(self.bin), **extra_env}
+               'TACTO_BIN_DIR': str(self.bin), **extra_env}
         return subprocess.run(['/bin/bash', str(self.script), *args],
                               env=env, capture_output=True, text=True, timeout=10)
 
@@ -48,10 +48,34 @@ class IsolatedSkillInstallTests(unittest.TestCase):
         self.assertEqual(1, checked.returncode)
         self.assertEqual([], list(self.home.iterdir()))
 
+    def test_missing_or_invalid_skill_refuses_before_any_link_changes(self):
+        skill=self.root/'skill/SKILL.md'
+        for mode in ('missing','empty','foreign','directory'):
+            for check in (False,True):
+                with self.subTest(mode=mode,check=check):
+                    if skill.is_dir():skill.rmdir()
+                    elif skill.exists():skill.unlink()
+                    if mode=='directory':skill.mkdir()
+                    elif mode!='missing':skill.write_text('name: other\n' if mode=='foreign' else '')
+                    result=self.run_script(*(['--check'] if check else []))
+                    self.assertEqual(1,result.returncode,result.stdout+result.stderr)
+                    self.assertIn('skill/SKILL.md',result.stdout)
+                    self.assertEqual([],list(self.home.iterdir()))
+
+    def test_installed_links_do_not_hide_removed_skill_instructions(self):
+        self.assertEqual(0,self.run_script().returncode)
+        links=[self.bin/'nlc',self.home/'.codex/skills/tacto',self.home/'.claude/skills/tacto']
+        before=[os.readlink(link) for link in links]
+        (self.root/'skill/SKILL.md').unlink()
+        for args in ((),('--check',)):
+            result=self.run_script(*args)
+            self.assertEqual(1,result.returncode,result.stdout+result.stderr)
+            self.assertEqual(before,[os.readlink(link) for link in links])
+
     def test_installed_skill_path_finds_the_same_checkout(self):
         self.assertEqual(0, self.run_script().returncode)
         env = {'HOME': str(self.home), 'PATH': f'{self.bin}:/usr/bin:/bin',
-               'NLC_BIN_DIR': str(self.bin)}
+               'TACTO_BIN_DIR': str(self.bin)}
         for tool in ('.codex', '.claude'):
             script = self.home / tool / 'skills/tacto/install.sh'
             checked = subprocess.run(['/bin/bash', str(script), '--check'], env=env,

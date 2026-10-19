@@ -13,8 +13,97 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(shutil.which('xcrun'), 'macOS Swift required')
 class WindowReadyBatchTests(unittest.TestCase):
+    def test_actual_traversal_progress_identifies_other_window_and_resets_each_pass(self):
+        harness = '''import Foundation
+import AppKit
+import ApplicationServices
+let app=AXUIElementCreateApplication(42), other=AXUIElementCreateApplication(1)
+let target=AXUIElementCreateApplication(2), child=AXUIElementCreateApplication(3)
+var fail=true, failWindows=false, failRecheck=false
+var modalReads=0
+let scope=NativeWindowReadScope(deadline:ProcessInfo.processInfo.systemUptime+30,check:{})
+let read:AXRead={ node,name in
+ if CFEqual(node,app) && name=="AXWindows" {
+  return failWindows ? (.cannotComplete,nil):(.success,[other,target] as CFArray)
+ }
+ if name=="AXRole" {
+  if fail && CFEqual(node,child) { throw NativeWindowInputError.refused("window observation deadline expired") }
+  return (.success,(CFEqual(node,child) ? "AXButton":"AXWindow") as CFString)
+ }
+ if name=="AXModal" && CFEqual(node,other) {
+  modalReads += 1
+  return (.success,failRecheck && modalReads==2 ? kCFBooleanTrue:kCFBooleanFalse)
+ }
+ if name=="AXMinimized" || name=="AXModal" { return (.success,kCFBooleanFalse) }
+ if name=="AXChildren" { return (.success,(CFEqual(node,other) ? [child]:[]) as CFArray) }
+ return (.attributeUnsupported,nil)
+}
+var reason="accepted"
+do { try nativeRequireWindowReady(target,42,scope:scope,read:read,isFinder:false) }
+catch NativeWindowInputError.refused(let why) { reason=why }
+let failed=scope.readinessProgress!
+fail=false
+try! nativeRequireWindowReady(target,42,scope:scope,read:read,isFinder:false)
+let complete=scope.readinessProgress!
+failWindows=true
+do { try nativeRequireWindowReady(target,42,scope:scope,read:read,isFinder:false) } catch {}
+let early=scope.readinessProgress!
+failWindows=false;failRecheck=true;modalReads=0
+do { try nativeRequireWindowReady(target,42,scope:scope,read:read,isFinder:false) } catch {}
+print(String(data:try! JSONSerialization.data(withJSONObject:["reason":reason,"failed":failed,
+ "complete":complete,"early":early,"recheck":scope.readinessProgress!]),encoding:.utf8)!)
+'''
+        report=self.run_swift(harness)
+        self.assertEqual(report['reason'],'readiness budget exceeded: deadline')
+        self.assertEqual(report['failed'],{'pass':1,'windows':2,'completed':0,'index':0,
+            'target':False,'nodes':2,'total_nodes':2,'stage':'tree'})
+        self.assertEqual(report['complete'],{'pass':2,'windows':2,'completed':2,'index':1,
+            'target':True,'nodes':0,'total_nodes':3,'stage':'complete'})
+        self.assertEqual(report['early'],{'pass':3,'windows':0,'completed':0,'index':-1,
+            'target':False,'nodes':0,'total_nodes':0,'stage':'windows'})
+        self.assertEqual(report['recheck'],{'pass':4,'windows':2,'completed':2,'index':0,
+            'target':False,'nodes':0,'total_nodes':3,'stage':'recheck'})
+
+    def test_opt_in_identity_counter_does_not_skip_repeated_nodes_and_resets(self):
+        harness=r'''
+import Foundation
+import AppKit
+import ApplicationServices
+let app=AXUIElementCreateApplication(42),target=AXUIElementCreateApplication(1)
+let other=AXUIElementCreateApplication(2),shared=AXUIElementCreateApplication(3)
+var sharedRoleReads=0,lateModal=false
+let read:AXRead={ node,name in
+ if CFEqual(node,app) && name=="AXWindows" {return (.success,[other,target] as CFArray)}
+ if name=="AXRole" {
+  if CFEqual(node,shared) {sharedRoleReads+=1}
+  return (.success,(CFEqual(node,shared) ? "AXButton":"AXWindow") as CFString)
+ }
+ if name=="AXModal" {return (.success,lateModal && CFEqual(node,shared) && sharedRoleReads==2 ? kCFBooleanTrue:kCFBooleanFalse)}
+ if name=="AXMinimized" {return (.success,kCFBooleanFalse)}
+ if name=="AXChildren" {return (.success,(CFEqual(node,shared) ? []:[shared]) as CFArray)}
+ return (.attributeUnsupported,nil)
+}
+let scope=NativeWindowReadScope(deadline:ProcessInfo.processInfo.systemUptime+30,collectReadinessRoleCosts:true,check:{})
+try! nativeRequireWindowReady(target,42,scope:scope,read:read,isFinder:false)
+let first=scope.readinessIdentityCounts!,firstReads=sharedRoleReads
+sharedRoleReads=0;lateModal=true
+var refused=false
+do {try nativeRequireWindowReady(target,42,scope:scope,read:read,isFinder:false)} catch {refused=true}
+let second=scope.readinessIdentityCounts!
+let plain=NativeWindowReadScope(deadline:ProcessInfo.processInfo.systemUptime+30,check:{})
+plain.recordReadinessIdentity(shared)
+print(String(data:try! JSONSerialization.data(withJSONObject:["first":first,"second":second,
+ "first_reads":firstReads,"second_reads":sharedRoleReads,"refused":refused,
+ "default_off":plain.readinessIdentityCounts == nil]),encoding:.utf8)!)
+'''
+        result=self.run_swift(harness)
+        self.assertEqual({'visits':4,'unique_nodes':3,'repeated_nodes':1},result['first'])
+        self.assertEqual(result['first'],result['second'])
+        self.assertEqual(2,result['first_reads']);self.assertEqual(2,result['second_reads'])
+        self.assertTrue(result['refused']);self.assertTrue(result['default_off'])
+
     def run_swift(self, text):
-        with tempfile.TemporaryDirectory(prefix='tacto-ready-batch-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-ready-batch-') as directory:
             src = Path(directory) / 'main.swift'; binary = Path(directory) / 'probe'
             src.write_text(text)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(src),
@@ -54,7 +143,8 @@ func run(_ error: AXError, _ values: CFArray?) -> String {
  do {
   let result = try nativeReadinessBatch(node, names:names, read:{ _, _ in (error, values) })
   return result == nil ? "fallback" : "accepted"
- } catch { return "refused" }
+ } catch NativeWindowInputError.refused(let detail) { return detail }
+ catch { return "refused" }
 }
 rows["unsupported"] = run(.attributeUnsupported, nil)
 rows["not implemented"] = run(.notImplemented, nil)
@@ -69,9 +159,10 @@ print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf
 '''
         rows = self.run_swift(harness)
         self.assertEqual({'unsupported':'fallback', 'not implemented':'fallback',
-                          'timeout':'refused', 'failure':'refused', 'nil packet':'refused',
-                          'short packet':'refused', 'extra packet':'refused',
-                          'wrapped success is invalid':'refused'}, rows)
+                          'timeout':'readiness batch failed', 'failure':'readiness batch failed',
+                          'nil packet':'readiness batch malformed',
+                          'short packet':'readiness batch malformed', 'extra packet':'readiness batch malformed',
+                          'wrapped success is invalid':'readiness batch error malformed'}, rows)
 
     def test_leaf_top_modal_is_read_again_after_batch(self):
         harness = '''import Foundation

@@ -69,8 +69,9 @@ class OwnedProcessSampler:
     at request completion or after 64 samples; shutdown waits at most .2s.
     snapshot() copies records so a late read cannot mutate returned diagnostics.
     """
-    def __init__(self, process):
+    def __init__(self, process, *, is_live=None):
         self.process = process
+        self.is_live = is_live if is_live is not None else lambda: self.process.poll() is None
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.samples = []
@@ -90,14 +91,14 @@ class OwnedProcessSampler:
     def _observe(self):
         try:
             for _ in range(64):
-                if self.stop.is_set() or self.process.poll() is not None:
+                if self.stop.is_set() or not self.is_live():
                     return
                 sample = observe_responsibility(self.process.pid)
                 if type(sample) is not dict:
                     raise ValueError('invalid process diagnostic')
                 if self.stop.is_set():
                     return
-                if self.process.poll() is not None:
+                if not self.is_live():
                     self.error = 'owned_process_exited_during_read'
                     return
                 with self.lock:
@@ -123,3 +124,39 @@ class OwnedProcessSampler:
                 'observer_stopped':self.thread is None or not self.thread.is_alive(),
                 'error_code':self.error, 'descendants_observed':False,
                 'tcc_permission_verified':False}
+
+
+def summarize_primary_responsibility(diagnostics):
+    """Summarize sampled primary identities without granting GUI/TCC parity."""
+    samples=[];malformed=False;limit_reached=False;observer_states=[]
+    for diagnostic in diagnostics:
+        if not isinstance(diagnostic,dict) or not isinstance(diagnostic.get('samples'),list):
+            malformed=True
+            observer_states.append(None)
+            continue
+        samples.extend(diagnostic['samples'])
+        limit_reached=limit_reached or diagnostic.get('sample_limit_reached') is True
+        state=diagnostic.get('observer_stopped')
+        observer_states.append(state if type(state) is bool else None)
+    observed=0;identities=set()
+    for sample in samples:
+        if not isinstance(sample,dict):
+            malformed=True
+            continue
+        if sample.get('status')!='observed':continue
+        pid=sample.get('pid');responsible=sample.get('responsible_pid')
+        process_path=sample.get('process_path');responsible_path=sample.get('responsible_path')
+        if (type(pid) is not int or pid<=0 or type(responsible) is not int or responsible<=0
+                or not isinstance(process_path,str) or not process_path.startswith('/')
+                or not isinstance(responsible_path,str) or not responsible_path.startswith('/')):
+            malformed=True
+            continue
+        observed+=1
+        identities.add((pid,responsible,process_path,responsible_path))
+    observer_stopped=(False if False in observer_states else
+                      True if observer_states and all(state is True for state in observer_states) else None)
+    return {'scope':'sampled_owned_primary_cli_only','samples':len(samples),'observed_samples':observed,
+            'consistent_observed_samples':bool(samples) and observed==len(samples) and len(identities)==1 and not malformed,
+            'malformed_diagnostics':malformed,'sample_limit_reached':limit_reached,
+            'observer_stopped':observer_stopped,'descendant_responsibility_verified':False,
+            'tcc_permission_verified':False,'entire_execution_verified':False}

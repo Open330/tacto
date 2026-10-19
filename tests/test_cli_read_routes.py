@@ -1,6 +1,7 @@
 """CLI read commands must respect an explicitly selected permission boundary."""
 import contextlib
 import io
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -9,6 +10,33 @@ from tacto.helper import HelperUnavailable
 
 
 class CLIReadRouteTests(unittest.TestCase):
+    def test_json_preserves_complete_observation_and_option_visibility_without_input(self):
+        driver=self.fake()
+        observation={'type':'observation','obs_id':'s1','tree':'0 Window Title: A\n  1 ComboBox Identifier: choice\n2 Window Title: B',
+            'custom_selects':{'1':{'state':'open','options':[{'label':'Beta','disabled':False,'visible':False,'scroll_direction':'down'}]}},
+            'truncated':False}
+        driver.observe.return_value=observation
+        with patch('tacto.helper.InheritedHelperDriver',return_value=driver),patch('tacto.driver.Driver',side_effect=AssertionError('fallback')),contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(0,cli._dispatch('observe',['--json','owned.fixture','--helper']))
+        self.assertEqual(observation,json.loads(output.getvalue()))
+        driver.observe.assert_called_once_with('owned.fixture','tree_full');driver.act.assert_not_called()
+
+    def test_json_error_keeps_reason_and_bad_metadata_fails_without_partial_output(self):
+        for observation,expected in [({'type':'error','error':'no_window_content','reason':'minimized'},'no_window_content'),
+                                     ({'type':'observation','tree':'PRIVATE TREE','invalid':float('nan')},'observation_serialization_failed')]:
+            driver=self.fake();driver.observe.return_value=observation
+            with patch.object(cli,'_make_driver',return_value=driver),contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(1,cli._dispatch('observe',['owned.fixture','--helper','--json']))
+            decoded=json.loads(output.getvalue());self.assertEqual(expected,decoded['error'])
+            if expected=='no_window_content':self.assertEqual('minimized',decoded['reason'])
+            self.assertNotIn('PRIVATE',output.getvalue());driver.act.assert_not_called()
+
+    def test_json_invalid_arguments_do_not_connect(self):
+        for args in (['--json'],['owned.fixture','--json','--json'],['owned.fixture','--json','--unknown']):
+            with self.subTest(args=args),patch.object(cli,'_make_driver') as factory,contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(2,cli._dispatch('observe',args))
+            factory.assert_not_called()
+
     def fake(self):
         driver = Mock()
         driver.list_targets.return_value = {'apps': [{'id': 'owned.fixture', 'displayName': 'Owned fixture'}]}

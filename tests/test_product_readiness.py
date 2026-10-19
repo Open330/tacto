@@ -34,9 +34,10 @@ class ProductReadinessTests(unittest.TestCase):
 
         with patch.dict(sys.modules, {'focus_witness': types.SimpleNamespace(FocusWitness=Witness)}), \
              patch.object(comparison, '_locked', side_effect=locks), \
+             patch.object(comparison, '_agent_executable_available',return_value=True), \
              patch.object(comparison, 'source_manifest', return_value={'sha256':'fixed', 'files':{}}), \
              patch.object(comparison, '_run_agent', side_effect=agent) as model:
-            result = comparison.run_one(task, 'tacto')
+            result = comparison.run_one(task, 'nlc')
         return result, setup, cleanup, oracle, model
 
     def test_no_setup_model_or_cleanup_when_initial_session_unavailable(self):
@@ -92,8 +93,9 @@ class ProductReadinessTests(unittest.TestCase):
             with self.subTest(status=status, eligible=eligible), tempfile.TemporaryDirectory() as tmp, \
                  patch.object(comparison, 'ROOT', Path(tmp)), \
                  patch.object(comparison, '_locked', return_value=False), \
+                 patch.object(comparison, '_agent_executable_available',return_value=True), \
                  patch.object(comparison, 'run_one', return_value=result), \
-                 patch.object(sys, 'argv', ['comparison', '--only', 'appearance_mode', '--arms', 'tacto']), \
+                 patch.object(sys, 'argv', ['comparison', '--only', 'appearance_mode', '--arms', 'nlc']), \
                  contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(expected, comparison.main())
 

@@ -58,6 +58,18 @@ general/replay가 만드는 UI event에는 실제 `driver.act`에 사용할 `obs
 
 ## 거절과 제한
 
+준비 시도는 성공 여부와 관계없이 객체당 한 번이다. 잘못된 event나 기존
+목적지 때문에 prepare_commit이 실패한 뒤 파일을 제거해도 같은 객체로 다시
+준비하지 않는다. FreshRTFReceipt, TextEditReceipt, ExistingTextFileReceipt,
+TranscriptReceipt도 이 경계를 따른다. 별도의 명시적 작업에는 새 adapter를
+만들지만, 이것이 불확실하게 실행된 저장·전송의 재시도나 journal 초기화를
+허용하지 않는다. 준비 예약 lock은 전체 callback의 thread safety가 아니다.
+
+준비에 진입한 event ID와 action digest도 호스트 읽기 뒤 다시 대조합니다.
+action·effects·target·obs_id 또는 event ID가 바뀌면 context를 반환하지 않으며
+같은 객체의 준비 시도는 이미 소모된 상태입니다. 이 검사는 한 시점의 binding
+checkpoint로, event를 동시 변경하지 못하게 만드는 atomic lease는 아닙니다.
+
 준비 시 목적지가 이미 있으면 거절합니다. 실행 후에는 디렉터리 identity,
 단일 링크의 일반 파일, 파일 소유자, 정확한 경로·바이트와 readback 전후
 identity·metadata를 검사합니다. symlink, hardlink, 다른 디렉터리로 교체,
@@ -81,3 +93,28 @@ receipt를 반환하지 않습니다. 기존 파일·잘못된 바이트·경계
 예산 및 지연 생성 경계를 확인합니다.
 
 Formatted TextEdit output uses a separate [RTF receipt adapter](rtf-receipts.md). It compares exact decoded text inside the host callback while the artifact digest remains the hash of raw RTF bytes. It is not interchangeable with the UTF-8 receipt described above.
+
+
+### Receipt acceptance clock
+
+Fresh-file, existing-text, producer-file and delivered-message receipts validate
+an explicitly supplied host clock on every read: values must be plain finite
+int/float and nondecreasing. NaN/infinity, boolean/string/oversized integer,
+backwards time, callback exceptions and deadline-addition overflow raise
+`ReceiptClockError` (`ArtifactReceiptError`, closed code `invalid_receipt_clock`).
+The after-commit attempt remains consumed; invalid time never authorizes repeating
+Save/Send. A noncallable clock fails configuration instead of silently choosing
+real time; a falsy callable remains the explicitly selected host clock.
+
+This checks clock values, not their authenticity. A custom clock must actually
+advance with its declared time domain; in-progress filesystem/service calls
+cannot be forcibly interrupted by this receipt gate. The default is monotonic
+host time. File readback still does not identify its producer; service receipt
+callbacks still require an independently bound authoritative receiving source.
+
+[Related regression](../reviews/receipt-clock-regression-b.log): 204 tests,
+78.025s, no skips, [selected source subset stable](../reviews/receipt-clock-regression-b.json).
+Includes an actual owned loopback delivery in isolated headless Chromium: one
+POST and exact receiving body, then a broken acceptance clock yields no evidence;
+a new preparation sees the existing receipt and sends nothing. It is not an
+external-account or native Mac app evaluation.

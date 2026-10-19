@@ -557,8 +557,8 @@ def close_dialog() -> Flow:
                  safety=_scratch("대화상자"),
                  # Nothing to close is not a failure; it is the state this
                  # recipe exists to reach.
-                 skip_if=Postcondition(absent="Sheet"),
-                 postcondition=Postcondition(absent="Sheet")),
+                 skip_if=Postcondition(absent_role="Sheet"),
+                 postcondition=Postcondition(absent_role="Sheet")),
         ])
 
 
@@ -570,7 +570,7 @@ def _calculator():
 
 
 def builders() -> dict:
-    """Name -> zero-argument builder, for every recipe that ships with Tacto."""
+    """Name -> zero-argument builder, for every recipe that ships with NLC."""
     return {**_calculator(),
             "calc_arith": calc_arith,
             "finder_open_folder": finder_open_folder,

@@ -71,5 +71,24 @@ class PlannerActions(unittest.TestCase):
         self.assertIsNone(q.check({'done':True,'actions':[{'pick':0,'do':'scroll','direction':'down'}]}))
 
 
+    def test_upload_selects_only_offered_scope_and_copies_original_digest(self):
+        candidate={'label':'attachment','can':['upload'],'uploads':[
+            {'scope':'owned','attachment_digest':'1'*64,'files':[{'filename':'검토.txt','size_bytes':5}]}]}
+        q=what_to_do_here('upload the owned attachment',[candidate])
+        self.assertIn('검토.txt',q.prompt)
+        out=q.check({'actions':[{'pick':0,'do':'upload','scope':'owned'}]})
+        self.assertEqual('1'*64,out['actions'][0]['attachment_digest'])
+        for change in ({'scope':'missing'},{'scope':[]},{'paths':['/private']},
+                       {'attachment_digest':'1'*64},{'value':'/private'},{'content':'bytes'}):
+            self.assertIsNone(q.check({'actions':[{'pick':0,'do':'upload','scope':'owned',**change}]}))
+
+    def test_upload_requires_current_capability_and_ends_the_batch(self):
+        c={'label':'attachment','can':['upload','read'],'uploads':[{'scope':'owned','attachment_digest':'1'*64}]}
+        for altered in ({**c,'can':['read']},{**c,'disabled':True},{**c,'uploads':c['uploads']*2}):
+            self.assertIsNone(what_to_do_here('upload',[altered]).check({'actions':[{'pick':0,'do':'upload','scope':'owned'}]}))
+        self.assertIsNone(what_to_do_here('upload',[c]).check({'actions':[
+            {'pick':0,'do':'upload','scope':'owned'},{'pick':0,'do':'read'}]}))
+
+
 if __name__ == '__main__':
     unittest.main()

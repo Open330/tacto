@@ -38,17 +38,23 @@ precondition(second == renamed.path)
 try manager.removeItem(at: renamed)
 do { _ = try documentURLPath(raw); fatalError("deleted reference accepted") }
 catch { }
-let package = root.appendingPathComponent("owned.rtfd")
-try manager.createDirectory(at: package, withIntermediateDirectories: false)
-let packagePath = try documentURLPath(package.absoluteString + "/")
-precondition(packagePath == package.path)
-for invalidSuffix in [renamed.absoluteString + "/", package.absoluteString + "//", root.appendingPathComponent("absent.rtfd").absoluteString + "/"] {
-    do { _ = try documentURLPath(invalidSuffix); fatalError("noncanonical suffix accepted") }
-    catch { }
-}
 let missing = root.appendingPathComponent("missing.rtf")
 let missingPath = try documentURLPath(missing.absoluteString)
 precondition(missingPath == missing.path)
+let package = root.appendingPathComponent("문서 😀.rtfd", isDirectory: true)
+try manager.createDirectory(at: package, withIntermediateDirectories: false)
+let packagePath = try documentURLPath(package.absoluteString)
+precondition(packagePath == package.path)
+let regular = root.appendingPathComponent("regular.rtf")
+try Data("owned".utf8).write(to: regular)
+let link = root.appendingPathComponent("link.rtfd")
+try manager.createSymbolicLink(at: link, withDestinationURL: package)
+for invalid in [package.absoluteString + "/", package.absoluteString + "./",
+                link.absoluteString + "/", regular.absoluteString + "/",
+                missing.absoluteString + "/", package.absoluteString + "%2f"] {
+    do { _ = try documentURLPath(invalid); fatalError("noncanonical directory URL accepted: \(invalid)") }
+    catch { }
+}
 for invalid in ["file:///.file/../etc/passwd", "file:///.file/%2e%2e/etc/passwd", "file://remote/.file/id=1.2", "file:///.file/%zz", "file:///.file/id=1.2?query", "https://example.com/x"] {
     do { _ = try documentURLPath(invalid); fatalError("malformed URL accepted") }
     catch { }

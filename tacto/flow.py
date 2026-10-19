@@ -1,4 +1,4 @@
-"""Tacto deterministic replay — token-efficient computer-use emulation.
+"""NLC deterministic replay — token-efficient computer-use emulation.
 
 The insight behind PROTOCOL.md's token/determinism goal: a model is only needed
 to *author* a flow once. After that, the flow is a fixed list of steps that
@@ -20,7 +20,9 @@ import re
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field, asdict, replace, fields, is_dataclass
+from dataclasses import field as dataclass_field
 
+from .flow_errors import FlowFieldError, step_error
 from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
                        validate, describe, ApprovalToken, issue_approval)
@@ -127,31 +129,79 @@ def _element_block(tree: str, idx: int) -> str:
 _TEMPLATE = re.compile(r"\{\{\s*([A-Za-z_][\w]*)\s*(?:\[\s*([A-Za-z_][\w]*)\s*\])?\s*\}\}")
 
 
+@dataclass(frozen=True)
+class _RuntimeReference:
+    name: str
+    key: str | None = None
+
+    def text(self):
+        return "{{" + self.name + ("[" + self.key + "]" if self.key is not None else "") + "}}"
+
+
+class _RuntimeText(str):
+    """A readable string retaining which spans are authored runtime references.
+
+    Parameter/table values are literal spans, even if they contain {{...}}.
+    This provenance is private to a bound in-memory Flow, never a new schema.
+    """
+    def __new__(cls, text, parts=()):
+        value = super().__new__(cls, text)
+        value.parts = tuple(parts) if parts else (str(text),)
+        return value
+
+
+def literal_text(value):
+    """Mark template-looking external text as data before it enters a recipe."""
+    if isinstance(value,str) and ('{{' in value or '}}' in value):
+        return _RuntimeText(str(value), (str(value),))
+    return value
+
+
 def _render(value, ctx: dict):
-    """Substitute {{name}} and {{table[key]}} inside a string (or, recursively,
-    inside a dict/list). Non-strings pass through untouched."""
+    """Substitute authored references once; never parse inserted data as code."""
     if isinstance(value, dict):
         return {k: _render(v, ctx) for k, v in value.items()}
     if isinstance(value, list):
         return [_render(v, ctx) for v in value]
     if not isinstance(value, str):
         return value
+    if ctx.get('__literal_data__') is True:
+        return literal_text(value)
 
-    def sub(m):
-        name, key = m.group(1), m.group(2)
+    def resolve(ref):
+        name, key = ref.name, ref.key
         if key is None:
             if name not in ctx:
                 raise KeyError(f"파라미터 {name!r} 가 없습니다")
-            return str(ctx[name])
+            actual = ctx[name]
+            return actual if isinstance(actual, _RuntimeReference) else str(actual)
         table = ctx.get("__tables__", {}).get(name)
         if table is None:
             raise KeyError(f"테이블 {name!r} 가 없습니다")
-        k = str(ctx.get(key, key))
+        actual_key = ctx.get(key, key)
+        if isinstance(actual_key, _RuntimeReference):
+            return ref
+        k = str(actual_key)
         if k not in table:
             raise KeyError(f"테이블 {name!r} 에 {k!r} 항목이 없습니다")
         return str(table[k])
 
-    return _TEMPLATE.sub(sub, value)
+    if isinstance(value, _RuntimeText):
+        parts = [resolve(part) if isinstance(part, _RuntimeReference) else part
+                 for part in value.parts]
+    else:
+        matches = list(_TEMPLATE.finditer(value))
+        if not matches:
+            return value
+        parts = []
+        end = 0
+        for match in matches:
+            parts.extend((value[end:match.start()],
+                          resolve(_RuntimeReference(match.group(1), match.group(2)))))
+            end = match.end()
+        parts.append(value[end:])
+    text = "".join(part.text() if isinstance(part, _RuntimeReference) else part for part in parts)
+    return _RuntimeText(text, parts)
 
 
 def _arith(expr: str):
@@ -258,7 +308,6 @@ class Selector:
     # person is looking at. Without this, a second open document turns a working
     # recipe into TargetAmbiguous.
     in_focused_window: bool = False
-    subrole: str | list[str] | None = None   # exact OS identity, e.g. AXCloseButton
     # After matching, act on the nearest enclosing element with one of these
     # roles. Lists label their rows with an inner text element while the row
     # itself is what responds to a click, so the identifiable part and the
@@ -304,10 +353,17 @@ class Selector:
         Exact comparison prevents 'Save' matching 'SaveAs' (review finding).
         Unicode bidi/format marks (e.g. the LTR mark macOS Calculator wraps its
         digits in) are stripped so '\\u200e408' compares equal to '408'."""
+        if key=='Document':
+            from .document_label import document_attribute
+            return document_attribute(line)
+        from .document_label import window_attributes
+        window=window_attributes(line)
+        if window is not None:return _norm(window[key]) if key in window else None
         others = "|".join(k for k in cls._ATTR_KEYS if k != key)
         m = re.search(rf"{key}:[ \t]*(.*?)"
                       rf"(?:,\s*(?:{others}):|\s*\[(?:disabled|focused|selected)\]|$)", line)
-        return _norm(m.group(1).strip()) if m else None
+        if m is None:return None
+        return _norm(m.group(1).strip())
 
     def matches(self, line: str) -> bool:
         if self.role:
@@ -325,7 +381,7 @@ class Selector:
             if val.lower() not in want and self._stable_id(val.lower()) not in want:
                 return False
         for key, want in (("Title", self.title), ("Description", self.desc),
-                          ("Value", self.value), ("Subrole", self.subrole)):
+                          ("Value", self.value)):
             if not want:
                 continue
             val = self._attr(line, key)
@@ -341,7 +397,7 @@ class Selector:
         button happened to be alone on screen. Reading a list is the opposite
         case — see `resolve_all`, which asks for a scope instead.
         """
-        return any([self.identifier, self.title, self.desc, self.value, self.subrole])
+        return any([self.identifier, self.title, self.desc, self.value])
 
     def _in_scope(self, lines: list[str], line_no: int) -> bool:
         """True if the matched line sits under an ancestor container. The ancestor
@@ -372,8 +428,11 @@ class Selector:
                 # can share a title, never a path (an exact owned file,
                 # 2026-10-10). Compared composed, as TextEdit reports NFD.
                 document = self._attr(prev, "Document")
-                if document is not None and _norm(document).lower() in want:
-                    return True
+                if document is not None:
+                    import unicodedata
+                    paths=[self.ancestor] if isinstance(self.ancestor,str) else self.ancestor
+                    if document in {unicodedata.normalize('NFC',path) for path in paths}:
+                        return True
                 indent = pind   # climb to the next shallower ancestor
         return False
 
@@ -395,7 +454,8 @@ class Selector:
                 indent, top = pind, prev
                 if pind == 0:
                     break
-        return "[focused]" in top
+        from .document_label import window_flag
+        return window_flag(top,"focused")
 
     def describe(self) -> str:
         """The selector in the words a person would use.
@@ -529,6 +589,13 @@ class Postcondition:
     absent: str | None = None
     attribute: str | None = None      # narrow `equals` to one attribute (e.g.
                                       # "Value"); None = any of _ATTR_KEYS
+    absent_role: str | None = None    # exact observed role token, never a label substring
+
+    all_of: list["Postcondition"] = dataclass_field(default_factory=list)
+
+    def primary_check(self, tree: str) -> bool:
+        """Commit guards still test their original result, independent of extras."""
+        return replace(self, all_of=[]).check(tree)
 
     def _attr_values(self, block: str):
         keys = [self.attribute] if self.attribute else Selector._ATTR_KEYS
@@ -539,10 +606,19 @@ class Postcondition:
                     yield v
 
     def check(self, tree: str) -> bool:
+        if not all(condition.check(tree) for condition in self.all_of):
+            return False
+        if self.absent_role is not None:
+            if not isinstance(self.absent_role,str) or not self.absent_role.strip():
+                return False
+            for line in tree.splitlines():
+                node = re.match(r'^\s*\d+\s+(\S+)(?:\s|$)',line)
+                if node and _same_role(node.group(1),self.absent_role):
+                    return False
         if self.absent is not None and self.absent in tree:
             return False
         if self.equals is None and self.contains is None:
-            return self.absent is not None   # absence alone is a real check
+            return self.absent is not None or self.absent_role is not None or bool(self.all_of)
         want = _norm(self.equals) if self.equals is not None else None
         if self.field is not None:
             try:
@@ -569,20 +645,6 @@ class Postcondition:
         if self.contains is not None and self.contains not in tree:
             return False
         return True
-
-
-def _flow_json_value(value):
-    # Keep old recipes readable by older candidates: the new selector field
-    # is emitted only when used. User parameter dictionaries stay unchanged.
-    if is_dataclass(value) and not isinstance(value, type):
-        return {item.name: _flow_json_value(getattr(value, item.name))
-                for item in fields(value)
-                if not (isinstance(value, Selector) and item.name == 'subrole' and value.subrole is None)}
-    if isinstance(value, dict):
-        return {key: _flow_json_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_flow_json_value(item) for item in value]
-    return value
 
 
 @dataclass
@@ -703,11 +765,17 @@ class Flow:
     # "계산기에서 {{n}}의 제곱근 구해줘". What lets a request find a recipe that
     # a run promoted, rather than only one somebody wrote a rule for.
     intents: list = field(default_factory=list)
+    # Schema 4: observed literal data is not caller-overridable task input.
+    literal_params: dict = field(default_factory=dict)
 
     def bind(self, **values) -> "Flow":
         """Return a concrete, runnable Flow with parameters substituted and
         `for_each` steps expanded. The original stays a template."""
-        ctx = {**self.params, **{k: v for k, v in values.items() if v is not None}}
+        if set(self.literal_params) & (set(self.params) | set(self.tables) | set(self.derived) | self.runtime_names()):
+            raise ValueError('literal data names conflict with authored inputs')
+        if set(values) & set(self.literal_params):
+            raise ValueError('observed literal data cannot be overridden; choose a task parameter')
+        ctx = {**self.params, **self.literal_params, **{k: v for k, v in values.items() if v is not None}}
         missing = [k for k, v in ctx.items() if v is None]
         if missing:
             raise ValueError(f"파라미터가 필요합니다: {', '.join(missing)}")
@@ -717,13 +785,14 @@ class Flow:
         # made mid-run — stay templates here and are rendered just before the
         # step that uses them executes.
         for name in self.runtime_names():
-            ctx.setdefault(name, "{{%s}}" % name)
+            ctx.setdefault(name, _RuntimeReference(name))
         ctx["__tables__"] = self.tables
 
         # The target is rendered too: which app a recipe drives can itself be
         # an input, as it is for "close the dialog in <app>".
         return Flow(name=self.name, target=_render(self.target, ctx),
-                    steps=_bind_steps(self.steps, ctx), schema=self.schema)
+                    steps=_bind_steps(self.steps, ctx), schema=self.schema,
+                    tables=deepcopy(self.tables))
 
     def runtime_names(self) -> set:
         """Values produced during a run: captures and decisions, at any depth."""
@@ -733,21 +802,94 @@ class Flow:
                 if st.action == "decide" and isinstance(st.params.get("into"), str)}
         return out
 
-    def to_json(self) -> str:
-        d = {"name": self.name, "target": self.target, "schema": self.schema,
-             "steps": [_flow_json_value(s) for s in self.steps]}
+    def to_json(self, *, compact: bool = False) -> str:
+        """Serialize expanded meaning; compact omits only parser defaults.
+
+        Dictionaries such as action params and evidence are opaque: preserve
+        their null/false/empty values. Typed optional fields alone lose nulls.
+        """
+        # Preserve literal/reference meaning using ordinary data parameters.
+        # Serialized literals require schema 4 so older runtimes refuse them:
+        # external template-looking text becomes a data parameter, not code.
+        used=set(self.params) | set(self.literal_params) | set(self.tables) | set(self.derived) | self.runtime_names()
+        def reserve(value):
+            if isinstance(value,str):
+                used.update(m.group(1) for m in _TEMPLATE.finditer(value))
+            elif is_dataclass(value):
+                for field_info in fields(value):reserve(getattr(value,field_info.name))
+            elif isinstance(value,dict):
+                used.update(value)
+                for item in value.values():reserve(item)
+            elif isinstance(value,(list,tuple)):
+                for item in value:reserve(item)
+        reserve(self)
+        literal_params={}
+        literal_names={}
+        def literal_ref(text):
+            if text not in literal_names:
+                n=len(literal_names)+1
+                while f'_tacto_data_{n}' in used:n+=1
+                name=f'_tacto_data_{n}'
+                used.add(name);literal_names[text]=name;literal_params[name]=text
+            return '{{'+literal_names[text]+'}}'
+        def encode_text(value):
+            out=[];pending=[]
+            def flush():
+                if not pending:return
+                text=''.join(pending);pending.clear()
+                out.append(literal_ref(text) if ('{{' in text or '}}' in text) else text)
+            for part in value.parts:
+                if isinstance(part,_RuntimeReference):
+                    flush();out.append(part.text())
+                else:pending.append(part)
+            flush()
+            return ''.join(out)
+        def encode(value):
+            if isinstance(value,_RuntimeText):
+                return encode_text(value)
+            if is_dataclass(value):
+                out = {}
+                step_defaults = {"params": {}, "risk_class": "none", "intent_text": "",
+                    "require_enabled": True, "is_submit": False,
+                    "into_sensitive_field": False, "unverified_ok": False,
+                    "captures": [], "answers": False, "on_uncertain": []}
+                for f in fields(value):
+                    item = getattr(value, f.name)
+                    if compact and item is None:
+                        continue
+                    if compact and isinstance(value, Step) and f.name in step_defaults and item == step_defaults[f.name]:
+                        continue
+                    if compact and isinstance(value, Postcondition) and f.name == "all_of" and not item:
+                        continue
+                    out[f.name] = encode(item)
+                return out
+            if isinstance(value, dict):
+                return {k: encode(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [encode(v) for v in value]
+            return value
+        d = {"name": self.name, "target": encode(self.target), "schema": max(self.schema,3) if any(
+            p is not None and p.all_of for st in every_step(self.steps)
+            for p in (st.postcondition, st.skip_if)) else self.schema,
+             "steps": [encode(s) for s in self.steps]}
         for k in ("params", "tables", "derived", "intents"):
             if getattr(self, k):
-                d[k] = getattr(self, k)
-        return json.dumps(d, ensure_ascii=False, indent=2)
+                d[k] = encode(getattr(self,k)) if k=='intents' else getattr(self,k)
+        if self.literal_params or literal_params:
+            d['literal_params']={**self.literal_params,**literal_params}
+            d['schema']=max(d['schema'],4)
+        return json.dumps(d, ensure_ascii=False, indent=None if compact else 2,
+                          separators=(',', ':') if compact else None)
 
     @staticmethod
-    def from_json(text: str, *, allow_legacy: bool = False) -> "Flow":
+    def from_json(text: str, *, allow_legacy: bool = False, strict_checks: bool = False) -> "Flow":
+        # New session input can reject impossible checks before input. Stored
+        # recipes retain their existing load/show/repair and skip_if semantics.
         d = json.loads(text)
         if not isinstance(d, dict):
             raise ValueError("Flow must be a JSON object")
         schema = d.get("schema", 2)
-        if type(schema) is not int or schema not in (1, 2):
+        if type(schema) is not int or schema not in (1, 2, 3, 4):
             raise ValueError(f"unsupported Flow schema: {schema!r}")
         if schema == 1 and not allow_legacy:
             raise ValueError("schema 1 requires explicit migration to schema 2")
@@ -755,17 +897,101 @@ class Flow:
             raise ValueError("Flow.steps must be a list")
         if not all(isinstance(d.get(k), str) and d[k] for k in ("name", "target")):
             raise ValueError("Flow requires name and target")
-        for key in ("params", "tables", "derived"):
+        for key in ("params", "tables", "derived", "literal_params"):
             if key in d and not isinstance(d[key], dict):
-                raise ValueError(f"Flow.{key} must be an object")
+                raise FlowFieldError(f"Flow.{key} must be an object", key, 'Use an object; params example: {"amount":"11"}, with {{amount}} in step values.')
+        if d.get('literal_params') and schema < 4:
+            raise ValueError('literal data requires Flow schema 4')
+        for name,value in d.get('literal_params',{}).items():
+            if not isinstance(name,str) or not _NAME.fullmatch(name) or not isinstance(value,str):
+                raise ValueError('literal data requires named string values')
         for name, table in d.get("tables", {}).items():
             if not isinstance(table, dict):
                 raise ValueError(f"Flow.tables.{name} must be an object")
-        def parse(s):
+        defaults = d.get("safety_defaults", {})
+        if not isinstance(defaults, dict):
+            raise ValueError("Flow.safety_defaults must be an object")
+        # Defaults compress authored meaning, never consent. Evidence and the
+        # commit point remain local to the step that actually commits.
+        allowed_defaults = {"effects", "data_classes", "resource", "destination",
+                            "reversibility", "unknowns"}
+        if set(defaults) - allowed_defaults:
+            raise ValueError("Flow.safety_defaults has unsupported fields; "
+                             "evidence and commit_point belong on individual steps")
+        for key in ("resource", "destination"):
+            if key in defaults and not isinstance(defaults[key], dict):
+                raise ValueError(f"Flow.safety_defaults.{key} must be an object")
+        for key in ("effects", "data_classes", "unknowns"):
+            if key in defaults and (not isinstance(defaults[key], list)
+                    or not all(isinstance(v, str) for v in defaults[key])):
+                raise ValueError(f"Flow.safety_defaults.{key} must be a list of strings")
+        if "reversibility" in defaults and not isinstance(defaults["reversibility"], str):
+            raise ValueError("Flow.safety_defaults.reversibility must be text")
+        selector_defaults = d.get("selector_defaults", {})
+        check_defaults = d.get("check_defaults", {})
+        if not isinstance(selector_defaults, dict):
+            raise ValueError("Flow.selector_defaults must be an object")
+        if set(selector_defaults) - set(Selector.__dataclass_fields__):
+            raise ValueError("Flow.selector_defaults has unknown selector fields")
+        if not isinstance(check_defaults, dict) or set(check_defaults) - {"field", "attribute"}:
+            raise ValueError("Flow.check_defaults accepts only field and attribute")
+        if "field" in check_defaults and (not isinstance(check_defaults["field"], dict)
+                or not check_defaults["field"]
+                or set(check_defaults["field"]) - set(Selector.__dataclass_fields__)):
+            raise ValueError("Flow.check_defaults.field must be a nonempty selector object")
+        if "attribute" in check_defaults and not isinstance(check_defaults["attribute"], str):
+            raise ValueError("Flow.check_defaults.attribute must be text")
+        def parse(s, path):
+            try:
+                return parse_step(s, path)
+            except FlowFieldError:
+                raise
+            except (ValueError, TypeError, KeyError) as exc:
+                raise step_error(exc, path) from exc
+
+        def parse_step(s, path):
+            # Compact click records expand before the existing parser/policy.
+            # No target, action meaning, or result predicate is inferred.
+            if isinstance(s, dict) and any(k in s for k in ('click', 'equals', 'skip_equals')):
+                s = deepcopy(s)
+                identifier = s.pop('click', None)
+                valid_id = (isinstance(identifier, str) and bool(identifier.strip())
+                            or isinstance(identifier, list) and bool(identifier)
+                            and all(isinstance(v, str) and v.strip() for v in identifier))
+                if not valid_id or 'action' in s or 'selector' in s:
+                    raise ValueError('compact click requires an identifier and no action/selector')
+                s['action'] = 'click'
+                s['selector'] = {'identifier': identifier}
+                for alias, key in (('equals', 'postcondition'), ('skip_equals', 'skip_if')):
+                    if alias in s:
+                        if key in s or not isinstance(s[alias], str) or not check_defaults.get('field'):
+                            raise ValueError('compact check requires check_defaults.field and no duplicate check')
+                        s[key] = {'equals': s.pop(alias)}
             known = {**ACTION_PARAMS, **FLOW_ACTIONS, **HOST_FLOW_ACTIONS}
             if (not isinstance(s, dict) or not isinstance(s.get("action"), str)
                     or s["action"] not in known):
                 raise ValueError("unknown Flow action")
+            s = dict(s)
+            if isinstance(s.get("selector"), dict) and s["selector"]:
+                s["selector"] = {**deepcopy(selector_defaults), **deepcopy(s["selector"])}
+            for check in ("postcondition", "skip_if"):
+                if isinstance(s.get(check), dict) and s[check]:
+                    # An explicitly supplied field replaces the entire shared
+                    # field. Defaults never add a predicate to an absent check.
+                    s[check] = {**deepcopy(check_defaults), **deepcopy(s[check])}
+            if defaults and s["action"] not in FLOW_ACTIONS:
+                # Explicit null disables inheritance; replay then refuses the
+                # missing contract. Lists replace, resource/destination merge
+                # one level, and every step gets an independent copy.
+                if "safety" not in s or isinstance(s["safety"], dict):
+                    override = s.get("safety", {})
+                    merged = deepcopy(defaults)
+                    for key, value in override.items():
+                        if key in ("resource", "destination") and isinstance(value, dict):
+                            merged[key] = {**merged.get(key, {}), **deepcopy(value)}
+                        else:
+                            merged[key] = deepcopy(value)
+                    s = {**s, "safety": merged}
             for key in ("selector", "safety", "binding"):
                 if s.get(key) is not None and not isinstance(s[key], dict):
                     raise ValueError(f"step.{key} must be an object")
@@ -779,6 +1005,10 @@ class Flow:
             payload = s.get("params", {})
             if not isinstance(payload, dict) or set(payload) - known[s["action"]]:
                 raise ValueError("invalid action parameters; names and indices are not parameters")
+            if s['action']=='open_select':
+                from .protocol import native_opening_parameters_problem
+                problem=native_opening_parameters_problem(payload)
+                if problem:raise ValueError(problem)
             if s['action'] == 'visual' and visual_problem(payload):
                 raise ValueError(visual_problem(payload))
             if s["action"] in FLOW_ACTIONS:
@@ -791,7 +1021,7 @@ class Flow:
                     # Each branch is steps of its own, parsed by the same rules
                     # — a branch is not a way around any of them.
                     payload = {**payload, "branches": {
-                        choice: [parse(x) for x in steps]
+                        choice: [parse(x, path + '.params.branches[*][' + str(j) + ']') for j, x in enumerate(steps)]
                         for choice, steps in payload["branches"].items()}}
                     # A branch may decide again; each decision needs its own
                     # name, or what one answered would stand for another.
@@ -808,7 +1038,7 @@ class Flow:
                     raise ValueError(f"{key} must be boolean")
             sel = Selector(**s["selector"]) if s.get("selector") else None
 
-            def _post(pc, where):
+            def _post(pc, where, depth=0):
                 if pc is None or pc == {}:
                     return None
                 # Any other non-object — a string, a list, 0, [] — is a mistake,
@@ -820,7 +1050,7 @@ class Flow:
                                      f"{type(pc['field']).__name__}")
                 # Checked here, not where it is used: an object under `absent`
                 # once reached `in tree` mid-replay and surfaced as a traceback.
-                for key in ("equals", "contains", "absent", "attribute"):
+                for key in ("equals", "contains", "absent", "attribute", "absent_role"):
                     if pc.get(key) is not None and not isinstance(pc[key], str):
                         raise ValueError(
                             f"{where}.{key} must be text, not "
@@ -828,11 +1058,24 @@ class Flow:
                             + (" — absent is text that must not appear in the "
                                "observed tree, e.g. an identifier like "
                                "'GoToWindow'" if key == "absent" else ""))
+                group=pc.get('all_of',[])
+                if (not isinstance(group,list) or len(group)>32 or depth>8
+                        or any(not isinstance(item,dict) or not item for item in group)):
+                    raise ValueError(f'{where}.all_of must contain at most 32 nonempty check objects, depth at most 8')
+                checks=[_post(item,f'{where}.all_of[{j}]',depth+1) for j,item in enumerate(group)]
+                if strict_checks and not checks and all(pc.get(key) is None for key in
+                        ('equals','contains','absent','absent_role')):
+                    raise FlowFieldError('check requires a predicate', path+'.'+where,
+                        'Use equals:"text" (not value), contains, absent, absent_role or nonempty all_of. '
+                        'For a field value use field:{"identifier":"observed-id"}, equals:"text", attribute:"Value".')
                 pf = Selector(**pc["field"]) if pc.get("field") else None
+                if pc.get('absent_role') is not None and not pc['absent_role'].strip():
+                    raise ValueError(f'{where}.absent_role must name a role')
                 return Postcondition(field=pf, equals=pc.get("equals"),
                                      contains=pc.get("contains"),
                                      absent=pc.get("absent"),
-                                     attribute=pc.get("attribute"))
+                                     absent_role=pc.get("absent_role"),
+                                     attribute=pc.get("attribute"), all_of=checks)
 
             post = _post(s.get("postcondition"), "postcondition")
             skip_if = _post(s.get("skip_if"), "skip_if")
@@ -867,11 +1110,15 @@ class Flow:
                               captures=_captures_from(s),
                               skip_if=skip_if, answers=s.get("answers", False),
                               on_uncertain=list(s.get("on_uncertain", [])))
-        steps = [parse(s) for s in d["steps"]]
+        steps = [parse(s, f"steps[{i}]") for i, s in enumerate(d["steps"])]
+        if any(p is not None and p.all_of for st in every_step(steps)
+               for p in (st.postcondition, st.skip_if)):
+            schema=max(schema,3)
         return Flow(name=d["name"], target=d["target"], steps=steps,
                     schema=schema,
                     params=d.get("params", {}), tables=d.get("tables", {}),
-                    derived=d.get("derived", {}), intents=_intents_from(d))
+                    derived=d.get("derived", {}), intents=_intents_from(d),
+                    literal_params=d.get('literal_params',{}))
 
 
 # Endings that make a word the sentence's predicate — how the thing is asked
@@ -1168,7 +1415,7 @@ def _candidates(selector: "Selector", tree: str, limit: int = 12) -> list[str]:
     return out
 
 
-def _run_fix(driver, flow, recovery: str, narrate) -> bool:
+def _run_fix(driver, flow, recovery: str, narrate, *, result=None, parent_step=None) -> bool:
     """Run one of OUR recovery recipes, before retrying the step that failed.
 
     Named, not described: the model picks a key of RECOVERIES, and what that key
@@ -1180,12 +1427,36 @@ def _run_fix(driver, flow, recovery: str, narrate) -> bool:
         return False
     patch = build(flow)
     patch = replace(patch, name=f"{flow.name}:{recovery}", schema=2)
-    out = replay(driver, patch, narrate=narrate)
+    child_narrate = (lambda text: narrate(f"(복구 {recovery}) {text}")) if narrate else None
+    out = replay(driver, patch, narrate=child_narrate)
+    uncertain = any(event.get('state') == 'unknown' for event in out.events)
+    if result is not None:
+        # A recovery is an actual child execution, including when it fails
+        # after dispatch. Preserve its IDs and evidence rather than returning
+        # only a boolean that loses effects and the foreground-input latch.
+        for secret in out._secrets:
+            result.protect(secret)
+        result.record(status='ok' if out.ok and not uncertain else 'error',
+                      step=parent_step, stage='recovery', recovery=recovery,
+                      **({'error': 'recovery_unverified'} if uncertain else {}),
+                      detail={'ok': out.ok, 'log': [
+                          {**{k:v for k,v in entry.items() if k != 'step'},
+                           'recovery_step': entry.get('step')} for entry in out.log[:64]],
+                              'log_total': len(out.log), 'log_truncated': len(out.log) > 64})
+        result.events.extend({**event, 'recovery': recovery, 'parent_step': parent_step}
+                             for event in out.events)
+        result.commit_evidence.update(out.commit_evidence)
+        result.visual_used |= out.visual_used
+        result.visual_history.extend(out.visual_history)
+        result.provider_calls.extend(out.provider_calls)
+        result.preparation_diagnostics.extend(out.preparation_diagnostics[
+            :max(0, 64 - len(result.preparation_diagnostics))])
+        result.ok = result.ok and out.ok
     if not out.ok and narrate:
         bad = next((e for e in out.log if e.get("status") in ("error", "gated")), {})
         why = bad.get("error") or bad.get("gate") or "?"
         narrate(f"  (고치기가 실패했습니다: {why} {str(bad.get('detail'))[:90]})")
-    return out.ok
+    return out.ok and not uncertain
 
 
 def _payload_digest(params: dict) -> str:
@@ -1225,7 +1496,9 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
             return None
         return Postcondition(field=render_sel(p.field), equals=_render(p.equals, ctx),
                              contains=_render(p.contains, ctx),
-                             absent=_render(p.absent, ctx), attribute=p.attribute)
+                             absent=_render(p.absent, ctx), attribute=p.attribute,
+                             absent_role=_render(p.absent_role,ctx),
+                             all_of=[render_post(child) for child in p.all_of])
 
     post = render_post(st.postcondition)
     # The contract and its binding describe THIS concrete action, so they are
@@ -1287,11 +1560,16 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 on_uncertain=list(st.on_uncertain))
 
 
+def literal_step(step):
+    """A concrete observed step: all rendered text fields are external data."""
+    return _render_step(step, {'__literal_data__':True})
+
+
 def _receipt_public_codes() -> frozenset:
     """Every receipt's closed refusal codes — what replay may show of one."""
     import importlib
     codes = set()
-    for module in ("existing_file_receipt", "transcript_receipt", "delivery_receipt"):
+    for module in ("existing_file_receipt", "transcript_receipt", "delivery_receipt", "producer_file_receipt", "receipt_clock"):
         try:
             codes |= set(getattr(importlib.import_module(f".{module}", __package__),
                                  "PUBLIC_CODES", ()))
@@ -1542,6 +1820,9 @@ class ReplayResult:
         self.visual_history: list[dict] = []
         self.provider_calls: list[dict] = []
         self.preparation_diagnostics: list[dict] = []
+        self.repair_context = None
+        self.repair_observation = None
+        self._continuation = None
         self._secrets: set[str] = set()
         # Steps an agent walked for a decision's answer that had none:
         # {(decision name, answer): [steps]}. Reported, never saved here.
@@ -1588,7 +1869,7 @@ class ReplayResult:
 
 
 def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
-            res: "ReplayResult", narrate) -> bool:
+            res: "ReplayResult", narrate, sensitive_names=frozenset()) -> bool:
     """Run one decide step. False means the run stops here."""
     q, into = step.params["question"], step.params["into"]
     choices = step.params.get("choices")
@@ -1602,8 +1883,14 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
         return False
     # What the run has seen so far, minus anything marked sensitive: a
     # password read off the screen is not something to hand a model.
-    sensitive = {c.name for st in flow.steps for c in st.captures if c.sensitive}
-    inputs = {k: v for k, v in captures.items() if k not in sensitive}
+    sensitive = set(sensitive_names) | {c.name for st in every_step(flow.steps)
+                                       for c in st.captures if c.sensitive}
+    if res._redact(q) != q:
+        res.record(status="error", step=i, action="decide", error="decision_invalid",
+                   detail="the decision question contains a protected captured value")
+        return False
+    inputs = {k: v for k, v in captures.items()
+              if k not in sensitive and res._redact(v) == v}
     if sources is not None:
         # Extracting from a value the model may not see would be extracting
         # from nothing; and from a value never read, the same.
@@ -1641,6 +1928,8 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
                    detail="고를 수 있는 것 밖의 답이 왔습니다")
         return False
     captures[into] = answer
+    if into in sensitive:
+        res.protect(answer)
     res.record(status="decided", step=i, action="decide", into=into, value=answer)
     if narrate:
         narrate(f"  → {answer}")
@@ -1649,7 +1938,8 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
 
 def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                    res: "ReplayResult", *, narrate, escalate, budget, decide, walk,
-                   prepare_commit, after_commit, confirm=None, visual_scopes=None) -> "ReplayResult":
+                   prepare_commit, after_commit, confirm=None, visual_scopes=None,
+                   sensitive_names=frozenset()) -> "ReplayResult":
     """Run the steps for the answer given — or walk them, if there are none yet."""
     into = step.params["into"]
     choice = captures[into]
@@ -1664,9 +1954,13 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                                   tables=flow.tables),
                      narrate=narrate, escalate=escalate, budget=budget, decide=decide,
                      walk=walk, prepare_commit=prepare_commit, after_commit=after_commit,
-                     confirm=confirm, visual_scopes=visual_scopes, _seed=captures, _outer=outer)
+                     confirm=confirm, visual_scopes=visual_scopes, _seed=captures,
+                     _seed_secrets=tuple(res._secrets), _seed_sensitive_names=frozenset(sensitive_names),
+                     _outer=outer)
+        for secret in sub._secrets:
+            res.protect(secret)
         for entry in sub.log:
-            res.log.append({**entry, "branch": choice})
+            res.log.append(res._redact({**entry, "branch": choice}))
         res.ok = res.ok and sub.ok
         res.events.extend(sub.events)
         res.commit_evidence.update(sub.commit_evidence)
@@ -1697,11 +1991,46 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
     return res
 
 
+def _replay_exception(exc):
+    name = type(exc).__name__
+    # Closed names aid diagnosis without copying arbitrary exception
+    # messages or user-defined class names into an execution record.
+    public = {"HelperUnavailable", "TimeoutError", "OSError", "ValueError",
+              "AttributeError", "TypeError", "RuntimeError", "AssertionError",
+              "KeyError", "IndexError"}
+    return {"type": "error", "error": "observation_unavailable",
+            "exception_class": name if name in public else "Exception"}
+
+
+def _replay_observation(method, *args, **kwargs):
+    """Keep transport read failures inside the run's existing evidence record.
+
+    A read failure cannot justify a retry of an input or erase its receipt.
+    Interrupts still propagate; raw exception text may contain observed data.
+    """
+    try:
+        value = method(*args, **kwargs)
+    except Exception as exc:
+        return _replay_exception(exc)
+    if (not isinstance(value, dict) or value.get("type") not in ("observation", "timeout", "error")
+            or (value.get("type") == "observation" and not isinstance(value.get("tree"), str))
+            or (value.get("type") == "timeout" and value.get("last_obs") is not None
+                and (not isinstance(value["last_obs"], dict)
+                     or ("tree" in value["last_obs"] and not isinstance(value["last_obs"]["tree"], str))))):
+        return {"type": "error", "error": "observation_unavailable", "reason": "invalid_response"}
+    if value.get("type") == "timeout" and isinstance(value.get("last_obs"), dict) \
+            and value["last_obs"].get("type") == "error":
+        # Legacy/custom waiters may wrap a terminal error as a timeout.
+        # Such a reply supplies no false-condition observation to recover from.
+        return value["last_obs"]
+    return value
+
+
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
            after_commit=None, commit_expected: dict | None = None,
            decide=None, walk=None, confirm=None, visual_scopes=None,
-           _seed: dict | None = None, _outer: tuple = (frozenset(), frozenset())) -> ReplayResult:
+           _seed: dict | None = None, _seed_secrets: tuple = (), _seed_sensitive_names: frozenset = frozenset(), _retain_continuation: bool = False, _outer: tuple = (frozenset(), frozenset())) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
     approvals: {step_index: True} pre-authorizes confirm-class steps.
@@ -1743,7 +2072,23 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     # Host registration is fixed for this replay and its selected branches.
     visual_scopes = dict(visual_scopes) if isinstance(visual_scopes, dict) else visual_scopes
     res = ReplayResult()
-    if type(flow.schema) is not int or flow.schema != 2:
+    if narrate is not None:
+        original_narrate = narrate
+        narrate = lambda text: original_narrate(res._redact(text))
+    for secret in _seed_secrets:
+        res.protect(secret)
+        if hasattr(driver, 'protect_value'):
+            driver.protect_value(secret)
+    sensitive_names = set(_seed_sensitive_names) | {
+        c.name for st in every_step(flow.steps) for c in st.captures if c.sensitive}
+    for name in sensitive_names:
+        if name in (_seed or {}):
+            res.protect(_seed[name])
+            if hasattr(driver, 'protect_value'):
+                driver.protect_value(_seed[name])
+    last_checkpoint_index = None
+    last_checkpoint = None
+    if type(flow.schema) is not int or flow.schema not in (2, 3, 4):
         res.record(status="error", error="unsupported_schema",
                    detail="migrate the flow to schema 2 before execution")
         return res
@@ -1807,6 +2152,23 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 or set(step.params) - ACTION_PARAMS.get(step.action, frozenset()):
             res.record(status="error", step=i, error="invalid_action")
             return res
+        if step.action=='open_select' and 'opening_action' in step.params:
+            from .protocol import native_opening_parameters_problem
+            problem=native_opening_parameters_problem(step.params)
+            if problem or 'action.open_select.explicit_ax' not in getattr(driver,'capabilities',()):
+                res.record(status='error',step=i,error='explicit_opening_contract_required',effect='not_started')
+                return res
+        if step.action == 'upload':
+            from .browser_upload import upload_params_valid
+            if ('action.upload' not in getattr(driver, 'capabilities', ())
+                    or not upload_params_valid(step.params) or step.selector is None
+                    or step.safety is None or set(step.safety.effects) != {'transmit'}
+                    or step.binding is None or step.binding.operation != 'upload'
+                    or step.binding.params_digest != pin_params(step.params)
+                    or step.unverified_ok):
+                res.record(status='error', step=i, error='upload_contract_required',
+                           effect='not_started')
+                return res
         if step.action == "prepare_window":
             if ("action.prepare_window" not in getattr(driver,"capabilities",())
                     or step.selector is None or step.postcondition is None
@@ -1880,7 +2242,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     host_expected = deepcopy(configured_expected or {})
     if hasattr(driver, "protect_captures"):
         driver.protect_captures([c for s in flow.steps for c in s.captures if c.sensitive])
-    obs = driver.observe(flow.target, "tree_full")
+    obs = _replay_observation(driver.observe, flow.target, "tree_full")
     if obs.get("error") == "no_window_content" and flow.steps \
             and flow.steps[0].action in ("menu", "open_folder", "reopen_window", "close_menu"):
         # "Finder 열어줘" starts from an app with no window at all. Menus are
@@ -1888,7 +2250,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # recipe can legitimately begin here (open_folder: seen on june-mba,
         # 2026-10-09, Finder with no window); anything needing window content
         # still fails honestly on its own step.
-        obs = driver.observe(flow.target, "tree_full", require_window=False)
+        obs = _replay_observation(driver.observe, flow.target, "tree_full", require_window=False)
     if obs["type"] != "observation":
         res.record(status="error", stage="initial_observe", detail=obs)
         return res
@@ -1930,8 +2292,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # parameters ahead of time; this resolves what the screen told us since
         # (without it, "capture the total, then type it" could not work — the
         # promise the skill documents).
-        if captures:
+        try:
             step = _render_step(step, {**captures, "__tables__": flow.tables})
+        except KeyError:
+            # A skipped/optional capture is absent, never the literal template
+            # text. Refuse before observations or dispatch for this step.
+            res.record(status="error", step=i, action=step.action,
+                       error="runtime_value_missing", effect="not_started",
+                       detail="a required parameter, capture, or table value is unavailable")
+            return res
         if i in ask_then:
             # The whole of anything a model wrote; consent to part of a
             # message is not consent to the message.
@@ -1949,20 +2318,27 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return res
             approvals = {**approvals, i: issue_approval(step.binding, step.safety)}
         if step.action in FLOW_ACTIONS:
-            if not _decide(decide, step, i, captures, flow, res, narrate):
+            if not _decide(decide, step, i, captures, flow, res, narrate, sensitive_names):
                 return res
             if "branches" in step.params:
                 return _follow_branch(driver, flow, step, i, captures, res, narrate=narrate,
                                       escalate=escalate, budget=spend.left, decide=decide,
                                       walk=walk, prepare_commit=prepare_commit,
-                                      after_commit=after_commit, confirm=confirm, visual_scopes=visual_scopes)
+                                      after_commit=after_commit, confirm=confirm, visual_scopes=visual_scopes,
+                                      sensitive_names=sensitive_names)
             continue
         if step.action == 'visual':
             from .visual_replay import run_step
-            if not run_step(driver, flow.target, step, i, res, visual_scopes):
+            try:
+                passed = run_step(driver, flow.target, step, i, res, visual_scopes)
+            except Exception as exc:
+                res.record(status='error', step=i, stage='visual_step',
+                           error='observation_unavailable', detail=_replay_exception(exc))
+                return res
+            if not passed:
                 return res
             if i + 1 < len(flow.steps):
-                obs = driver.observe(flow.target, 'tree_full')
+                obs = _replay_observation(driver.observe, flow.target, 'tree_full')
                 if obs.get('type') != 'observation':
                     res.record(status='error', step=i, error='visual_reobserve_failed', detail=obs)
                     return res
@@ -1990,7 +2366,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                              and step.postcondition.check(obs["tree"]))
         # For Return, an outcome already true means the press could prove
         # nothing and might commit something else — refused before input.
-        if pre_satisfied and step.action == "press_key" and step.params.get("key") == "Return":
+        if (step.action == "press_key" and step.params.get("key") == "Return"
+                and step.postcondition is not None and step.postcondition.primary_check(obs["tree"])):
             res.record(status="error", step=i, action=step.action,
                        error="postcondition_already_true", effect="not_started",
                        detail="Return 의 결과가 누르기 전부터 참입니다 — 누르지 않았습니다")
@@ -2044,6 +2421,20 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     res.record(status="resolved", step=i, kind=kind,
                                reason=fix.reason)
                     continue
+                from .repair_packet import selector_candidates
+                res.repair_observation = obs
+                if _retain_continuation:
+                    from .continuation_state import ReplayContinuation
+                    res._continuation = ReplayContinuation(step_index=i, captures=captures,
+                        secrets=res._secrets, sensitive_names=sensitive_names,
+                        checkpoint=last_checkpoint if last_checkpoint_index==i-1 else None,
+                        outcome=step.postcondition)
+                res.repair_context = res._redact({
+                    "step_index": i, "action": step.action,
+                    "selector": asdict(step.selector),
+                    "candidates": selector_candidates(step.selector, obs["tree"]),
+                    "effect": "not_started", "error": kind,
+                })
                 res.record(status="error", step=i, action=step.action,
                            error=kind, detail=f"{e}. {nearby}")
                 return res
@@ -2120,7 +2511,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 parts = line.strip().split()
                 if len(parts) >= 2:
                     claim["role"] = parts[1]
-                for key in ("Identifier", "Title", "Description", "Value", "Subrole"):
+                for key in ("Identifier", "Title", "Description", "Value"):
                     label = Selector._attr(line, key)
                     if label is not None:
                         claim.update(attribute=key, label=label)
@@ -2183,7 +2574,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             # The helper still takes the Go to Folder path first when it applies.
             bound_return = (payload.get("name") == "press_key" and payload.get("key") in SUBMIT_KEYS
                             and step.is_submit and RETURN_BOUND_CAPABILITY in caps_now)
-            if bound_return and (step.postcondition is None or step.postcondition.check(current["tree"])):
+            if bound_return and (step.postcondition is None or step.postcondition.primary_check(current["tree"])):
                 # Already true before the key: nothing could show the key did it.
                 return {"type": "error", "error": "postcondition_already_true",
                         "effect": "not_started"}
@@ -2215,6 +2606,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             except Exception as exc:
                 response = {"type": "error", "error": "driver_exception",
                             "effect": "unknown", "detail": str(exc)}
+            from .protocol import normalize_action_response
+            response = normalize_action_response(response)
             from .preparation_diagnostic import preparation_diagnostic
             diagnostic = preparation_diagnostic(response.get('preparation_diagnostic'))
             if diagnostic is not None and len(res.preparation_diagnostics) < 64:
@@ -2276,7 +2669,20 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 res.commit_evidence[event["event_id"]] = proof
                 # What the proof is OF, kept with the event: a sender's own
                 # window is not the recipient's inbox (Codex review of a2207a2).
-                from .commit_evidence import TranscriptEvidence
+                from .commit_evidence import TranscriptEvidence, SavedFileStateEvidence
+                if type(proof.evidence) is SavedFileStateEvidence:
+                    event['commit_evidence_kind'] = 'saved_file_state'
+                    event['saved_state_verified'] = True
+                    acknowledged = response.get('type')=='acted' and not response.get('unverified')
+                    event['state'] = 'state_verified' if acknowledged else 'unknown'
+                    if not acknowledged:
+                        event['dispatch_response'] = {'type':response.get('type'),'effect':'unknown'}
+                        if response.get('unverified'):
+                            event['dispatch_response']['unverified'] = True
+                        return {'type':'error','error':'commit_unverified','effect':'unknown',
+                                'event_id':event['event_id'],'event_state':'unknown',
+                                'detail':'saved_state_does_not_confirm_dispatch'}
+                    return response
                 event["commit_evidence_kind"] = ("sender_transcript"
                     if type(proof.evidence) is TranscriptEvidence else type(proof.evidence).__name__)
                 event["state"] = "confirmed"
@@ -2318,11 +2724,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     narrate("  (실행 여부가 불확실해 다시 실행하지 않습니다)")
                 fix = None
             if fix is not None and fix.kind == "recover" and \
-                    _run_fix(driver, flow, fix.recovery, narrate):
+                    _run_fix(driver, flow, fix.recovery, narrate, result=res, parent_step=i):
+                if seen_in_front():
+                    res.record(status="error", step=i, action=step.action,
+                               error="target_seen_in_front", effect="not_started",
+                               detail="복구 뒤 대상 앱이 맨 앞에 있는 것이 관찰되어 재입력을 멈췄습니다")
+                    return res
                 res.record(status="resolved", step=i, kind="action_failed",
                            recovery=fix.recovery, reason=fix.reason)
                 # The screen moved, so everything derived from it is stale.
-                obs = driver.observe(flow.target, "tree_full", require_window=False)
+                obs = _replay_observation(driver.observe, flow.target, "tree_full", require_window=False)
+                if obs["type"] != "observation":
+                    res.record(status="error", step=i, stage="recovery_observe", detail=obs)
+                    return res
                 if obs["type"] == "observation" and step.selector is not None:
                     try:
                         action["element_index"], trace = \
@@ -2346,12 +2760,20 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         # D7: verify by polling to a monotonic deadline, not a blind sleep.
         post = step.postcondition
         if post is not None:
-            # An outcome already true before a non-idempotent input can be a
-            # stale pre-action sample. Preserve ordinary settling in that case;
-            # immediate predicate polling is for a new outcome or a setter/read.
-            obs = driver.observe(flow.target, "tree_full") if pre_satisfied and not _may_rerun(step) else None
+            # Keep settling when a non-idempotent action could leave a stale,
+            # already-true pre-action result visible until its delayed effect.
+            obs = _replay_observation(driver.observe, flow.target, "tree_full") if pre_satisfied and not _may_rerun(step) else None
             if obs is None or (obs.get("type") == "observation" and not post.check(obs["tree"])):
-                obs = driver.wait_until(flow.target, post.check)
+                obs = _replay_observation(driver.wait_until, flow.target, post.check)
+            if obs.get('type') == 'error':
+                from .window_absence import reobserve_closed_window
+                obs = reobserve_closed_window(
+                    lambda *args, **kwargs: _replay_observation(driver.observe, *args, **kwargs),
+                    flow.target, post, obs)
+            if obs.get("type") == "error":
+                res.record(status="error", step=i, action=step.action, stage="verify_observe",
+                           error=obs.get("error", "observation_unavailable"), detail=obs)
+                return res
             if obs["type"] != "observation":
                 seen = None
                 last = obs.get("last_obs") or {}
@@ -2372,12 +2794,21 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     options=_candidates(post.field, last.get("tree", ""))),
                     narrate)
                 if fix is not None and fix.kind == "recover" and \
-                        _run_fix(driver, flow, fix.recovery, narrate):
+                        _run_fix(driver, flow, fix.recovery, narrate, result=res, parent_step=i):
+                    if seen_in_front():
+                        res.record(status="error", step=i, action=step.action,
+                                   error="target_seen_in_front", effect="not_started",
+                                   detail="복구 뒤 대상 앱이 맨 앞에 있는 것이 관찰되어 재입력을 멈췄습니다")
+                        return res
                     # Look again FIRST. A dialog in the way, or a screen that
                     # had not caught up, is the common reason a postcondition
                     # times out on an action that did land — and looking costs
                     # nothing and cannot double an effect.
-                    fresh = driver.observe(flow.target, "tree_full")
+                    fresh = _replay_observation(driver.observe, flow.target, "tree_full")
+                    if fresh.get("type") == "error":
+                        res.record(status="error", step=i, stage="recovery_observe",
+                                   error=fresh.get("error", "observation_unavailable"), detail=fresh)
+                        return res
                     if fresh["type"] == "observation" and post.check(fresh["tree"]):
                         obs = fresh
                         res.record(status="resolved", step=i,
@@ -2401,7 +2832,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             if retried.get("type") != "acted":
                                 res.record(status="error", step=i, error="retry_refused", detail=retried)
                                 return res
-                            obs = driver.wait_until(flow.target, post.check)
+                            obs = _replay_observation(driver.wait_until, flow.target, post.check)
+                            if obs.get("type") == "error":
+                                res.record(status="error", step=i, stage="verify_observe",
+                                           error=obs.get("error", "observation_unavailable"), detail=obs)
+                                return res
                             if obs["type"] == "observation":
                                 res.record(status="resolved", step=i,
                                            kind="postcondition_timeout",
@@ -2416,14 +2851,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                                expected=post.equals, observed=seen)
                     return res
         else:
-            obs = driver.observe(flow.target, "tree_full")
+            obs = _replay_observation(driver.observe, flow.target, "tree_full")
             if obs["type"] != "observation":
-                res.record(status="error", step=i, stage="verify_observe", detail=obs)
+                res.record(status="error", step=i, stage="verify_observe",
+                           error=obs.get("error", "observation_failed"), detail=obs)
                 return res
             if step.expect is not None and step.expect not in obs["tree"]:
                 # settle a moment more, then re-check (transient render lag)
-                obs = driver.wait_until(flow.target, lambda t: step.expect in t,
-                                        timeout_ms=3000)
+                obs = _replay_observation(driver.wait_until, flow.target,
+                                          lambda t: step.expect in t, timeout_ms=3000)
+                if obs.get("type") == "error":
+                    res.record(status="error", step=i, stage="verify_observe",
+                               error=obs.get("error", "observation_unavailable"), detail=obs)
+                    return res
                 if obs["type"] != "observation":
                     res.record(status="error", step=i, action=step.action,
                                error="expect_not_met",
@@ -2474,21 +2914,26 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             # it. Keep the two apart rather than masking at the source, which
             # would hand "[redacted]" to the next step (advisor finding).
             captures[cap.name] = value
-            if cap.sensitive:
+            if cap.name in sensitive_names:
                 res.protect(value)
-            if cap.sensitive and hasattr(driver, "protect_value"):
+            if cap.name in sensitive_names and hasattr(driver, "protect_value"):
                 driver.protect_value(value)
-            shown = "[redacted]" if cap.sensitive else value
+            shown = "[redacted]" if cap.name in sensitive_names else value
+        # Keep the effective predicate, not a template re-rendered after this
+        # step may have overwritten a capture with the same name.
+        if _retain_continuation:
+            last_checkpoint_index=i
+            last_checkpoint=deepcopy(post)
         res.record(status="ok", step=i, action=step.action, resolver=trace,
                    risk=risk,
                    verified=("already_true" if pre_satisfied
                              else step.expect or (post and "postcond")),
-                   result=result_value, captured=shown)
+                   result=result_value, captured=shown,
+                   **({'verification_evidence': 'ax_window_list_empty'}
+                      if obs.get('verification_evidence') == 'ax_window_list_empty' else {}))
 
     final = next((e.get("result") for e in reversed(res.log)
                   if e.get("status") == "ok" and e.get("result")), None)
-    sensitive_names = {c.name for st in flow.steps for c in st.captures
-                       if c.sensitive}
     shown_captures = {k: ("[redacted]" if k in sensitive_names else v)
                       for k, v in captures.items()}
     res.record(status="done", steps=len(flow.steps), result=final,

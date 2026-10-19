@@ -78,8 +78,8 @@ def main(driver, output: Path) -> dict:
                         if hit is not None:
                             return hit
                     return None
-                node = find(element, 'tacto-fixture-state')
-                counter = find(element, 'tacto-fixture-make-key-count')
+                node = find(element, 'nlc-fixture-state')
+                counter = find(element, 'nlc-fixture-make-key-count')
                 return {'state': _attr(node, 'AXValue') if node else None,
                         'make_key_count': _attr(counter, 'AXValue') if counter else None,
                         'app_ax_frontmost': _attr(element, 'AXFrontmost')}
@@ -94,7 +94,7 @@ def main(driver, output: Path) -> dict:
                     continue
                 if parts[1] == 'Window' and window is None:
                     window = int(parts[0])
-                if 'tacto-fixture-make-key' in line and 'count' not in line and button is None:
+                if 'nlc-fixture-make-key' in line and 'count' not in line and button is None:
                     button = int(parts[0])
             assert window is not None and button is not None, (window, button)
 

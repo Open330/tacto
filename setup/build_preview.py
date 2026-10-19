@@ -20,7 +20,7 @@ def build(output: Path):
         raise SystemExit(f"Refusing to replace existing output: {output}")
     if not output.parent.is_dir() or output.suffix != ".app":
         raise SystemExit("Output must be a new .app in an existing directory")
-    identity = (os.environ.get("TACTO_SIGN_IDENTITY") or os.environ.get("NLC_SIGN_IDENTITY"))
+    identity = os.environ.get("TACTO_SIGN_IDENTITY") or os.environ.get("NLC_SIGN_IDENTITY")
     if not identity:
         listing = subprocess.check_output(["security", "find-identity", "-p", "codesigning", "-v"], text=True)
         identity = next((m.group(1) for line in listing.splitlines()

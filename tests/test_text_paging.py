@@ -6,6 +6,69 @@ from tacto.ask import ask_here_paged
 
 
 class TextPagingTests(unittest.TestCase):
+    def test_literal_search_reaches_hidden_option_with_budget_and_original_validation(self):
+        options=[{'label':f'항목{i:03d}😀','disabled':False,'visible':True} for i in range(128)]
+        options[-1]['visible']=False
+        candidate={'label':'choice','can':['select_custom_option'],'options':options}
+        prompts=[]
+        def respond(q,**kwargs):
+            prompts.append(q.prompt)
+            self.assertLessEqual(len(q.prompt.encode()),16000)
+            refs=json.JSONDecoder().raw_decode(q.prompt.split('# 참조 원문\n')[1])[0]
+            if len(prompts)==1:
+                for request in ({'find':''},{'find':True},{'find':'x'*1025},
+                                {'find':'항목127😀','offset':0},{'find':'항목127😀','length':True}):
+                    self.assertIsNone(q.check({'read_context':{'ref':refs[0]['ref'],**request}}))
+                self.assertIsNone(q.check({'read_context':{'ref':'stale','find':'항목127😀'}}))
+                self.assertIsNone(q.check({'read_context':{'ref':refs[0]['ref'],'find':'항목127😀'},'done':True}))
+                return q.check({'read_context':{'ref':refs[0]['ref'],'find':'항목127😀'}})
+            payload=json.loads(q.prompt.split('# 참조 내용 (관측 데이터)\n')[1])
+            self.assertTrue(payload['search']['found'])
+            self.assertIn('항목127😀',payload['text'])
+            self.assertEqual('first_literal_match',payload['search']['kind'])
+            self.assertIsNone(q.check({'actions':[{'pick':0,'do':'select_custom_option','option_label':'항목127😀'}]}))
+            return q.check({'actions':[{'pick':0,'do':'select_custom_option','option_label':'항목126😀'}]})
+        with patch('tacto.ask.ask',side_effect=respond):
+            answer=ask_here_paged('find the last option',[candidate],max_pages=2)
+        self.assertEqual(2,len(prompts))
+        self.assertEqual(candidate,answer['actions'][0]['candidate'])
+
+    def test_projected_large_select_keeps_current_visible_names_without_authorizing_disabled(self):
+        options=[{'label':f'Choice{i:03d}','disabled':i==127,'visible':i>=120} for i in range(128)]
+        candidate={'label':'choice','can':['select_custom_option'],'options':options}
+        def respond(q,**kwargs):
+            self.assertIn('보이는 옵션 이름 일부 8/8',q.prompt)
+            self.assertIn('Choice127',q.prompt)
+            self.assertNotIn('Choice119',q.prompt)
+            self.assertIn('전체 옵션은 참조 원문',q.prompt)
+            self.assertIsNone(q.check({'actions':[{'pick':0,'do':'select_custom_option','option_label':'Choice127'}]}))
+            return q.check({'actions':[{'pick':0,'do':'select_custom_option','option_label':'Choice126'}]})
+        with patch('tacto.ask.ask',side_effect=respond):
+            answer=ask_here_paged('select',[candidate])
+        self.assertEqual(candidate,answer['actions'][0]['candidate'])
+        self.assertNotIn('visible_option_labels',candidate)
+
+    def test_literal_search_not_found_is_explicit_and_first_match_is_not_unique(self):
+        candidate={'label':'x','can':['read'],'line':'first 😀needle '+('x'*20000)+' second 😀needle'}
+        for needle in ('😀needle','absent'):
+            prompts=[]
+            def respond(q,**kwargs):
+                prompts.append(q.prompt)
+                refs=json.JSONDecoder().raw_decode(q.prompt.split('# 참조 원문\n')[1])[0]
+                if len(prompts)==1:return q.check({'read_context':{'ref':refs[0]['ref'],'find':needle}})
+                payload=json.loads(q.prompt.split('# 참조 내용 (관측 데이터)\n')[1])
+                self.assertEqual(needle!='absent',payload['search']['found'])
+                if needle=='absent':
+                    self.assertEqual('',payload['text'])
+                    self.assertIsNone(payload['search']['match_start'])
+                else:
+                    self.assertLess(payload['search']['match_start'],100)
+                    self.assertIn(needle,payload['text'])
+                return q.check({'actions':[{'pick':0,'do':'read'}]})
+            with self.subTest(needle=needle),patch('tacto.ask.ask',side_effect=respond):
+                answer=ask_here_paged('read',[candidate],max_pages=2)
+            self.assertEqual(candidate,answer['actions'][0]['candidate'])
+
     def test_unicode_reassembly_and_full_prompt_budget(self):
         text=('한글😀e\u0301\\\"\n'*200)+'END'
         ref=text_ref(text,'snapshot')

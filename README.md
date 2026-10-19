@@ -14,7 +14,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.3) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -90,7 +90,7 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 **Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download Preview 2](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
+[Download Preview 3](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.3). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
 
 This is an early preview, **not a stable release**. The repository and downloads currently require GitHub access permission. Installation, permissions, Claude/Codex connection and a same-team app update were verified on the build Mac. Fresh-Mac installation, other macOS versions and the full stable-release task/beta checks remain unverified. Windows and Intel Mac builds are not provided. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
 
@@ -257,3 +257,24 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 
 **Tacto** · Local execution. Reusable computer use.<br>
 Developer preview · Proprietary license
+
+
+<details>
+<summary>Runtime updates and validation</summary>
+
+- [dispatch-journal](docs/dispatch-journal.md)
+- [journal-reconciliation](docs/journal-reconciliation.md)
+- [menu-readiness](docs/menu-readiness.md)
+- [tacto-attended-operation-design](docs/tacto-attended-operation-design.md)
+- [tacto-authoring-literal-validation](docs/tacto-authoring-literal-validation.md)
+- [tacto-capture-continuation-validation](docs/tacto-capture-continuation-validation.md)
+- [tacto-latency-profile-20261019](docs/tacto-latency-profile-20261019.md)
+- [tacto-native-matched-validation-20261019](docs/tacto-native-matched-validation-20261019.md)
+- [tacto-native-resumption-validation](docs/tacto-native-resumption-validation.md)
+- [tacto-provider-paging-validation](docs/tacto-provider-paging-validation.md)
+- [tacto-textedit-saved-state-validation](docs/tacto-textedit-saved-state-validation.md)
+- [window-preparation-diagnostics](docs/window-preparation-diagnostics.md)
+
+</details>
+
+[Preview 3 runtime update](docs/runtime-update-2026-10-19.md)

@@ -24,7 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 # Optional headless/programmatic web backend (tacto/browser.py). NOT needed for
 # computer use of the user's real browser, which the AX driver already handles.
-web = ["playwright>=1.40"]
+web = ["playwright>=1.40", "ada-url>=1.32,<2"]
 native-visual = ["pyobjc-framework-ScreenCaptureKit>=10.0; sys_platform == 'darwin'"]
 
 [project.scripts]

@@ -101,9 +101,12 @@ def _document_path(result):
         path = unquote(url.path, encoding='utf-8', errors='strict')
     except (ValueError, UnicodeError) as exc:
         raise DocumentSnapshotError('invalid document file URL') from exc
-    if (len(path) > 1 and path.endswith('/') and not path.endswith('//')
-            and os.path.isdir(path[:-1]) and os.path.realpath(path[:-1]) == path[:-1]):
-        path = path[:-1]
+    # AXDocument uses directory URLs for document packages such as RTFD.
+    # Accept exactly one terminal slash only for an existing canonical directory.
+    if path.endswith('/') and path != '/':
+        candidate = path[:-1]
+        if os.path.realpath(candidate) == candidate and os.path.isdir(candidate):
+            path = candidate
     if (not path.startswith('/') or path.startswith('//') or '\\' in path
             or any(ord(ch) < 0x20 or ord(ch) == 0x7f for ch in path)
             or os.path.realpath(path) != path):

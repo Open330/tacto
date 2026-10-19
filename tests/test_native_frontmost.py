@@ -114,6 +114,7 @@ class DriverForegroundTests(unittest.TestCase):
         for results, count in (([True, False], 0), ([True, True, False], 1)):
             with self.subTest(results=results), \
                  patch.object(Driver, '_frontmost', side_effect=results), \
+                 patch.object(Driver, '_foreground_preparation', return_value='write'), \
                  patch('tacto.driver._attr', return_value=False), \
                  patch('tacto.driver.AXUIElementIsAttributeSettable', return_value=(0, True)), \
                  patch('tacto.driver.AXUIElementSetAttributeValue', return_value=0) as write, \
@@ -128,6 +129,7 @@ class DriverForegroundTests(unittest.TestCase):
         from tacto.driver import Driver, NotStarted
         driver = Driver.__new__(Driver)
         with patch.object(Driver, '_frontmost', return_value=True), \
+             patch.object(Driver, '_foreground_preparation', return_value='write'), \
              patch('tacto.driver._attr', return_value=False), \
              patch('tacto.driver.AXUIElementIsAttributeSettable', return_value=(0, True)), \
              patch('tacto.driver.AXUIElementSetAttributeValue', return_value=-25204) as write, \

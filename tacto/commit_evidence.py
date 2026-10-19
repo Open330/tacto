@@ -10,6 +10,7 @@ import json
 from pathlib import PurePath
 import re
 import uuid
+import math
 
 
 def action_digest(action, effects, target, *, obs_id=None):
@@ -33,6 +34,18 @@ def make_event(action, effects, target, state='dispatched', *, obs_id=None):
     return event
 
 
+def _event_binding_matches(event, identifier, digest):
+    """Checkpoint the original binding after host reads; not an atomic lease."""
+    try:
+        return (isinstance(identifier, str)
+                and event['event_id'] == identifier
+                and event['action_digest'] == digest
+                and action_digest(event['action'], event['effects'], event['target'],
+                                  obs_id=event.get('obs_id')) == digest)
+    except (AttributeError, KeyError, TypeError, ValueError, RecursionError):
+        return False
+
+
 @dataclass(frozen=True)
 class ArtifactEvidence:
     receipt_id: str
@@ -41,11 +54,61 @@ class ArtifactEvidence:
 
 
 @dataclass(frozen=True)
+class SavedFileStateEvidence:
+    """Matching saved contents; does not identify the writer or confirm Save."""
+    receipt_id: str
+    path: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ProducerArtifactEvidence:
+    """Trusted host application callback + file readback, not kernel attestation."""
+    receipt_id: str
+    path: str
+    sha256: str
+    producer: str
+    producer_pid: int
+    producer_start_time: float
+    nonce: str
+    completion_sequence: int
+
+
+@dataclass(frozen=True)
+class AttachmentEvidence:
+    """Host-read attachment bytes, not a filename or model assertion alone."""
+    filename: str
+    sha256: str
+    size_bytes: int
+
+
+def attachment_manifest_valid(manifest):
+    # Immutable, bounded and exact: no path adoption, duplicate filenames or
+    # silently ignored records. Same-name attachments need a different adapter.
+    if type(manifest) is not tuple or len(manifest)>100:return False
+    names=set()
+    for item in manifest:
+        if (type(item) is not AttachmentEvidence or type(item.filename) is not str
+                or not item.filename or item.filename in ('.','..')
+                or '/' in item.filename or '\\' in item.filename
+                or not item.filename.isprintable() or item.filename.strip()!=item.filename
+                or not _digest(item.sha256) or type(item.size_bytes) is not int
+                or not 0<=item.size_bytes<=4*1024**3):return False
+        try:
+            if len(item.filename.encode('utf-8'))>1024:return False
+        except UnicodeError:return False
+        if item.filename in names:return False
+        names.add(item.filename)
+    return True
+
+
+@dataclass(frozen=True)
 class DeliveryEvidence:
     receipt_id: str
     recipient: str
     account: str
     body_sha256: str
+    attachments: tuple[AttachmentEvidence, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -62,7 +125,7 @@ class TranscriptEvidence:
 class CommitEvidence:
     event_id: str
     action_digest: str
-    evidence: ArtifactEvidence | DeliveryEvidence | TranscriptEvidence
+    evidence: ArtifactEvidence | SavedFileStateEvidence | ProducerArtifactEvidence | DeliveryEvidence | TranscriptEvidence
 
 
 @dataclass(frozen=True)
@@ -107,6 +170,14 @@ def _digest(value):
     return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
 
 
+def producer_identity_valid(producer,pid,start,nonce):
+    if (not _text(producer) or type(pid) is not int or not 0<pid<=0x7FFFFFFF
+            or type(start) not in (int,float) or not _text(nonce)):
+        return False
+    try:return math.isfinite(float(start)) and float(start)>0
+    except (OverflowError,ValueError):return False
+
+
 def evidence_error(event, expected=None):
     """Return a reason unless a typed host receipt matches event and expectation."""
     proof = event.get('commit_evidence')
@@ -126,7 +197,30 @@ def evidence_error(event, expected=None):
     expected = expected or {}
     detail = proof.evidence
     effects = set(event['effects'])
-    if type(detail) is ArtifactEvidence:
+    if type(detail) in (ArtifactEvidence,SavedFileStateEvidence,ProducerArtifactEvidence):
+        scope = expected.get('artifact_evidence_scope')
+        if scope not in (None,'artifact','saved_state','producer'):
+            return 'artifact_expectation_invalid'
+        if type(detail) is SavedFileStateEvidence and scope != 'saved_state':
+            return 'saved_state_expectation_missing'
+        if scope == 'producer' and type(detail) is not ProducerArtifactEvidence:
+            return 'artifact_producer_evidence_missing'
+        if type(detail) is ProducerArtifactEvidence:
+            if (not producer_identity_valid(detail.producer,detail.producer_pid,detail.producer_start_time,detail.nonce)
+                    or type(detail.completion_sequence) is not int
+                    or detail.completion_sequence<=0):
+                return 'invalid_producer_artifact_evidence'
+            producer_expected = {key:expected.get(key) for key in
+                ('producer','producer_pid','producer_start_time','producer_nonce')}
+            if scope != 'producer' or any(value is None for value in producer_expected.values()):
+                return 'producer_expectation_missing'
+            if not producer_identity_valid(producer_expected['producer'],producer_expected['producer_pid'],
+                    producer_expected['producer_start_time'],producer_expected['producer_nonce']):
+                return 'producer_expectation_invalid'
+            if (event.get('target') != detail.producer or detail.producer != producer_expected['producer'] or detail.producer_pid != producer_expected['producer_pid']
+                    or detail.producer_start_time != producer_expected['producer_start_time']
+                    or detail.nonce != producer_expected['producer_nonce']):
+                return 'artifact_producer_mismatch'
         # A file-write receipt proves neither deletion of another resource nor
         # a payment, permission change, or delivery. Mixed consequential
         # effects require evidence for every effect, which this type cannot
@@ -149,6 +243,18 @@ def evidence_error(event, expected=None):
             return 'delivery_effect_mismatch'
         if not all(_text(v) for v in (detail.receipt_id, detail.recipient, detail.account)) or not _digest(detail.body_sha256):
             return 'invalid_delivery_evidence'
+        if 'attachments' in expected:
+            expected_attachments=expected['attachments']
+            if not attachment_manifest_valid(expected_attachments):
+                return 'invalid_delivery_attachments'
+            if detail.attachments is None:
+                return 'delivery_attachments_unobserved'
+            if not attachment_manifest_valid(detail.attachments):
+                return 'invalid_delivery_attachments'
+            if detail.attachments!=expected_attachments:
+                return 'delivery_attachment_mismatch'
+        elif detail.attachments is not None:
+            return 'delivery_attachment_expectation_missing'
         for key, value in [('받는 사람', detail.recipient), ('보내는 계정', detail.account)]:
             if key in expected and expected[key] != value:
                 return 'delivery_destination_mismatch'

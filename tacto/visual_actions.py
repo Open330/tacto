@@ -12,12 +12,13 @@ from dataclasses import dataclass, field
 import hashlib
 import math
 import time
-import weakref
+from .capture_ledger import CaptureLedger
 
 from .visual import VisualCapture, capture_browser
+from .model_budget import model_deadline
 
 
-_SPENT_CAPTURES = weakref.WeakValueDictionary()
+_SPENT_CAPTURES = CaptureLedger()
 
 
 def _number(value):
@@ -32,14 +33,15 @@ class VisualClickExecutor:
         self.target = target
 
     def click(self, capture: VisualCapture, proposal: dict, authorize, *, cancelled=None):
+        if type(capture) is not VisualCapture:
+            return {'action':'click','effect':'not_started','reason':'invalid_capture'}
         event = {"action": "click", "capture_id": capture.capture_id,
                  "effect": "not_started"}
         def denied(reason):
             return {**event, "reason": reason}
-        if capture.capture_id in _SPENT_CAPTURES:
-            return denied("capture_already_used")
         # A refused attempt is also spent; callers must observe before replanning.
-        _SPENT_CAPTURES[capture.capture_id] = capture
+        if reason := _SPENT_CAPTURES.reserve(capture.capture_id):
+            return denied(reason)
         if capture.target != self.target:
             return denied("target_mismatch")
         if not isinstance(proposal, dict) or set(proposal) != {"action", "x", "y"} or proposal.get("action") != "click":
@@ -146,8 +148,11 @@ def run_visual(driver, target, goal, planner, authorize, verify, *, max_steps=8,
         if step >= max_steps:
             return finish("STOPPED", "step_limit")
         try:
-            proposal = planner(latest, goal, deepcopy(history))
+            with model_deadline(deadline):
+                proposal = planner(latest, goal, deepcopy(history))
         except Exception:
+            if reason := stopped():
+                return finish("STOPPED", reason)
             return finish("UNVERIFIED", "planner_failed")
         reason = stopped()
         if reason:

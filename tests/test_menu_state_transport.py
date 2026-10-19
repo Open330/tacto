@@ -140,9 +140,55 @@ print(String(data:data,encoding:.utf8)!)
         start=source.index('        guard let enabled = attr(item',source.index('    case "menu":'))
         end=source.index('        let menuError =',start)
         guard=source[start:end]
-        # The focused_document check (2026-10-09) sits in this span too; with
-        # no focused_document in the action it is not taken.
-        script='import Foundation\nimport CoreFoundation\nlet item = 0\nlet kAXEnabledAttribute = "AXEnabled"\nlet wasFront = false\nlet walked = ["Probe", "Command"]\nlet action: [String: Any] = [:]\nlet p: pid_t = 0\nlet deadline = Double.infinity\nstruct AbortStub { var isStopped = false }\nlet abortState = AbortStub()\nfunc focusedDocumentMismatch(pid: pid_t, want: String) -> String { "" }\nvar current: Any? = nil\nfunc attr(_ item: Int, _ key: String) -> Any? { current }\nfunc run() -> [String: Any] {\n'+guard+'\nreturn ["type":"dispatch"]\n}\nlet values: [Any?] = [nil, 0, 1, "true", false, true]\nlet rows = values.map { current = $0; return run() }\nprint(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf8)!)\n'
+        script='''import Foundation
+import CoreFoundation
+let item = 0
+let kAXEnabledAttribute = "AXEnabled"
+let wasFront = false
+let walked = ["Probe", "Command"]
+var action: [String: Any] = [:]
+let target = "com.apple.TextEdit"
+let p: pid_t = 0
+let deadline = Double.infinity
+struct AbortStub { var isStopped = false }
+let abortState = AbortStub()
+var latestDocumentToken: String? = nil
+var validToken = true
+var tokenChecks = 0
+var focusChecks = 0
+var focusWhy = ""
+enum TokenFailure: Error { case stale }
+func documentWindowForToken(_ target: String, _ token: String) throws -> Int {
+    tokenChecks += 1
+    if !validToken { throw TokenFailure.stale }
+    return 0
+}
+func focusedDocumentMismatch(pid: pid_t, want: String) -> String {
+    focusChecks += 1
+    return focusWhy
+}
+var current: Any? = nil
+func attr(_ item: Int, _ key: String) -> Any? { current }
+func run() -> [String: Any] {
+'''+guard+'''
+return ["type":"dispatch"]
+}
+let values: [Any?] = [nil, 0, 1, "true", false, true]
+var rows = values.map { current = $0; return run() }
+current = true
+latestDocumentToken = "pin"
+action = ["focused_document":"/owned/document.txt"]
+validToken = false
+rows.append(run())
+precondition(tokenChecks == 1 && focusChecks == 0)
+validToken = true
+rows.append(run())
+precondition(tokenChecks == 2 && focusChecks == 1)
+focusWhy = "another file"
+rows.append(run())
+precondition(tokenChecks == 3 && focusChecks == 2)
+print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf8)!)
+'''
         with tempfile.TemporaryDirectory() as tmp:
             src=Path(tmp)/'main.swift';binary=Path(tmp)/'probe';src.write_text(script)
             build=subprocess.run(['xcrun','swiftc',str(src),'-o',str(binary)],capture_output=True,text=True)
@@ -152,6 +198,10 @@ print(String(data:data,encoding:.utf8)!)
             rows=json.loads(run.stdout)
         self.assertTrue(all(row.get('effect')=='not_started' for row in rows[:5]))
         self.assertEqual(rows[5]['type'],'dispatch')
+        self.assertEqual(rows[6]['error'],'document_snapshot_unavailable')
+        self.assertEqual(rows[6]['effect'],'not_started')
+        self.assertEqual(rows[7]['type'],'dispatch')
+        self.assertEqual(rows[8]['effect'],'not_started')
 
     @unittest.skipUnless(shutil.which('xcrun'), 'Swift unavailable')
     def test_launcher_schema_does_not_widen_other_requests(self):

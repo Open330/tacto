@@ -9,14 +9,13 @@ import base64
 import json
 import math
 import os
-import signal
 import subprocess
 import tempfile
 import time
 import uuid
 
 from .authoring import _provider_env
-from .provider_result import ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable
+from .provider_result import ProviderError, ProviderResult, ProviderUnavailable, classify_unavailable, finite_nonnegative_number
 
 
 class ClaudeProtocolError(ValueError):
@@ -307,7 +306,7 @@ def parse_claude_events(stdout: str, session_id: str) -> dict:
             if not isinstance(usage, dict):
                 raise ClaudeProtocolError('missing completed-turn usage')
             cost = event.get('total_cost_usd')
-            if cost is not None and (type(cost) not in (int, float) or not math.isfinite(cost) or cost < 0):
+            if cost is not None and not finite_nonnegative_number(cost):
                 raise ClaudeProtocolError('invalid cost telemetry')
             # Claude reports uncached input separately from cache-read input;
             # do not impose Codex's cached <= input relationship on this API.
@@ -359,21 +358,13 @@ def input_message(prompt: str, image_bytes: bytes | None = None,
 
 
 def _run_claude(argv, payload, timeout, cwd):
+    from .provider_io import require_provider_child_ownership
+    require_provider_child_ownership()
     with subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.PIPE, text=True, env=_provider_env(), cwd=cwd,
                           start_new_session=(os.name == 'posix')) as proc:
-        try:
-            stdout, stderr = proc.communicate(input=payload, timeout=timeout)
-        except BaseException:
-            if os.name == 'posix':
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            else:
-                proc.kill()
-            proc.wait()
-            raise
+        from .provider_io import communicate_owned_provider
+        stdout,stderr=communicate_owned_provider(proc,input=payload,timeout=timeout)
         return proc.returncode, stdout, stderr
 
 
@@ -432,10 +423,19 @@ def claude_result(prompt: str, *, model: str | None = None, timeout: float = 120
                     raise ClaudeProtocolError('provider initiated model fallback') from None
                 raise
     except Exception as exc:
+        if isinstance(exc,subprocess.TimeoutExpired):
+            from .provider_io import bounded_output_text
+            partial=bounded_output_text(exc.output)
+            if partial is not None:
+                try:fields=parse_claude_events(partial,session_id)
+                except (ClaudeProtocolError,RecursionError):pass
+        fields.pop('text',None)
         status = 'timeout' if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)) else 'error'
         reason = getattr(exc, 'reason', None)
         error = (ProviderError(reason, {'not_logged_in': 'Claude CLI is not logged in — run `claude /login`',
                                         'usage_limit': 'Claude usage limit reached',
+                                        'unsupported_client': 'Model service does not support this client',
+                                        'authentication_failed': 'Model authentication failed',
                                         'organization_access_disabled': 'Organization has disabled Claude Code subscription access'}[reason])
                  if reason else
                  ProviderError(getattr(exc, 'code', type(exc).__name__), 'Claude request exceeded deadline' if status == 'timeout'

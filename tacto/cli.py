@@ -3,6 +3,8 @@
 Usage:
   tacto doctor            # check/guide permissions
   tacto apps              # list running apps (GUI session check)
+  tacto document-attachments <canonical path> --helper
+      (read live attachment positions/references; does not verify payload bytes)
   tacto list              # list saved flows (+ where the IR lives)
   tacto show <name>       # print a flow's IR (JSON)
   tacto compile "<intent>"        # STAGE 1: intent -> Flow IR (uses a model)
@@ -14,6 +16,12 @@ Usage:
       (--strict turns off reading the request itself: only phrasings the
        patterns already know, and an honest "I did not understand" otherwise)
   tacto do "<intent>" --trace run.json   # …and record a reproducible trace
+  tacto run <flow.json> --journal-dir /absolute/private/run-directory
+      (do/run/replay: reserve input before dispatch; reuse this directory on
+       restart to refuse duplicate input. This does not automatically resume.)
+  tacto web-upload /absolute/private/config.json --scope name --check
+      (register immutable browser files; omit --check to review/approve and
+       verify independent receiving evidence; supports --journal-dir and --report)
   tacto parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   tacto run <flow.json>   # execute a Flow IR file directly (no intent step)
       (--helper routes through the signed Swift helper that holds the permissions)
@@ -43,17 +51,50 @@ Things it already knows how to do (tacto do "…"):
   “보고서.rtf” 로 저장해줘          이름을 정해 저장 — 확인을 묻습니다
 """
 
-import tacto as _runtime
-if getattr(_runtime, "__tacto_runtime__", None) is not True:
-    raise ImportError("tacto-runtime namespace conflict: use an isolated environment; another tacto package is installed")
+# Detect accidental co-installation with the unrelated PyPI tacto simulator.
+import tacto as _runtime_package
+if getattr(_runtime_package, "__tacto_runtime__", False) is not True:
+    raise ImportError("Tacto runtime namespace conflict; install tacto-runtime in an isolated environment")
 
 import json
 import re
 import sys
+from contextlib import ExitStack
+from contextvars import ContextVar
 
 from .agent import Agent
 from .store import FlowStore
 
+_execution_journal = ContextVar('nlc_execution_journal', default=None)
+
+
+class _JournalUnavailable(Exception):
+    pass
+
+
+def _journal_from(argv):
+    """Strip one explicit run directory before intent/recipe processing."""
+    import os
+    directory, rest, i = None, [], 0
+    while i < len(argv):
+        token = argv[i]
+        if token == '--journal-dir' or token.startswith('--journal-dir='):
+            if directory is not None:
+                raise ValueError('--journal-dir may be supplied only once')
+            if token == '--journal-dir':
+                i += 1
+                if i >= len(argv):
+                    raise ValueError('--journal-dir requires an absolute path')
+                value = argv[i]
+            else:
+                value = token.split('=', 1)[1]
+            if not os.path.isabs(value) or '\0' in value:
+                raise ValueError('--journal-dir requires an absolute path')
+            directory = value
+        else:
+            rest.append(token)
+        i += 1
+    return directory, rest
 
 
 
@@ -66,9 +107,23 @@ def _make_driver(argv):
         # place, so falling back to the in-process driver would run the task
         # with exactly the privileges the flag exists to avoid.
         from .helper import InheritedHelperDriver
-        return InheritedHelperDriver()
-    from .driver import Driver
-    return Driver()
+        driver = InheritedHelperDriver()
+    else:
+        from .driver import Driver
+        driver = Driver()
+    return _with_journal(driver)
+
+
+def _with_journal(driver):
+    scope = _execution_journal.get()
+    if scope is None:
+        return driver
+    from .dispatch_journal import DurableDispatchDriver
+    directory, stack = scope
+    try:
+        return stack.enter_context(DurableDispatchDriver(driver, directory))
+    except (OSError, ValueError):
+        raise _JournalUnavailable from None
 
 
 def _confirmer(argv):
@@ -222,48 +277,7 @@ def _load_recipe(name: str):
     return build() if build is not None else FlowStore().load(name)
 
 
-def _document_observation(driver, target, path):
-    """Pin before reading contents; never fall back to an app-wide tree."""
-    import os
-    import unicodedata
-    def refuse():
-        return {'type':'error','error':'document_scope_unavailable','effect':'not_started'}
-    normalize=lambda value:unicodedata.normalize('NFC',value)
-    required={'evidence.document_text.path_selector','observe.document_token'}
-    if target!='com.apple.TextEdit' or not required<=set(getattr(driver,'capabilities',())):
-        return refuse()
-    if (not isinstance(path,str) or not os.path.isabs(path) or '\0' in path
-            or normalize(os.path.realpath(path))!=normalize(path)):
-        return refuse()
-    try:
-        pin=driver.document_text(target,document_path=path,max_utf16_units=1_000_000)
-        if isinstance(pin, dict) and pin.get('type') == 'error':
-            out = refuse()
-            # Closed diagnostics only; never echo arbitrary document/backend text.
-            known = {'initial document selection is ambiguous or absent': 'document_not_unique',
-                     'document body is absent or ambiguous': 'document_body_not_unique',
-                     'AX text exceeds the UTF-16 budget': 'document_over_budget',
-                     'AXDocument unavailable': 'document_path_unreadable',
-                     'invalid document file URL': 'document_url_invalid',
-                     'document path is not canonical absolute': 'document_path_not_canonical',
-                     'AXValue and AXStringForRange disagree': 'document_text_inconsistent'}
-            out['reason'] = known.get(pin.get('detail'), 'document_pin_unavailable')
-            return out
-        if (not isinstance(pin,dict) or pin.get('type')!='document_text'
-                or not isinstance(pin.get('document_path'),str)
-                or normalize(pin['document_path'])!=normalize(path)
-                or not isinstance(pin.get('document_token'),str)
-                or not 0<len(pin['document_token'])<=128 or not pin['document_token'].strip()
-                or not isinstance(pin.get('text'), str) or pin.get('text_complete') is not True):
-            return refuse()
-        result=driver.observe(target,'tree_full',document_token=pin['document_token'])
-        if (not isinstance(result,dict) or result.get('type')!='observation'
-                or result.get('document_token')!=pin['document_token']
-                or not isinstance(result.get('tree'),str)):
-            return refuse()
-        return result
-    except Exception:
-        return refuse()
+from .document_scope import document_observation as _document_observation
 
 
 def document_window_view(tree: str, path: str) -> str | None:
@@ -275,8 +289,9 @@ def document_window_view(tree: str, path: str) -> str | None:
     observation's own, so a recipe can act on what is printed; select inside
     it with `"ancestor": "<the same path>"`.
     """
-    from .flow import Selector, _norm
-    want = _norm(path)
+    from .flow import Selector
+    import unicodedata
+    want = unicodedata.normalize('NFC',path)
     blocks, current = [], None
     for line in tree.splitlines():
         if line and not line[0].isspace():
@@ -285,14 +300,14 @@ def document_window_view(tree: str, path: str) -> str | None:
         elif current is not None:
             current.append(line)
     found = [b for b in blocks
-             if (lambda d: d is not None and _norm(d) == want)(Selector._attr(b[0], "Document"))]
+             if Selector._attr(b[0], "Document") == want]
     return "\n".join(found[0]) if len(found) == 1 else None
 
 
 def focused_window_view(tree: str) -> str:
     """The window being worked on, and only the titles of the others.
 
-    An agent reads this on every step. Printing every window cost Tacto twice
+    An agent reads this on every step. Printing every window cost NLC twice
     Sky's tokens on the same TextEdit task — 182 lines across 4 windows per
     look, three of them unrelated documents (2026-10-07). Element indices are
     unchanged, so nothing that refers to them breaks; `--all-windows` prints
@@ -307,7 +322,8 @@ def focused_window_view(tree: str) -> str:
             current.append(line)
     if len(blocks) <= 1:
         return tree
-    focused = [b for b in blocks if "[focused]" in b[0]]
+    from .document_label import window_flag, window_attributes
+    focused = [b for b in blocks if window_flag(b[0],"focused")]
     # Main and focused windows may both be marked (e.g. a parent and its dialog).
     # Without a unique focus, hiding every other block conceals valid controls.
     if len(focused) != 1:
@@ -316,6 +332,10 @@ def focused_window_view(tree: str) -> str:
     others = [b[0] for b in blocks if b is not keep]
     names = []
     for head in others:
+        attrs=window_attributes(head)
+        if attrs is not None:
+            names.append(attrs.get("Title","?"))
+            continue
         m = re.search(r"Title: (.*?)(?:, \w+:|\s*\[|$)", head)
         names.append(m.group(1) if m else head.split()[1] if len(head.split()) > 1 else "?")
     return ("\n".join(keep) + f"\n… 다른 창 {len(others)}개: " + ", ".join(names[:8])
@@ -360,7 +380,13 @@ def _indicator_for(target, argv):
     return Indicator(pid, notify=lambda m: print(f"  {m}"))
 
 
-def _run_flow(flow, argv, walked: bool = False):
+def _emit_pin_diagnostic(reason):
+    from .pin_diagnostic import format_pin_diagnostic
+    line = format_pin_diagnostic(reason)
+    if line is not None:print(line)
+
+
+def _run_flow(flow, argv, walked: bool = False, *, _driver=None, _confirm=None, _on_result=None, _auto_params=None, _replay_seed=None, _replay_secrets=(), _replay_sensitive_names=frozenset()):
     """All direct replay commands use the same consent and trace path.
 
     And the same judgment as `tacto do`: a recipe promoted from a walk may ask
@@ -368,13 +394,60 @@ def _run_flow(flow, argv, walked: bool = False):
     `--think 0` turns it off. Before this, the same recipe re-aimed its way
     past Calculator's `Clear`/`All Clear` under `do` and failed under `replay`.
     """
+    if '--auto-repair' in argv or '--max-repairs' in argv or '--repair-timeout' in argv:
+        from .auto_repair import parse_options, RepairRefused
+        try:clean,automatic=parse_options(argv)
+        except RepairRefused as exc:
+            print(str(exc));return 2
+        try:flow.bind(**(_auto_params or {}))
+        except (ValueError,TypeError,KeyError,ArithmeticError):
+            print('invalid_parameters: provide defaults in params or -p name=value');return 2
+        from .flow_batch import BatchDriver
+        driver=_driver if isinstance(_driver,BatchDriver) else BatchDriver(_driver or _make_driver(clean))
+        try:
+            code,_=automatic.run(flow,_auto_params or {},clean,driver=driver,run_flow=_run_flow,emit=print)
+            return code
+        finally:
+            if _driver is None:driver.close()
+
     from .flow import replay
+    import time
+    timing_started = time.monotonic() if "--timings" in argv else None
     think = 1 if walked else 0
     if "--think" in argv:
         k = argv.index("--think")
         nxt = argv[k + 1] if k + 1 < len(argv) else ""
         think = int(nxt) if nxt.isdigit() else 1
-    driver = _make_driver(argv)
+    document = None
+    if "--document" in argv:
+        k=argv.index("--document")
+        if argv.count("--document")!=1 or k+1>=len(argv) or not argv[k+1].startswith("/") or "--all-windows" in argv:
+            print("--document requires one canonical absolute path")
+            return 2
+        document=argv[k+1]
+        if flow.target!='com.apple.TextEdit':
+            print("document_scope_unavailable: --document requires com.apple.TextEdit")
+            return 2
+    repair_path = None
+    if '--repair-packet' in argv:
+        k=argv.index('--repair-packet')
+        import os
+        if argv.count('--repair-packet')!=1 or k+1>=len(argv) or not os.path.isabs(argv[k+1]) or os.path.lexists(argv[k+1]):
+            print('repair_packet: use one absolute new output path');return 2
+        repair_path=argv[k+1]
+    driver = _driver if _driver is not None else _make_driver(argv)
+    timed_driver = None
+    if document is not None:
+        from .document_scope import DocumentScopedDriver, DocumentScopeUnavailable
+        try:driver=DocumentScopedDriver(driver,flow.target,document)
+        except DocumentScopeUnavailable as exc:
+            _emit_pin_diagnostic(exc.pin_reason)
+            print(f"document_scope_unavailable: {exc}")
+            return 1
+    if timing_started is not None:
+        from .runtime_timing import TimedDriver
+        timed_driver = TimedDriver(driver)
+        driver = timed_driver
     trace_path = None
     tracer = None
     if "--trace" in argv:
@@ -396,7 +469,8 @@ def _run_flow(flow, argv, walked: bool = False):
         tracer = TracingDriver(driver, Trace(flow=flow.name, target=flow.target))
         driver = tracer
     agent = Agent(driver=driver)
-    approvals, blocked = agent.authorize(flow, ask=_confirmer(argv))
+    confirmer = _confirmer(argv) if _confirm is None else _confirm
+    approvals, blocked = agent.authorize(flow, ask=confirmer)
     if blocked:
         print("\n".join(blocked))
         return 1
@@ -405,6 +479,11 @@ def _run_flow(flow, argv, walked: bool = False):
     except Exception as exc:
         print(f"저장 결과 검증 준비 실패: {exc}")
         return 1
+    if _on_result is not None:
+        hooks = {**hooks, '_retain_continuation':True}
+    if _replay_seed is not None:
+        hooks = {**hooks, '_seed':_replay_seed, '_seed_secrets':_replay_secrets,
+                           '_seed_sensitive_names':_replay_sensitive_names}
     # A plain replay stays model-free. Only a recipe that PLANS a judgment
     # gets something to ask, and only for those steps.
     decider = None
@@ -427,9 +506,29 @@ def _run_flow(flow, argv, walked: bool = False):
         judge = model_judge(target=flow.target, provider=provider,
                             narrate=lambda s: print(f"  {s}"))
     with _indicator_for(flow.target, argv):
-        result = replay(driver, flow, approvals=approvals,
-                        narrate=lambda text: print(f"  … {text}"), decide=decider,
-                        confirm=_confirmer(argv), escalate=judge, budget=think, **hooks)
+        replay_started = time.monotonic()
+        try:
+            result = replay(driver, flow, approvals=approvals,
+                            narrate=lambda text: print(f"  … {text}"), decide=decider,
+                            confirm=confirmer, escalate=judge, budget=think, **hooks)
+        finally:
+            if timed_driver is not None:
+                report = timed_driver.snapshot()
+                report["replay_seconds"] = round(time.monotonic() - replay_started, 6)
+                report["run_flow_seconds"] = round(time.monotonic() - timing_started, 6)
+                print("TACTO_TIMINGS " + json.dumps(report, separators=(',', ':')), file=sys.stderr)
+    if _on_result is not None:
+        _on_result(result)
+    if repair_path is not None:
+        from .repair_packet import packet_for
+        packet=packet_for(flow,result)
+        if packet is not None:
+            from .storage import write_private
+            try:
+                write_private(repair_path,json.dumps(packet,ensure_ascii=False,separators=(',',':')),overwrite=False)
+                print('TACTO_REPAIR_PACKET ' + repair_path)
+            except OSError:
+                print('repair_packet_write_failed; task remains failed, do not resend')
     if tracer:
         print(f"트레이스 저장: {tracer.trace.save(trace_path)}")
     from .preparation_diagnostic import MARKER, preparation_diagnostic
@@ -449,15 +548,23 @@ def _run_flow(flow, argv, walked: bool = False):
         print("done" + (f" — 결과: {shown}" if shown else ""))
     else:
         last = result.log[-1] if result.log else {}
-        if last.get("error") == "commit_unverified" and last.get("effect") == "unknown":
-            # Not "it failed": the input was sent, and nothing can prove it
-            # was KEPT — an unsaved document has no file to read back. Said
-            # plainly, because the raw record sent an agent round three more
-            # times looking for what went wrong (2026-10-07).
-            print("unverified — 입력은 보냈지만 저장된 파일이 없어 확인 영수증이 없습니다 "
-                  "(저장하지 않은 문서라면 정상). 내용은 `tacto observe <앱>` 으로 확인하세요.\n"
-                  "  TextEdit 의 .txt 문서를 저장·확인하려면: tacto replay textedit_save "
-                  "-p document=<절대 경로> -p name=<파일 이름> --helper --yes\n"
+        saved_state = any(e.get('saved_state_verified') for e in getattr(result,'events',()))
+        if last.get('detail') == 'saved_state_does_not_confirm_dispatch':
+            print('unverified — 저장된 파일 내용은 확인했지만 저장 요청의 실행 여부는 확인하지 못했습니다.\n'
+                  f'  detail: {last}')
+        elif last.get("stage") in ("verify_observe", "recovery_observe", "visual_step") and saved_state:
+            print('failed — 저장된 파일 내용은 확인했지만 이후 화면을 읽지 못해 작업을 중단했습니다.\n'
+                  f'  detail: {last}')
+        elif last.get("stage") in ("verify_observe", "recovery_observe", "visual_step") and result.commit_evidence:
+            print(f"failed — 변경 {len(result.commit_evidence)}건은 영수증으로 확인했지만, "
+                  "이후 화면을 읽지 못해 작업을 중단했습니다.\n"
+                  f"  detail: {last}")
+        elif last.get("error") == "commit_unverified" and last.get("effect") == "unknown":
+            # Missing receipt says nothing about whether a file exists, which
+            # action wrote it, or whether this was a Save at all. Persistent
+            # set_value and other consequential actions use this branch too.
+            print("unverified — 변경 완료를 확인할 호스트 영수증이 없습니다. 실행 효과는 미확정입니다.\n"
+                  "  같은 동작을 다시 실행하지 말고 해당 대상의 현재 상태를 읽어 확인하세요.\n"
                   f"  detail: {last}")
         else:
             print(f"failed: {last}")
@@ -470,6 +577,11 @@ def _main(argv=None):
         print(__doc__)
         return 0
     cmd, *rest = argv
+    from .command_help import command_help
+    help_text = command_help(cmd, rest)
+    if help_text is not None:
+        print(help_text)
+        return 0
 
     # Wheels do not include source-only evaluator fixtures. Report that before
     # importing native GUI dependencies, which an isolated install may lack.
@@ -485,13 +597,13 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "observe", "run", "replay", "do", "eval"):
+    if cmd in ("doctor", "apps", "observe", "session", "batch", "document-attachments", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         from .session import SANDBOXED, sandboxed
         if sandboxed():
             print(SANDBOXED)
             return 3
         # Hold the display awake for as long as this command runs. Only `do`
-        # did, but an agent drives Tacto one command at a time — observe, run,
+        # did, but an agent drives NLC one command at a time — observe, run,
         # replay — and with this Mac's 3-minute screensaver lock the screen
         # locked in the middle of its work (2026-09-28). Release the assertion
         # when this invocation ends, even when main is called in a long-lived
@@ -504,6 +616,52 @@ def _main(argv=None):
 
 
 def _dispatch(cmd, rest):
+    try:
+        directory, rest = _journal_from(rest)
+    except ValueError as exc:
+        print(str(exc))
+        return 2
+    if directory is None:
+        # Nested `do <IR file>` dispatch retains its enclosing run's barrier.
+        return _dispatch_command(cmd, rest)
+    if cmd not in ('do', 'run', 'replay', 'web-upload'):
+        print('--journal-dir is supported only for do/run/replay/web-upload')
+        return 2
+    with ExitStack() as stack:
+        token = _execution_journal.set((directory, stack))
+        try:
+            return _dispatch_command(cmd, rest)
+        except _JournalUnavailable:
+            print('dispatch_journal_unavailable — private owned journal directory required')
+            return 2
+        finally:
+            _execution_journal.reset(token)
+
+
+def _dispatch_command(cmd, rest):
+    from .command_help import command_help
+    help_text = command_help(cmd, rest)
+    if help_text is not None:
+        print(help_text)
+        return 0
+
+    if cmd == 'repair':
+        from .repair_packet import main as repair_main
+        return repair_main(rest)
+
+    if cmd == 'batch':
+        from .flow_batch import run_batch
+        return run_batch(rest, make_driver=_make_driver, run_flow=_run_flow,
+                         stdin=sys.stdin, emit=lambda text:print(text,flush=True))
+
+    if cmd == 'session':
+        from .flow_session import run_session
+        return run_session(rest, make_driver=_make_driver, run_flow=_run_flow,
+                           stdin=sys.stdin, emit=lambda text: print(text, flush=True))
+
+    if cmd == 'web-upload':
+        from .web_upload_cli import main as upload_main
+        return upload_main(rest, wrap_driver=_with_journal)
 
     if cmd == "doctor":
         from . import onboard
@@ -548,7 +706,11 @@ def _dispatch(cmd, rest):
         return 0
 
     if cmd == "observe":
-        usage = "usage: observe <bundle-id> [--helper] [--all-windows | --document <absolute path>]"
+        usage = "usage: observe <bundle-id> [--helper] [--json] [--all-windows | --document <absolute path>]"
+        structured = "--json" in rest
+        if rest.count("--json") > 1:
+            print(usage)
+            return 2
         document = None
         if "--document" in rest:
             k = rest.index("--document")
@@ -560,7 +722,7 @@ def _dispatch(cmd, rest):
             if not document.startswith("/"):
                 print(usage)
                 return 2
-        targets = [value for value in rest if value not in ("--helper", "--all-windows")]
+        targets = [value for value in rest if value not in ("--helper", "--all-windows", "--json")]
         if len(targets) != 1 or targets[0].startswith("-"):
             print(usage)
             return 2
@@ -570,9 +732,20 @@ def _dispatch(cmd, rest):
         driver=_make_driver(rest)
         o = (_document_observation(driver,targets[0],document) if document is not None
              else driver.observe(targets[0], "tree_full"))
+        if structured:
+            try:
+                encoded=json.dumps(o,ensure_ascii=False,allow_nan=False)
+            except (TypeError,ValueError,OverflowError):
+                print('{"type":"error","error":"observation_serialization_failed"}')
+                return 1
+            print(encoded)
+            return 0 if o.get("type") == "observation" else 1
         if o["type"] != "observation":
-            reason = o.get("reason")
+            if document is not None:_emit_pin_diagnostic(o.get('pin_reason_code'))
+            reason = o.get("reason_code") if document is not None else o.get("reason")
             suffix = f" (reason={reason})" if reason else ""
+            if document is not None and o.get('pin_reason_code'):
+                suffix += f" (pin_reason={o['pin_reason_code']})"
             print(f"{o.get('error')}{suffix}: {o.get('detail','')}")
             return 1
         if document is not None:
@@ -581,15 +754,68 @@ def _dispatch(cmd, rest):
         print(o["tree"] if "--all-windows" in rest else focused_window_view(o["tree"]))
         return 0
 
+    if cmd == "vroid-focus":
+        from .vroid_focus import main as focus_main
+        return focus_main(rest, _make_driver(rest))
+
+    if cmd == "vroid-drag":
+        from .vroid_drag import main as drag_main
+        return drag_main(rest, _make_driver(rest))
+
+    if cmd == "document-attachments":
+        if len(rest) != 2 or rest.count('--helper') != 1:
+            print('usage: document-attachments <canonical TextEdit document path> --helper')
+            return 2
+        path = next(value for value in rest if value != '--helper')
+        try:
+            from .native_document import validate_document_selection_path
+            validate_document_selection_path(path)
+        except (ValueError, TypeError):
+            print('{"type":"error","error":"invalid_document_selector"}')
+            return 2
+        driver = _make_driver(rest)
+        text = driver.document_text('com.apple.TextEdit', document_path=path, max_utf16_units=100000)
+        unavailable = {'type':'error','error':'document_attachment_metadata_unavailable','effect':'not_started'}
+        if text.get('type') != 'document_text' or text.get('document_path') != path:
+            result = unavailable
+        else:
+            result = driver.document_attachment_metadata('com.apple.TextEdit', text['document_token'])
+            import hashlib
+            encoded = text['text'].encode('utf-16-le')
+            positions = [i//2 for i in range(0, len(encoded), 2) if encoded[i:i+2] == b'\xfc\xff']
+            if (result.get('type') != 'document_attachment_metadata' or result.get('document_path') != path
+                    or result.get('text_sha256') != hashlib.sha256(text['text'].encode('utf-8')).hexdigest()
+                    or result.get('utf16_length') != len(encoded)//2
+                    or [row['utf16_index'] for row in result.get('occurrences', [])] != positions):
+                result = unavailable
+        print(json.dumps(result, ensure_ascii=False, allow_nan=False))
+        return 0 if result.get('type') == 'document_attachment_metadata' else 1
+
     if cmd == "menu-state":
         # Read-only: is a menu item enabled for this app right now? A
         # background app often reports items disabled that work in front
         # (Save, New Folder — 2026-10-09); this makes that visible without
         # pressing anything.
         args = [value for value in rest if value != "--helper"]
+        wait_seconds=None
+        if '--wait-enabled' in args:
+            try:
+                if args.count('--wait-enabled')!=1:raise ValueError()
+                index=args.index('--wait-enabled')
+                wait_seconds=float(args[index+1])
+                import math
+                if not math.isfinite(wait_seconds) or not 0<=wait_seconds<=60:raise ValueError()
+                del args[index:index+2]
+            except (ValueError,IndexError):
+                print('usage: --wait-enabled SECONDS (finite 0..60)');return 2
         if len(args) < 3 or args[0].startswith("-"):
-            print("usage: menu-state <bundle-id> <Menu> <Item> [<Submenu item> ...] [--helper]")
+            print("usage: menu-state <bundle-id> <Menu> <Item> [<Submenu item> ...] [--helper] [--wait-enabled SECONDS]")
             return 2
+        if wait_seconds is not None:
+            from .menu_readiness import wait_menu_enabled
+            result=wait_menu_enabled(_make_driver(rest),args[0],args[1:],timeout_seconds=wait_seconds)
+            print(json.dumps(result.to_dict(),ensure_ascii=False))
+            return 0 if result.state=='ready' else 1
         result = _make_driver(rest).menu_state(args[0], args[1:])
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get("type") == "menu_state" else 1
@@ -735,7 +961,9 @@ def _dispatch(cmd, rest):
         if not rest:
             from .authoring import PROVIDER_ORDER
             print('usage: compile "<intent>" [-o <flow.json>] [--verify] '
-                  '[--compile-engine claude|codex|opencode|cxweb]')
+                  '[--repair-rounds N] [--compile-engine claude|codex|opencode|cxweb]')
+            print('  무효 레시피는 실행 없이 기본 최대 1회 모델에 수정 요청합니다. '
+                  '--repair-rounds 0으로 추가 호출을 끕니다.')
             print('  --verify[ --verify-rounds N]: 만든 레시피를 실행해 보고, 실패하면 '
                   '그 이유를 모델에 돌려주어 N번까지 고칩니다 (화면을 조작합니다)')
             print('  기본 auto — 시도 순서: ' + ' -> '.join(PROVIDER_ORDER))
@@ -745,11 +973,18 @@ def _dispatch(cmd, rest):
         # promises not to touch the screen.
         verify = "--verify" in rest
         rounds = 1
-        if "--verify-rounds" in rest:
-            k = rest.index("--verify-rounds")
-            rounds = int(rest[k + 1]) if k + 1 < len(rest) else 1
-            verify = True
-            rest = rest[:k] + rest[k + 2:]
+        if '--repair-rounds' in rest and '--verify-rounds' in rest:
+            print('choose --repair-rounds or --verify-rounds')
+            return 2
+        for flag in ('--repair-rounds', '--verify-rounds'):
+            if flag in rest:
+                k = rest.index(flag)
+                if rest.count(flag) != 1 or k + 1 >= len(rest) or not rest[k+1].isascii() or not rest[k+1].isdigit():
+                    print(f'{flag} requires a nonnegative integer')
+                    return 2
+                rounds = int(rest[k+1])
+                verify = verify or flag == '--verify-rounds'
+                rest = rest[:k] + rest[k+2:]
         words = [w for w in rest if w != "--verify"]
         for flag, setter in (("-o", "out"), ("--provider", "provider"),
                              ("--compile-engine", "provider"), ("--engine", "provider")):
@@ -796,8 +1031,11 @@ def _dispatch(cmd, rest):
                 _, _, expr = w.partition("=")
                 name, _, rhs = expr.partition("=") if "=" in expr else ("result", "", expr)
                 derived[name or "result"] = rhs or expr
-        flow = (_F.from_json(open(src, encoding="utf-8").read())
-                if _os.path.exists(src) else FlowStore().load(src))
+        if _os.path.exists(src):
+            with open(src, encoding="utf-8") as source:
+                flow = _F.from_json(source.read())
+        else:
+            flow = _load_recipe(src)
         tmpl = _par(flow, params, tables=_dt() if "--digits" in words else None,
                     derived=derived or None)
         if out:
@@ -817,7 +1055,7 @@ def _dispatch(cmd, rest):
         if not rest or rest[0] in ("--help", "-h", "help"):
             # `--help` used to be opened as a file and crash with
             # FileNotFoundError — the first thing an agent tries (2026-10-07).
-            print('usage: run <flow.json> [-p a=12 -p b=34] [--helper] [--yes] [--think N]\n'
+            print('usage: run <flow.json> [-p a=12 -p b=34] [--helper] [--yes] [--think N] [--document /absolute/path] [--journal-dir /absolute/private/run]\n'
                   '  built-in recipes: tacto list · tacto show <name> · tacto replay <name> -p key=value')
             return 2 if not rest else 0
         from .flow import Flow as _F, replay as _replay
@@ -827,11 +1065,18 @@ def _dispatch(cmd, rest):
         except (OSError, ValueError, TypeError, KeyError) as exc:
             # The author is a model reading this output; a traceback buries
             # the one line that says which field is wrong.
-            print(f"invalid_flow: {rest[0]}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            from .flow_errors import feedback
+            print("invalid_flow: " + feedback(exc), file=sys.stderr)
             return 2
         walked = bool(flow.intents)
+        if '--auto-repair' in rest:
+            return _run_flow(flow,rest,walked=walked,_auto_params=params)
         if flow.params or flow.tables or flow.derived or params:
-            flow = flow.bind(**params)          # parameterized recipe
+            try:
+                flow = flow.bind(**params)
+            except (ValueError, TypeError, KeyError, ArithmeticError):
+                print('invalid_parameters: provide defaults in params or -p name=value; placeholders use {{name}}', file=sys.stderr)
+                return 2
         return _run_flow(flow, rest, walked=walked)
 
     if cmd == "replay":
@@ -839,11 +1084,13 @@ def _dispatch(cmd, rest):
             print("usage: replay <name>"); return 2
         params, rest = _params_from(rest)
         if not rest or rest[0] in ("--help", "-h", "help"):
-            print("usage: replay <name> [-p a=12 -p b=34] [--helper] [--yes] [--think N]\n"
+            print("usage: replay <name> [-p a=12 -p b=34] [--helper] [--yes] [--think N] [--document /absolute/path] [--journal-dir /absolute/private/run]\n"
                   "  names: tacto list · inputs and steps: tacto show <name>")
             return 2 if not rest else 0
         flow = _load_recipe(rest[0])
         walked = bool(flow.intents)      # binding drops it; decide first
+        if '--auto-repair' in rest:
+            return _run_flow(flow,rest,walked=walked,_auto_params=params)
         if flow.params or flow.tables or flow.derived or params:
             flow = flow.bind(**params)
         return _run_flow(flow, rest, walked=walked)
@@ -1009,7 +1256,7 @@ def _dispatch(cmd, rest):
             if hit and _S().has(hit.name):
                 guess = _S().load(hit.name).target
             elif hit and hit.name in builders():
-                # A recipe that ships with Tacto but has not been saved yet still
+                # A recipe that ships with NLC but has not been saved yet still
                 # deserves the outline — otherwise the very first run of a task
                 # is the one run nobody can see or stop.
                 guess = builders()[hit.name]().target
@@ -1031,8 +1278,8 @@ def _dispatch(cmd, rest):
 def main(argv=None):
     try:
         return _main(argv)
-    except FlowStore.MigrationRequired as error:
-        print(f"migration_required: {error}", file=sys.stderr)
+    except FlowStore.MigrationRequired as exc:
+        print(f"migration_required: {exc}", file=sys.stderr)
         return 2
 
 

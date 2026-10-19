@@ -101,7 +101,12 @@ accepts only a typed native capture and `{action: "click", x, y}` in image pixel
 The trusted `authorize(proposal, capture)` callback must return boolean `True`.
 The backend must declare all three point capabilities before input; generic
 acted replies without the complete expected-window native receipt stay unknown.
-Each capture is single use, including refused attempts. Before input, it takes
+Each capture ID is single use for the worker process lifetime, including refused
+attempts and copied captures after object collection. An atomic bounded registry
+retains IDs only (128 characters maximum), not image bytes. At 16,384 IDs, new
+attempts stop with capture_ledger_full; no old ID is evicted. The registry is not
+durable across process restart and is not operation completion evidence.
+Before input, it takes
 a fresh picture under the same observation and compares PID, native window ID,
 index, frame, image size and hash. It converts x by frame width/image width and y
 by frame height/image height, then calls public `click_point` with explicit host

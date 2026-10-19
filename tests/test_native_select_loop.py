@@ -42,6 +42,41 @@ class Popup:
 
 
 class NativeSelectLoopTests(unittest.TestCase):
+    def test_clipped_option_is_rejected_by_planner_and_executor_before_input(self):
+        class Clipped(Popup):
+            def observe(self,*args,**kwargs):
+                obs=super().observe(*args,**kwargs)
+                obs['custom_selects']['1']['options'][1].update(visible=False,scroll_direction='down')
+                return obs
+        driver=Clipped();driver.opened=True
+        def planner(goal,candidates,done):
+            pick=next(i for i,c in enumerate(candidates) if c['match']=='Choice')
+            answer={'actions':[{'pick':pick,'do':'select_custom_option','option_label':'Beta'}]}
+            q=what_to_do_here(goal,candidates,done)
+            self.assertIn('visible=false',q.prompt)
+            self.assertIsNone(q.check(answer))
+            answer['actions'][0]['candidate']=candidates[pick]
+            return answer
+        result=run(driver,'native','Choose Beta',planner)
+        self.assertFalse(result.ok)
+        self.assertEqual([],driver.calls)
+
+    def test_observable_list_without_receiving_route_does_not_offer_selection(self):
+        class UnsupportedRoute(Popup):
+            def observe(self,*args,**kwargs):
+                obs=super().observe(*args,**kwargs)
+                obs['custom_selects']['1']['selection_supported']=False
+                return obs
+        driver=UnsupportedRoute();driver.opened=True;seen=[]
+        def planner(goal,candidates,done):
+            seen.extend(candidates)
+            return {'done':False,'actions':[]}
+        run(driver,'native','Choose Beta',planner,max_screens=1)
+        choice=next(c for c in seen if c['match']=='Choice')
+        self.assertNotIn('select_custom_option',choice['can'])
+        self.assertNotIn('open_select',choice['can'])
+        self.assertEqual([],driver.calls)
+
     def planner(self, seen):
         def plan(goal, candidates, done):
             seen.append(candidates)
@@ -110,3 +145,26 @@ class NativeSelectLoopTests(unittest.TestCase):
         self.assertTrue(d.opened)
         recover.assert_not_called()
         self.assertEqual('unknown',result.events[-1]['state'])
+
+    def test_explicit_opening_replays_only_with_native_capability(self):
+        flow=Flow('explicit native opening','native',[
+            Step('open_select',Selector(role='PopUpButton',title='Choice'),params={'opening_action':'AXPress'},
+                 safety=SafetyContract(effects=['write_ephemeral'],resource=Resource(scope='entry'),reversibility='reversible'))])
+        for supported in (False,True):
+            driver=Popup()
+            if supported:driver.capabilities=driver.capabilities|{'action.open_select.explicit_ax'}
+            result=replay(driver,flow,budget=2)
+            if supported:
+                self.assertTrue(result.ok,result.log)
+                self.assertEqual('AXPress',driver.calls[0][1]['opening_action'])
+            else:
+                self.assertFalse(result.ok);self.assertEqual([],driver.calls)
+                self.assertEqual('explicit_opening_contract_required',result.log[-1]['error'])
+
+    def test_explicit_opening_invalid_literal_is_refused_at_parse_and_replay(self):
+        for value in (None,True,[],{},'AXCancel','{{mechanism}}'):
+            raw={'name':'bad','target':'native','steps':[{'action':'open_select','params':{'opening_action':value}}]}
+            with self.assertRaisesRegex(ValueError,'invalid_opening_action'):Flow.from_json(__import__('json').dumps(raw))
+            driver=Popup();driver.capabilities=driver.capabilities|{'action.open_select.explicit_ax'}
+            result=replay(driver,Flow('bad','native',[Step('open_select',params={'opening_action':value})]),budget=2)
+            self.assertFalse(result.ok);self.assertEqual([],driver.calls)

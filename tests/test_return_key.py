@@ -249,7 +249,7 @@ for (name, tree) in cases { out[name] = run(tree) }
 out["deadline spent"] = returnTargetRefusal(el(1), read: boundedAXRead(until: 0)) ?? "ALLOWED"
 print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='tacto-return-judge-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-return-judge-') as directory:
             script = pathlib.Path(directory) / 'main.swift'
             script.write_text(harness)
             result = subprocess.run(['swift', str(script)], capture_output=True, text=True, timeout=120)

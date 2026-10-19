@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
 
-from tacto.native_document import TextEditDocumentReader, DocumentSnapshotError
+from tacto.native_document import TextEditDocumentReader, DocumentSnapshotError, _document_path
 
 
 class Adapter:
@@ -40,6 +40,23 @@ class Adapter:
 
 
 class NativeDocumentTests(unittest.TestCase):
+    def test_package_url_terminal_slash_requires_existing_canonical_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            package = root / '문서 😀.rtfd'
+            package.mkdir()
+            regular = root / 'regular.rtf'
+            regular.write_text('owned')
+            link = root / 'link.rtfd'
+            link.symlink_to(package, target_is_directory=True)
+            self.assertEqual(_document_path((0, package.as_uri() + '/')), str(package))
+            for url in [package.as_uri() + '//', package.as_uri() + '/./',
+                        link.as_uri() + '/', regular.as_uri() + '/',
+                        (root / 'missing.rtfd').as_uri() + '/',
+                        package.as_uri() + '%2f']:
+                with self.subTest(url=url), self.assertRaises(DocumentSnapshotError):
+                    _document_path((0, url))
+
     def setUp(self):
         self.adapter = Adapter()
         self.reader = TextEditDocumentReader(self.adapter)
@@ -399,12 +416,14 @@ class DriverDocumentTextTests(unittest.TestCase):
         driver._showing_control = Mock()
         driver._custom_selects = Mock(return_value={})
         obs = SimpleNamespace(target='com.apple.TextEdit', pid=10, obs_id='owned',
-                              elements=[window], lines=['owned'], truncated=False, walk=Mock())
+                              elements=[window], lines=[], visited=0, truncated=False, walk=Mock())
+        obs.walk.side_effect = lambda *args, **kwargs: obs.lines.append('owned')
         with patch('tacto.driver.Observation', return_value=obs), patch('tacto.driver.CFEqual', side_effect=lambda a,b:a is b), patch('tacto.driver._attr', return_value=False), patch('tacto.driver._real_windows') as all_windows:
             reply = driver.observe('com.apple.TextEdit', mode='tree_full', document_token='token')
             self.assertEqual(reply['document_token'], 'token')
             all_windows.assert_not_called()
-            obs.walk.assert_called_once_with(window)
+            obs.walk.assert_called_once()
+            self.assertEqual((window,), obs.walk.call_args.args)
             driver._document_reader.window_for_token.side_effect = DocumentSnapshotError('stale')
             driver._mismatch = Mock()
             driver._perform = Mock()

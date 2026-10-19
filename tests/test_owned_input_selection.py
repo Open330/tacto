@@ -12,6 +12,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(importlib.util.find_spec('ApplicationServices'), 'PyObjC unavailable')
 class OwnedInputSelectionTests(unittest.TestCase):
+    def test_visual_journal_requires_fixed_visual_flow_before_driver_or_output(self):
+        probe=runpy.run_path(str(ROOT/'examples/probes/native-opaque-input.py'))['main']
+        for changes in ({'journal_barrier':1},{'journal_barrier':True},
+                        {'journal_barrier':True,'visual_flow':True,'vision_provider':'codex'}):
+            with patch('tacto.driver.Driver') as driver,patch('os.open') as output:
+                with self.assertRaises(ValueError):probe('unused',**changes)
+                driver.assert_not_called();output.assert_not_called()
+
+    def test_opaque_report_collision_prevents_fixture_and_early_failure_is_private(self):
+        probe=runpy.run_path(str(ROOT/'examples/probes/native-opaque-input.py'))['main']
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/'report.json';output.write_text('existing evidence')
+            with patch('tacto.driver.Driver') as driver,patch('subprocess.Popen') as child:
+                with self.assertRaises(FileExistsError):probe(output)
+                driver.assert_not_called();child.assert_not_called()
+            self.assertEqual('existing evidence',output.read_text())
+            output.unlink()
+            with patch('tacto.driver.Driver',side_effect=RuntimeError('PRIVATE')):
+                with self.assertRaises(RuntimeError):probe(output)
+            self.assertEqual({'passed':False,'error_class':'RuntimeError'},json.loads(output.read_text()))
+            self.assertEqual(0o600,output.stat().st_mode&0o777)
+
     def test_missing_selection_blocks_fixture_start_and_provider_work(self):
         from tacto.input_audit_process import InputAuditProcessError
         from tacto.native_window_payload import WINDOW_INPUT_CAPABILITIES

@@ -13,3 +13,12 @@ signed 경로는 양수·유한값·420초 이하인 `timeout_seconds`를 검증
 검증: 관련15개 테스트는 예산 감소, 1초 미만 fallback, witness timeout 후 UI0회, 실제 가짜 지연 프로세스 종료, 막힌 socket write/read, 늦은 응답 뒤 채널 폐기, 실제 소스에서 추출한 Swift의 stdin/stdout/프로세스 종료 경계를 검사합니다. 실제 provider 호출이나 UI 동작은 사용하지 않았습니다. 전체 기본 unittest449개(381 PASS/68 SKIP), offline54/54 PASS. Swift 타입 검사·런처 재빌드·strict 서명검사·signed help 실행을 확인했습니다. 전체 웹 suite와 실제 provider의 signed timeout은 이번 변경 후 재실행하지 않았습니다.
 
 후속 정상 경로 확인: Claude+signed launcher+helper의 실제 AppKit 선택 시험1회가25.2초에 성공했습니다. 이는 새 IPC 필드를 포함한 정상 호출의 통합 검사이며 실제 provider timeout/원격 취소 검증은 아닙니다. 원시 기록은 선택 검증 보고서(비공개 로컬 기록: `reviews/2026-09-19/native-select-preservation.md`; 공개 원본 미포함)에 있습니다.
+
+2026-10-19 후속: 브라우저 `run_visual`도 planner를 같은 context-local
+`model_deadline`으로 실행한다. 이전에는 native visual과 달리 전체 남은 시간보다
+긴 기본 모델 제한을 사용할 수 있었다. 더 짧은 바깥 deadline은 유지하며,
+planner 예외 뒤 이미 deadline·취소 조건이 성립하면 STOPPED 사유를 우선한다.
+실제 run_visual→plan_visual→query_visual 경로에서 CLI만 대역으로 바꿔 남은6초·
+바깥 제한1초 전달, 만료 뒤 클릭0·재시도0·context 복원을 검사했다. 기존 browser/
+native visual을 포함한28개 회귀가12.109초에 통과했고 피어
+`req_18dfa78f690ac088_5e`에서 승인받았다. 원격 추론 취소 보장은 여전히 아니다.

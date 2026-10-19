@@ -453,7 +453,7 @@ def run_case(case: Case, use_model: bool = False):
     # Nobody is at the keyboard: an unanswered question is a no, which is what
     # a confirmation means when there is no one to give it.
     try:
-        with tempfile.TemporaryDirectory(prefix="tacto-corpus-") as scratch:
+        with tempfile.TemporaryDirectory(prefix="nlc-corpus-") as scratch:
             candidates = CandidateStore(scratch + "/candidates")
             with patch("tacto.promote.CandidateStore", return_value=candidates):
                 agent = Agent(driver=world, store=FlowStore(scratch + "/flows"),

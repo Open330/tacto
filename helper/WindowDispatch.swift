@@ -9,7 +9,8 @@ import Darwin
 struct NativeUserInputState {
     let foreground: pid_t
     let pointer: CGPoint
-    let focused: AXUIElement
+    // nil means AX explicitly reported noValue, never an unreadable attribute.
+    let focused: AXUIElement?
     func matches(_ other: NativeUserInputState) -> Bool {
         differences(other).isEmpty
     }
@@ -17,7 +18,11 @@ struct NativeUserInputState {
         var fields: [String] = []
         if foreground != other.foreground { fields.append("foreground") }
         if pointer != other.pointer { fields.append("pointer") }
-        if !CFEqual(focused, other.focused) { fields.append("focus") }
+        switch (focused, other.focused) {
+        case (nil, nil): break
+        case (let a?, let b?) where CFEqual(a, b): break
+        default: fields.append("focus")
+        }
         return fields
     }
 }
@@ -32,6 +37,20 @@ struct NativeWindowPreparation {
     let posted: Int
     let foreground: pid_t
     let windowID: CGWindowID
+}
+
+func nativeUserFocusedElement(_ error: AXError, _ raw: AnyObject?) throws -> AXUIElement? {
+    if error == .noValue, raw == nil { return nil }
+    if error == .attributeUnsupported {
+        throw NativeWindowInputError.unavailable("user focus unsupported")
+    }
+    guard error == .success else {
+        throw NativeWindowInputError.unavailable("user focus query failed")
+    }
+    guard let raw, CFGetTypeID(raw) == AXUIElementGetTypeID() else {
+        throw NativeWindowInputError.unavailable("user focus malformed")
+    }
+    return (raw as! AXUIElement)
 }
 
 func readNativeUserInputState(deadline: Double) throws -> NativeUserInputState {
@@ -50,12 +69,14 @@ func readNativeUserInputState(deadline: Double) throws -> NativeUserInputState {
     guard AXUIElementSetMessagingTimeout(app, 0) == .success else {
         throw NativeWindowInputError.unavailable("user focus timeout reset failed")
     }
-    guard error == .success, let raw, CFGetTypeID(raw) == AXUIElementGetTypeID(),
-          nativeFrontmostProcessPID() == foreground,
-          ProcessInfo.processInfo.systemUptime < deadline else {
-        throw NativeWindowInputError.unavailable("user focus unavailable or foreground changed")
+    let focused = try nativeUserFocusedElement(error, raw)
+    guard nativeFrontmostProcessPID() == foreground else {
+        throw NativeWindowInputError.unavailable("user foreground changed")
     }
-    return NativeUserInputState(foreground: foreground, pointer: pointer, focused: raw as! AXUIElement)
+    guard ProcessInfo.processInfo.systemUptime < deadline else {
+        throw NativeWindowInputError.unavailable("user focus deadline expired")
+    }
+    return NativeUserInputState(foreground: foreground, pointer: pointer, focused: focused)
 }
 
 /// The one place a prepared event is posted to a process: both window-input
@@ -72,14 +93,33 @@ func dispatchNativeWindowPreparation(
     key: String? = nil, routing: ((NativeWindowBinding, Bool) throws -> Void)? = nil,
     preflight: (() throws -> Void)? = nil, pointClick: Bool = false,
     windowInput: NativeOpaqueWindowInput? = nil, elementClicks: Int = 0,
-    submitKey: Bool = false
+    submitKey: Bool = false, finalTransition: ((_ checkpoint: () throws -> Void) throws -> Void)? = nil,
+    headroomDiagnostic: (([String: Any]) -> Void)? = nil
 ) throws -> NativeWindowPreparation {
     var attempted = 0
+    var validationSeconds = 0.0, routingSeconds = 0.0, inputSeconds = 0.0, contextSeconds = 0.0
+    func validated() throws {
+        let start = now()
+        defer { validationSeconds = max(validationSeconds, max(0, now() - start)) }
+        try validate(binding)
+    }
+    func routed(_ first: Bool) throws {
+        let start = now()
+        defer { routingSeconds = max(routingSeconds, max(0, now() - start)) }
+        try routing?(binding, first)
+    }
+    func observedInput() throws -> NativeUserInputState {
+        let start = now()
+        defer { inputSeconds = max(inputSeconds, max(0, now() - start)) }
+        return try readInput(deadline)
+    }
     func ready() throws {
         guard !stopped() else { throw NativeWindowInputError.refused("user stopped input") }
         guard deadline.isFinite, now() < deadline else {
             throw NativeWindowInputError.refused("window input deadline expired")
         }
+        let start = now()
+        defer { contextSeconds = max(contextSeconds, max(0, now() - start)) }
         try context()
     }
     do {
@@ -118,14 +158,19 @@ func dispatchNativeWindowPreparation(
                 throw NativeWindowInputError.refused("element click requires a bound element and routing check")
             }
         }
-        try validate(binding); try ready()
-        let initial = try readInput(deadline)
+        if finalTransition != nil {
+            guard elementClicks==1,key==nil,!pointClick,windowInput==nil,!submitKey else {
+                throw NativeWindowInputError.refused("final transition requires one bound element click")
+            }
+        }
+        try validated(); try ready()
+        let initial = try observedInput()
         guard initial.foreground != binding.pid else {
             throw NativeWindowInputError.refused("background window preparation requires a background process")
         }
         var owners: [NSEvent] = [], events: [CGEvent] = []
         if let input = windowInput {
-            try routing?(binding, false); try ready()
+            try routed(false); try ready()
             let pair: NativeWindowKeyPair
             switch input {
             case .key(let value): pair = try buildNativeWindowKey(binding.windowID, key: value)
@@ -133,7 +178,7 @@ func dispatchNativeWindowPreparation(
             }
             owners = pair.owners; events = [pair.down, pair.up]
         } else if let key, submitKey {
-            try routing?(binding, true); try ready()
+            try routed(true); try ready()
             // Return to a bound input the host vouched for (declared submit,
             // binding, a postcondition not yet true). One keyDown, like the
             // Go to Folder path: the commit happens on it, and what it opens
@@ -141,12 +186,12 @@ func dispatchNativeWindowPreparation(
             let pair = try buildNativeWindowKey(binding.windowID, key: key, submit: true)
             owners = pair.owners; events = [pair.down]
         } else if let key {
-            try routing?(binding, true); try ready()
+            try routed(true); try ready()
             // Navigation keys only. Return has its own paths (submitReturnInSheet, submitKey).
             let pair = try buildNativeWindowKey(binding.windowID, key: key)
             owners = pair.owners; events = [pair.down, pair.up]
         } else if elementClicks != 0 {
-            try routing?(binding, false); try ready()
+            try routed(false); try ready()
             let first = try buildNativeWindowClick(binding, clickCount: 1)
             owners = first.owners; events = [first.down, first.up]
             if elementClicks == 2 {
@@ -154,7 +199,7 @@ func dispatchNativeWindowPreparation(
                 owners += second.owners; events += [second.down, second.up]
             }
         } else if pointClick {
-            try routing?(binding, false); try ready()
+            try routed(false); try ready()
             let pair = try buildNativeWindowClick(binding)
             owners = pair.owners; events = [pair.down, pair.up]
         } else {
@@ -175,18 +220,46 @@ func dispatchNativeWindowPreparation(
         // NSEvent owns its borrowed CG event; retain all owners through posting.
         return try withExtendedLifetime(owners) {
             for (number, event) in events.enumerated() {
-                try ready(); try validate(binding); try ready()
+                try ready(); try validated(); try ready()
                 if number == 0 { try preflight?(); try ready() }
-                try routing?(binding, number == 0); try ready()
-                let before = try readInput(deadline)
+                try routed(number == 0); try ready()
+                let before = try observedInput()
                 guard initial.matches(before) else {
                     throw NativeWindowInputError.refused("user input state changed before input: " + initial.differences(before).joined(separator: ","))
                 }
                 try ready()
+                if number == 0 {
+                    // All future full checks still run. Admit the sequence only
+                    // with headroom for their measured cost, rather than using
+                    // most of the deadline on the first pass and posting a
+                    // predictably incomplete click/key sequence. This estimate
+                    // cannot bound a later provider slowdown; partial effects
+                    // remain unknown and are never retried automatically.
+                    let checks = submitKey ? 0 : Double(2 * events.count - 1)
+                    let reads = submitKey ? 1 : Double(3 * events.count - 1)
+                    let contexts = submitKey ? 1 : Double(12 * events.count)
+                    let reserve = 2 * (checks * (validationSeconds + routingSeconds)
+                        + reads * inputSeconds + contexts * contextSeconds) + 0.05
+                    let remaining = deadline - now()
+                    if let headroomDiagnostic {
+                        let values = [reserve, max(0,remaining),validationSeconds,routingSeconds,inputSeconds,contextSeconds]
+                        func millis(_ seconds: Double) -> Int {
+                            guard seconds.isFinite else { return 600000 }
+                            return Int(ceil(max(0,min(600000,seconds*1000))))
+                        }
+                        headroomDiagnostic(["required_ms":millis(reserve),"remaining_ms":millis(remaining),
+                            "validation_ms":millis(validationSeconds),"routing_ms":millis(routingSeconds),
+                            "input_ms":millis(inputSeconds),"context_ms":millis(contextSeconds),
+                            "event_count":events.count,"saturated":values.contains { !$0.isFinite || $0>600 }])
+                    }
+                    guard reserve.isFinite, deadline - now() >= reserve else {
+                        throw NativeWindowInputError.refused("window validation headroom insufficient")
+                    }
+                }
                 attempted += 1 // A failed post cannot establish no effect.
                 try post(event, binding.pid)
                 try ready()
-                let after = try readInput(deadline)
+                let after = try observedInput()
                 guard before.matches(after) else {
                     throw NativeWindowInputError.refused("user input state changed during input: " + before.differences(after).joined(separator: ","))
                 }
@@ -194,9 +267,24 @@ func dispatchNativeWindowPreparation(
                 // focus or the element itself; there is nothing left to post,
                 // so it is not re-validated as if it should not have.
                 if submitKey { continue }
-                try validate(binding); try ready()
-                try routing?(binding, false); try ready()
-                let confirmed = try readInput(deadline)
+                // Selection may destroy its popup on mouseUp. Only after the
+                // complete pair, accept a caller-verified receiving transition.
+                // Before mouseUp the original binding and routing still apply.
+                if number==events.count-1,let finalTransition {
+                    func checkpoint() throws {
+                        try ready()
+                        let confirmed=try observedInput()
+                        guard before.matches(confirmed) else {
+                            throw NativeWindowInputError.refused("user input state changed during selection verification")
+                        }
+                        try ready()
+                    }
+                    try checkpoint();try finalTransition(checkpoint);try checkpoint()
+                    continue
+                }
+                try validated(); try ready()
+                try routed(false); try ready()
+                let confirmed = try observedInput()
                 guard before.matches(confirmed) else {
                     throw NativeWindowInputError.refused("user input state changed during validation: " + before.differences(confirmed).joined(separator: ","))
                 }

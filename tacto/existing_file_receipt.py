@@ -43,10 +43,11 @@ import math
 import os
 import stat
 import time
+import threading
 import uuid
 
 from .artifact_receipt import ArtifactReceiptError
-from .commit_evidence import ArtifactEvidence, CommitEvidence, action_digest
+from .commit_evidence import SavedFileStateEvidence, CommitEvidence, action_digest, _event_binding_matches
 
 TARGET = 'com.apple.TextEdit'
 TEXT_CAPABILITY = 'evidence.document_text'
@@ -68,7 +69,7 @@ PUBLIC_CODES = frozenset({
     'path_not_canonical_txt', 'no_text_witness', 'no_focused_document_guard',
     'text_unavailable', 'document_identity_changed', 'no_canonical_path',
     'different_document', 'already_prepared', 'not_a_bound_save',
-    'event_malformed', 'already_used', 'commit_mismatch',
+    'event_malformed', 'already_used', 'commit_mismatch', 'commit_changed_during_prepare',
     'changed_during_save', 'file_does_not_hold_text',
     'file_changed_during_read',
     'file_readback_deadline',
@@ -108,8 +109,14 @@ class _Prepared:
     before: tuple          # (dev, ino, size, mtime_ns, sha256) of the file before (recorded)
 
 
+def _file_fingerprint(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
 def _file_state(path):
-    """(dev, ino, size, mtime_ns, sha256, bytes) of a regular, owned, single-link
+    """(dev, ino, size, mtime_ns, sha256, bytes, full stat fingerprint)
+    of a regular, owned, single-link
     file within budget — read without following a final symlink, and never
     opened unless lstat already says it is a regular file: a FIFO named .txt
     blocked the read (Codex review of 4d04b80). Opened non-blocking and
@@ -147,17 +154,14 @@ def _file_state(path):
         # has been atomically replaced. A successful read alone says nothing
         # about what the approved path now holds. Check both the descriptor
         # and the named file, including ctime (mtime can be restored).
-        def snapshot(info):
-            return (info.st_dev, info.st_ino, info.st_mode, info.st_uid,
-                    info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
         after = os.fstat(fd)
         named = os.lstat(path)
-        if (snapshot(before) != snapshot(st) or snapshot(st) != snapshot(after)
-                or snapshot(after) != snapshot(named) or len(data) != after.st_size
+        if (_file_fingerprint(before) != _file_fingerprint(st) or _file_fingerprint(st) != _file_fingerprint(after)
+                or _file_fingerprint(after) != _file_fingerprint(named) or len(data) != after.st_size
                 or _nfc(os.path.realpath(path)) != _nfc(path)):
             raise _refuse('file_changed_during_read', _TransientFileRead)
         return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns,
-                hashlib.sha256(data).hexdigest(), data)
+                hashlib.sha256(data).hexdigest(), data, _file_fingerprint(after))
     except OSError as exc:
         raise _unreadable(exc) from None
     finally:
@@ -190,13 +194,18 @@ class ExistingTextFileReceipt:
         self._driver = driver
         self._timeout = float(timeout_seconds)
         self._poll = float(poll_interval)
-        self._clock = clock or time.monotonic
+        from .receipt_clock import checked_receipt_clock
+        self._clock = checked_receipt_clock(clock)
         self._sleep = sleep or time.sleep
         self._prepared = None
+        self._prepare_attempted = False
+        self._prepare_lock = threading.Lock()
         self._after_used = False
 
     # Fixed before execution: nothing; the text is only known at the Save.
-    commit_expected = {}
+    @property
+    def commit_expected(self):
+        return {'artifact_evidence_scope':'saved_state'}
 
     def _read(self, token=None):
         # First read selects the document by its path (several may be open);
@@ -220,8 +229,10 @@ class ExistingTextFileReceipt:
         return result['document_token'], self._path, result['text']
 
     def prepare_commit(self, event):
-        if self._prepared is not None:
-            raise _refuse('already_prepared')
+        with self._prepare_lock:
+            if self._prepare_attempted:
+                raise _refuse('already_prepared')
+            self._prepare_attempted = True
         action, effects = event.get('action'), set(event.get('effects') or ())
         if (event.get('target') != TARGET or not isinstance(action, dict)
                 or action.get('name') != 'menu'
@@ -235,9 +246,12 @@ class ExistingTextFileReceipt:
         digest = action_digest(action, event['effects'], TARGET, obs_id=event.get('obs_id'))
         if event.get('action_digest') != digest or not isinstance(event.get('event_id'), str):
             raise _refuse('event_malformed')
+        identifier = event['event_id']
         token, path, text = self._read()
         before = _file_state(path)[:5]
-        self._prepared = _Prepared(event['event_id'], digest, token, path, text, before)
+        if not _event_binding_matches(event, identifier, digest):
+            raise _refuse('commit_changed_during_prepare')
+        self._prepared = _Prepared(identifier, digest, token, path, text, before)
         return self._prepared
 
     def after_commit(self, event, driver_result, context):
@@ -256,23 +270,45 @@ class ExistingTextFileReceipt:
                 or driver_result.get('effect') == 'not_started'):
             raise _refuse('driver_dispatch_unverified')
         expected = prepared.text.encode('utf-8')
-        deadline = self._clock() + self._timeout
+        from .receipt_clock import receipt_deadline
+        deadline = receipt_deadline(self._clock, self._timeout)
+        last_code = 'file_does_not_hold_text'
         while True:
+            if self._clock() >= deadline:
+                raise _refuse(last_code)
             token, path, text = self._read(prepared.token)
             if path != prepared.path or text != prepared.text:
                 raise _refuse('changed_during_save')
+            if self._clock() >= deadline:
+                raise _refuse('file_readback_deadline')
             last_code = 'file_does_not_hold_text'
             try:
                 state = _file_state(path)
-            except _TransientFileRead as exc:
-                last_code = exc.public_code
-            else:
                 if state[5] == expected:
                     if self._clock() >= deadline:
                         raise _refuse('file_readback_deadline')
+                    # Bracket the exact file read with the same document token
+                    # and text, then confirm that the named file survived the
+                    # final backend read. Neither reader is an atomic transaction.
+                    _, current_path, current_text = self._read(prepared.token)
+                    if current_path != prepared.path or current_text != prepared.text:
+                        raise _refuse('changed_during_save')
+                    if self._clock() >= deadline:
+                        raise _refuse('file_readback_deadline')
+                    try:
+                        named=os.lstat(path)
+                    except OSError as error:
+                        raise _unreadable(error) from None
+                    if (_file_fingerprint(named) != state[6]
+                            or _nfc(os.path.realpath(path)) != _nfc(path)):
+                        raise _refuse('file_changed_during_read', _TransientFileRead)
+                    if self._clock() >= deadline:
+                        raise _refuse('file_readback_deadline')
                     return CommitEvidence(prepared.event_id, prepared.action_digest,
-                                          ArtifactEvidence(uuid.uuid4().hex, path,
+                                          SavedFileStateEvidence(uuid.uuid4().hex, path,
                                                            hashlib.sha256(prepared.text.encode()).hexdigest()))
+            except _TransientFileRead as exc:
+                last_code = exc.public_code
             remaining = deadline - self._clock()
             if remaining <= 0:
                 raise _refuse(last_code)

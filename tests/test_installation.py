@@ -24,6 +24,7 @@ class BlockNative(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, BlockNative())
 import tacto.agent, tacto.ask, tacto.browser, tacto.cli, tacto.flow, tacto.general
 import tacto.outcome, tacto.protocol, tacto.trace
+import tacto.document_attachments, tacto.document_packages
 import tacto.native_visual, tacto.native_visual_actions, tacto.provider_images, tacto.general_visual, tacto.visual_replay, tacto.native_window_payload
 assert not any(name in sys.modules for name in ('ApplicationServices','Quartz','AppKit'))
 '''
@@ -70,7 +71,7 @@ class InstallationTests(unittest.TestCase):
         from tacto import store
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'pyproject.toml').write_text('[project]\nname="tacto"\n')
+            (root / 'pyproject.toml').write_text('[project]\nname="nlc"\n')
             (root / 'flows').mkdir()
             with patch.object(store, '__file__', str(root / 'tacto/store.py')), \
                     patch.dict(os.environ, {'XDG_DATA_HOME': str(root / 'data')}):
@@ -102,15 +103,15 @@ class InstallationTests(unittest.TestCase):
         uv = shutil.which('uv')
         if uv is None:
             self.skipTest('uv build frontend is unavailable')
-        with tempfile.TemporaryDirectory(prefix='tacto-wheel-test-') as directory:
+        with tempfile.TemporaryDirectory(prefix='nlc-wheel-test-') as directory:
             work = Path(directory)
             source = work / 'source'
             source.mkdir()
             for name in ('pyproject.toml', 'README.md'):
                 shutil.copy2(ROOT / name, source / name)
-            shutil.copytree(ROOT / 'nlc', source / 'nlc', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-            shutil.copytree(ROOT / 'tacto', source / 'tacto',
-                            ignore=shutil.ignore_patterns('__pycache__'))
+            for package in ('tacto','nlc'):
+                shutil.copytree(ROOT / package, source / package,
+                                ignore=shutil.ignore_patterns('__pycache__'))
 
             def execute(argv, **kwargs):
                 result = subprocess.run(argv, cwd=work, capture_output=True,
@@ -125,7 +126,9 @@ class InstallationTests(unittest.TestCase):
             with zipfile.ZipFile(wheels[0]) as wheel:
                 names = wheel.namelist()
                 self.assertIn('tacto/browser.py', names)
-                self.assertIn('nlc/__init__.py', names)
+                for name in ('provider_io.py','rtf_receipt.py','process_responsibility.py','authoring.py','codex_result.py','claude_result.py',
+                             'document_attachments.py','document_packages.py','native_document.py'):
+                    self.assertEqual((ROOT/'tacto'/name).read_bytes(),wheel.read('tacto/'+name))
                 self.assertFalse(any(name.startswith(('helper/', 'launcher/', 'examples/', 'flows/'))
                                      or name.endswith(('.dylib', '.so')) for name in names))
             environment = work / 'environment'
@@ -133,19 +136,48 @@ class InstallationTests(unittest.TestCase):
             python = environment / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
             execute([uv, 'pip', 'install', '--python', str(python), '--no-deps', str(wheels[0])])
             execute([str(python), '-I', '-c', PORTABLE_IMPORTS])
-            executable = environment / ('Scripts/nlc.exe' if os.name == 'nt' else 'bin/nlc')
+            executable = environment / ('Scripts/tacto.exe' if os.name == 'nt' else 'bin/nlc')
             result = execute([str(executable), '--help'])
             self.assertIn('Usage:', result.stdout)
-            branded = environment / ('Scripts/tacto.exe' if os.name == 'nt' else 'bin/tacto')
-            branded_result = execute([str(branded), '--help'])
-            self.assertEqual(result.stdout, branded_result.stdout)
-            self.assertIn('Tacto', branded_result.stdout)
             result = execute([str(python), '-I', '-m', 'tacto.cli', '--help'])
             self.assertIn('Usage:', result.stdout)
-            legacy_module = execute([str(python), '-I', '-m', 'nlc.cli', '--help'])
-            self.assertEqual(result.stdout, legacy_module.stdout)
-            execute([str(python), '-I', '-c',
-                     'import tacto.flow,nlc.flow; assert tacto.flow is nlc.flow; assert tacto.flow.Flow is nlc.flow.Flow'])
+            if os.name=='posix':
+                # Exercise installed stdlib-only provider cleanup, without model,
+                # network, native GUI, source-tree imports or caller profile edits.
+                owned=work/'owned-provider';owned.mkdir(mode=0o700)
+                script=r'''
+import os,pathlib,sys,time
+from tacto.authoring import _run_provider
+import tacto.provider_io
+assert pathlib.Path(tacto.provider_io.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve())
+base=pathlib.Path(sys.argv[1]);marker=base/'survived'
+child='import pathlib,time;time.sleep(.5);pathlib.Path('+repr(str(marker))+').write_text("survived")'
+program='import os,pathlib,subprocess,sys;subprocess.Popen([sys.executable,"-c",'+repr(child)+'],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);print("owned answer")'
+result=_run_provider([sys.executable,'-c',program],3)
+assert result.returncode==0 and result.stdout=='owned answer\n'
+time.sleep(.7)
+assert not marker.exists(),'installed wheel left an owned group worker running'
+if sys.platform=='darwin':
+    base=base.resolve()
+    from tacto.rtf_receipt import FreshRTFReceipt
+    import tacto.rtf_receipt
+    assert pathlib.Path(tacto.rtf_receipt.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve())
+    receipt=FreshRTFReceipt(base,'proof.rtf','Hello',document_path=lambda:str(base/'proof.rtf'))
+    receipt._decode_deadline=receipt._clock()+3
+    assert receipt._decode(b'{\\rtf1 Hello}')=='Hello'
+    # Change only this isolated test interpreter's disposition. It must refuse
+    # the decoder before creating another child, without changing host grants.
+    import signal
+    from unittest.mock import patch
+    signal.signal(signal.SIGCHLD,signal.SIG_IGN)
+    receipt._decode_deadline=receipt._clock()+3
+    with patch('tacto.rtf_receipt.subprocess.Popen') as spawn:
+        try:receipt._decode(b'{\\rtf1 Hello}')
+        except RuntimeError:pass
+        else:raise AssertionError('installed decoder accepted unwaitable child disposition')
+        spawn.assert_not_called()
+'''
+                execute([str(python),'-I','-c',script,str(owned)])
             data = work / 'user-data'
             env = {**os.environ, 'XDG_DATA_HOME': str(data)}
             execute([str(python), '-I', '-c',

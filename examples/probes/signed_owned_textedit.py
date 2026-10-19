@@ -24,20 +24,46 @@ class SignedOwnedTextEdit:
             raise ValueError('invalid fixture filename')
         self.driver, self.name = driver, name
         self.path = self.directory = self.directory_identity = self.token = None
+        self.prepared = False
+        self.setup_started = False
+        self.prepared_file_identity = None
+        self.initial_empty_text_verified = False
+        self.initial_expected_text_verified = False
         self.close_requested = False
         self.closed_observed = False
         self.status_observations = []
         self.status_observations_truncated = False
 
-    def setup(self):
+    def prepare(self):
         if self.directory is not None:
             raise RuntimeError('owned_fixture_already_created')
-        self.directory = Path(tempfile.mkdtemp(prefix='tacto-signed-owned-')).resolve()
+        self.directory = Path(tempfile.mkdtemp(prefix='nlc-signed-owned-')).resolve()
         st=self.directory.lstat()
         self.directory_identity=(st.st_dev,st.st_ino)
         self.path=self.directory/self.name
         fd=os.open(self.path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
         os.close(fd)
+        file=self.path.lstat()
+        self.prepared_file_identity=(file.st_dev,file.st_ino)
+        self.prepared=True
+
+    def setup(self):
+        if self.setup_started:
+            raise RuntimeError('owned_fixture_setup_already_started')
+        if self.directory is None:self.prepare()
+        if not self.prepared:raise RuntimeError('owned_fixture_already_created')
+        # Revalidate the separately prepared artifact immediately before UI
+        # bootstrap. This is not atomic protection against a same-user writer.
+        directory=self.directory.lstat();file=self.path.lstat()
+        if (self.directory.resolve()!=self.directory or not stat.S_ISDIR(directory.st_mode)
+                or (directory.st_dev,directory.st_ino)!=self.directory_identity
+                or directory.st_uid!=os.getuid() or stat.S_IMODE(directory.st_mode)!=0o700
+                or os.listdir(self.directory)!=[self.name]
+                or not stat.S_ISREG(file.st_mode) or file.st_uid!=os.getuid()
+                or file.st_nlink!=1 or stat.S_IMODE(file.st_mode)!=0o600
+                or (file.st_dev,file.st_ino)!=self.prepared_file_identity or file.st_size!=0):
+            raise RuntimeError('owned_prepared_artifact_changed')
+        self.setup_started=True  # A lost open/pin reply never permits reopening.
         # Fixture bootstrap only; all observation/close actions use the helper.
         proc=subprocess.run(['open','-g','-a','TextEdit',str(self.path)],
                             capture_output=True,timeout=20)
@@ -45,7 +71,10 @@ class SignedOwnedTextEdit:
             raise RuntimeError('owned_fixture_open_failed')
         self._pin()
 
-    def resume(self, directory, expected_identity):
+    def resume(self, directory, expected_identity, expected_text=""):
+        if self.directory is not None:
+            raise RuntimeError("owned_fixture_already_created")
+        self._text_budget(expected_text)
         # Only a trusted host may supply the identity of its prior fixture.
         # A matching name/prefix alone does not prove creator ownership.
         directory=Path(directory)
@@ -56,9 +85,18 @@ class SignedOwnedTextEdit:
                 or (st.st_dev,st.st_ino)!=tuple(expected_identity)
                 or os.listdir(directory)!=[self.name]):
             raise RuntimeError('owned_fixture_resume_identity_unavailable')
+        self.setup_started=True
         self.directory,self.directory_identity=directory,tuple(expected_identity)
         self.path=directory/self.name
-        self._pin()
+        self._pin(expected_text)
+
+    @staticmethod
+    def _text_budget(expected_text):
+        if not isinstance(expected_text,str):raise ValueError('invalid expected fixture text')
+        try:units=len(expected_text.encode('utf-16-le'))//2
+        except UnicodeError:raise ValueError('invalid expected fixture text') from None
+        if units>1_000_000:raise ValueError('expected fixture text exceeds pin budget')
+        return units
 
     def _matches_path(self, value):
         if not isinstance(value,str) or unicodedata.normalize('NFC',value)!=unicodedata.normalize('NFC',str(self.path)):
@@ -70,16 +108,19 @@ class SignedOwnedTextEdit:
         except OSError:
             return False
 
-    def _pin(self):
+    def _pin(self, expected_text=""):
+        units=self._text_budget(expected_text)
         deadline=time.monotonic()+10
         while time.monotonic()<deadline:
-            reply=self.driver.document_text(TARGET,document_path=str(self.path),max_utf16_units=0)
+            reply=self.driver.document_text(TARGET,document_path=str(self.path),max_utf16_units=units)
             if (type(reply) is dict and reply.get('type')=='document_text'
                     and self._matches_path(reply.get('document_path'))
-                    and reply.get('text_complete') is True and reply.get('text')==''
+                    and reply.get('text_complete') is True and reply.get('text')==expected_text
                     and isinstance(reply.get('document_token'),str)
                     and 0<len(reply['document_token'])<=128):
                 self.token=reply['document_token']
+                self.initial_empty_text_verified=expected_text==''
+                self.initial_expected_text_verified=True
                 return
             time.sleep(.1)
         raise RuntimeError('owned_fixture_pin_unavailable')

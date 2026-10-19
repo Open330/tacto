@@ -1,7 +1,7 @@
 """Paired signed-runtime latency check in a disposable native app; no models.
 
-Example: python3 examples/benchmark_runtime_latency.py --baseline /path/to/tacto
-  --candidate /path/to/new/tacto --output /absolute/new/private-directory
+Example: python3 examples/benchmark_runtime_latency.py --baseline /path/to/nlc
+  --candidate /path/to/new/nlc --output /absolute/new/private-directory
 Both launchers must already have permission. This never installs or grants it.
 """
 import argparse
@@ -14,6 +14,11 @@ import statistics
 import subprocess
 import time
 import uuid
+
+if __package__ in (None, ''):
+    from release_identity import python_source_hashes
+else:
+    from .release_identity import python_source_hashes
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,11 +35,7 @@ def code_hash(path):
 
 def manifest(launcher):
     runtime = launcher.parent.parent
-    packages = list((runtime/'.venv/lib').glob('python*/site-packages/tacto'))
-    if len(packages) != 1:
-        raise ValueError('one bundled package required')
-    return {'python_sources': {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-                               for p in sorted(packages[0].glob('*.py'))},
+    return {'python_sources': python_source_hashes(runtime, bundled_only=True),
             'bytecode': {str(p.relative_to(runtime/'.venv')): hashlib.sha256(p.read_bytes()).hexdigest()
                          for p in sorted((runtime/'.venv').rglob('*.pyc'))},
             'launcher_cdhash': code_hash(launcher),
@@ -107,7 +108,7 @@ def main():
             or launcher_changed != args.launcher_optimized):
         write(base/'mismatch.json', {'manifests': before, 'differences': differences, 'native_equal': native_equal})
         raise ValueError('runtimes must match the declared Python changes and optional launcher change')
-    target = 'ai.callabo.tacto.latency.' + uuid.uuid4().hex[:8]
+    target = 'ai.callabo.nlc.latency.' + uuid.uuid4().hex[:8]
     app = base/'Latency Benchmark.app'; contents = app/'Contents'
     (contents/'MacOS').mkdir(parents=True)
     (contents/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': target,

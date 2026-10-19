@@ -36,6 +36,7 @@ JSON 검증 실패는 텍스트·구조화 경로 모두 `invalid_response`로 �
 - `input_tokens_basis`: Claude는 `uncached`, Codex adapter는 `total`이다. 미관측/legacy는 null이다.
 - `cache_creation_input_tokens`: Claude의 cache_creation_input_tokens, Codex의 cache_write_input_tokens를 보존한다. 없는 필드는 null이다.
 - `total_input_tokens`: Claude는 일반 입력+캐시 읽기+캐시 생성 모두 관측됐을 때만 합산한다. 하나라도 빠지면 null이다. Codex는 수신한 input_tokens를 사용하며 cached_input_tokens를 다시 더하지 않는다.
+- `input_tokens_basis=total`이고 input/cached 값이 모두 관측되면 cached가 input을 초과하는 응답은 공통 envelope와 각 attempt에서 거절한다. 기준이 unknown/uncached이거나 input 값이 없으면 이 포함 관계를 추정하지 않는다.
 
 Claude 계산은 [공식 prompt caching 문서](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)의 정의를 따른다. Codex의 원시 usage 필드는 [공식 SDK](https://github.com/openai/codex/blob/main/sdk/typescript/src/events.ts)에 정의돼 있다. 이 합계는 관측된 논리 요청의 입력량이며 청구 비용 계산식이나 fallback 전체 사용량을 대신하지 않는다.
 
@@ -45,7 +46,26 @@ Claude 계산은 [공식 prompt caching 문서](https://platform.claude.com/docs
 
 일반 CLI, Claude 및 Codex structured adapter는 timeout뿐 아니라 호출자 KeyboardInterrupt 등 `communicate` 중단 시에도 로컬 프로세스 그룹을 종료하고 부모 프로세스를 회수한다. POSIX 실제 subprocess 테스트에서 호출자 중단 후 자식의 지연 파일 쓰기가 발생하지 않음을 검증한다. `cancellation_supported=false`는 계속 유지한다. 원격 생성 중단·비용 중단은 확인하지 못하며, 별도 세션으로 이탈한 자식까지 프로세스 그룹 종료가 보장하지 않는다.
 
-Codex의 local CLI 경로도 `codex_result`의 `--json`·`--ephemeral`·명시적인 read-only sandbox를 사용한다. stdin으로 prompt를 전달하며 완전한 단일 turn과 독립 final-message 파일이 일치할 때만 답변을 인정한다. 관측한 token usage와 thread ID를 공통 결과·attempt에 보존하고 실제 모델·API request ID·비용은 미관측이면 null이다. JSONL 형식 오류를 raw-text 성공으로 바꾸지 않는다. muxa-first 순서는 유지하며 그 경로의 미관측 usage도 null이다. read-only는 도구 실행이나 네트워크 사용을 차단하는 보장이 아니다. [공식 exec JSONL 계약](https://developers.openai.com/codex/noninteractive#make-output-machine-readable)을 참고한다.
+서명 런처의 바깥 watchdog도 먼저 요청 Python에 SIGTERM을 보내 정리를
+요청한다. `ask_provider.main`은 이를 BaseException으로 전달하여 위 CLI
+runner의 kill/reap 경로를 실행하고 종료 코드143으로 끝난다. 원래 SIGTERM
+handler는 반환·예외 후 복원한다. 런처는 relay thread 밖에서 최대0.75초
+유예 뒤 남은 요청 프로세스를 SIGKILL하고 회수한다. 모델 응답 deadline을
+이 정리 유예로 늘리지 않는다. 요청 프로세스가 협조하지 않거나 자식이
+그룹에서 이탈하면 이 경로도 전체 자식 정리를 보장하지 않는다.
+watchdog은 프로세스 실행 전에 cleanup group에 등록하고 실행 실패 시 등록을
+해제한다. 런처 shutdown은 이미 등록된 작업을 최대1초 기다린다. 이는 모델
+응답 deadline과 별도의 종료 정리 대기다.
+
+`tests/test_provider_outer_cancellation.py`는 실제 런처 소스에서 추출한
+watchdog 함수를 Swift로 compile하고 소유한 Python/CLI/자식만 실행한다.
+수정 전 timeout·output-limit 뒤 지연 쓰기가 발생했고, 수정 후 일반 CLI·
+Codex·Claude runner의6개 경우에서 쓰기 부재와 CLI 부모 회수를 확인했다.
+SIGTERM을 무시하는 wrapper의 강제 종료도 확인한다. 이 검사는 live provider
+취소·원격 생성·청구를 검증하지 않는다. 설치된 서명 런처의 정상 모델 호출은
+별도 cohort에서 확인한다.
+
+Codex의 local CLI 경로도 `codex_result`의 `--json`·`--ephemeral`·명시적인 read-only sandbox를 사용한다. stdin으로 prompt를 전달하며 완전한 단일 turn과 독립 final-message 파일이 일치할 때만 답변을 인정한다. 관측한 token usage와 thread ID를 공통 결과·attempt에 보존하고 실제 모델·API request ID·비용은 미관측이면 null이다. JSONL 형식 오류를 raw-text 성공으로 바꾸지 않는다. Muxa Global Ask 경로는 아래 격리 계약 부재로 로컬 거절하며 같은 provider의 CLI를 사용한다. read-only는 도구 실행이나 네트워크 사용을 차단하는 보장이 아니다. [공식 exec JSONL 계약](https://developers.openai.com/codex/noninteractive#make-output-machine-readable)을 참고한다.
 
 현재 CLI 0.159.2는 thread 시작 후 turn 시작 전에 비종결 진단 `item.completed`를 낼 수 있다. 알려진 error-item 모양만 최대 32개 허용하며 진단 본문은 결과에 복사하지 않는다. turn 내부의 error/failed item, 전체 error/turn.failed, 불완전 turn, 중복 terminal, final 파일 불일치는 여전히 거절한다. 이 호환성 검사는 시작 진단을 일반 작업 성공 증거로 쓰는 것이 아니다.
 
@@ -109,8 +129,8 @@ code에도 보존한다. 앞선 접근 제한으로 나중 route의 다른 실�
 
 ## 실제 Codex 호출의 선택적 프로세스 관측
 
-공통 `_provider_env()`는 Claude 세션 여부와 관계없이 TACTO_HELPER_FD,
-TACTO_LAUNCHER, TACTO_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
+공통 `_provider_env()`는 Claude 세션 여부와 관계없이 NLC_HELPER_FD,
+NLC_LAUNCHER, NLC_HELPER_TOKEN을 모델 자식 환경에서 제거한다. 부모 환경과
 사용자 profile·credential은 유지한다. 이는 채널 표지 제거이며 TCC 책임 분리를
 증명하지 않는다.
 
@@ -132,3 +152,213 @@ observer 종료·오류 없음·sample 한도 미도달을 확인했다. 경과6
 null로 유지했다. owner-only 보고서의 source hash는 호출 전후 일치했다.
 이는 signed comparison에서 실행한 native task나 Sky 관측이 아니며
 기존 `comparison_eligible=false`를 변경하지 않는다.
+
+## Muxa Global Ask와 호출 격리
+
+현재 Muxa AskSend/AskSendNew에는 per-call provider 필드가 없고, `--agent`는
+공유 데몬의 이후 Ask 선택에도 영향을 준다. AskSend는 활성 대화를 이어 가며
+AskSendNew도 활성 대화를 바꾼다. 선택을 읽어 일치할 때 호출하거나, 호출 뒤
+복원하는 방식은 다른 클라이언트와의 경쟁을 막지 못한다.
+
+Tacto의 legacy `_try_muxa`는 prompt 전송·subprocess·설정 변경 전에
+`muxa_isolated_ask_unavailable`로 로컬 거절한다. 요청한 provider의 CLI fallback을
+유지한다. Muxa에만 의존한 설치는 해당 모델 경로를 사용할 수 없으며, Muxa의
+격리된 per-call provider/새 대화/구조화된 결과 계약 구현은 아직 남아 있다.
+이 제한을 Muxa transport 지원 완료로 계산하지 않는다. peer/advisor 협업은
+Muxa message 계약으로 계속 사용한다.
+
+`attempts`는 로컬 route 함수 시도다. 거절 기록을 원격 모델 생성 횟수로 세지
+않는다. summary의 `reported_local_route_rejections`는 위 닫힌 거절 코드와
+미관측 telemetry를 가진 기록 수를 별도로 표시한다. 모델 요청·비용·원격 취소의
+독립 증명은 아니며 다른 route가 원격에 도달했다고 추측하지 않는다. token/cost
+미관측 기록은 계속 null/unknown으로 보존하고 임의로0을 넣지 않는다.
+
+이전 Tacto는 `--agent`를 사용했으므로 `muxa ask providers`로 현재 선택을 확인할 수
+있다. Tacto는 이전 선택을 추측해 복원하지 않는다. 이 동작이 데몬의 공유 메모리
+선택을 바꾸는 것과 디스크 config 파일을 쓰는 것은 다르다.
+
+남은 상류 계약은 **제안**이며 현재 사용 가능한 API가 아니다. 새 요청 종류로
+provider를 atomically 고정하고, 기존 selected provider/active conversation/history를
+바꾸지 않는 별도 단일 턴을 만들어야 한다. 구형 데몬이 새 필드를 무시해 다른
+provider를 쓰지 않도록 지원하지 않는 요청 종류는 명시적으로 거절해야 한다.
+수용된 요청의 provider/독립 request ID·상태·관측 usage를 구조화된 durable 결과로
+반환하고 configured/requested model과 reported model을 구분해야 한다. Tacto에
+연결하기 전 두 클라이언트의 동시 Ask에서 선택/대화가 유지되는지, 다른 provider
+응답·기한·중단·usage 누락을 실제 검증해야 한다. 원격 취소는 별도 확인 전에는
+지원한다고 표시하지 않는다.
+
+
+## 수치 범위와 비용 합계 실패
+
+elapsed_seconds와 cost는 문자열·bool로 강제 변환하지 않고, 정확한 int/float 중
+float로 표현 가능한 유한한 비음수만 받는다. JSON의 매우 큰 정수에서 발생하는
+OverflowError도 검증 실패로 처리한다. 공통 envelope는ValueError, Claude의
+완료 비용은ClaudeProtocolError_invalid_cost로 거절하며 원문이나 미검증 답변을
+성공으로 받아들이지 않는다. 토큰 필드는 별도로 정확한 비음수 int만 받는다.
+임의의 모델별 토큰 상한을 도입하거나 토큰에 이 float 검사를 재사용하지 않는다.
+
+개별 비용이 모두 유한해도 같은 currency/cost_basis의 합계가 표현 범위를
+넘을 수 있다. 그 버킷은 observed_sum:null 및
+aggregation_error:cost_sum_out_of_range를 반환한다. 뒤의 비용으로 부분 합을
+복구하거나 0으로 바꾸지 않는다. 다른 버킷은 그대로 계산한다. 개별 비용이
+알려진 경우 unknown_cost_records에 더하지 않으므로, 이 카운터와 합계의
+미계산 상태를 별도로 확인해야 한다. 정상 유한 합계의 기존 응답 형식은 유지한다.
+이 합계는 CLI가 관측한 telemetry의 집계이며 청구서·원격 취소·실제 가격 증거가 아니다.
+
+
+## CLI의 미지원 인증 클라이언트 (2026-10-11)
+
+Gemini CLI 실패 경로가 provider=gemini로 호출한 경우, 관측한 인증 오류에서
+`Error authenticating: IneligibleTierError:`와
+`UNSUPPORTED_CLIENT`가 모두 있을 때만 closed unavailable reason인
+`unsupported_client`로 분류한다. 한 표식만 있거나 일반적인 'client unsupported'
+언급은 이 분류를 만들지 않는다. 기존 CLI의 nonzero failure 처리에서 사용하는
+진단이며, 성공 답변을 이 표식만으로 실패로 바꾸지 않는다. raw account/error
+내용은 공통 envelope로 전달하지 않는다. 사용자 메시지는 현재 클라이언트를
+모델 서비스가 지원하지 않는다는 closed 설명이다. 자동 설치·로그인·계정 전환·
+마이그레이션은 하지 않는다.
+
+실제 Gemini 호출은 모델 답변 전에 이 오류로 종료됐다. JSON 응답·usage·비용은
+없었다. Tacto envelope에서도 error/unsupported_client, usage와cost null,
+cancellation_supported=False를 보존했다. 이는 해당 설치/계정 조합에서 CLI가
+보고한 실패이며 서비스 전체의 정책 또는 다른 계정/클라이언트의 상태를 증명하지
+않는다. null을0으로 집계하거나 모델 평가 성공으로 세지 않는다.
+
+다른 provider의 오류 출력에서 Gemini 진단을 인용했다고 같은 인증 상태로
+분류하지 않는다. Gemini 전용 표식을 공용 classifier에 무조건 추가했던 초기
+구현은 review 후 범위를 제한했다. Claude의 closed reason 메시지 조회에도
+unsupported_client 방어 항목을 두어 오류 처리 중 KeyError로 envelope를 잃지
+않게 했다. 이는 Claude에서 Gemini 진단을 인증 실패로 추론하는 기능이 아니다.
+
+
+## OpenCode의 exit0 인증 오류 (2026-10-11)
+
+설치된 OpenCode1.2.22에서 exit0이어도 JSONL event가 error일 수 있었다. 관측한
+UnknownError의 data.message는 정확히 `Error: Token refresh failed: 401`이었다.
+OpenCode 경로에 한해 이 framed refusal(정수 timestamp, sessionID, error 타입/
+이름/정확한 message) 또는 동일한 exact plaintext 오류를 authentication_failed로
+분류하고, _try_cli는 exit0에서도 답변으로 반환하지 않는다. 일반적인 model JSON
+error object나 오류에 관한 설명은 같은 인증 상태로 추론하지 않는다.
+다른 provider 경로에는 이 판정을 적용하지 않는다.
+
+실제 실패 응답을 캡처한 뒤 Tacto에 재생했을 때 error/text:null, usage/cost:null로
+보존됐다. 인증·usage를 확인하지 못한 것과 사용량0은 다르다. 이 초기 처리는 관측한
+특정 인증 실패만 거부했다. 아래 후속 adapter에서 정상 응답 framing 검증을
+추가했으며 실제 정상 모델 실행은 여전히 인증 때문에 미검증이다.
+사용자 token/login/plugin 설정을 자동 변경하지 않는다.
+
+
+## OpenCode의 structured planning adapter
+
+`opencode_result`는 fresh `run --format json --agent NLCPlanner`를 사용하고
+prompt를 stdin으로 전달한다. 호출별 임시 cwd/config에서 permission 전체 deny,
+plugin 빈 목록, 공유/자동 업데이트/project config/external skills 비활성화를
+요청한다. 사용자 auth data는 유지하며 login/token/원래 config를 수정하지 않는다.
+사용자 config의 custom provider/model 설정은 임시 config로 복사하지 않으므로
+그 설정에 의존하는 백본은 별도 지원·검증이 필요하다.
+이 설정은 CLI/plugin에 대한 OS sandbox나 모든 부작용 방지 증명이 아니다.
+
+동일 session/message의 한 step_start, 완료한 text parts, stop reason의
+step_finish가 있어야 계획 답변을 인정한다. 다른 session/message, 중복 part,
+재시작, 도구/미지원 이벤트, 잘림, 비정상 token/cost 값과 nonzero exit는 거부한다.
+framed text가 인증/한도를 설명하는 것은 provider refusal과 구분한다.
+[1.2.22 공식 CLI event emission](https://github.com/anomalyco/opencode/blob/v1.2.22/packages/opencode/src/cli/cmd/run.ts),
+[step schema](https://github.com/anomalyco/opencode/blob/v1.2.22/packages/opencode/src/session/message-v2.ts)를 기준으로 구현했다.
+
+step-finish의 uncached input/cache read/write/output과 cost를 공통 결과와
+attempt에 보존한다. total_input_tokens는 관측한 input+cache read+cache write다.
+검증된 finish 뒤 error 또는 length 제한이면 답변은 폐기하되 그 step의 사용량은
+실패 attempt에 남긴다. 이를 전체 원격 요청의 최종 사용량으로 승격하지 않는다.
+도구 이벤트 등으로 더 일찍 거부하면 후속 step usage는 관측하지 못할 수 있다.
+
+cost_basis는 cli_reported_step_estimate다. JSON stream에 serving model, API
+request ID, currency가 없어 null을 유지한다. sessionID는 OpenCode의 local
+session이며 원격 provider thread의 증명이 아니다. 통화가 없으므로 통화별
+비용 합계에 합치지 않는다. OpenCode 자체가 누락된 SDK usage/가격을0으로
+처리할 수 있으므로 관측된 CLI zero는 실제 무료/무사용 증명이 아니다.
+[공식 usage 계산](https://github.com/anomalyco/opencode/blob/v1.2.22/packages/opencode/src/session/index.ts)을 참고한다.
+
+로컬 transport는 caller stdin을 이어받지 않고 timeout/interrupt에 기존
+process-group 정리를 수행한다. stdout은 수신 후8MiB/1000event 한도로 검증한다.
+이것은 communicate의 메모리 수신량 제한이 아니며 remote generation 취소와
+과금 중단은 보장하지 않는다. 설치된1.2.22 실측은 authentication_failed였고
+정상 serving model/usage/cost 및 실제 UI 과제 성공은 미검증이다.
+
+
+OpenCode framing 거절 시 availability 분류는 CLI stderr와 정확한 structured
+refresh401 error event를 사용한다. assistant text나 unframed stdout의 로그인·
+quota 설명은 서비스 거절 근거가 아니다. 따라서 truncated/late-error 응답은
+그 답변 내용을 검색해 not_logged_in/usage_limit로 바꾸지 않는다. 독립적으로
+유효했던 완료 이벤트의 usage는 계속 보존하며 원시 진단은 envelope에 넣지 않는다.
+
+## 불완전 비용과 입력 토큰 구성요소
+
+`summarize_provider_calls`는 통화와 cost_basis가 모두 있는 비용만 기존 `costs`
+버킷으로 합산한다. 금액이 보고됐지만 통화 또는 기준이 없는 관측은 이제
+`unaggregated_costs`에 개별로 남긴다. 항목은 logical_request_index/attempt_index
+(legacy 단일 결과는 null), provider/transport/status, observed_amount, currency,
+basis, missing_fields다. 미확인 통화·기준은 null이며 추정 USD로 채우거나 서로
+합산하지 않는다. 명시적으로 보고된0 금액도 남기고, 금액 자체가 없으면 항목을
+만들지 않는다. `unknown_cost_records`는 금액·통화·기준 중 하나라도 미확인인
+기존 카운터를 유지한다. 이 값은 청구된 요청 횟수가 아니다.
+
+`input_token_components`는 input_tokens_basis(null/total/uncached)별 records 수와
+input_tokens/cached_input_tokens/cache_creation_input_tokens의 observed_sum/
+unknown_records를 별도로 제공한다. total과 uncached의 input counts를 합치지
+않으며 cache 구성요소를 기존 total_input_tokens 합계에 다시 더하지 않는다.
+일부만 알려져도 보존하되, missing cache 성분으로 총량을 추측하지 않는다.
+실패·timeout·invalid_response attempts와 legacy 결과에도 같은 규칙이다.
+최종 logical 결과와 그 attempts는 계속 중복 합산하지 않는다.
+
+`reported_local_route_rejections`는 cache creation count와 input basis를 포함한
+모든 telemetry가 없는 닫힌 Muxa rejection만 세도록 수정했다. 거절 code만으로
+충돌하는 usage 관측을 no-telemetry local rejection으로 분류하지 않는다. 이것도
+remote request/실제 과금/원격 취소의 증명이 아니다.
+
+이전·현재 metadata replay(비공개 로컬 기록: `reviews/provider-partial-summary-before-after-a.json`; 공개 원본 미포함)와
+관련112 tests(비공개 로컬 기록: `reviews/provider-partial-regression-a.log`; 공개 원본 미포함)는 실제 로컬 executable
+fixture가 error frame 뒤 보존한 input18/output4/cache read6/write2, cost0.001/
+통화 null을 공통 summary까지 확인했다. parser fixture이며 실제 OpenCode 서비스
+호출이나 청구 금액이 아니다. 최종 suite는7.159s/OK/no skips/process7.284s/
+source subset stable(비공개 로컬 기록: `reviews/provider-partial-regression-a.json`; 공개 원본 미포함)다.
+
+
+### Codex planning working directory
+
+Text and image Codex requests start in a fresh private temporary directory.
+Both CLI `--cd` and the subprocess `cwd` point there; `--skip-git-repo-check`
+permits that non-repository root. The prompt stays on stdin, the independently
+exported final-message file stays private, and cleanup runs after the child is
+reaped. Text requests retain user model/auth/provider configuration; the existing
+image branch retains its `--ignore-user-config` setting. Requested model,
+read-only sandbox, ephemeral session and structured-answer acceptance are unchanged.
+
+This changes the inherited working directory; it does not enforce a provider
+context ceiling, disable tools or authenticate which instructions were loaded.
+Global configuration, ancestor instructions, skills and hidden framing may still
+contribute input. The actual serving model/tokenizer and invoice remain unknown
+when the CLI does not expose them.
+
+
+Local POSIX provider runners now clean their fresh owned session on normal
+completion as well as timeout/interrupt/output-limit failure. They retain the
+leader's waitable exit status until group cleanup, then reap it, preserving the
+CLI's exit code. Codex's optional observer uses a non-reaping exit check. This
+requires no competing reaper for the owned handle. Detached sessions and remote
+generation/billing remain outside the guarantee; cancellation_supported stays
+false. Darwin support uses the installed waitid/siginfo_t/libproc ABI and was
+verified on the current arm64 Mac; other OS/architecture runtime parity remains
+unverified. See the current completion-plan entry and preserved failure logs.
+
+
+The retained-leader cleanup now requires default SIGCHLD before launch. On
+Darwin it also queries native sigaction, without changing handlers, to reject
+SA_NOCLDWAIT even when Python's cached handler says SIG_DFL. Immediately before
+any group signal, a non-reaping wait must confirm the child is still waitable;
+ECHILD or another ownership error forbids that signal and accepting an answer.
+`returncode is None` alone is insufficient. All threads, handlers and external
+libraries must refrain from reaping owned children, including `waitpid(-1)`, and
+from changing signal disposition during this lifetime. The check cannot eliminate
+races with arbitrary competing reapers. Other OS native flag parity, detached
+sessions, and remote cancellation remain unverified. See the
+partial audit(비공개 로컬 기록: `reviews/provider-ownership-guard-partial-audit-a.json`; 공개 원본 미포함).

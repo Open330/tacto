@@ -117,7 +117,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         if required:
             all_ok = False
     # Over-broad grant check. TCC identifies a client by binary, and a venv's
-    # python is usually a symlink to a SHARED interpreter — so granting Tacto
+    # python is usually a symlink to a SHARED interpreter — so granting NLC
     # accessibility grants it to every script run with that interpreter.
     # Verified on this machine: an unrelated /tmp script could read other apps'
     # windows. Users deserve to know that before they click Allow.
@@ -212,7 +212,7 @@ def helper_status() -> dict:
             # Under the signed launcher, the channel it handed down is the
             # only one the helper answers. Dialling the helper directly, as
             # this did, is refused BY DESIGN (peer authentication) — so the
-            # check reported "grant Tacto Helper" to people whose helper was
+            # check reported "grant NLC Helper" to people whose helper was
             # granted and working, and told them to use the launcher they
             # were already using (2026-09-28).
             driver = InheritedHelperDriver()    # its handshake checks AX trust

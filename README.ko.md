@@ -135,7 +135,7 @@ README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드�
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[Preview 2 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+[Preview 3 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.3) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
@@ -312,3 +312,24 @@ python3 sites/tacto/serve.py
 
 **Tacto** · Local execution. Reusable computer use.<br>
 Developer preview · Proprietary license
+
+
+<details>
+<summary>런타임 개선과 검증 기록</summary>
+
+- [dispatch-journal](docs/dispatch-journal.md)
+- [journal-reconciliation](docs/journal-reconciliation.md)
+- [menu-readiness](docs/menu-readiness.md)
+- [tacto-attended-operation-design](docs/tacto-attended-operation-design.md)
+- [tacto-authoring-literal-validation](docs/tacto-authoring-literal-validation.md)
+- [tacto-capture-continuation-validation](docs/tacto-capture-continuation-validation.md)
+- [tacto-latency-profile-20261019](docs/tacto-latency-profile-20261019.md)
+- [tacto-native-matched-validation-20261019](docs/tacto-native-matched-validation-20261019.md)
+- [tacto-native-resumption-validation](docs/tacto-native-resumption-validation.md)
+- [tacto-provider-paging-validation](docs/tacto-provider-paging-validation.md)
+- [tacto-textedit-saved-state-validation](docs/tacto-textedit-saved-state-validation.md)
+- [window-preparation-diagnostics](docs/window-preparation-diagnostics.md)
+
+</details>
+
+[Preview 3 runtime update](docs/runtime-update-2026-10-19.md)

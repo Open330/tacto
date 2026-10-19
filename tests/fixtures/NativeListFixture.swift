@@ -54,6 +54,7 @@ import AppKit
     var opens = 0, opened = "none", singleClicks = 0, sent = 0, lastSent = "none"
     var menuOpen = false, menuPicks = 0, reopens = 0
     var roomWindows: [NSWindow] = []
+    var consumedCloseSignal = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 220, y: 220, width: 420, height: 360),
@@ -143,6 +144,15 @@ import AppKit
         roomWindows.append(room)
     }
     func refresh() {
+        // Host-owned fixture setup only: close this process's own main window
+        // once, without Python AX input or commands to any other application.
+        let args = CommandLine.arguments
+        if !consumedCloseSignal, let index = args.firstIndex(of: "--close-owned-window"),
+           index + 1 < args.count,
+           (try? String(contentsOfFile: args[index + 1], encoding: .utf8)) == "close-owned-main" {
+            consumedCloseSignal = true
+            window.close()
+        }
         label.stringValue = "profileDowns=\(profile.downs) routeErrors=\(profile.errors) "
             + "singleClicks=\(singleClicks) opens=\(opens) opened=\(opened.replacingOccurrences(of: " ", with: "_")) "
             + "selected=\(table.selectedRow) key=\(window.isKeyWindow) "

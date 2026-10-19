@@ -1,6 +1,14 @@
 # Python API
 
-CLI(`tacto …`)가 하는 일은 모두 Python에서도 할 수 있습니다. 이 문서는 공개 진입점과 그 약속을
+CLI `tacto observe <app> --helper --json`은 backend 응답 전체를 JSON으로 출력한다.
+기본 text 출력의 focused-window 요약을 적용하지 않으며 `custom_selects`의
+state/options/visible/scroll_direction 같은 관측 metadata를 보존한다.
+`--document <path>`는 JSON에서도 기존 문서 scope를 유지한다. observation
+error는 원래 reason/diagnostic을 JSON으로 출력하고 exit1이다. 연결 자체의
+실패는 기존 helper/doctor 진단을 따른다. JSON의 obs_id/index는 그 관측의
+값이며 별도 CLI 호출의 입력 허가나 선택 목록 pin을 이어 주지 않는다.
+
+CLI(`nlc …`)가 하는 일은 모두 Python에서도 할 수 있습니다. 이 문서는 공개 진입점과 그 약속을
 정리합니다. 흐름 전체의 설명은 [`recipes.md`](recipes.md), IR 작성 가이드는
 [`../skill/SKILL.md`](../skill/SKILL.md)에 있습니다.
 
@@ -38,6 +46,10 @@ direct/signed `driver.act`의 `click_point` raw action은 최신 관측의 Windo
 element_index와 `point={"x":..., "y":...}`를 받는다. 호스트가
 `risk_class="preapproved"` 또는 승인된 confirm과 `approved=True`를 명시해야 한다.
 새 관측으로 결과를 확인해야 한다. raw 좌표는 Flow에 저장하지 않는다.
+배경의 앱 내부 focused 창도 실제 key 창이 아닐 수 있어 first-mouse를 거절한
+내용 영역은 이벤트를 무시할 수 있다. 필요한 창 준비는 명시적 prepare_window와
+검증·새 관측으로 먼저 수행하고, 이미 전송한 불확실한 클릭은 효과 확인 없이
+반복하지 않는다. 전송 횟수와 실제 내용 수신을 구분한다.
 일반 시각 루프와 호스트에 등록한 `visual` Flow 단계에서 사용할 수 있다.
 [창별 입력 계약](native-window-input.md)에 좌표·창 결합·기한·부분 실패 범위를 설명한다.
 
@@ -66,7 +78,67 @@ print(concrete.to_json())
 | `Step` | `action, selector, params, intent_text, expect, postcondition, safety, binding, unverified_ok, for_each, captures, skip_if, on_uncertain, answers, …` |
 | `Selector` | `role, identifier, title, desc, value, ancestor, allow_nth, in_focused_window, click_ancestor` |
 | `Capture` | `name, field, attribute, sensitive, optional, empty_ok, tail, many, limit` |
-| `Postcondition` | `field, equals, contains, absent, attribute` |
+| `Postcondition` | `field, equals, contains, absent, absent_role, attribute` |
+
+### Compact JSON contracts — `safety_defaults`
+
+`Flow.from_json` accepts a top-level `safety_defaults` object. Declare shared
+`effects`, `reversibility`, `resource`, `destination`, `data_classes`, or
+`unknowns` once. Acting steps inherit them; a step's `safety` overrides only the
+changed fields. Lists replace rather than concatenate; `resource` and
+`destination` merge one level. Explicit `safety: null` disables inheritance.
+`decide` does not inherit a contract; its branch actions do.
+
+For example, keypad steps can share
+`{"effects":["write_ephemeral"],"reversibility":"reversible","resource":{"object_type":"calculator entry","scope":"entry"}}`;
+the clear step needs only `"safety":{"effects":["delete"]}`.
+Use `"safety":{"effects":["read"]}` for a read-only step in that flow.
+`evidence` and `commit_point` are step-specific and rejected in defaults.
+
+This is a JSON authoring shorthand, not a new policy or implicit authorization.
+Loading expands independent per-step contracts before binding, policy, dispatch
+and result checks. `Flow.to_json()` emits expanded contracts for existing
+consumers. Missing meaning remains a runtime refusal. `tacto run --help` includes
+a complete Calculator example; ordinary authors need not read this manual.
+
+`tacto run flow.json --helper --think 0 --timings` prints aggregate driver-call
+and replay durations as `NLC_TIMINGS` on stderr, without UI values or action
+parameters. Polling duration includes the driver's internal observations.
+This measures local replay, not an outer agent's model latency or billed cost.
+
+### Shared selectors and checks
+
+JSON accepts `selector_defaults` (Selector fields) and `check_defaults`
+(`field` and `attribute` only). A nonempty step selector inherits shared
+fields; local selector fields override them. Explicit `postcondition` and
+`skip_if` objects inherit shared check fields. A local `field` replaces the
+entire shared field. Absent/null/empty selectors and checks remain absent;
+defaults do not create an action target or a predicate. Branch steps expand
+under the same rules. Loaded flows and `to_json()` retain the ordinary expanded
+representation, so policy, bindings and result verification are unchanged.
+
+### One-flow signed session
+
+`tacto session <bundle-id> --helper [--timings] [--idle-timeout 1..600]` observes,
+prints `NLC_SESSION_READY`, accepts one minified newline-terminated Flow JSON
+record on stdin, replays on that signed connection, and exits. Input is bounded
+to1 MiB and the default input deadline is90 seconds. Replay refreshes the
+observation; it never acts on a borrowed index from another invocation.
+
+For agent tools use `exec_command` with `tty:true`, `yield_time_ms:3000`, then
+`write_stdin` with the returned session ID and JSON plus an actual newline.
+Poll the same session if readiness has not arrived. Input echo and canonical
+line limits are temporarily disabled on this invocation's terminal and restored
+on success or cancellation. Invalid flows, target mismatches, model-judgment
+steps and idle expiry end the session before input. The session does not read
+stdin as approval; ordinary user-intent policy and host receipts still apply.
+Use ordinary `run` for document scope, explicit/interactive approval, provider
+judgment and restart journals. No daemon or shared external socket is created.
+
+`absent_role="Sheet"`는 관측한 노드의 정확한 역할 토큰을 비교합니다(`AXSheet`도 허용).
+`Sheet1`·`Spreadsheet` 같은 제목이나 값은 시트로 계산하지 않습니다. 기존 `absent`는
+문자열 부분 일치이며 호환성을 유지합니다. 역할 부재는 제공된 트리의 관측 조건이고,
+생략된 노드·다른 창의 부재나 입력 권한을 증명하지 않습니다.
 
 - 화면 동작(`action`): `click, read, set_value, type_text, select_option, open_select,
   select_custom_option, press_key, menu, scroll, secondary_action, prepare_window, goto, open_folder`.
@@ -106,6 +178,47 @@ event ID·action digest·obs ID에 결합한 패널 token과 receipt context를 
 이 객체 자체는 승인 또는 완료 증거가 아니며, `after_commit`의 정확한
 `CommitEvidence`가 여전히 필요하다. AX의 불확실한 acted 응답 뒤에도 consequential
 입력의 독립 영수증은 확인할 수 있지만, 유효한 증거가 없으면 추가 실행을 중단한다.
+
+파일 상태와 이번 저장 요청의 완료는 구분한다. `ExistingTextFileReceipt`의
+`SavedFileStateEvidence`는 `commit_expected['artifact_evidence_scope']='saved_state'`
+가 필요하다. 정상 응답 뒤에는 이벤트가 `state_verified`가 된다. 저장 응답이
+사라졌거나 `acted`에 `unverified`가 있으면 파일 내용이 맞아도 이벤트는 `unknown`이고 재실행은
+`commit_unverified`로 중단한다. 상태 영수증은 남지만 재시도하지 않는다.
+일반 실행의 `exactly_once` 저장 조건에는 이 증거만으로 성공할 수 없다.
+
+`tacto.producer_file_receipt.ProducerFileReceipt`는 협력하는 앱의 완료 콜백을
+호스트가 신뢰할 수 있게 읽는 경우에만 쓴다. 준비할 때 앱·PID·프로세스 시작
+시각·nonce와 콜백 순서를 고정하고, 한 번의 새 완료와 신규 파일의 정확한
+UTF-8 바이트를 대조하여 `ProducerArtifactEvidence`를 만든다. 기대값의
+`artifact_evidence_scope='producer'` 및 producer identity도 일치해야 한다.
+콜백 대기와 파일 readback은 같은 마감을 쓰고 어댑터는 한 번만 소비한다.
+준비 시에도 신규 파일 경계 확인 전후로 콜백을 읽어 같은 ready 기록인지
+확인한다. 준비 중 순번·상태·경로·해시가 바뀌면
+`producer_preparation_changed`, 신원·읽기 오류는 기존 invalid/unavailable
+코드로 거절한다. 이때 입력 가능한 context를 반환하지 않는다. 준비는 성공
+여부와 관계없이 한 번만 시도하며 실패 후 같은 객체를 다시 준비하면
+`producer_already_prepared`다. 이 재확인은 최종 입력 시점과의 원자적 결합이나
+다른 작업의 callback을 일반 앱의 특정 UI 입력에 귀속시키는 기능은 아니다.
+파일 검증 뒤에도 같은 마감 안에서 콜백을 다시 읽어 전체 완료 기록이 같은지
+확인한다. 순번·상태·경로·해시가 바뀌면 producer_callback_changed로 거절하고,
+신원·읽기 오류는 기존 invalid/unavailable 코드로 거절한다. 늦은 읽기는 완료
+증거 없이 끝나며 어댑터를 재사용할 수 없다. 완료 순번은 heartbeat나 관측
+횟수가 아니라 해당 생산 작업의 순번이어야 한다. 후속 heartbeat가 있다면
+호스트 reader는 불변 완료 기록과 분리해 해석해야 한다. 이 재확인도 콜백과
+파일의 원자적 snapshot, ABA 또는 마지막 검사 이후 변경 부재를 증명하지 않는다.
+콜백 reader의 인증은 호스트 책임이며 이 타입 자체는 커널의 writer 증명이나
+실행 승인이 아니다. TextEdit에 자동 적용되지 않는다. 이미 있던 파일 내용만
+맞거나 콜백의 nonce·순서·경로·해시가 다르면 완료 증거를 발급하지 않는다.
+
+네이티브 저장창 관측의 `observation_budget`는 내용 없는 비용 메타데이터다.
+`accounting_version=1`은 속성 조회·탐색 작업 최대5000, 서로 다른 AX 항목
+최대5000, 배열 하나 최대5000항목, 반복 배열 검사 합계 최대20000항목을
+별도로 제한한다. 합계는 `read`·`revalidate`·`validateDocument`의 각 예산
+단위이며, 반환한 `peak_*`는 같은 reader의 예산 단위 중 최댓값이다.
+같은 AX 항목이라도 속성을 다시 읽고 모든 배열 항목을 다시 검사한다.
+관측의 기본3초와 helper 요청의 최대6초 제한은 유지한다. 이 계약은 이전의
+단일5000 풀과 다르며, 더 큰 목록을 무제한 지원하지 않는다. 오류와 성공
+응답 모두 가능한 경우 비용 메타데이터를 포함한다.
 
 `ReplayResult`:
 
@@ -270,3 +383,480 @@ executes the bounded proposal after fresh capture validation and literal host
 authorization. General and registered visual Flow runs independently verify
 receiving events; incomplete proof stops before later input. The shared one-use
 registry forbids spending the same image as both a click and a keyboard input.
+
+Trusted hosts can explicitly continue causal commit journals with
+`tacto.journal_reconciliation.CommitReconciliation` and `reconcile_journal`.
+`reconcile_and_replay(guard, commits, read_evidence, continuation, **replay_options)`
+connects that proof gate to an explicitly authored new Flow, preserving ordinary
+replay approval and typed receipt requirements. It freezes the Flow and static
+approvals/expectations before evidence reads and uses the same wrapper/directory.
+See [contracts and limitations](journal-reconciliation.md); this does not grant
+approval, recover a task plan, reconnect a helper, or automatically replay a
+recipe from a cursor.
+
+## Browser file chooser
+
+Optional headless/CDP `BrowserDriver.upload(obs_id, target, open_selector, paths,
+approved=False, *, chooser_selector=None)` selects host-supplied files. It is
+not itself a Flow action or general planner operation. `approved` must be exactly
+`True`. Both indices must come from the same latest observation; defaults bind
+the clicked control itself as the file input. A separate button opener requires
+an explicit observed file-input `chooser_selector`. Hidden/unobserved inputs
+cannot be named by inventing a DOM selector or observation index.
+
+The driver verifies that the expected element is a connected, enabled file
+input before clicking, subscribes before clicking, then checks the original
+document and exact chooser element before passing files. An incompatible input
+returns `upload_target_required`/`not_started`. A redirected chooser returns
+`upload_target_changed`/`unknown`: the opener click occurred, but files were not
+provided. Do not retry merely because this response is an error. Transport
+exceptions return closed `upload_failed` without raw exception text that could
+contain private file paths. `acted` means file selection only; receiving evidence
+must separately confirm the expected bytes, account and destination. These
+checks do not make page callbacks atomic or authorize arbitrary external upload.
+
+### Host-registered upload flows
+
+A Python host can register `BrowserUploadFile(filename, content: bytes,
+mime_type='application/octet-stream')` values in a
+`BrowserUploadScope(origin, opener: Selector, chooser: Selector, files: tuple)`.
+`BrowserUploadDriver(browser_driver, scopes)` copies the registrations and adds
+`action.upload`. Payloads contain immutable bytes, not paths read later. Limits
+are16 files,16 MiB/file,64 MiB total; names must be unique basenames and MIME
+values use a bounded type/subtype syntax. Hosts remain responsible for choosing
+the authorized bytes, account and destination. Registration does not approve an
+operation and cannot create access to an external receiving service.
+
+Use `adapter.parameters(scope_name)` as a step's params. It returns only
+`scope` and `attachment_digest`; the digest binds origin, both selectors,
+filename, MIME, size and byte hash. A Flow `upload` step needs that adapter
+capability, an opener selector, exactly `transmit` effects and a ContextBinding
+with operation='upload' and params_digest=pin_params(params). Native backends
+and an unwrapped BrowserDriver refuse this contract before observation/input.
+Files and callbacks are never serialized into recipes. A recipe still needs
+its matching host registrations after restart; registration is not durable
+resume authority.
+
+The adapter resolves opener and chooser from the same original observed tree,
+checks the registered origin and live role/name/enabled state, then uses the
+raw chooser identity checks above. The original approval, event and existing
+prepare_commit/after_commit receipt path apply. Pages may send as soon as files
+are selected, so upload intrinsically means transmit; it cannot be declared as
+an ephemeral write to avoid approval or receiving proof. `acted` still means
+selection only. A typed host receipt must verify the independently received
+exact bytes and account/destination before replay can complete or continue.
+DeliveredMessageReceipt accepts the closed registered-upload action shape;
+host bind_request must pin the planned manifest and live destination before
+selection. A compose-only form with a later Send has no receiving proof yet
+and stops as unverified; no staged-upload receipt type is provided. The CLI registration workflow is described below. The general planner supports
+registered candidates through the adapter as described below.
+
+### Live process CPU metadata
+
+`tacto.process_cpu.sample_process_cpu(pid)` returns a frozen ProcessCpuSample with
+PID/start identity, raw user/system CPU and Mach timebase. `cpu_delta_ns(before,
+after)` rejects changed identity/clock or either regressing counter and converts
+the integer delta without float loss. `verify_cpu_clock()` compares a short,
+bounded own-process workload to POSIX CPU; the optional Finder CPU probe requires
+this check. The Darwin64 RUSAGE_INFO_V2 layout was checked against the installed
+SDK and live host. Unsupported platforms, failed/exit reads and invalid samples
+raise ProcessCpuError; they are not zero usage. This is whole local-process CPU,
+not remote model cost or atomic liveness.
+
+### CLI browser upload registration
+
+`tacto web-upload /absolute/private/config.json --scope owned --check` validates
+the selected registration and snapshots its files without browser/network/input.
+Omit `--check` to open a fresh headless Chromium session, review the exact
+account/recipient/body/file manifest and approve upload. Noninteractive execution
+requires `--yes`; this is explicit transmit approval. Existing native browser
+cookies/profile and signed native-helper permissions are not used. The site must
+already expose the expected fields and request identity in this fresh session.
+
+Install the optional web dependencies with `uv sync --extra web`. Both navigation
+and inbox URLs are canonicalized locally with [Ada's WHATWG URL parser](https://github.com/ada-url/ada-python)
+before use, including host case, default ports, internationalized hosts, IP
+notation and escaped paths. The scope binds the canonical browser origin; the
+original document, chooser, request and receiving checks still apply. Only
+explicit HTTP(S) URLs with an authority are accepted. Credentials (including
+empty userinfo), any fragment, backslashes, surrounding whitespace, control
+characters and invalid ports are refused. Raw and canonical URLs are each limited
+to4096 characters. Missing URL dependencies refuse execution; `--check` parses
+locally without launching a browser or contacting either endpoint.
+
+The version1 configuration is exact-key JSON (duplicate keys refused):
+
+```json
+{
+  "version": 1,
+  "url": "http://127.0.0.1:8000/",
+  "scopes": {
+    "owned": {
+      "opener": {"title": "attachments"},
+      "chooser": {"title": "attachments"},
+      "files": [{"path": "/absolute/owned/검토.txt", "filename": "검토.txt", "mime_type": "text/plain"}],
+      "receipt": {
+        "account": "fixture-sender",
+        "recipient": "fixture-recipient",
+        "text": "expected exact body",
+        "request_id": "expected-new-request-id",
+        "request_control": {"role": "button", "title": "Send"},
+        "request_attribute": "data-request",
+        "fields": {"account": {"title": "account"}, "recipient": {"title": "recipient"}, "body": {"title": "body"}},
+        "inbox_url": "http://127.0.0.1:8000/inbox/expected-new-request-id",
+        "headers": {},
+        "timeout_seconds": 2
+      }
+    }
+  }
+}
+```
+
+Configure the URLs, selectors and expected identities for the authorized site;
+this example is not a universal upload adapter. The configuration must be an
+absolute, owner600, single-link regular file (maximum1 MiB). Selected attachment
+paths must be absolute owned single-link regular files. Leaf symlinks/FIFOs are
+refused; before/after descriptor and path identities must match. Immutable bytes
+are captured once, so later file changes cannot silently alter the registration.
+Only the chosen scope's files are read. The BrowserUploadScope limits above apply.
+
+The independent inbox endpoint returns404 before delivery and then an exact
+InboxDelivery JSON object with request_id/message_id/account/recipient/
+body_sha256/state='delivered'/attachments. Attachments contain filename/sha256/
+size_bytes. The host reader credentials stay outside the page and printed output.
+Redirects are refused;502/503/504 alone are transient. Reader responses are bounded
+to1 MiB, use a socket timeout and check elapsed time between reads; this does not
+prove remote cancellation or bound DNS resolution. Authentication/malformed
+records are closed failures. Live UI field values and the specified data-*
+attribute must match before selection, and a new independent exact receipt is
+required afterward. A select-only compose form remains commit_unverified.
+
+`--report /private/new-report.json` creates an exclusive600 JSON result with
+events, logs and confirmed receiving proofs; an existing report refuses execution.
+`--journal-dir /absolute/private/run-directory` uses the same durable pre-input
+barrier as do/run/replay. Reuse the original directory after interruption;
+existing slots refuse input even if receiving proof disappears. There is no
+automatic resume/reconciliation or automatic resend. The receipt endpoint is a
+trusted host integration: a JSON claim from an untrusted site is not independent
+receiving evidence. Actual external account access and staged/native chooser
+workflows still require separate integration and validation.
+An interruption leaves an available report as web_upload_interrupted/unknown
+and preserves the interrupt; this is not permission to replay the operation.
+
+### General planner upload candidates
+
+With BrowserUploadDriver, `general.run` offers upload only on each observed,
+enabled registered opener at its registered origin. Candidate uploads contain
+registered scope/digest and file filename/size/hash manifests; no content bytes
+or local paths enter the model prompt. Multiple registrations on one opener are
+explicit choices. `what_to_do_here` accepts only a displayed scope for upload,
+copies its original digest and rejects path/content/digest overrides. Upload
+ends the batch and needs a fresh observed plan afterward.
+
+Before dispatch, the general executor checks the selected registration again
+against fresh candidates both before and after approval. The Envelope must
+admit transmit. Approval shows the selected manifest; the same independent
+receiving hooks and expected account/destination/body/attachment checks used by
+Flow apply. A valid confirmed DeliveryEvidence or ProducerArtifactEvidence can
+verify a finished general run even without a cosmetic UI expectation. Model
+done, dispatch acknowledgement, a bare boolean, sender transcript or saved-state
+alone do not supply this causal verification. Existing read/UI verification
+routes remain separately supported. Records preserve the chosen scope and
+digest so a promoted recipe retains that exact registration reference; host
+registration and receiving hooks are still needed on replay. This adds no
+native chooser, external account access or automatic staged-upload proof.
+
+Large registered upload manifests use the same lossless reference paging as
+large option lists. The initial projection shows at most eight bounded scope
+names and the total count; complete filenames/sizes/hashes and registrations
+remain in the snapshot-bound complete_candidate reference. Upload validation
+uses the original full candidate, not the excerpt. When the default context
+reserve would reject a base prompt that fits the caller budget, the pager tries
+a smaller reserve on the same cursor and references. Actual planning, context
+reads and validation retries still pass the original request budget guard.
+Insufficient chunk space or exhausted requests stops without selecting files.
+This meters the chosen task-prompt encoding, not the provider's entire serving
+context or its unknown tokenizer.
+
+The owned opt-in probe is `.venv/bin/python
+examples/probes/registered-upload-paging.py <private-report.json>
+--registrations 64 --budget 2500 --max-pages 16`. It uses a live Codex planner,
+headless Chromium and the test's own HTTP receiver; host verification and final
+completion control are explicit. It creates an exclusive0600 report and records
+source/CLI-entrypoint hashes, request token counts, provider metadata and exact
+receiving evidence. It does not drive the user's native browser or compare Sky.
+
+After `set_files`, the raw upload API rechecks the original document and that
+its observed chooser element is still a connected file input. Nonempty input
+requires a nonempty current FileList; an explicit empty/None selection requires
+an empty FileList and reports `files cleared`. If a page clears/replaces the
+input or navigates during the change callback, `upload_selection_unverified`/
+`unknown` preserves the possible disclosure. It does not authorize another
+selection. This checks selection continuity, not a byte manifest or an atomic
+page transaction. File data may already have been read/sent. A valid original
+event-bound receiving receipt can settle that uncertain reply in Flow/general;
+without it the executor stops before replan/resend. Exact bytes/account/recipient
+checks remain with the independent receiving adapter.
+
+### Direct AX metadata transport experiment
+
+`python -m examples.probes.finder_children_read_cost NEW_PRIVATE_REPORT.json`
+is a source-checkout, macOS **read-only metadata** experiment. It is not a
+signed GUI input backend, a substitute for the helper, or a readiness permit.
+The direct reader needs its own existing AX metadata access; it does not open
+permission settings or modify signing/TCC. The report is exclusive600 and
+contains only closed roles, counters, AX statuses and source hashes, not window
+titles, paths from the UI, element handles or raw exception text.
+
+It selects at most24 nodes, two per known role, from at most512 visits with
+bounded sampling queues. Selection truncation is explicit and does not prove
+the full tree was read. Two alternating-order rounds compare full AXChildren
+with count/range (64 per page, count cap4096, count recheck), plus three-attribute
+batch with attribute-names followed by a supported subset batch. Only matching
+ordered child identities or exact decoded attribute replies enter the respective
+timing medians. Absent values and count0 are not silently declared equivalent.
+
+Every RPC is guarded by a15s shared acceptance deadline, PID/start/owner checks
+and a bounded AX messaging timeout. Timing includes those reader checks and
+RPCs; it is not pure provider CPU or the signed helper's full traversal timing.
+The optional calibrated CPU interval is whole Finder process usage only.
+`passed` means the measurement completed with a sample; readiness_verified and
+authorizes_input stay false. Repeated sampled handles may be warm, while a full
+scan reaches other virtual nodes. Neither a fast sample nor a changed API proves
+a faster or complete input preparation.
+
+### Native selection parameter boundary
+
+For native `select_option` and `select_custom_option`, supply a nonempty,
+UTF-8-encodable string `option_label`. Omit `value`, or supply the identical
+string: equality includes the exact UTF-8 representation. Unpaired surrogates
+in the Python label, explicit JSON null, numbers, booleans, arrays,
+objects, a different string and a canonically equivalent but differently encoded
+string are refused before native element lookup/menu input. No trimming, coercion
+or Unicode normalization is applied to this parameter equality. HTML selects
+retain their separate label/value semantics.
+
+`tacto.protocol.native_selection_parameters_problem(action)` returns a closed
+reason or None. Both Python native paths and the helper client use it; the signed
+helper independently enforces the same rule at act entry and advertises
+`select_option.strict_parameters`. Wrapper/helper refusal is
+invalid_selection_parameters/not_started without echoing the supplied label/value.
+The signed launcher already rejects non-string payload fields; the helper guard
+also covers matching-type semantic mismatches. Ordinary observation, menu pin,
+selection identity, approval and receiving checks still apply to valid input.
+
+`tacto eval signed_native_selection_parameters --report NEW.json` checks 40
+parameter/observation refusal cases through the installed signed channel. It
+addresses no valid observed control and does not prove an option-selection task.
+Use the separate actual owned ComboBox scenario for receiving-effect verification.
+
+### Partial provider usage summaries
+
+`tacto.provider_observation.summarize_provider_calls(records)` retains observed
+route attempts without counting the logical final result twice. Its
+`unaggregated_costs` lists reported amounts with unknown currency or basis as
+individual observations, including request/attempt indices and missing_fields.
+It never adds those values to currency/basis cost buckets or invents USD.
+Explicit0 remains an observed amount; absent amounts remain unknown.
+
+`input_token_components` groups input/cache-read/cache-creation observations by
+input_tokens_basis (total/uncached/null), each with observed_sum/unknown_records.
+These components must not be added to the existing total_input_tokens summary: a
+total-basis input count already includes cache reads. Unknown components do not
+become0 or a derived total. See [usage scope and partial fields](provider-envelope.md#불완전-비용과-입력-토큰-구성요소).
+
+
+Native `open_select` accepts an optional literal `opening_action` of `AXShowMenu`
+or `AXPress`. Omission preserves the existing AXShowMenu path. Explicit AXPress
+uses the same opening checks and menu pinning; it makes one bounded AXPress call
+and never falls back on unsupported, timeout, or an uncertain result. It does
+not activate the app, dismiss menus, or restore focus. No route guarantees that
+an app will preserve another app's focus.
+
+Flow IR may carry `params: {"opening_action": "AXPress"}` with the usual selector
+and safety contract. A literal must be one of the two names; dynamic templates
+for this mechanism are not supported. Replay requires
+`action.open_select.explicit_ax` before input. Native direct and signed helpers
+advertise it; BrowserDriver rejects this native option rather than ignoring it.
+After opening, observe and choose only from the pinned menu using the existing
+`select_custom_option` contract. This route was checked on an owned AppKit popup
+with AXWebArea focus in the other app; ordinary app/AXTextArea/human typing parity
+remains unverified. The opt-in `signed_native_select_press_flow_replay` scenario
+also checks one new owned popup through serialized Flow IR parsing and actual
+signed replay: four Steps, Beta1 then Alpha2, final menu closed, and zero observed
+model requests. Each dispatch's receiving value/count/menu and sampled input audit
+must match before the next dispatch. That actual replay used AXOutline focus in
+the other app; it does not establish ordinary app or continuous typing parity.
+
+
+### Captured attachment payload inventory (trusted Python host)
+
+`tacto.document_attachments.attachment_inventory(body, ...)` inspects an already
+decoded native attributed string. The host must obtain the complete intended
+source/export strings independently; a partial AX RTF range cannot establish
+that missing attachment payloads were preserved. No Flow/CLI attachment or
+consequential save/send permission is registered by this API.
+
+Defaults: 10,000 UTF16 units, 256 FileWrapper entries including repeated
+attachment occurrences, 8MiB payload per inventory pass, depth16, 3s soft
+deadline. Supported payloads are regular files and directories; links, missing
+wrappers/names, unknown types, inconsistent replacement characters, changes or
+resource-limit failures raise `AttachmentEvidenceError`. Bounded native
+substring/data extraction precedes Python conversion. Framework calls and
+native backing storage have no hard cancellation/allocation guarantee; late
+results are refused.
+
+Names and relative paths are returned as SHA256 identifiers alongside occurrence
+positions, byte sizes and payload hashes. Two complete matching passes establish
+sampled stability only. `compare_attachment_payloads(source, exported, ...)`
+shares its soft deadline across both inventories and requires exact equality of
+text, positions, names, topology and file bytes. Its
+`captured_attachment_payloads_equal` does not attest full source format, all
+original attachments, producer attribution or save authority; those flags stay
+false. No GUI input, paths/URLs selected by a model, or filesystem writes occur.
+
+
+TextEdit AXDocument directory URLs (for example RTFD packages) may end with one
+slash. The authoritative native document readers normalize it only when the
+remaining path is an existing canonical directory. Syntax-only parsing and
+user-supplied document selectors remain unchanged; selectors use the canonical
+path without a terminal slash. This normalization grants no save/export authority.
+The isolated signed evaluator `tacto eval signed_document_attachments` opens one
+new private owned RTFD fixture in already-running background TextEdit, retains the
+window, and records actual signed RTF export payload comparison and sampled input
+audit. It never saves, edits or sends. Missing attachments or changed input keep
+the scenario failed. See the [actual partial result](../reviews/directory-document-url-partial-audit-a.json).
+
+
+#### Captured private RTFD package reader (trusted host only)
+
+`tacto.document_packages.capture_rtfd_package(path, *, max_entries=256,
+max_depth=16, max_payload_bytes=8*1024*1024, max_utf16_units=10000,
+timeout_seconds=3)` returns `CapturedRTFDPackage`: a decoded native body, bounded
+attachment inventory, captured entry/byte counts and sampled stability. Paths
+must already be canonical absolute `.rtfd` directories; package and immediate
+parent must be current-user-owned0700, all nested directories0700 and regular
+files0600/single-link. Selectors are not normalized. Reads use directory
+descriptors/O_NOFOLLOW and bracket identities/names. Three matching snapshots
+include empty folders and root identity, with native decode/inventory between
+the second and third. Wrappers are reconstructed solely from captured bytes.
+
+Input storage is bounded per snapshot; native decoding has no hard CPU/memory
+or cancellation guarantee. The shared deadline rejects late results. This is
+a trusted-host evidence utility without CLI/Flow authority registration. Returned
+body/inventory may be mutable; `sampled_stable` does not prove continuous stability.
+General source format, attachment completeness, producer attribution and save
+authority remain false. Compare `.body` to a trusted expected attributed string
+using `compare_attachment_payloads`; equality verifies captured payloads only.
+See the [actual owned package result](../reviews/rtfd-package-partial-audit-a.json).
+
+
+### Session guide and compact click input
+
+`tacto session <bundle-id> --helper --guide` returns a trusted minimal authoring
+guide and the initial observation in the same invocation. Normal session framing
+and policy still apply. No guide is emitted without the flag. With --timings,
+NLC_SESSION_TIMINGS gives monotonic offsets for observation_ready_seconds,
+input_ready_seconds, flow_received_seconds, replay_done_seconds and
+session_done_seconds. Input waiting is not pure model inference.
+
+Compact step {"click":"stable-id","equals":"result","skip_equals":"initial"}
+expands to an ordinary click selector and explicit postcondition/skip_if before
+existing parsing, contract checks, binding and replay. Identifier alternatives
+can be a nonempty text list. Check aliases require check_defaults.field. Mixing
+click with action/selector, or aliases with their expanded checks, is refused.
+No safety semantics or predicate is added automatically. to_json emits expanded
+steps. This format works in run and session, including nested branches.
+
+### Focused Flow authoring and selector repair
+
+`tacto session <bundle-id> --helper --reuse-guide --save /absolute/new.json`
+adds parameter/template instructions only on request. A successful replay saves
+the unbound Flow privately; current parameter defaults are bound only for replay.
+Existing output paths refuse before UI work. Failed replay never saves a Flow.
+A save failure after successful UI work reports that distinction; do not resend.
+Ordinary `--guide` omits reusable-template details.
+
+`invalid_flow` feedback identifies known malformed fields with zero-based step
+paths and short corrections without echoing supplied values. Examples: compact
+click/action-selector conflicts, unsupported actions, action parameter shape,
+and top-level params object shape. Other schema errors receive a generic short
+hint; not every schema error has a specialized correction yet.
+
+`tacto run <flow.json> --helper --think 0 --repair-packet /absolute/new-packet.json`
+writes a private packet only for a selector-resolution failure before dispatch.
+It contains the failed action/selector, result check and up to six scoped
+candidate selectors. It adds no driver observations or model calls. Success,
+unknown completion and nested/dynamic flows do not produce selector packets.
+
+`tacto repair <template.json> --packet <packet.json> --selector '<JSON>' --out <new.json>`
+is an offline transformation. It requires matching target, action, step index
+and old selector, a unique candidate in the packet, and a new output path. It
+changes only the selector, preserving the rest of the expanded Flow. Candidate
+lists are historical and bounded; uniqueness in the packet is not a guarantee
+of uniqueness in the current full UI. Reobserve and verify the current checkpoint
+before execution. The command never dispatches, approves, or resumes a Flow.
+
+### Multiple results at one checkpoint
+
+A postcondition may include `all_of`, an array of other postconditions. The
+primary condition and every child must pass on the same observed tree. A
+primary field/equals plus `answers:true` still reports that field. An all_of-only
+object also works; an empty unqualified condition never passes. Maximum32
+children per object, depth8; nested selectors/values bind as normal.
+
+Attach field/value postconditions to set_value steps to use polling rather than
+an unconditional settled observe. Group checks that belong to the same
+checkpoint; keep reads for different checkpoints or new data. Existing Flows
+are not automatically rewritten. Example and measured behavior:
+[Grouped checks](tacto-grouped-checks-2026-10-13.md).
+
+Grouped checks are saved as Flow schema3; older engines reject that version
+rather than silently ignoring all_of. Plain flows retain schema2. Current
+parsing promotes a grouped schema2 input to schema3 before saving.
+
+Development runtimes also support schema4 for observed literal text that contains
+`{{...}}`. Such text is stored in `literal_params`, separate from overridable task
+`params`; callers cannot override these data values. Serialization preserves
+literal/reference boundaries and never downgrades schema4 for grouped checks.
+Older runtimes reject schema4. This behavior is not in installed Preview2.
+[Literal learning and validation](tacto-literal-learning-validation.md).
+
+### Bounded saved-Flow batch
+
+`tacto batch <flow.json> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings]`
+loads one immutable, fixed-target deterministic Flow and keeps one signed
+connection. After NLC_BATCH_READY, send newline-terminated objects containing
+only params, with string values. Per-job normal replay authorization, fresh
+observation and completion checks remain. By default no model is called.
+Opt-in selector repair is described below; interactive approval, document scope
+and dispatch journals use ordinary run instead.
+
+Each result reports job index/exit/time. Failure or unknown completion stops;
+queued requests are not executed. EOF or the job limit closes the connection.
+The default is10 jobs/90s idle and records are bounded to64KiB. No observation
+IDs or approvals survive into the next replay. Only a verified last-action
+result allows the next fresh initial observation to bypass the redundant
+helper settle delay. The foreground activation latch spans the whole batch.
+[Usage, verification and measured timings](tacto-connection-batch-2026-10-13.md).
+
+### Automatic selector repair
+
+`run` and `batch` accept `--auto-repair codex`, `--max-repairs 1..10` (default2)
+and `--repair-timeout 1..120` seconds (default60). Successful jobs call no model.
+An undispatched selector failure can trigger candidate choice and checked suffix
+continuation: [contract and verified scope](../skill/references/auto-repair.md).
+The immediately previous step must have a verified postcondition, the repaired
+step must have a new explicit result check, and its effects must be read or
+write_ephemeral. Candidates must identify the chosen full-tree node uniquely.
+A stable checkpoint and all meaningful tree content are required before and after the call. Captures,
+parameterized selectors, dynamic/on_uncertain flows, activation and unknown
+completion stop this shortcut. No journal/crash resume or approval transfer is
+provided. Learned selectors stay in batch memory. Optional --repair-packet writes
+only a terminal unrepaired failure, with original-template indexes.
+
+Checkpoint comparison ignores numeric indexes and at most two completely bare
+Group wrapper changes per comparison. It retains every other raw body, flag,
+value, node order and kept ancestor path. Raw selector uniqueness and selected
+node correspondence, result checks and native readiness guards are unchanged.
+[Complex scenario verification](tacto-complex-scenarios-2026-10-14.md).

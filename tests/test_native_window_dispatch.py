@@ -28,6 +28,9 @@ class WindowPreparationTests(unittest.TestCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(m, '_attr', side_effect=attr))
             stack.enter_context(patch.object(m, '_aborted_now', return_value=stopped))
+            # The person's focus is judged separately (test_foreground_preparation_focus).
+            stack.enter_context(patch.object(m.Driver, '_foreground_preparation',
+                                             return_value='write'))
             stack.enter_context(patch.object(m.Driver, '_frontmost',
                 side_effect=frontmost if callable(frontmost) else None,
                 return_value=frontmost if not callable(frontmost) else None))

@@ -25,7 +25,11 @@ class PairAuditTests(unittest.TestCase):
                 'initial_frontmost_bundle':'owned.sentinel', 'oracle_contract':'exact-v2',
                 'runtime_policy':'background-v2','background_constraint':'owned constraint',
                 'timeout_seconds':120}
-        self.rows = [dict(deepcopy(base), arm=arm) for arm in ('tacto', 'sky')]
+        profile={'schema':'comparison-instructions-v1','nlc_template_sha256':'a'*64,
+                 'sky_template_sha256':'b'*64,'sky_guide_sha256':None,'sky_guide_provided':False}
+        base.update(comparison_instruction_profile=profile,instruction_profile_stable=True)
+        self.rows = [dict(deepcopy(base), arm=arm) for arm in ('nlc', 'sky')]
+        for row in self.rows:row['agent_prompt_template_sha256']=profile[row['arm']+'_template_sha256']
 
     def pair(self):
         return module.audit(self.rows)['pairs'][0]
@@ -91,6 +95,18 @@ class PairAuditTests(unittest.TestCase):
         self.assertIn('success_not_supported_by_oracle_and_process', self.pair()['issues'])
         report = module.audit([{}, None, dict(self.rows[0], rep=True)])
         self.assertEqual([0, 1, 2], report['invalid_row_indices'])
+
+    def test_guide_configuration_or_template_change_cannot_be_mixed(self):
+        self.rows[1]['comparison_instruction_profile'].update(sky_guide_provided=True,sky_guide_sha256='c'*64)
+        self.assertIn('instruction_profile_differs',self.pair()['issues'])
+        self.rows[1]['instruction_profile_stable']=False
+        self.assertIn('instruction_profile_not_observed_stable',self.pair()['issues'])
+
+    def test_legacy_missing_profile_and_mismatched_template_are_not_inferred(self):
+        self.rows[0].pop('comparison_instruction_profile')
+        self.assertIn('instruction_profile_missing_or_invalid',self.pair()['issues'])
+        self.rows[1]['agent_prompt_template_sha256']='c'*64
+        self.assertIn('prompt_template_not_bound_to_profile',self.pair()['issues'])
 
 
 if __name__ == '__main__':

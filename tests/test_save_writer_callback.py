@@ -34,6 +34,9 @@ class CallbackTests(unittest.TestCase):
         self.assertFalse(self.verified([self.row,{'callback':'refused'}]))
         self.assertFalse(self.verified([{'callback':'ready'}]))
 
+    def test_boolean_response_is_not_a_native_completion_code(self):
+        self.assertFalse(self.verified([dict(self.row,response=True)]))
+
     def test_empty_owned_preferences_removed(self):
         with tempfile.TemporaryDirectory() as work:
             path=Path(work)/'owned.plist'
