@@ -421,8 +421,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshConnection()
         build()
         installMenus()
-        window.center(); window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        window.center()
+        // Background launches keep the settings surface out of the user's way.
+        // The menu bar remains available; a normal open or menu click shows it.
+        if !CommandLine.arguments.contains("--background") {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         // Reading the helper's receipt requests nothing and changes nothing;
         // it is what lets every row start out true. Settings, permission
         // requests and installation still each wait for their own click.
@@ -934,5 +939,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 let app = NSApplication.shared
 let delegate = Setup(); app.delegate = delegate
-app.setActivationPolicy(CommandLine.arguments.contains("--snapshot") ? .prohibited : .regular)
+// Menu-bar utility: neither an open settings window nor a background launch
+// needs a Dock icon. Explicit reopen still activates the settings window.
+app.setActivationPolicy(CommandLine.arguments.contains("--snapshot") ? .prohibited : .accessory)
 app.run()

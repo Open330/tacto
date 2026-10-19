@@ -42,6 +42,7 @@ def build(output: Path):
             "CFBundleIconFile": "tacto-app.icns",
             "CFBundleExecutable": "TactoSetup", "CFBundleIdentifier": "ai.callabo.nlc.setup.preview",
             "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.0",
+            "LSUIElement": True,
             "LSMinimumSystemVersion": "13.0",
         }))
         (contents / "Resources/runtime.json").write_text(json.dumps({"root": str(root)}))
