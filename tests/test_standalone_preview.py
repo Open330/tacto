@@ -17,6 +17,21 @@ class StandalonePreviewTests(unittest.TestCase):
         kept=set(names)-set(builder.ignored('/owned',names))
         self.assertEqual({'module.py','license.txt'},kept)
 
+    def test_build_metadata_is_sanitized_before_bytecode_is_generated(self):
+        with tempfile.TemporaryDirectory() as folder:
+            runtime=Path(folder)/'runtime';lib=runtime/'.venv/lib/python3.11';lib.mkdir(parents=True)
+            metadata=lib/'_sysconfigdata__darwin_darwin.py'
+            metadata.write_text("build_time_vars={'prefix':'/private-builder/python','flag':'keep'}")
+            untouched=lib/'ordinary.py';untouched.write_text("value='/private-builder/python'")
+            self.assertEqual(1,builder.normalize_python_metadata(runtime,Path('/private-builder/python')))
+            data={};exec(metadata.read_text(),data)
+            self.assertEqual({'prefix':'/opt/tacto-runtime','flag':'keep'},data['build_time_vars'])
+            self.assertIn('/private-builder/python',untouched.read_text())
+            with self.assertRaisesRegex(RuntimeError,'private_build_path_in_bundle'):
+                builder.require_private_paths_absent(runtime,('/private-builder',))
+            untouched.unlink()
+            self.assertEqual(1,builder.require_private_paths_absent(runtime,('/private-builder',)))
+
     def test_import_origin_requires_existing_files_inside_bundle(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'runtime';root.mkdir();module=root/'module.py';module.write_text('')

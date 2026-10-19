@@ -32,6 +32,30 @@ def native_files(directory):
         if magic in MAGICS:yield path
 
 
+def normalize_python_metadata(runtime, original_prefix):
+    """Remove the build machine prefix from copied build-time metadata only."""
+    changed = 0
+    for path in (runtime/'.venv/lib').glob('python*/_sysconfigdata*.py'):
+        before = path.read_text()
+        after = before.replace(str(original_prefix), '/opt/tacto-runtime')
+        if after != before:
+            path.write_text(after)
+            changed += 1
+    return changed
+
+
+def require_private_paths_absent(directory, prefixes):
+    needles = [str(path).encode() for path in prefixes if str(path) not in ('', '/')]
+    scanned = 0
+    for path in directory.rglob('*'):
+        if path.is_file() and not path.is_symlink():
+            scanned += 1
+            data = path.read_bytes()
+            if any(needle in data for needle in needles):
+                raise RuntimeError('private_build_path_in_bundle')
+    return scanned
+
+
 def bundled_import_valid(data, runtime):
     try:
         root=runtime.resolve(strict=True)
@@ -100,6 +124,10 @@ def build(output, identity):
         shutil.copytree(ROOT/'tacto',site/'tacto',ignore=ignored)
         if (site/'nlc').exists():shutil.rmtree(site/'nlc')
         shutil.copytree(ROOT/'nlc',site/'nlc',ignore=ignored)
+        report['python_metadata_normalized'] = normalize_python_metadata(runtime, base)
+        # A dylib's install ID is build metadata too; preserve relocatable loads.
+        for library in (runtime/'.venv/lib').glob('libpython*.dylib'):
+            run(['install_name_tool', '-id', '@rpath/'+library.name, str(library)])
         # Ship deterministic checked-hash bytecode before sealing the bundle.
         # -B at every owned runtime entry reads these caches but never creates
         # new files inside the signed app on a user's first command.
@@ -121,7 +149,7 @@ def build(output, identity):
         launcher=runtime/'launcher/tacto'
         launcher_source=Path(folder)/'launcher-source';launcher_source.mkdir()
         shutil.copy2(ROOT/'launcher/tacto.swift',launcher_source/'main.swift')
-        run(['swiftc','-O',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),'-o',str(launcher)])
+        run(['swiftc','-O','-file-prefix-map',str(ROOT)+'=/tacto-source',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),'-o',str(launcher)])
         sign(launcher,identity,'ai.callabo.nlc',requirement('ai.callabo.nlc'))
         run(['codesign','--verify','-R='+requirement('ai.callabo.nlc'),str(launcher)])
         native=list(native_files(runtime/'.venv'))
@@ -153,7 +181,7 @@ def build(output, identity):
         helper_plist.write_bytes(plistlib.dumps(helper_info))
         sign(helper_app,identity,'ai.callabo.nlc.helper',requirement('ai.callabo.nlc.helper'))
         run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(helper_app)])
-        run(['swiftc',str(ROOT/'setup/main.swift'),str(ROOT/'setup/PermissionState.swift'),'-o',str(executable)])
+        run(['swiftc','-file-prefix-map',str(ROOT)+'=/tacto-source',str(ROOT/'setup/main.swift'),str(ROOT/'setup/PermissionState.swift'),'-o',str(executable)])
         import plistlib
         (contents/'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',
@@ -187,6 +215,8 @@ def build(output, identity):
     run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(output)])
     report['outer_permission_owner_requirement_verified']=True
     report['signature_verified_after_import']=True
+    report['private_path_files_scanned'] = require_private_paths_absent(output, (Path.home(), ROOT))
+    report['private_build_paths_absent'] = True
     report['source_before']=before;report['source_after']=sources()
     report['source_stable']=before==report['source_after'];report['elapsed_seconds']=time.monotonic()-began
     if not report['source_stable']:raise RuntimeError('build sources changed')
