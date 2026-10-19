@@ -56,6 +56,17 @@ def require_private_paths_absent(directory, prefixes):
     return scanned
 
 
+def compile_setup(executable, folder):
+    # Swift's prefix-map does not rewrite every #filePath string literal.
+    # Relative input names keep those literals independent of the build host.
+    sources = folder/'setup-source'
+    sources.mkdir()
+    for name in ('main.swift', 'PermissionState.swift'):
+        shutil.copy2(ROOT/'setup'/name, sources/name)
+    run(['swiftc', '-file-prefix-map', str(ROOT)+'=/tacto-source',
+         'main.swift', 'PermissionState.swift', '-o', str(executable)], cwd=sources)
+
+
 def bundled_import_valid(data, runtime):
     try:
         root=runtime.resolve(strict=True)
@@ -181,7 +192,7 @@ def build(output, identity):
         helper_plist.write_bytes(plistlib.dumps(helper_info))
         sign(helper_app,identity,'ai.callabo.nlc.helper',requirement('ai.callabo.nlc.helper'))
         run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(helper_app)])
-        run(['swiftc','-file-prefix-map',str(ROOT)+'=/tacto-source',str(ROOT/'setup/main.swift'),str(ROOT/'setup/PermissionState.swift'),'-o',str(executable)])
+        compile_setup(executable, Path(folder))
         import plistlib
         (contents/'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',

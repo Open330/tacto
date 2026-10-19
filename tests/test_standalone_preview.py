@@ -32,6 +32,15 @@ class StandalonePreviewTests(unittest.TestCase):
             untouched.unlink()
             self.assertEqual(1,builder.require_private_paths_absent(runtime,('/private-builder',)))
 
+    @unittest.skipUnless(sys.platform=='darwin','macOS Swift GUI compiler required')
+    def test_actual_gui_binary_has_no_local_home_or_checkout_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work=Path(folder);binary=work/'TactoSetup'
+            builder.compile_setup(binary,work)
+            data=binary.read_bytes()
+            self.assertNotIn(str(Path.home()).encode(),data)
+            self.assertNotIn(str(ROOT).encode(),data)
+
     def test_import_origin_requires_existing_files_inside_bundle(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)/'runtime';root.mkdir();module=root/'module.py';module.write_text('')
