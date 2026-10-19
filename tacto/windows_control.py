@@ -66,53 +66,63 @@ class control:
         self._threads.append(thread)
 
     def _show_notice(self):
+        """A plain Win32 popup that is never activated.
+
+        Tk activates its window when it maps it, which took the person's
+        foreground for as long as the notice stood (seen on Windows 11), so
+        the notice is a system dialog-class popup holding a STATIC label: no
+        window procedure of ours, no focus. (A bare top-level STATIC paints
+        through its parent's DC, the desktop, so it never shows.)
+        """
         try:
             import ctypes
-            import tkinter
             from ctypes import wintypes
-            root = tkinter.Tk()
-            # Hidden until its window is marked non-activating, so it never
-            # takes focus even for a moment.
-            root.withdraw()
-            root.overrideredirect(True)
-            root.attributes("-topmost", True)
-            root.configure(bg="#1f1a17")
-            tkinter.Label(root, text="● Tacto 조작 중 — Esc로 중지", fg="#fff4ec", bg="#1f1a17",
-                          padx=10, pady=4).pack()
-            root.update_idletasks()
-            width = root.winfo_reqwidth()
-            root.geometry(f"+{root.winfo_screenwidth() - width - 16}+16")
-            user32 = ctypes.WinDLL("user32")
-            # Explicit signatures: a 64-bit HWND must not be truncated.
-            user32.GetParent.argtypes = (wintypes.HWND,)
-            user32.GetParent.restype = wintypes.HWND
-            user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
-            user32.GetWindowLongW.restype = wintypes.LONG
-            user32.SetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int, wintypes.LONG)
-            user32.SetWindowLongW.restype = wintypes.LONG
+            user32, gdi32 = ctypes.WinDLL("user32"), ctypes.WinDLL("gdi32")
+            # Explicit signatures: 64-bit handles must not be truncated.
+            user32.CreateWindowExW.argtypes = (
+                wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID)
+            user32.CreateWindowExW.restype = wintypes.HWND
+            user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+            user32.SendMessageW.restype = wintypes.LPARAM
             user32.ShowWindow.argtypes = (wintypes.HWND, ctypes.c_int)
-            hwnd = user32.GetParent(root.winfo_id())
-            GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST = -20, 0x08000000, 0x80, 0x8
-            style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-            user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST)
-            SW_SHOWNOACTIVATE = 4
-            user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
-            root.update()
-
-            def tick():
-                if self._done.is_set():
-                    root.destroy()
-                else:
-                    root.after(100, tick)
-            root.after(100, tick)
-            root.mainloop()
+            user32.DestroyWindow.argtypes = (wintypes.HWND,)
+            user32.PeekMessageW.argtypes = (ctypes.POINTER(wintypes.MSG), wintypes.HWND,
+                                            wintypes.UINT, wintypes.UINT, wintypes.UINT)
+            user32.TranslateMessage.argtypes = (ctypes.POINTER(wintypes.MSG),)
+            user32.DispatchMessageW.argtypes = (ctypes.POINTER(wintypes.MSG),)
+            gdi32.GetStockObject.argtypes = (ctypes.c_int,)
+            gdi32.GetStockObject.restype = wintypes.HGDIOBJ
+            WS_EX = 0x08000000 | 0x8 | 0x80          # NOACTIVATE | TOPMOST | TOOLWINDOW
+            WS_POPUP, WS_BORDER, WS_CHILD, WS_VISIBLE = 0x80000000, 0x00800000, 0x40000000, 0x10000000
+            SS_CENTER, SS_CENTERIMAGE = 0x1, 0x200
+            width, height = 280, 28
+            left = user32.GetSystemMetrics(0) - width - 16  # SM_CXSCREEN
+            hwnd = user32.CreateWindowExW(WS_EX, "#32770", "Tacto", WS_POPUP | WS_BORDER,
+                                          left, 16, width, height, None, None, None, None)
+            if not hwnd:
+                return
+            try:
+                label = user32.CreateWindowExW(0, "STATIC", "● Tacto 조작 중 — Esc로 중지",
+                                               WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE,
+                                               0, 0, width - 2, height - 2, hwnd, None, None, None)
+                user32.SendMessageW(label, 0x0030, gdi32.GetStockObject(17), 1)  # WM_SETFONT, DEFAULT_GUI_FONT
+                user32.ShowWindow(hwnd, 4)  # SW_SHOWNOACTIVATE
+                msg = wintypes.MSG()
+                while not self._done.wait(0.05):
+                    while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1):  # PM_REMOVE
+                        user32.TranslateMessage(ctypes.byref(msg))
+                        user32.DispatchMessageW(ctypes.byref(msg))
+            finally:
+                user32.DestroyWindow(hwnd)  # on the thread that made it
         except Exception:
             return  # best effort: a missing notice never blocks an authorized run
 
     def __exit__(self, *exc):
         self._done.set()
         for thread in self._threads:
-            thread.join(timeout=1)
+            thread.join(timeout=3)
         return False
 
 

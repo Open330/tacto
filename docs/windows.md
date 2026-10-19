@@ -7,9 +7,20 @@ Windows accessibility API. The flow engine, recipes, consent rules and the
 ## Status
 
 Experimental. The driver logic is unit-tested on every platform against a fake
-UIA tree. Real UIA behaviour is covered by an opt-in test against an owned
-Notepad instance (`TACTO_WINDOWS_LIVE=1`, see the `windows` workflow); results
-on a real Windows desktop have not yet been recorded in this repository.
+UIA tree. Real UIA behaviour is covered by opt-in live tests
+(`TACTO_WINDOWS_LIVE=1`, see the `windows` workflow) that use only instances
+they start: Notepad (set a value, read it back, front-window mark), Calculator
+(a packaged app through its frame host), an owned message box (modal
+detection) and the notice (never takes the foreground).
+
+On Windows 11 (build 26300, 2026-10-20) all of them passed, observing Notepad
+took about 0.06 s, and scrolling moved the editor in the requested direction.
+Whether the notice is drawn on screen could only be checked by rendering the
+window itself, since the display was off.
+
+Live tests need the signed-in desktop session. Over SSH, commands run in
+session 0, where no app windows exist; start them through a scheduled task
+with an interactive logon instead.
 
 ## How it behaves
 
@@ -29,15 +40,22 @@ on a real Windows desktop have not yet been recorded in this repository.
 - Consent (`confirm`, `preapproved`, `handoff`) is gated exactly as on macOS.
 - **Esc stops a run.** The key is polled (no hook, no permission); after it
   is pressed nothing more is dispatched and waits end with `aborted_by_user`.
-  A small "Tacto 조작 중 — Esc로 중지" notice sits at the top right without
-  ever taking focus; `--no-indicator` hides it. If the notice cannot be drawn
+  A small "Tacto 조작 중 — Esc로 중지" notice sits at the top right. It is a
+  plain non-activating Win32 popup, so it never takes focus, even briefly;
+  `--no-indicator` hides it. If the notice cannot be drawn
   the run continues, and Esc still works.
 - A step's expectations are checked against the live element before dispatch,
   as on macOS: role, label (optionally one attribute), enabled state, and no
   modal window in the target process (UIA `WindowIsModal`). An expectation the
   driver cannot check — selection digests, or a modal state it cannot read —
   refuses the step (`target_changed`, `not_started`) instead of passing it.
-- Each element's properties are read in one cached UIA round trip.
+- Each element's properties are read in one cached UIA round trip, and the
+  app's windows are found with `EnumWindows` rather than by asking every
+  app's UIA provider, which a single slow app turned into seconds.
+- Windows 11 menus open as separate popup windows that UIA also shows inside
+  their owner; each popup is shown once, inside its window.
+- A UIA call that fails while observing returns `observation_unavailable`
+  instead of raising.
 - The app's front window — the highest of its windows in z-order, even while
   the person works in another app — is marked `[focused]`, so recipes using
   `in_focused_window` resolve as on macOS. When the front window cannot be

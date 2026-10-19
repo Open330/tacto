@@ -42,7 +42,7 @@ PATTERNS = {
 }
 RUNTIME_ID = 30000
 PROCESS_ID, CONTROL_TYPE, NAME, IS_ENABLED, AUTOMATION_ID = 30002, 30003, 30005, 30010, 30011
-CLASS_NAME, HELP_TEXT, NATIVE_WINDOW_HANDLE = 30012, 30013, 30020
+HELP_TEXT, NATIVE_WINDOW_HANDLE = 30013, 30020
 IS_OFFSCREEN, VALUE, VALUE_READONLY, IS_SELECTED = 30022, 30045, 30046, 30079
 WINDOW_INTERACTION_STATE, WINDOW_IS_MODAL = 30076, 30077
 BLOCKED_BY_MODAL_WINDOW = 3
@@ -50,7 +50,7 @@ WINDOW_CONTROL = 50032
 TREE_SCOPE_SUBTREE = 7
 # Packaged (UWP) apps: the top window belongs to the frame host and the app's
 # content is a CoreWindow child owned by the app's own process.
-FRAME_HOST, CORE_WINDOW = "applicationframehost.exe", "Windows.UI.Core.CoreWindow"
+FRAME_WINDOW, CORE_WINDOW = "ApplicationFrameWindow", "Windows.UI.Core.CoreWindow"
 
 
 class PatternUnavailable(LookupError):
@@ -85,6 +85,36 @@ _user32.EnumWindows.argtypes = (_ENUM_WINDOWS, wintypes.LPARAM)
 _user32.EnumWindows.restype = wintypes.BOOL
 _user32.IsWindowVisible.argtypes = (wintypes.HWND,)
 _user32.IsWindowVisible.restype = wintypes.BOOL
+_user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+_user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+_user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
+_user32.GetClassNameW.restype = ctypes.c_int
+_user32.FindWindowExW.argtypes = (wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR)
+_user32.FindWindowExW.restype = wintypes.HWND
+_dwmapi = ctypes.WinDLL("dwmapi")
+_dwmapi.DwmGetWindowAttribute.argtypes = (wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD)
+_dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+DWMWA_CLOAKED = 14
+
+
+def _owner(hwnd):
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def _class(hwnd):
+    buffer = ctypes.create_unicode_buffer(256)
+    return buffer.value if _user32.GetClassNameW(hwnd, buffer, 256) else ""
+
+
+def _shown(hwnd):
+    """Visible and not cloaked: suspended packaged apps keep hidden frames."""
+    if not _user32.IsWindowVisible(hwnd):
+        return False
+    cloaked = wintypes.DWORD()
+    failed = _dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, ctypes.byref(cloaked), ctypes.sizeof(cloaked))
+    return bool(failed) or not cloaked.value
 
 
 def _executable(pid):
@@ -111,51 +141,47 @@ class UIABackend:
             self._cache.AddProperty(prop)
         self._cache.TreeScope = TREE_SCOPE_ELEMENT
 
-    def _root(self):
-        return self._uia.GetRootElement()
+    def _windows_by_pid(self):
+        """{pid: [top window handles]}, front first, from one Win32 pass.
 
-    def _hosted(self):
-        """{app pid: [frame windows]} for packaged apps shown by the frame host."""
-        hosted = {}
-        core = self._uia.CreatePropertyCondition(CLASS_NAME, CORE_WINDOW)
-        windows = self._root().FindAll(TREE_SCOPE_CHILDREN, self._uia.CreateTrueCondition())
-        for i in range(windows.Length):
-            try:
-                frame = windows.GetElement(i)
-                if (_executable(frame.CurrentProcessId) or "").lower() != FRAME_HOST:
-                    continue
-                content = frame.FindFirst(TREE_SCOPE_CHILDREN, core)
-                if content:
-                    hosted.setdefault(content.CurrentProcessId, []).append(frame)
-            except (comtypes.COMError, ValueError):
-                continue  # a window that closed while being listed
-        return hosted
+        Asking UI Automation for the desktop's children queries every app's
+        provider, which a slow app turns into most of a second; EnumWindows
+        reads the window list itself. A packaged (UWP) app's frame belongs to
+        the frame host while its content is a CoreWindow child owned by the
+        app, so the frame is listed under the app's pid as well.
+        """
+        out = {}
+
+        def visit(hwnd, _):
+            if hwnd and _shown(hwnd):
+                out.setdefault(_owner(hwnd), []).append(hwnd)
+                if _class(hwnd) == FRAME_WINDOW:
+                    content = _user32.FindWindowExW(hwnd, None, CORE_WINDOW, None)
+                    if content:
+                        out.setdefault(_owner(content), []).append(hwnd)
+            return True
+        _user32.EnumWindows(_ENUM_WINDOWS(visit), 0)
+        return out
 
     def processes(self):
-        seen, out = set(), []
-        windows = self._root().FindAll(TREE_SCOPE_CHILDREN, self._uia.CreateTrueCondition())
-        pids = []
-        for i in range(windows.Length):
-            try:
-                pids.append(windows.GetElement(i).CurrentProcessId)
-            except (comtypes.COMError, ValueError):
-                continue  # a window that closed while being listed
-        for pid in [*pids, *self._hosted()]:
-            if pid in seen:
-                continue
-            seen.add(pid)
+        out = []
+        for pid in self._windows_by_pid():
             exe = _executable(pid)
             if exe:
                 out.append({"pid": pid, "exe": exe, "name": os.path.splitext(exe)[0]})
         return out
 
     def top_windows(self, pid):
-        condition = self._uia.CreatePropertyCondition(PROCESS_ID, pid)
-        found = self._root().FindAll(TREE_SCOPE_CHILDREN, condition)
-        # A packaged app's frame belongs to the frame host. Its title bar
-        # stays in that process, so the driver's same-process check still
-        # refuses it; only the app's own content can be acted on.
-        return [*(found.GetElement(i) for i in range(found.Length)), *self._hosted().get(pid, [])]
+        # A packaged app's frame title bar stays in the frame host's process,
+        # so the driver's same-process check still refuses it; only the app's
+        # own content can be acted on.
+        windows = []
+        for hwnd in self._windows_by_pid().get(pid, []):
+            try:
+                windows.append(self._uia.ElementFromHandle(hwnd))
+            except (comtypes.COMError, ValueError):
+                continue  # closed since it was listed
+        return windows
 
     def children(self, element):
         out = []

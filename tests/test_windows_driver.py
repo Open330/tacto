@@ -163,6 +163,26 @@ class WindowsDriverTests(unittest.TestCase):
         self.assertNotEqual("not_started", act("equalButton").get("effect"))
         self.assertEqual([("invoke", "Equals")], backend.calls)
 
+    def test_a_failing_uia_query_is_reported_not_raised(self):
+        self.backend.top_windows = lambda pid: (_ for _ in ()).throw(OSError("provider busy"))
+        result = self.driver.observe("notepad")
+        self.assertEqual(("error", "observation_unavailable"), (result["type"], result["error"]))
+        self.assertNotIn("provider busy", str(result))
+
+    def test_menu_popup_listed_twice_is_shown_once_inside_its_window(self):
+        # Windows 11 XAML menus: the popup host is its own top-level window
+        # and also a child of the app window in UIA.
+        save_as = Element("MenuItem", "Save as", patterns={"invoke"})
+        popup = Element("Pane", "PopupHost", children=[Element("Window", "Popup", children=[save_as])])
+        self.window.kids.append(popup)
+        self.backend.windows.insert(0, popup)  # in front, as EnumWindows lists it
+        self.backend.front = self.window.props["hwnd"]
+        obs = self.observe()
+        self.assertEqual(1, obs["tree"].count("Save as"))
+        self.assertTrue(obs["tree"].startswith('0 Window  Title: "Untitled - Notepad" [focused]'), obs["tree"])
+        index = self.index(obs, title="Save as", in_focused_window=True)
+        self.assertEqual("acted", self.act(obs, "click", element_index=index)["type"])
+
     def test_tree_uses_engine_roles_and_attributes(self):
         tree = self.observe()["tree"]
         self.assertIn('Window  Title: "Untitled - Notepad"', tree)

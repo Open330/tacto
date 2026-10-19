@@ -613,7 +613,10 @@ def _main(argv=None):
             from .windows_driver import keep_awake
             from .windows_control import control
             # Esc stops the run; the notice never takes focus. No prompt.
-            with keep_awake(), control(notice="--no-indicator" not in rest):
+            notice = "--no-indicator" not in rest
+            # Consumed here, so every screen command accepts it as on `do`.
+            rest = [arg for arg in rest if arg != "--no-indicator"]
+            with keep_awake(), control(notice=notice):
                 return _dispatch(cmd, rest)
         from .session import SANDBOXED, sandboxed
         if sandboxed():
@@ -723,7 +726,8 @@ def _dispatch_command(cmd, rest):
         return 0
 
     if cmd == "observe":
-        usage = "usage: observe <bundle-id> [--helper] [--json] [--all-windows | --document <absolute path>]"
+        app = "<app.exe | pid:N>" if sys.platform == "win32" else "<bundle-id>"
+        usage = f"usage: observe {app} [--helper] [--json] [--all-windows | --document <absolute path>]"
         structured = "--json" in rest
         if rest.count("--json") > 1:
             print(usage)

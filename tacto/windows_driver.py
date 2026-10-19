@@ -121,6 +121,7 @@ class Observation:
         self.lines = []
         self.visited = 0
         self.truncated = False
+        self.seen = set()
 
 
 class WindowsDriver:
@@ -188,6 +189,13 @@ class WindowsDriver:
         except Exception:  # an element can vanish mid-walk; never guess its content
             obs.truncated = True
             return
+        # A popup (menu, flyout) is both a top-level window and, in UIA, a
+        # child of its owner; show it once so its items stay unique.
+        runtime_id = props.get("runtime_id")
+        if runtime_id is not None:
+            if runtime_id in obs.seen:
+                return
+            obs.seen.add(runtime_id)
         role = ROLES.get(props.get("control_type"), "Group")
         if props.get("offscreen") is True and role != "Window":
             return
@@ -217,16 +225,25 @@ class WindowsDriver:
     def observe(self, target, mode="tree_full", require_window=True, **_ignored):
         if mode not in ("tree_full", "tree_diff"):
             return {"type": "error", "error": "not_implemented", "detail": f"mode {mode!r}"}
-        pid = self._resolve(target)
+        try:
+            pid = self._resolve(target)
+            windows = self._backend.top_windows(pid) if pid is not None else []
+        except Exception:
+            # UI Automation can fail transiently (an app's provider is busy);
+            # report it rather than raise, and never guess what is on screen.
+            return {"type": "error", "error": "observation_unavailable", "target": target,
+                    "reason": "uia_error"}
         if pid is None:
             return {"type": "error", "error": "target_not_found", "target": target,
                     "detail": "No single running app with a window matches; use the "
                               "executable name (notepad.exe) or 'pid:N'."}
         obs = Observation(pid, target)
-        windows = self._backend.top_windows(pid)
-        front = self._front(windows)
-        for position, window in enumerate(windows):
-            self._walk(obs, window, 0, front=position == front)
+        kinds = self._kinds(windows)
+        front = self._front(windows, kinds)
+        # Real windows first: a popup host listed on its own is then already
+        # shown inside its owner, where it belongs.
+        for position in sorted(range(len(windows)), key=lambda i: kinds[i] != "Window"):
+            self._walk(obs, windows[position], 0, front=position == front)
         if obs.truncated:
             obs.lines.append("… (트리 일부만 표시)")
         if not windows:
@@ -238,11 +255,24 @@ class WindowsDriver:
                 "tree": "\n".join(obs.lines), "element_count": len(obs.elements),
                 "custom_selects": {}, "truncated": obs.truncated, "waited_ms": 0}
 
-    def _front(self, windows):
-        """Position of the app's front window, or None when it cannot be told."""
+    def _kinds(self, windows):
+        kinds = []
+        for window in windows:
+            try:
+                kinds.append(self._backend.props(window).get("control_type"))
+            except Exception:
+                kinds.append(None)
+        return kinds
+
+    def _front(self, windows, kinds):
+        """Position of the app's front window, or None when it cannot be told.
+
+        Only a real window counts: a menu popup in front belongs to it.
+        """
         try:
-            hwnds = [self._backend.props(window).get("hwnd") for window in windows]
-            front = self._backend.front_window(hwnds)
+            hwnds = [self._backend.props(window).get("hwnd") if kind == "Window" else None
+                     for window, kind in zip(windows, kinds)]
+            front = self._backend.front_window([h for h in hwnds if h])
         except Exception:
             return None  # unmarked: an in_focused_window selector then fails closed
         return hwnds.index(front) if front is not None and hwnds.count(front) == 1 else None
