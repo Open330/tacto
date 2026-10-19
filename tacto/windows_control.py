@@ -92,22 +92,36 @@ class control:
                                             wintypes.UINT, wintypes.UINT, wintypes.UINT)
             user32.TranslateMessage.argtypes = (ctypes.POINTER(wintypes.MSG),)
             user32.DispatchMessageW.argtypes = (ctypes.POINTER(wintypes.MSG),)
-            gdi32.GetStockObject.argtypes = (ctypes.c_int,)
-            gdi32.GetStockObject.restype = wintypes.HGDIOBJ
+            gdi32.CreateFontW.argtypes = (*(ctypes.c_int,) * 5, *(wintypes.DWORD,) * 8, wintypes.LPCWSTR)
+            gdi32.CreateFontW.restype = wintypes.HFONT
+            gdi32.DeleteObject.argtypes = (wintypes.HGDIOBJ,)
+            # Sharp on scaled displays: this thread alone draws in physical
+            # pixels (Windows 10 1607+); the rest of the process is unchanged.
+            dpi = 96
+            try:
+                user32.SetThreadDpiAwarenessContext.argtypes = (ctypes.c_void_p,)
+                user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+                if user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4)):  # PER_MONITOR_AWARE_V2
+                    dpi = user32.GetDpiForSystem() or 96
+            except AttributeError:
+                pass
             WS_EX = 0x08000000 | 0x8 | 0x80          # NOACTIVATE | TOPMOST | TOOLWINDOW
             WS_POPUP, WS_BORDER, WS_CHILD, WS_VISIBLE = 0x80000000, 0x00800000, 0x40000000, 0x10000000
             SS_CENTER, SS_CENTERIMAGE = 0x1, 0x200
-            width, height = 280, 28
-            left = user32.GetSystemMetrics(0) - width - 16  # SM_CXSCREEN
+            scale = dpi / 96
+            width, height, margin = round(280 * scale), round(28 * scale), round(16 * scale)
+            left = user32.GetSystemMetrics(0) - width - margin  # SM_CXSCREEN
             hwnd = user32.CreateWindowExW(WS_EX, "#32770", "Tacto", WS_POPUP | WS_BORDER,
-                                          left, 16, width, height, None, None, None, None)
+                                          left, margin, width, height, None, None, None, None)
             if not hwnd:
                 return
+            # Segoe UI 9 pt; GDI font linking supplies the Korean glyphs.
+            font = gdi32.CreateFontW(-round(9 * dpi / 72), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI")
             try:
                 label = user32.CreateWindowExW(0, "STATIC", "● Tacto 조작 중 — Esc로 중지",
                                                WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE,
                                                0, 0, width - 2, height - 2, hwnd, None, None, None)
-                user32.SendMessageW(label, 0x0030, gdi32.GetStockObject(17), 1)  # WM_SETFONT, DEFAULT_GUI_FONT
+                user32.SendMessageW(label, 0x0030, font, 1)  # WM_SETFONT
                 user32.ShowWindow(hwnd, 4)  # SW_SHOWNOACTIVATE
                 msg = wintypes.MSG()
                 while not self._done.wait(0.05):
@@ -116,6 +130,8 @@ class control:
                         user32.DispatchMessageW(ctypes.byref(msg))
             finally:
                 user32.DestroyWindow(hwnd)  # on the thread that made it
+                if font:
+                    gdi32.DeleteObject(font)
         except Exception:
             return  # best effort: a missing notice never blocks an authorized run
 

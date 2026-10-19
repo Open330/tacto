@@ -84,6 +84,27 @@ class WindowsLiveTests(unittest.TestCase):
         after = self.driver.wait_until(self.target, lambda tree: "tacto windows" in tree, timeout_ms=5000)
         self.assertEqual("observation", after["type"], after)
 
+    def test_menu_opens_save_as_which_is_seen_as_modal_then_cancelled(self):
+        def step(pattern):
+            found = self.driver.wait_until(self.target, lambda tree: re.search(pattern, tree, re.M), timeout_ms=5000)
+            self.assertEqual("observation", found["type"], found)
+            index = int(re.search(pattern, found["tree"], re.M).group(1))
+            result = self.driver.act(found["obs_id"], self.target, {"name": "click", "element_index": index})
+            self.assertEqual("acted", result["type"], result)
+        pid = int(self.target[4:])
+        self.assertIs(False, self.driver._backend.modal_present(pid))
+        step(r"^\s*(\d+) MenuItem\s+Title: [^,]*, Identifier: File$")
+        step(r"^\s*(\d+) MenuItem\s+Title: (?:Save as|다른 이름으로 저장)$")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not self.driver._backend.modal_present(pid):
+            time.sleep(0.2)
+        self.assertIs(True, self.driver._backend.modal_present(pid))
+        step(r"^\s*(\d+) Button\s+Title: (?:Cancel|취소)\b")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and self.driver._backend.modal_present(pid):
+            time.sleep(0.2)
+        self.assertIs(False, self.driver._backend.modal_present(pid))
+
 
 
 @unittest.skipUnless(LIVE, "real UI Automation runs only with TACTO_WINDOWS_LIVE=1 on Windows")

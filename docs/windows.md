@@ -9,14 +9,16 @@ Windows accessibility API. The flow engine, recipes, consent rules and the
 Experimental. The driver logic is unit-tested on every platform against a fake
 UIA tree. Real UIA behaviour is covered by opt-in live tests
 (`TACTO_WINDOWS_LIVE=1`, see the `windows` workflow) that use only instances
-they start: Notepad (set a value, read it back, front-window mark), Calculator
+they start: Notepad (set a value, read it back, front-window mark; open the
+File menu, Save as, detect the dialog as modal, cancel it), Calculator
 (a packaged app through its frame host), an owned message box (modal
 detection) and the notice (never takes the foreground).
 
-On Windows 11 (build 26300, 2026-10-20) all of them passed, observing Notepad
-took about 0.06 s, and scrolling moved the editor in the requested direction.
-Whether the notice is drawn on screen could only be checked by rendering the
-window itself, since the display was off.
+On Windows 11 (build 26300, 4K at 150 %, 2026-10-20) all of them passed,
+observing Notepad took about 0.06 s, scrolling moved the editor in the
+requested direction, and a screen capture showed the notice drawn sharply at
+the top right. (Measure the screen from a DPI-aware process: an unaware one
+reads scaled coordinates and misses the notice entirely.)
 
 Live tests need the signed-in desktop session. Over SSH, commands run in
 session 0, where no app windows exist; start them through a scheduled task
@@ -41,7 +43,8 @@ with an interactive logon instead.
 - **Esc stops a run.** The key is polled (no hook, no permission); after it
   is pressed nothing more is dispatched and waits end with `aborted_by_user`.
   A small "Tacto 조작 중 — Esc로 중지" notice sits at the top right. It is a
-  plain non-activating Win32 popup, so it never takes focus, even briefly;
+  plain non-activating Win32 popup, so it never takes focus, even briefly,
+  and it is drawn at the display's own scale;
   `--no-indicator` hides it. If the notice cannot be drawn
   the run continues, and Esc still works.
 - A step's expectations are checked against the live element before dispatch,
