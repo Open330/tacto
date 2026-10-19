@@ -471,7 +471,13 @@ class WindowsDriver:
             self._owned(obs, container, "scroll container")
             for page in range(pages):
                 _checkpoint(page > 0)
-                backend.scroll(container, direction, 1)
+                try:
+                    backend.scroll(container, direction, 1)
+                except (LookupError, NotStarted) as exc:
+                    if page == 0:
+                        raise
+                    # Earlier pages already moved the view: never not_started.
+                    raise RuntimeError(f"scroll stopped after {page} of {pages} pages") from exc
             return {"input_route": "uia_scroll"}
         if name == "select_option":
             label = action.get("option_label") or action.get("value")

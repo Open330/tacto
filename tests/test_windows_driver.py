@@ -207,6 +207,23 @@ class WindowsDriverTests(unittest.TestCase):
         self.assertEqual(("action_failed", "unknown"), (refused["error"], refused["effect"]))
         self.assertNotIn("select", [call[0] for call in self.backend.calls])
 
+    def test_scroll_pattern_lost_mid_way_is_unknown_not_unstarted(self):
+        scroll = self.backend.scroll
+        for fail_on, effect in ((1, "not_started"), (2, "unknown")):
+            sent = []
+            def flaky(*args):
+                sent.append(args)
+                if len(sent) == fail_on:
+                    raise LookupError("scroll pattern disappeared")
+                scroll(*args)
+            self.backend.scroll = flaky
+            obs = self.observe()
+            result = self.act(obs, "scroll", element_index=self.index(obs, identifier="body"),
+                              direction="down", pages=3)
+            with self.subTest(fail_on=fail_on):
+                self.assertEqual(("action_failed", effect), (result["error"], result["effect"]))
+                self.assertEqual(fail_on, len(sent))
+
     def test_esc_during_an_action_stops_its_next_input(self):
         from tacto import windows_control
         self.addCleanup(windows_control._stop.clear)

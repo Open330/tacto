@@ -28,31 +28,97 @@ def _processes(exe):
             if pid and (_executable(pid) or "").lower() == exe}
 
 
-def _owned(test, driver, command, exe):
-    """Start `command` and return the one windowed new process named `exe`.
+NOTEPAD_APP = "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"
+CALCULATOR_APP = "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"
 
-    Windows 11 Notepad and Calculator are packaged: the started stub may
-    itself be named like the app, and the window belongs to a new process.
-    Any process of that app already running, even one with no window, could
-    take the new window, so the test then touches nothing. With none running
-    before, every such process that appears is this test's, and all of them
-    are ended afterwards.
+
+def _activate(app_id):
+    """Start a packaged app; the pid of the process that handled this start."""
+    from ctypes import POINTER, c_int
+    from ctypes.wintypes import DWORD, LPCWSTR
+    import comtypes
+    import comtypes.client
+    from comtypes import COMMETHOD, GUID, HRESULT, IUnknown
+
+    class IApplicationActivationManager(IUnknown):
+        _iid_ = GUID("{2e941141-7f97-4756-ba1d-9decde894a3d}")
+        _methods_ = [COMMETHOD([], HRESULT, "ActivateApplication",
+                               (["in"], LPCWSTR, "appUserModelId"), (["in"], LPCWSTR, "arguments"),
+                               (["in"], c_int, "options"), (["out"], POINTER(DWORD), "processId"))]
+    try:
+        manager = comtypes.client.CreateObject(GUID("{45BA127D-10A8-46EA-8AB7-56EA9078943C}"),
+                                               interface=IApplicationActivationManager)
+        return manager.ActivateApplication(app_id, None, 0)
+    except (OSError, comtypes.COMError):
+        return None  # not installed here (Windows Server images)
+
+
+def _family(roots):
+    """These processes and every process they started, by parent id."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+    kernel32 = ctypes.WinDLL("kernel32")
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = kernel32.Process32NextW.argtypes = (wintypes.HANDLE,
+                                                                           ctypes.POINTER(PROCESSENTRY32W))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    children = {}
+    try:
+        entry = PROCESSENTRY32W(dwSize=ctypes.sizeof(PROCESSENTRY32W))
+        ok = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while ok:
+            children.setdefault(entry.th32ParentProcessID, set()).add(entry.th32ProcessID)
+            ok = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    family, todo = set(roots), list(roots)
+    while todo:
+        for child in children.get(todo.pop(), set()) - family:
+            family.add(child)
+            todo.append(child)
+    return family
+
+
+def _owned(test, driver, exe, *, app_id, command):
+    """Start the app and return its one windowed process this test started.
+
+    Ownership is causal: the process the start returned (the packaged app's
+    activation, else our own child process) and the processes it started.
+    Only those are ended afterwards, never another instance that happens to
+    share the name. Any instance running before the start could take the
+    new window, so the test then touches nothing.
     """
     if _processes(exe):
         test.skipTest(f"{exe} is already running; it is not touched")
-    stub = subprocess.Popen([command])
-    test.addCleanup(lambda: (stub.kill(), stub.wait()))
-    started = set()
+    root = _activate(app_id)
+    if root is None:
+        stub = subprocess.Popen([command])
+        test.addCleanup(lambda: (stub.kill(), stub.wait()))
+        root = stub.pid
+    family = {root}
 
-    def end_all():
-        for pid in started | _processes(exe):
+    def end_family():
+        # What is already known to be ours first, so a failing lookup of
+        # later children cannot leave those running.
+        try:
+            members = _family(family)
+        except Exception:
+            members = set()
+        for pid in family | members:
             subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
-    test.addCleanup(end_all)
+    test.addCleanup(end_family)
     deadline = time.monotonic() + 15
-    windowed = []
     while time.monotonic() < deadline:
-        started |= _processes(exe)
-        windowed = [pid for pid in started if driver._backend.top_windows(pid)]
+        family |= _family(family)
+        windowed = [pid for pid in family if driver._backend.top_windows(pid)]
         if len(windowed) == 1:
             return f"pid:{windowed[0]}"
         time.sleep(0.25)
@@ -112,12 +178,20 @@ class WindowsLiveTests(unittest.TestCase):
         # Registered before the process exists: cleanups run last-in first-out,
         # so this runs after the kill, once Notepad has written its state.
         _forget_marked_tabs(self, self.marker)
-        self.target = _owned(self, self.driver, "notepad.exe", "notepad.exe")
+        self.target = _owned(self, self.driver, "notepad.exe", app_id=NOTEPAD_APP, command="notepad.exe")
         if self.target is None:
             # In CI a skip would read as a pass; there it must fail loudly.
             if os.environ.get("TACTO_WINDOWS_LIVE_REQUIRED") == "1":
                 self.fail("Notepad window did not appear")
             self.skipTest("Notepad window did not appear")
+        # A new process is not yet a new document: Notepad may reopen the
+        # person's unsaved tabs. Only one empty tab is this test's to write.
+        obs = self.driver.observe(self.target)
+        self.assertEqual("observation", obs["type"], obs)
+        tabs = re.findall(r"^\s*\d+ RadioButton\b", obs["tree"], re.M)
+        editor = re.search(rf"^\s*{self.editor(obs)} .*$", obs["tree"], re.M).group()
+        if len(tabs) > 1 or "Value:" in editor:
+            self.skipTest("Notepad reopened the person's tabs; they are not touched")
         # Mark this tab first, so its saved state can be told from the person's.
         self.set_text(self.marker)
 
@@ -147,7 +221,7 @@ class WindowsLiveTests(unittest.TestCase):
     def test_menu_opens_save_as_which_is_seen_as_modal_then_cancelled(self):
         def step(pattern):
             found = self.driver.wait_until(self.target, lambda tree: re.search(pattern, tree, re.M), timeout_ms=5000)
-            self.assertEqual("observation", found["type"], found)
+            self.assertEqual("observation", found["type"], (pattern, found.get("last_obs", found).get("tree")))
             index = int(re.search(pattern, found["tree"], re.M).group(1))
             result = self.driver.act(found["obs_id"], self.target, {"name": "click", "element_index": index})
             self.assertEqual("acted", result["type"], result)
@@ -158,7 +232,7 @@ class WindowsLiveTests(unittest.TestCase):
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and not self.driver._backend.modal_present(pid):
             time.sleep(0.2)
-        self.assertIs(True, self.driver._backend.modal_present(pid))
+        self.assertIs(True, self.driver._backend.modal_present(pid), self.driver.observe(self.target).get("tree"))
         step(r"^\s*(\d+) Button\s+Title: (?:Cancel|취소)\b")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and self.driver._backend.modal_present(pid):
@@ -174,7 +248,7 @@ class WindowsPackagedAppLiveTests(unittest.TestCase):
     def test_content_is_observed_and_invoked_through_the_frame_host(self):
         from tacto.windows_driver import WindowsDriver
         driver = WindowsDriver()
-        target = _owned(self, driver, "calc.exe", "calculatorapp.exe")
+        target = _owned(self, driver, "calculatorapp.exe", app_id=CALCULATOR_APP, command="calc.exe")
         if target is None:
             # Windows Server images (CI) ship no packaged Calculator.
             self.skipTest("packaged Calculator did not appear")
