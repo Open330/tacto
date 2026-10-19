@@ -77,7 +77,13 @@ def patch_selector(flow_path, packet_path, selector, output, *, remaining=False)
     i=packet.get('step_index')
     if type(i) is not int or not 0<=i<len(flow.steps):raise ValueError('invalid failed step index')
     step=flow.steps[i]
-    if step.selector is None or packet.get('selector')!=asdict(step.selector) or packet.get('action')!=step.action:
+    expected = asdict(step.selector) if step.selector is not None else None
+    recorded = packet.get('selector')
+    # Older/serialized selectors omit an unused optional subrole. Normalize
+    # only that absent default; a pinned subrole and all other fields stay exact.
+    if expected is not None and expected.get('subrole') is None and isinstance(recorded, dict) and 'subrole' not in recorded:
+        expected.pop('subrole')
+    if step.selector is None or recorded != expected or packet.get('action') != step.action:
         raise ValueError('packet does not match the saved step')
     if not isinstance(selector,dict) or not selector or set(selector)-{'role','identifier','title','desc'}:
         raise ValueError('selector accepts role/identifier/title/desc only')

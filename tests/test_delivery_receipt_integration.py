@@ -230,7 +230,7 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         self.assertEqual(self.text,self.messages[self.request_id]['body'])
         self.assertFalse(result.commit_evidence)
         self.assertNotEqual('confirmed',result.events[0]['state'])
-        self.assertIn('host_commit_evidence_failed',str(result.log))
+        self.assertIn('invalid_receipt_clock',str(result.log))
         # A new host receipt must still see the existing receiving record and
         # refuse preparation; a clock error never permits another send.
         second=self.run_delivery()

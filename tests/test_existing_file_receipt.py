@@ -357,3 +357,42 @@ class FocusedDocumentTimeoutTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class PinnedSnapshotRetryTests(unittest.TestCase):
+    setUp = ExistingFileReceiptTests.setUp
+    receipt = ExistingFileReceiptTests.receipt
+    run_save = ExistingFileReceiptTests.run_save
+    def test_temporary_snapshot_refusal_retries_reads_of_the_same_token(self):
+        original=self.doc.document_text;calls=[];failed=[False]
+        def read(target,document_token=None,**kw):
+            calls.append(document_token)
+            if document_token is not None and not failed[0]:
+                failed[0]=True
+                return {'type':'error','error':'document_snapshot_unavailable'}
+            return original(target,document_token=document_token,**kw)
+        self.doc.document_text=read
+        event,proof=self.run_save(self.receipt(),lambda:Path(self.path).write_text(self.doc.text))
+        self.assertIsInstance(proof,CommitEvidence)
+        self.assertGreaterEqual(len(calls),4)
+        self.assertEqual({self.doc.token},set(calls[1:]))
+
+    def test_persistent_snapshot_refusal_stops_at_the_original_deadline(self):
+        original=self.doc.document_text;now=[0.0]
+        def read(target,document_token=None,**kw):
+            return ({'type':'error','error':'document_snapshot_unavailable'} if document_token
+                    else original(target,**kw))
+        self.doc.document_text=read
+        with self.assertRaisesRegex(ArtifactReceiptError,'text_unavailable'):
+            self.run_save(self.receipt(clock=lambda:now[0],sleep=lambda t:now.__setitem__(0,now[0]+t)))
+        self.assertAlmostEqual(.2,now[0])
+
+    def test_user_abort_is_not_retried(self):
+        original=self.doc.document_text;calls=[]
+        def read(target,document_token=None,**kw):
+            calls.append(document_token)
+            return ({'type':'error','error':'aborted_by_user'} if document_token
+                    else original(target,**kw))
+        self.doc.document_text=read
+        with self.assertRaisesRegex(ArtifactReceiptError,'text_unavailable'):
+            self.run_save(self.receipt())
+        self.assertEqual(2,len(calls))

@@ -51,7 +51,17 @@ try:
   timer=threading.Timer(1.2,later);timer.start()
   step={'action':'read','selector':{'role':'TextArea','identifier':'First Text View','ancestor':str(existing)},'postcondition':check({'role':'Window','title':doc.name},doc.name),'safety':read}
   started=time.monotonic();r,acts=run('com.apple.TextEdit',[step],f'delayed-{i}');elapsed=time.monotonic()-started;timer.join()
-  record('delayed_owned_window',i,r.returncode==0 and fired==[0] and all(e['request']['action']['name']=='read' for e in acts) and str(doc) in observe('com.apple.TextEdit'),seconds=elapsed,mutating_inputs=sum(e['request']['action']['name']!='read' for e in acts))
+  initial_exit=r.returncode
+  nonmutating=all(e['request']['action']['name']=='read' for e in acts)
+  recovered=False
+  if initial_exit==1 and nonmutating and 'indicator_unavailable' in r.stdout and fired==[0]:
+   # A placement/readiness refusal dispatched no mutating input. Re-observe
+   # the now-present owned window; never resend a previous mutating step.
+   follow={'action':'read','selector':{'role':'TextArea','identifier':'First Text View','ancestor':str(doc)},'postcondition':check({'role':'Window','title':doc.name},doc.name),'safety':read}
+   r,again=run('com.apple.TextEdit',[follow],f'delayed-resume-{i}')
+   nonmutating=nonmutating and all(e['request']['action']['name']=='read' for e in again)
+   recovered=r.returncode==0
+  record('delayed_owned_window',i,r.returncode==0 and fired==[0] and nonmutating and str(doc) in observe('com.apple.TextEdit'),seconds=elapsed,initial_exit=initial_exit,readiness_recovery=recovered,mutating_inputs=sum(e['request']['action']['name']!='read' for e in acts))
   close={'action':'click','selector':{'role':'Button','subrole':'AXCloseButton','ancestor':str(doc)},'postcondition':{'absent':str(doc)},'safety':safety}
   cleanup,_=run('com.apple.TextEdit',[close],f'delayed-cleanup-{i}');assert cleanup.returncode==0
  for i in range(3):

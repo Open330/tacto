@@ -6173,7 +6173,7 @@ def main():
         report["options"]["coordinate_probe"] = {
             key: getattr(args, key) for key in ("coordinate_control", "prepare_window",
                 "general_prepare", "coordinate_abort", "coordinate_model", "menu_unresponsive")}
-    print("NLC evaluation" + (" plan" if args.preview else "") + "\n" + "=" * 48)
+    print("Tacto evaluation" + (" plan" if args.preview else "") + "\n" + "=" * 48)
     if args.offline:
         print("  ! --offline — GUI·모델이 필요한 시나리오는 판정하지 않습니다\n")
     if FOREGROUND_OK and not args.preview:

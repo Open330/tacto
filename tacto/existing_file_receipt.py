@@ -76,6 +76,10 @@ PUBLIC_CODES = frozenset({
 })
 
 
+class _TransientDocumentRead(ExistingFileReceiptUnavailable):
+    """Retry only the same pinned document snapshot, never the Save."""
+
+
 class _TransientFileRead(ArtifactReceiptError):
     """A fresh read may observe safe-save completion; never retry the Save."""
 
@@ -212,6 +216,9 @@ class ExistingTextFileReceipt:
         # later reads hold the token the backend issued for it.
         result = (self._driver.document_text(TARGET, document_token=token) if token is not None
                   else self._driver.document_text(TARGET, document_path=self._path))
+        if (isinstance(result, dict) and result.get('type') == 'error'
+                and result.get('error') == 'document_snapshot_unavailable'):
+            raise _refuse('text_unavailable', _TransientDocumentRead)
         if (not isinstance(result, dict) or result.get('type') != 'document_text'
                 or not isinstance(result.get('document_token'), str) or not result['document_token']
                 or not isinstance(result.get('text'), str) or result.get('text_complete') is not True):
@@ -272,11 +279,22 @@ class ExistingTextFileReceipt:
         expected = prepared.text.encode('utf-8')
         from .receipt_clock import receipt_deadline
         deadline = receipt_deadline(self._clock, self._timeout)
+        def read_pinned():
+            while True:
+                if self._clock() >= deadline:
+                    raise _refuse('text_unavailable')
+                try:
+                    return self._read(prepared.token)
+                except _TransientDocumentRead:
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        raise
+                    self._sleep(min(self._poll, remaining))
         last_code = 'file_does_not_hold_text'
         while True:
             if self._clock() >= deadline:
                 raise _refuse(last_code)
-            token, path, text = self._read(prepared.token)
+            token, path, text = read_pinned()
             if path != prepared.path or text != prepared.text:
                 raise _refuse('changed_during_save')
             if self._clock() >= deadline:
@@ -290,7 +308,7 @@ class ExistingTextFileReceipt:
                     # Bracket the exact file read with the same document token
                     # and text, then confirm that the named file survived the
                     # final backend read. Neither reader is an atomic transaction.
-                    _, current_path, current_text = self._read(prepared.token)
+                    _, current_path, current_text = read_pinned()
                     if current_path != prepared.path or current_text != prepared.text:
                         raise _refuse('changed_during_save')
                     if self._clock() >= deadline:

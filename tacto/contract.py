@@ -318,14 +318,18 @@ class ContextBinding:
     # the fact is, so they are not themselves invariants.
     resource_identity_from: dict | None = None
     destination_identity_from: dict | None = None
+    subrole: str | None = None
 
-    HARD_FIELDS = ("bundle_id", "team_id", "role", "identifier", "title", "desc", "value", "ancestor",
+    HARD_FIELDS = ("bundle_id", "team_id", "role", "identifier", "subrole", "title", "desc", "value", "ancestor",
                    "operation", "params_digest", "resource_identity",
                    "selection_count", "destination_identity")
 
     def digest(self) -> str:
+        data = asdict(self)
+        if self.subrole is None:
+            data.pop('subrole')  # preserve existing approval digests
         return hashlib.sha256(
-            json.dumps(asdict(self), sort_keys=True, default=str).encode()
+            json.dumps(data, sort_keys=True, default=str).encode()
         ).hexdigest()[:32]
 
 
@@ -346,6 +350,8 @@ class Validation:
 def validate(recorded: ContextBinding, live: ContextBinding) -> Validation:
     """Is the contract's basis still true? Never re-infers meaning."""
     v = Validation()
+    if recorded.subrole is None and live.subrole is not None:
+        v.hard.append("subrole was not pinned in the recorded action")
     if recorded.policy_version != live.policy_version:
         v.hard.append(f"policy_version {recorded.policy_version}->{live.policy_version}")
     for f in ContextBinding.HARD_FIELDS:

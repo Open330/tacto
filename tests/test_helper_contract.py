@@ -1011,6 +1011,12 @@ SIGNED_HELPER_ONLY = frozenset({
     "press_key.return_bound",
     # LaunchServices reopen without activation; AXCancel on an open menu.
     "action.reopen_window", "action.close_menu",
+    # Token-bound Save and document attachments/lifecycle proofs are native-helper APIs.
+    "action.menu.document_token_save", "evidence.document_attachment_metadata",
+    "evidence.document_window_status",
+    # Native readiness instrumentation and strict select-option wire validation.
+    "diagnostic.readiness_preflight", "diagnostic.readiness_read_cost",
+    "select_option.strict_parameters",
 })
 
 
@@ -1081,8 +1087,14 @@ def _capability_lists_agree(_d):
     Source-only — no screen, no helper, no permission.
     """
     import re
-    from tacto.driver import Driver
-    swift = pathlib.Path(__file__).resolve().parents[1] / "helper" / "TactoHelper.swift"
+    import ast
+    root = pathlib.Path(__file__).resolve().parents[1]
+    driver = ast.parse((root / "tacto" / "driver.py").read_text())
+    cls = next(node for node in driver.body if isinstance(node, ast.ClassDef) and node.name == "Driver")
+    caps = next(node.value for node in cls.body if isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "capabilities" for t in node.targets))
+    native = set(ast.literal_eval(caps.args[0]))
+    swift = root / "helper" / "TactoHelper.swift"
     text = swift.read_text(encoding="utf-8")
     block = text.split("let helperCapabilities: [String] = [", 1)[1].split("]", 1)[0]
     # Comments are prose, not data. A comment that quoted a capability name to
@@ -1091,7 +1103,6 @@ def _capability_lists_agree(_d):
     code = "\n".join(line for line in block.splitlines()
                      if not line.strip().startswith("//"))
     announced = set(re.findall(r'"([^"]+)"', code))
-    native = set(Driver.capabilities)
     _assert_capability_contract(native, announced)
 
 
@@ -1168,6 +1179,9 @@ import unittest                                                  # noqa: E402
 
 
 class CapabilityContract(unittest.TestCase):
+    def test_actual_source_announcements_agree(self):
+        _capability_lists_agree(None)
+
     def test_explicit_backend_differences(self):
         native = {"observe", "act"}
         announced = native | WIRE_ONLY | SIGNED_HELPER_ONLY

@@ -126,7 +126,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         real = _os.path.realpath(_sys.executable)
         shared = ("/uv/python/" in real or "/Cellar/" in real
                   or real.startswith("/usr/bin/") or "/Frameworks/Python" in real)
-        if shared and not helper_covers:
+        if shared and not helper_covers and not helper.get("built"):
             narrate(f"⚠ 권한이 공유 파이썬({_os.path.basename(real)})에 부여됩니다 — "
                     f"같은 인터프리터로 실행되는 다른 스크립트도 앱을 조작할 수 있어요. "
                     f"배포 시에는 서명된 전용 도우미로 분리할 예정입니다.")
@@ -151,10 +151,10 @@ def run(interactive: bool = True, narrate=print) -> bool:
     # The helper is the path we want people on: a named, signed binary holding
     # the grant instead of a shared interpreter.
     try:
-        st = helper_status()
-        if st["built"]:
+        st = helper
+        if st.get("built"):
             narrate("— 권한 경계 —")
-            if run_helper_onboarding(narrate, interactive=interactive):
+            if run_helper_onboarding(narrate, interactive=interactive, status=st):
                 narrate("   실행:  tacto <명령> --helper   (설치 전이면 Tacto checkout에서 ./launcher/tacto)")
             else:
                 all_ok = False
@@ -229,9 +229,9 @@ def helper_status() -> dict:
     return out
 
 
-def run_helper_onboarding(narrate=print, *, interactive=True) -> bool:
+def run_helper_onboarding(narrate=print, *, interactive=True, status=None) -> bool:
     """Walk the user through granting the HELPER, not this interpreter."""
-    st = helper_status()
+    st = helper_status() if status is None else status
     if not st["built"]:
         narrate("✕ 도우미가 아직 빌드되지 않았어요:")
         narrate("    helper/build.sh && helper/bundle.sh && launcher/build.sh")

@@ -15,12 +15,25 @@ import time
 import uuid
 
 from tacto.flow import Selector, pin_params, _element_block
-from release_identity import identity
+if __package__ in (None, ''):
+    from release_identity import identity
+else:
+    from .release_identity import identity
 
 
 def write(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
     path.chmod(0o600)
+
+
+
+def observed(tree, *, role, title):
+    """Match parsed attributes, including escaped/quoted native window titles."""
+    try:
+        Selector(role=role, title=title).resolve(tree)
+        return True
+    except LookupError:
+        return False
 
 
 def main():
@@ -84,7 +97,7 @@ def main():
                 'params':{'path':str(folder)},'postcondition':post({'role':'Window','title':folder.name},folder.name),
                 'safety':ephemeral()}])
             tree=observe('com.apple.finder')
-            good=f'Title: {folder.name},' in tree and all(f'owned-{n}.txt' in tree for n in range(3))
+            good=observed(tree, role='Window', title=folder.name) and all(f'owned-{n}.txt' in tree for n in range(3))
             row('finder_folder_navigation',i,seconds,good)
             selected={'role':'TextField','value':f'owned-{i%3}.txt','ancestor':folder.name,'click_ancestor':'Row'}
             seconds=flow(f'finder-select-{i}','com.apple.finder',[{'action':'click','selector':selected,
@@ -120,14 +133,14 @@ def main():
                 {'action':'click','selector':{'role':'Button','title':'Search'},
                  'postcondition':post({'role':'Heading','title':'Computer hardware'},'Computer hardware'),'safety':ephemeral()}])
             tree=observe('com.apple.Safari')
-            row('safari_public_search',i,seconds,'Window  Title: Computer hardware - Wikipedia,' in tree
-                and 'Heading  Title: Computer hardware,' in tree)
+            row('safari_public_search',i,seconds,observed(tree, role='Window', title='Computer hardware - Wikipedia')
+                and observed(tree, role='Heading', title='Computer hardware'))
             seconds=flow(f'safari-link-{i}','com.apple.Safari',[{'action':'click',
                 'selector':{'role':'Link','title':'computer','desc':None,'allow_nth':0,'ancestor':'Computer hardware - Wikipedia'},
                 'postcondition':post({'role':'Heading','title':'Computer'},'Computer'),'safety':ephemeral()}])
             tree=observe('com.apple.Safari')
-            row('safari_public_link_navigation',i,seconds,'Window  Title: Computer - Wikipedia,' in tree
-                and 'Heading  Title: Computer,' in tree)
+            row('safari_public_link_navigation',i,seconds,observed(tree, role='Window', title='Computer - Wikipedia')
+                and observed(tree, role='Heading', title='Computer'))
     finally:
         versions={}
         for name,path in [('Finder','/System/Library/CoreServices/Finder.app'),('Safari','/Applications/Safari.app'),

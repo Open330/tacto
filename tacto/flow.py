@@ -314,6 +314,12 @@ class Selector:
     # actionable part are different elements — a save panel's sidebar and a
     # mail list both work this way.
     click_ancestor: str | list[str] | None = None
+    subrole: str | None = None  # fixed macOS role detail, never templated
+
+    def __post_init__(self):
+        if self.subrole is not None and (type(self.subrole) is not str
+                or re.fullmatch(r'AX[A-Za-z0-9_]{1,80}', self.subrole) is None):
+            raise ValueError('subrole must be a fixed AX subrole identifier')
 
     # Known AX attribute keys as the driver formats them ("Key: value, Key2: …").
     # "Secondary Actions" is here so it TERMINATES the value before it, not
@@ -366,6 +372,8 @@ class Selector:
         return _norm(m.group(1).strip())
 
     def matches(self, line: str) -> bool:
+        if self.subrole and self._attr(line, "Subrole") != self.subrole:
+            return False
         if self.role:
             # role token is the 2nd field on the line: "<idx> <Role> ..."
             toks = line.strip().split()
@@ -397,7 +405,7 @@ class Selector:
         button happened to be alone on screen. Reading a list is the opposite
         case — see `resolve_all`, which asks for a scope instead.
         """
-        return any([self.identifier, self.title, self.desc, self.value])
+        return any([self.identifier, self.title, self.desc, self.value, self.subrole])
 
     def _in_scope(self, lines: list[str], line_no: int) -> bool:
         """True if the matched line sits under an ancestor container. The ancestor
@@ -855,6 +863,8 @@ class Flow:
                     "captures": [], "answers": False, "on_uncertain": []}
                 for f in fields(value):
                     item = getattr(value, f.name)
+                    if isinstance(value, (Selector, ContextBinding)) and f.name == "subrole" and item is None:
+                        continue  # unchanged recipes remain readable by older engines
                     if compact and item is None:
                         continue
                     if compact and isinstance(value, Step) and f.name in step_defaults and item == step_defaults[f.name]:
@@ -1602,6 +1612,8 @@ def _live_binding(driver, flow, step, action, target_line,
     if rec.bundle_id is not None:
         live.bundle_id = (driver.identity(flow.target)
                           if hasattr(driver, "identity") else flow.target)
+    if step.selector is not None and (rec.subrole is not None or step.selector.subrole is not None):
+        live.subrole = Selector._attr(target_line, "Subrole")
     if rec.role is not None and step.selector is not None:
         live.role = step.selector.role
     if rec.identifier is not None and step.selector is not None:
@@ -2657,8 +2669,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 if after_commit is not None:
                     try:
                         proof = after_commit(deepcopy(event), deepcopy(response), context)
-                    except Exception:
-                        event["evidence_error"] = "host_commit_evidence_failed"
+                    except Exception as exc:
+                        code = getattr(exc, "public_code", None)
+                        event["evidence_error"] = (code if type(code) is str and code in _receipt_public_codes()
+                                                   else "host_commit_evidence_failed")
                 problem = evidence_error({**event, "commit_evidence": proof}, expected)
                 if problem is not None:
                     event["evidence_error"] = event.get("evidence_error", problem)

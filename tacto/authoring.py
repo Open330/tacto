@@ -658,6 +658,7 @@ def _to_flow(spec: dict, *, target_identity: str | None = None) -> Flow:
         binding = ContextBinding(
             bundle_id=target_identity if target_identity is not None else spec.get("target"),
             role=sel.role if sel is not None else None,
+            subrole=sel.subrole if sel is not None else None,
             identifier=(ident[0] if isinstance(ident, list) and ident else ident),
             title=sel.title if sel else None, desc=sel.desc if sel else None,
             value=sel.value if sel else None,
@@ -670,7 +671,7 @@ def _to_flow(spec: dict, *, target_identity: str | None = None) -> Flow:
             # from the actual step instead of accepting contradictory pins.
             supplied = ContextBinding(**s["binding"])
             pins = asdict(supplied)
-            for key in ("bundle_id", "role", "identifier", "title", "desc", "value", "ancestor",
+            for key in ("bundle_id", "role", "identifier", "subrole", "title", "desc", "value", "ancestor",
                         "operation", "params_digest"):
                 actual = getattr(binding, key)
                 if pins[key] is not None and pins[key] != actual:

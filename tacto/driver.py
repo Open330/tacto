@@ -869,6 +869,10 @@ class Driver:
                 if AXUIElementSetMessagingTimeout(element,0)!=0:
                     raise RuntimeError('modal timeout reset failed')
             if time.monotonic()>=deadline: raise RuntimeError('modal read deadline')
+            # PyObjC returns NSString roles as a str subclass. Normalize that
+            # known bridge value before the pure checker validates exact types.
+            if status == 0 and name == 'AXRole' and isinstance(value, str):
+                value = str(value)
             if status==0 and name in ('AXWindows','AXSheets','AXChildren') and isinstance(value,(list,tuple,NSArray)):
                 if len(value)>20000: raise RuntimeError('modal read node budget')
                 value=list(value)

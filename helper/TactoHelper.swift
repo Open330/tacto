@@ -3982,6 +3982,25 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
     return started
 }
 
+/// Retry only transient geometry reads within a bounded readiness window.
+func readyControlTargetFrames(timeout: TimeInterval = 0.5,
+                              read: () -> [CGRect]?, stopped: () -> Bool,
+                              now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+                              pause: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval:$0) }) -> [CGRect]? {
+    let deadline = now() + timeout
+    while !stopped() {
+        // Window-close/reopen transitions can briefly invalidate AX geometry.
+        // Retry reads only; a missing frame never authorizes target input.
+        let frames = read()
+        if stopped() { return nil }
+        if let frames { return frames }
+        let remaining = deadline - now()
+        if remaining <= 0 { return nil }
+        pause(min(0.05, remaining))
+    }
+    return nil
+}
+
 /// Both signals, and only one of them decides.
 ///
 /// The menu-bar item is best effort: when the bar has room it names the app
@@ -3991,9 +4010,12 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
 func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     // AX access does not read pixels. Keep its visible stop control independent
     // from Screen Recording; actual image APIs retain their permission checks.
-    guard let session = CGSessionCopyCurrentDictionary() as? [String:Any],
-          session[kCGSessionOnConsoleKey as String] as? Bool == true,
-          session["CGSSessionScreenIsLocked"] as? Bool != true else {
+    func sessionVisible() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String:Any] else { return false }
+        return session[kCGSessionOnConsoleKey as String] as? Bool == true
+            && session["CGSSessionScreenIsLocked"] as? Bool != true
+    }
+    guard sessionVisible() else {
         lastIndicatorRefusal="session_not_visible";return false
     }
     func targetFrames() -> [CGRect]? {
@@ -4001,9 +4023,14 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
         // AX reads must stay off the main loop so the Stop control responds.
         return controlTargetFrames(forPID:pid,primaryTop:top)
     }
-    guard let targets = targetFrames() else {
+    guard let targets = readyControlTargetFrames(read:targetFrames, stopped:{ abortState.isStopped }) else {
         controlPanelDiagnostic=["target_frames_available":false]
-        lastIndicatorRefusal="control_panel_unavailable";return false
+        lastIndicatorRefusal = abortState.isStopped ? "aborted_by_user" : "control_panel_unavailable"
+        return false
+    }
+    guard sessionVisible() && !abortState.isStopped else {
+        lastIndicatorRefusal = abortState.isStopped ? "aborted_by_user" : "session_not_visible"
+        return false
     }
     let ready = DispatchQueue.main.sync {
         _ = showControlIndicator(forPID: pid)
@@ -4017,7 +4044,8 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     var shown = false
     for _ in 0..<10 {
         Thread.sleep(forTimeInterval:0.05)
-        guard let currentTargets = targetFrames() else { break }
+        guard sessionVisible() && !abortState.isStopped else { break }
+        guard let currentTargets = targetFrames() else { continue }
         shown = DispatchQueue.main.sync { showControlPanel(forPID: pid, targets:currentTargets) }
         if shown { break }
     }
@@ -4032,6 +4060,9 @@ var lastIndicatorRefusal = ""
 
 func indicatorRefusal(_ what: String = "") -> [String: Any] {
     let reason = lastIndicatorRefusal.isEmpty ? "control_panel_unavailable" : lastIndicatorRefusal
+    if reason == "aborted_by_user" {
+        return ["type":"error", "error":"aborted_by_user", "effect":"not_started", "detail":"사용자가 중단했습니다"]
+    }
     let lead = "조작 표시를 켤 수 없어 \(what.isEmpty ? "" : what + " 를 ")중단했습니다 — "
     let advice: String
     switch reason {

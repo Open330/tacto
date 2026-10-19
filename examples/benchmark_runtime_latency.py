@@ -82,6 +82,8 @@ def main():
     parser.add_argument('--pairs', type=int, default=10)
     parser.add_argument('--launcher-optimized', action='store_true',
                         help='candidate also includes the separately reviewed helper cleanup change')
+    parser.add_argument('--release-comparison', action='store_true',
+                        help='Compare complete release artifacts; record all differences without single-patch attribution')
     args = parser.parse_args()
     if not 1 <= args.pairs <= 30:
         parser.error('pairs must be 1..30')
@@ -104,7 +106,7 @@ def main():
                           and Path(name).name.split('.', 1)[0]+'.py' in expected)
         if not changed_module and before['candidate']['bytecode'].get(name) != digest:
             bytecode_equal = False
-    if (sorted(differences) != expected or not native_equal or not bytecode_equal
+    if not args.release_comparison and (sorted(differences) != expected or not native_equal or not bytecode_equal
             or launcher_changed != args.launcher_optimized):
         write(base/'mismatch.json', {'manifests': before, 'differences': differences, 'native_equal': native_equal})
         raise ValueError('runtimes must match the declared Python changes and optional launcher change')
@@ -200,13 +202,17 @@ def main():
                    for arm in launchers}
         savings = 100*(1-summary['candidate']['total_seconds']/summary['baseline']['total_seconds'])
         write(base/'report.json', {'passed': before == after and all(r['passed'] for r in rows)
-                                  and (not args.launcher_optimized or seals_after['candidate']),
+                                  and ((all(seals_before.values()) and all(seals_after.values())) if args.release_comparison else (not args.launcher_optimized or seals_after['candidate'])),
             'rows': rows, 'startup': startup, 'summary': summary, 'saving_percent': savings,
             'source_stable': before == after, 'source_before': before, 'source_after': after,
             'fixture_sha256': hashlib.sha256(fixture_source.read_bytes()).hexdigest(),
             'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'model_requests': 0, 'scope': 'same six-step flow; alternating arm order; independent logical commit oracle; fresh CLI per task',
             'launcher_optimized': args.launcher_optimized,
+            'release_comparison': args.release_comparison,
+            'python_module_differences': differences,
+            'native_code_hashes_equal': native_equal,
+            'single_patch_attribution': not args.release_comparison,
             'common_bytecode_identical': bytecode_equal,
             'bundle_signature_before': seals_before, 'bundle_signature_after': seals_after,
             'limits': ['owned fixture, one Mac, warmed filesystem; not Sky or agent authoring/token comparison',

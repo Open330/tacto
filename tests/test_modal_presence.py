@@ -76,9 +76,10 @@ class ModalPresenceTests(unittest.TestCase):
 
     def test_real_direct_adapter_enforces_timeout_and_reset_failures(self):
         from tacto import driver
+        class BridgedRole(str): pass
         def read(node,key,unused):
             if key=='AXWindows':return 0,[1]
-            if key=='AXRole':return 0,'AXWindow'
+            if key=='AXRole':return 0,BridgedRole('AXWindow')
             if key=='AXChildren':return 0,[]
             return -25205,None
         for timeouts,expected in (([0]*20,False),([1],True),([0,1],True)):

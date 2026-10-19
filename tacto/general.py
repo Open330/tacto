@@ -1267,8 +1267,11 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                     res.certainty = "confirmed"
                             else:
                                 event["evidence_error"] = problem
-                        except Exception:
-                            event["evidence_error"] = "host_commit_evidence_failed"
+                        except Exception as exc:
+                            from .flow import _receipt_public_codes
+                            code = getattr(exc, "public_code", None)
+                            event["evidence_error"] = (code if type(code) is str and code in _receipt_public_codes()
+                                                       else "host_commit_evidence_failed")
                     if event['state'] != 'confirmed':
                         # An acknowledged click is not causal completion.
                         # Stop before another plan/batch action can repeat an
