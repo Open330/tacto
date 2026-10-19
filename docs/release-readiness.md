@@ -1,7 +1,7 @@
 # Tacto 출시 기준
 
 현재 배포 단계는 **개발자 미리보기**입니다. 사용자의 요청에 따라 공증된
-Preview 6을 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
+Preview 7을 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
 소스 공개와 미리보기 제공은 정식 안정 버전의 출시 승인이 아닙니다.
 
 아래 조건은 **정식 안정 배포**의 기준입니다. 로컬 실행·서명·공증만으로
@@ -418,3 +418,125 @@ the final image-specific results.
   therefore remains private.
 
 DMG SHA-256: `ef832c313520f3f57578ed813a551d2b772ddcbbf5e8bf442a1e8172b3971643`.
+
+
+## 2026-10-19 first-run update 5
+
+`v0.1.0-preview.6-first-run.5` is an incremental developer prerelease. It adds
+installed-app launch through LaunchServices and a fixed first-run command,
+compacts the ready onboarding window, and detects installed Claude Code/Codex
+CLIs. First-run document detection uses native window IDs plus process identity
+instead of mutable title sets; verification follows the same window after autosave
+renames it. No Save command is sent, and visible text verification is not a
+persistent-save receipt.
+
+The exact signed app was installed on the designated secondary Mac. Both existing
+permissions and agent links were retained. Two successive actual TextEdit tasks
+passed in 3.352s and 3.257s wall time (2.981s and 2.916s engine time), each with zero
+internal model calls. A first document autosaved to an `.rtf` title during the
+sequence. These two runs are a functional check, not a statistically established
+speed gain or an end-to-end agent/token benchmark. Targeted automated checks ran
+130 tests: 129 passed and one opt-in test was skipped.
+
+The app and DMG passed Developer ID signing, secure timestamps, hardened runtime,
+Apple notarization, stapled tickets and Gatekeeper. The candidate's 5,369-file
+build scan found no build-home or checkout path. An earlier uninstalled candidate
+failed the designated-requirement continuity check and was not deployed; the final
+candidate matches the prior app, launcher and helper signing requirements.
+
+The DMG is the exact tested incremental candidate, not a rebuild after tagging.
+Its source manifest records relative file hashes, the verified Preview 6 runtime
+base and the workspace commit before the then-uncommitted onboarding patch. The
+release tag includes that patch and updated publication documentation. Historical
+Preview 6 qualification results above are not new runs against this update.
+Stable-release human checks and repository privacy restrictions remain unchanged.
+
+DMG SHA-256: `969fb83221998cf4e1671d9360387befe018efde6aed4c08afa8424a697d33d9`.
+
+Prepublication full regression suite: 2,651 tests in 431.247s,
+2,648 passed, 3 opt-in skips, zero failures/errors.
+
+
+<a id="2026-10-19-preview-7-release"></a>
+
+## 2026-10-19 Preview 7 release
+
+[Preview 7](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.7)
+was published as a private developer prerelease. The exact app source is
+`969583c14721f8707e3c6b5298cac43e72164951`; the manifest records the committed
+build inputs and the retained Preview 6 runtime base. This section and README
+validation links are post-publication documentation, not a rebuild of that app.
+
+- The initial full regression run exercised 2,662 tests: 2,658 passed, three
+  opt-in skips, one missing README link to the new quality review. Both READMEs
+  were corrected and all six documentation checks passed. No runtime code changed
+  for the correction. The initial failure is preserved rather than relabeled a
+  clean full-suite run; no automated failure remains unresolved.
+- The affected-scope suite passed 92 checks, including real AppKit button and
+  controller reentry, shell argument boundaries, fixture Node execution, CLI
+  failure normalization and existing replay routes.
+- App and DMG Developer ID signatures, hardened runtime, secure timestamps,
+  Apple notarization, stapled tickets and Gatekeeper passed. All 12 automated
+  artifact checks passed. The 5,373-file bundle path/credential scans passed.
+- Two successive actual installed TextEdit tasks passed: 3.434s and 3.346s wall
+  time, zero internal model calls and no Save command. Existing document bodies
+  remained intact. These are functional smoke checks, not a speed or external
+  agent token benchmark.
+- The same app archive was installed and integrity-checked on all three
+  designated Macs. Previously enabled permissions were retained; command/skill
+  links and hidden Dock icons were verified. One Mac still needs its initial
+  Accessibility and screen-reading permissions, with its onboarding window open.
+- All five uploaded GitHub asset SHA-256 digests matched the local files.
+  The release tag points to the app's recorded source commit. README and landing
+  download links point to Preview 7.
+
+Prior Preview 6 qualification results above are historical evidence, not new
+runs against Preview 7. Stable-release human checks and historical GitHub cleanup
+remain separate; the repository remains private.
+
+DMG SHA-256: `59fc0b2658c069cc5c0cb7cf11f4eb3842a4d2347bca8f63a1eee51fa507e6cb`.
+
+
+## 2026-10-19 Preview 8 window drag
+
+Preview 8 adds signed-helper same-window drag and read-only window capture. The
+agent guide loads drag details only when needed; ordinary tasks do not load the
+coordinate schema. See [native drag](native-drag.md) for tested scope and limits.
+
+Development receiving tests verified an opaque canvas, exact short-zigzag
+waypoints/timestamps, a standard NSSlider and actual TextEdit selection without
+changing document text. A reusable Flow checked the resulting slider value.
+Peer review found and resolved waypoint loss, identical event timestamps and
+an unbounded AX call in cancellation cleanup; the follow-up found no additional
+blocker within the documented same-window scope.
+
+The initial full run executed 2,666 tests, with 3 skips and 3 failures. The
+failures were a missing README command example, a native drag test affected by
+the implementation update, and missing drag boundary stubs in the existing
+preparation-diagnostic harness. All were corrected; the affected 15 tests
+passed on rerun. An overlapping focused regression run passed 18 tests with
+1 expected skip. Three newly added CLI/capture tests were included in those
+reruns. The initial full-run failure is retained rather than relabeled as a
+clean full-suite pass.
+
+This change does not qualify cross-app drag/drop or a stable release. Signing,
+notarization and installation results belong to the release's validation asset;
+existing fresh-install/beta qualification requirements remain applicable.
+
+
+Preview 8 distribution completed from source commit
+`f37b5bc31002bf86b560bbb37852d172e57e2083`. App and DMG passed Apple notarization,
+stapled-ticket validation and Gatekeeper. All five published assets matched
+recorded SHA-256 digests before publication. The first packaging candidate was
+rejected for missing secure timestamps on the new native peers; it was never
+installed or published. The corrected candidate timestamps every executable.
+
+The same app was installed on three Macs with unchanged signing requirements,
+matching runtime hashes, hidden Dock icons and current Claude/Codex skill links.
+Two retained both existing grants. The third had neither grant before updating
+and still requires its owner's setup step. Packaged capture verified Retina
+mapping (1172×976 pixels to 586×488 points); installed TextEdit received a text
+selection while preserving its body. A separate border-selection attempt
+resized its test window before geometry monitoring stopped the stroke with an
+unknown effect. That failed case is retained in validation; window resizing
+remains outside this route's supported scope.

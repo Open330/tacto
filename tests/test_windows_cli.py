@@ -31,7 +31,8 @@ class WindowsCliTests(unittest.TestCase):
              patch("tacto.windows_control.control.__exit__", lambda self, *exc: False), \
              patch.object(cli, "_dispatch", side_effect=lambda cmd, rest: dispatched.append((cmd, rest)) or 0):
             self.assertEqual(0, cli.main(["apps"]))
-            self.assertEqual(2, cli.main(["doctor"]))
+            for macos_only in ("doctor", "launch", "first-run", "capture", "drag"):
+                self.assertEqual(2, cli.main([macos_only]))
             # The notice flag is consumed before the command parses its args.
             self.assertEqual(0, cli.main(["observe", "notepad", "--no-indicator"]))
         self.assertEqual([("apps", []), ("observe", ["notepad"])], dispatched)

@@ -14,7 +14,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -45,6 +45,13 @@ Also available: [product lookup](sites/tacto/dist/assets/demos/browser-shopping.
 Browser demos use **Python BrowserDriver + Flow in a separate Chromium instance**, rather than your existing Chrome or Safari tabs. TextEdit stopped when save evidence was insufficient; a separate Save verification then passed. Google Translate's output check is separate from proof of input delivery. The Markdown demo edits only the opening section and leaves other sample content intact.
 
 Recordings include illustrative pointers and capture delays. They show authored Flows executing, not natural-language authoring, and are not speed or token benchmarks. Not every demo completed without intervention. [Conditions, results, and limits](docs/tacto-everyday-examples-2026-10-15.md).
+
+Same-window [drag gestures](docs/native-drag.md) are supported by the signed macOS helper: sliders, text selection and canvas paths, with receiving tests in AppKit and TextEdit. Cross-app file drops are outside this route.
+
+```sh
+tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
+tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
+```
 
 <a id="how-it-works"></a>
 
@@ -90,11 +97,13 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 **Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download Preview 6](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
+[Download drag update](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
 
 This is a **private developer prerelease**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
 
-Tacto runs in the menu bar without a Dock icon. Close the settings window to leave it in the background; use the menu bar icon to reopen settings or quit. [Preview 6 validation](docs/release-readiness.md#2026-10-19-preview-6-qualification).
+After setup, **Start first task** detects Claude Code or Codex and opens a fresh CLI conversation with one fixed Tacto command. The command launches TextEdit if needed, creates a new document and verifies its welcome text without an internal model call. The agent CLI may still ask for its normal trust or login confirmation.
+
+Tacto runs in the menu bar without a Dock icon. Close the settings window to leave it in the background; use the menu bar icon to reopen settings or quit. [Preview 7 validation](docs/release-readiness.md#2026-10-19-preview-7-release).
 
 This is an early preview, **not a stable release**. The repository and downloads currently require GitHub access permission. Installation, permissions, Claude/Codex connection and a same-team app update were verified on the build Mac. Fresh-Mac installation, other macOS versions and the full stable-release task/beta checks remain unverified. Windows and Intel Mac builds are not provided. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
 
@@ -226,6 +235,7 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 - [tacto everyday examples 2026 10 15](docs/tacto-everyday-examples-2026-10-15.md)
 - [tacto browser examples 2026 10 15](docs/tacto-browser-examples-2026-10-15.md)
 - [release readiness](docs/release-readiness.md)
+- [First-run quality review](docs/tacto-quality-review-2026-10-19.md)
 - [tacto native release fixes 2026 10 16](docs/tacto-native-release-fixes-2026-10-16.md)
 - [tacto peer review 2026 10 16](docs/tacto-peer-review-2026-10-16.md)
 - [tacto branding](docs/tacto-branding.md)

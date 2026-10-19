@@ -992,6 +992,7 @@ WIRE_ONLY = frozenset({
 
 # These features are implemented by the signed helper, not by Driver.
 SIGNED_HELPER_ONLY = frozenset({
+    "action.drag", "drag.window_bound",
     "action.click.save_panel_guard",
     # Return to the Go to Folder path field: helper press_key only; Driver's own
     # press_key stays navigation keys.
@@ -1017,6 +1018,8 @@ SIGNED_HELPER_ONLY = frozenset({
     # Native readiness instrumentation and strict select-option wire validation.
     "diagnostic.readiness_preflight", "diagnostic.readiness_read_cost",
     "select_option.strict_parameters",
+    # Stable native window IDs are an opt-in signed-helper observation.
+    "observe.window_identity",
 })
 
 

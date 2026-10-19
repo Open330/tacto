@@ -24,6 +24,7 @@ ACTION_PARAMS = {
     # Host-registered immutable browser payload, never a model-supplied path.
     "upload": frozenset({"scope", "attachment_digest"}),
     "press_key": frozenset({"key"}), "menu": frozenset({"path", "focused_document"}),
+    "drag": frozenset({"from", "to", "duration", "via"}),
     "scroll": frozenset({"direction", "pages"}),
     "secondary_action": frozenset({"action"}),
     "goto": frozenset({"url"}),
@@ -179,3 +180,14 @@ def normalize_action_response(response):
             and response['type'] in ('acted','error','confirm_request','handoff_request')):
         return response
     return {'type':'error','error':'driver_response_invalid','effect':'unknown'}
+
+
+def drag_reobservation(action, response, capabilities):
+    from .native_drag import drag_problem, drag_event_count
+    return ('action.drag' in (capabilities or ()) and 'drag.window_bound' in capabilities
+            and action.get('name') == 'drag' and drag_problem(action) is None
+            and type(action.get('element_index')) is int and action['element_index'] >= 0
+            and response.get('type') == 'acted' and response.get('input_route') == 'window_bound_drag'
+            and response.get('unverified') == 'observe_effect' and response.get('reobserve_required') is True
+            and type(response.get('posted_events')) is int
+            and response['posted_events'] == drag_event_count(action))

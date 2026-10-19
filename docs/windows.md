@@ -96,7 +96,8 @@ access rights.
 
 - The signed helper and `--helper` (refused on Windows), menus (`menu`),
   document receipts, visual (screenshot) reads and window preparation.
-  `tacto doctor`, onboarding and the setup app are macOS-only.
+  `tacto doctor`, `launch`, `first-run`, `capture`, `drag`, onboarding and
+  the setup app are macOS-only.
 - Applications running elevated (as administrator) cannot be automated from a
   non-elevated process (Windows UIPI).
 

@@ -483,3 +483,80 @@ func openFolderBounded(deadline: Double, stopped: () -> Bool,
     guard !stopped() else { return .unknown("stopped after opening was asked") }
     return .opened
 }
+
+
+// One stroke, never retried. Expensive AX readiness runs at its boundaries;
+// the timed path checks cancellation/context and external input without AX RPCs.
+func dispatchNativeWindowDrag(_ binding:NativeWindowBinding,drag:NativeWindowDrag,deadline:Double,
+    stopped:()->Bool,context:()throws->Void,validate:()throws->Void,
+    now:()->Double={ProcessInfo.processInfo.systemUptime},
+    readInput:(Double)throws->NativeUserInputState=readNativeUserInputState,
+    pointer:()->CGPoint?={CGEvent(source:nil)?.location},
+    foreground:()->pid_t?=nativeFrontmostProcessPID,
+    post:(CGEvent,pid_t)throws->Void=nativePIDPost,
+    sameProcess:()->Bool={true},windowUnchanged:()throws->Void={},sleep:(Double)->Void={Thread.sleep(forTimeInterval:$0)}) throws -> NativeWindowPreparation {
+    var attempted=0,held=false
+    var lastPoint=binding.point
+    var stroke:NativeWindowStroke?
+    func ready() throws {
+        guard !stopped(),deadline.isFinite,now()<deadline else {
+            throw NativeWindowInputError.refused("drag stopped or deadline expired")
+        }
+        try context()
+    }
+    do {
+        try ready();try validate();try ready()
+        let initial=try readInput(deadline)
+        guard initial.foreground != binding.pid else {
+            throw NativeWindowInputError.refused("window-bound drag requires a background app")
+        }
+        let prepared=try buildNativeWindowDrag(binding,drag:drag);stroke=prepared
+        guard deadline-now()>drag.duration+0.1 else {
+            throw NativeWindowInputError.refused("insufficient drag deadline")
+        }
+        try validate();try ready()
+        guard initial.matches(try readInput(deadline)) else {
+            throw NativeWindowInputError.refused("user input changed before drag")
+        }
+        let start=now()
+        try withExtendedLifetime(prepared.owners) {
+            for (i,event) in prepared.events.enumerated() {
+                let due=start+prepared.offsets[i]
+                while now()<due { try ready();sleep(max(0,min(0.01,due-now()))) }
+                try ready()
+                guard foreground()==initial.foreground,pointer()==initial.pointer else {
+                    throw NativeWindowInputError.refused("user input changed during drag")
+                }
+                try windowUnchanged();try ready()
+                lastPoint=event.location
+                attempted+=1
+                if event.type == .leftMouseDown { held=true }
+                try post(event,binding.pid)
+                if event.type == .leftMouseUp { held=false }
+            }
+        }
+        try ready()
+        guard initial.matches(try readInput(deadline)) else {
+            throw NativeWindowInputError.refused("user input changed during drag")
+        }
+        try validate();try ready()
+        return NativeWindowPreparation(posted:attempted,foreground:initial.foreground,windowID:binding.windowID)
+    } catch {
+        // Release only the same receiving process, even after cancellation.
+        // Do not leave AppKit's tracking loop holding the button. No HID input.
+        if held,sameProcess(),let up=stroke?.events.last {
+            up.location=lastPoint
+            if let (setLocation,_) = try? WindowInputSPI.locationFunctions() {
+                setLocation(up,CGPoint(x:lastPoint.x-binding.windowBounds.minX,y:lastPoint.y-binding.windowBounds.minY))
+                attempted+=1;try? post(up,binding.pid)
+            }
+        }
+        let detail:String
+        switch error {
+        case NativeWindowInputError.refused(let value),NativeWindowInputError.unavailable(let value),
+             NativeWindowInputError.needsForeground(let value):detail=value
+        default:detail="drag dispatch failed"
+        }
+        throw NativeWindowDispatchFailure(detail:detail,attempted:attempted,stopped:stopped())
+    }
+}

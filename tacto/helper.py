@@ -490,7 +490,11 @@ class HelperDriver:
         return self._send({"type": "list_targets"})
 
     def observe(self, target: str, mode: str = "tree_full",
-                require_window: bool = True, *, document_token=None, _settle_after_action=True):
+                require_window: bool = True, *, document_token=None, window_identity=False, _settle_after_action=True):
+        if type(window_identity) is not bool:
+            return {'type':'error', 'error':'invalid_window_identity_request', 'effect':'not_started'}
+        if window_identity and 'observe.window_identity' not in getattr(self, 'capabilities', ()):
+            return {'type':'error', 'error':'window_identity_unavailable', 'effect':'not_started'}
         if document_token is not None and (target != 'com.apple.TextEdit'
                 or not isinstance(document_token, str) or not document_token or len(document_token) > 128):
             return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started'}
@@ -506,6 +510,8 @@ class HelperDriver:
         # return the same tree for the same app: a recipe that starts from an
         # app with nothing open must behave identically whichever one runs it.
         message = {"type":"observe", "target":target, "require_window":require_window}
+        if window_identity:
+            message['window_identity'] = True
         if document_token is not None:
             message['document_token'] = document_token
         out = self._send(message)
@@ -556,6 +562,11 @@ class HelperDriver:
                     or 'action.click.save_panel_guard' not in getattr(self, 'capabilities', ())):
                 return {'type': 'error', 'error': 'save_panel_guard_unavailable',
                         'effect': 'not_started'}
+        if action.get('name') == 'drag':
+            from .native_drag import drag_problem
+            problem = drag_problem(action)
+            if problem:
+                return {'type':'error','error':'invalid_drag','effect':'not_started','detail':problem}
         if action.get('name') == 'window_input':
             from .native_window_payload import window_input_problem, WINDOW_INPUT_CAPABILITIES
             problem = window_input_problem(action)
@@ -577,10 +588,10 @@ class HelperDriver:
                     or 'press_key.return_bound' not in getattr(self, 'capabilities', ())):
                 return {'type': 'error', 'error': 'submit_authorization_invalid',
                         'effect': 'not_started'}
-        if action.get('name') in ('click_point', 'vroid_drag', 'vroid_focus'):
+        if action.get('name') in ('click_point', 'drag', 'vroid_drag', 'vroid_focus'):
             if risk_class not in ('confirm','preapproved') or approved is not True:
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started'}
-            if ('action.' + action['name'] if action['name'] in ('vroid_drag','vroid_focus') else 'action.click_point') not in getattr(self,'capabilities',()):
+            if ('action.' + action['name'] if action['name'] in ('drag','vroid_drag','vroid_focus') else 'action.click_point') not in getattr(self,'capabilities',()):
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started',
                         'detail':'helper does not support authorized window points'}
         if risk_class not in RISK_CLASSES:
@@ -603,13 +614,13 @@ class HelperDriver:
                "action": action}
         if save_panel_token is not None:
             msg['save_panel_token'] = save_panel_token
-        if action.get('name') in ('click_point', 'vroid_drag', 'vroid_focus'):
+        if action.get('name') in ('click_point', 'drag', 'vroid_drag', 'vroid_focus'):
             msg['coordinate_authorized'] = True
         if action.get('name') == 'window_input':
             msg['window_input_authorized'] = True
         if submit_authorized is True:
             msg['submit_authorized'] = True
-        if action.get("name") in ("click", "click_point", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"):
+        if action.get("name") in ("click", "click_point", "drag", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"):
             from .model_budget import remaining_model_seconds
             # Capture before computing remaining time; never extend the budget
             # by serialization or time spent waiting for the helper.
