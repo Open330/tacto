@@ -1,7 +1,7 @@
 # Capture를 보존하는 자동 재개 — 2026-10-18
 
 이 문서는 당시298개 회귀 cohort의 기록이다. 이후 bound export 거절·UI label 거절은
-[원문 보존과 schema4 저장](tacto-literal-learning-validation.md)으로 대체했다.
+원문 보존과 schema4 저장 검증 기록(내부 문서, 비공개)으로 대체했다.
 
 개발 checkout의 자동 선택자 수리가 앞 단계에서 읽은 capture를 보존한다.
 실패 단계의 입력값과 결과 조건은 원래 값을 사용하고, 성공한 prefix는 실행하지 않는다.

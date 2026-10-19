@@ -32,7 +32,7 @@ blocker; it is absent from the publication checkout.
 
 ## Unresolved development merge blocker
 
-The unpublished `helper/VroidDrag.swift` activates VRoid, positions the global
+The unpublished `helper/experimental/VroidDrag.swift` activates VRoid, positions the global
 cursor and posts foreground HID events. Its separate CLI requires explicit
 `--yes`, exact window identity and bounded input, and its diagnostic document
 already describes the foreground behavior. It is not an automatic fallback in

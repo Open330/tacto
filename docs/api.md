@@ -809,7 +809,7 @@ Attach field/value postconditions to set_value steps to use polling rather than
 an unconditional settled observe. Group checks that belong to the same
 checkpoint; keep reads for different checkpoints or new data. Existing Flows
 are not automatically rewritten. Example and measured behavior:
-[Grouped checks](tacto-grouped-checks-2026-10-13.md).
+Grouped checks (internal measurement record; not published).
 
 Grouped checks are saved as Flow schema3; older engines reject that version
 rather than silently ignoring all_of. Plain flows retain schema2. Current
@@ -820,7 +820,7 @@ Development runtimes also support schema4 for observed literal text that contain
 `params`; callers cannot override these data values. Serialization preserves
 literal/reference boundaries and never downgrades schema4 for grouped checks.
 Older runtimes reject schema4. This behavior is not in installed Preview2.
-[Literal learning and validation](tacto-literal-learning-validation.md).
+Literal learning and validation (internal validation record; not published).
 
 ### Bounded saved-Flow batch
 
@@ -838,7 +838,7 @@ The default is10 jobs/90s idle and records are bounded to64KiB. No observation
 IDs or approvals survive into the next replay. Only a verified last-action
 result allows the next fresh initial observation to bypass the redundant
 helper settle delay. The foreground activation latch spans the whole batch.
-[Usage, verification and measured timings](tacto-connection-batch-2026-10-13.md).
+Usage, verification and measured timings are recorded in an internal, unpublished batch validation report.
 
 ### Automatic selector repair
 

@@ -483,7 +483,7 @@ CLI marker는1024자·출력1MiB·최대64개로 제한한다. 이 카운터는 
 큰 트리의 소유 실기 평가:
 
 ```sh
-~/.local/bin/nlc eval signed_readiness_scale --report /absolute/new-report.json
+~/.local/bin/tacto eval signed_readiness_scale --report /absolute/new-report.json
 ```
 
 별도 signed launcher 프로세스에서만 실행한다. 앱 A는 작은 창이고 B에만
@@ -504,7 +504,7 @@ scoped_ax_operations를 단일 DFS의 노드당 비용으로 계산하지 않는
 Finder 읽기 비용의 진단 평가:
 
 ```sh
-~/.local/bin/nlc eval signed_finder_read_cost --report /absolute/new-report.json
+~/.local/bin/tacto eval signed_finder_read_cost --report /absolute/new-report.json
 ```
 
 `diagnostic.readiness_read_cost`를 제공하는 signed helper와 런처가 필요하다.
@@ -533,7 +533,7 @@ unsupported batch도0비용이나 단건과 동등한 지원으로 계산하지 
 읽기 전용 사전 점검 실험은 다음처럼 별도 프로세스에서 실행한다.
 
 ```sh
-~/.local/bin/nlc eval signed_finder_preflight --report /absolute/new-report.json
+~/.local/bin/tacto eval signed_finder_preflight --report /absolute/new-report.json
 ```
 
 Finder의 최신 Window를15초/20k/depth64로 읽으며 입력·활성화 API를 호출하지
@@ -555,7 +555,7 @@ Finder 시험 도구는 창 생성/닫힘 소유권을 입증하지 못한다. �
 소유 앱의 모달 표현을 읽기 전용으로 비교하는 진단:
 
 ```sh
-~/.local/bin/nlc eval signed_modality_inventory --report /absolute/new-report.json
+~/.local/bin/tacto eval signed_modality_inventory --report /absolute/new-report.json
 ```
 
 signed helper의 preflight 대상은 Finder와 예약된 modality fixture로 제한한다.
@@ -581,8 +581,8 @@ identity_or_abort/malformed/unavailable도 별도로 남긴다. 팝오버 열림
 사용자 창을 닫지 않는다. 실패한 unprepared 결과를 prepared 결과로 덮어쓰지 않는다.
 
 ```sh
-~/.local/bin/nlc eval signed_popover_receipt --report /absolute/new-unprepared.json
-~/.local/bin/nlc eval signed_popover_prepared_receipt --report /absolute/new-prepared.json
+~/.local/bin/tacto eval signed_popover_receipt --report /absolute/new-unprepared.json
+~/.local/bin/tacto eval signed_popover_prepared_receipt --report /absolute/new-prepared.json
 ```
 
 clear/transient/semitransient × A/B 창 × acceptsFirstMouse true/false의12개
@@ -621,7 +621,7 @@ AppKit 내부 활성화 알림1회와 전역 전경 보존은별도로 기록한
 관측으로 다음 단계를 계획하며, unknown을 코드만보고 재시도하지 않는다.
 
 ```sh
-~/.local/bin/nlc eval signed_popover_routing_refusal --report /absolute/new-diagnostic.json
+~/.local/bin/tacto eval signed_popover_routing_refusal --report /absolute/new-diagnostic.json
 ```
 
 이 진단은 소유 A가앱 내부 focused 창인 상태에서 B를요청한다. 팝오버3종과
