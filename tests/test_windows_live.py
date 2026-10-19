@@ -24,6 +24,9 @@ class WindowsLiveTests(unittest.TestCase):
         while time.monotonic() < deadline and self.driver._resolve(self.target) is None:
             time.sleep(0.25)
         if self.driver._resolve(self.target) is None:
+            # In CI a skip would read as a pass; there it must fail loudly.
+            if os.environ.get("TACTO_WINDOWS_LIVE_REQUIRED") == "1":
+                self.fail("Notepad window did not appear")
             self.skipTest("Notepad window did not appear (store Notepad may re-parent its process)")
 
     def test_observe_set_value_and_read_back_without_input(self):

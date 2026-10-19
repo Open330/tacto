@@ -87,14 +87,28 @@ def _one_line(text):
     return " ".join(str(text).split())
 
 
-def _label(props):
+def _label(props, *, quote=False):
+    """'Key: value' pairs; window values are JSON-quoted as on macOS so a
+    title cannot spoof another key."""
+    from .document_label import quote_value
     parts = []
     for key, field in (("Title", "name"), ("Value", "value"), ("Help", "help"),
                        ("Identifier", "automation_id")):
         value = props.get(field)
         if isinstance(value, str) and value.strip():
-            parts.append(f"{key}: {_one_line(value)[:200]}")
+            text = _one_line(value)[:200]
+            parts.append(f"{key}: {quote_value(text) if quote else text}")
     return ", ".join(parts)
+
+
+def _fingerprint(props):
+    """What an observed index must still be: same UIA element, same kind, same name.
+
+    A Win32 proxy's runtime id is positional (window handle, child id), so a
+    row inserted above would otherwise pass as the observed one.
+    """
+    return (props.get("runtime_id"), props.get("pid"), props.get("control_type"),
+            props.get("name"), props.get("automation_id"))
 
 
 class Observation:
@@ -165,27 +179,33 @@ class WindowsDriver:
 
     # --------------------------------------------------------- observation
     def _walk(self, obs, element, depth):
-        if depth > MAX_TREE_DEPTH:
-            return
-        if obs.visited >= MAX_TREE_NODES:
+        if depth > MAX_TREE_DEPTH or obs.visited >= MAX_TREE_NODES:
             obs.truncated = True
             return
         obs.visited += 1
-        props = self._backend.props(element)
+        try:
+            props = self._backend.props(element)
+        except Exception:  # an element can vanish mid-walk; never guess its content
+            obs.truncated = True
+            return
         role = ROLES.get(props.get("control_type"), "Group")
         if props.get("offscreen") is True and role != "Window":
             return
-        label = _label(props)
+        label = _label(props, quote=role == "Window")
         if role in INTERACTABLE or label:
             index = len(obs.elements)
             obs.elements.append(element)
-            obs.identities.append(props.get("runtime_id"))
+            obs.identities.append(_fingerprint(props))
             readonly = " [readonly]" if role in ("TextField", "TextArea") and props.get("readonly") is True else ""
             disabled = "" if props.get("enabled") is not False else " [disabled]"
             selected = " [selected]" if props.get("selected") is True else ""
             obs.lines.append(f"{'  ' * depth}{index} {role}{readonly}"
                              + (f"  {label}" if label else "") + disabled + selected)
-        children = self._backend.children(element)
+        try:
+            children = self._backend.children(element)
+        except Exception:
+            obs.truncated = True
+            return
         for child in children[:MAX_CHILDREN_PER_NODE]:
             self._walk(obs, child, depth + 1)
         if len(children) > MAX_CHILDREN_PER_NODE:
@@ -203,6 +223,8 @@ class WindowsDriver:
         windows = self._backend.top_windows(pid)
         for window in windows:
             self._walk(obs, window, 0)
+        if obs.truncated:
+            obs.lines.append("… (트리 일부만 표시)")
         if not windows:
             if require_window:
                 return {"type": "error", "error": "no_window_content", "target": target}
@@ -237,7 +259,9 @@ class WindowsDriver:
         obs = self._latest.get(target.lower()) if isinstance(target, str) else None
         if obs is None or obs.obs_id != obs_id:
             return {"type": "error", "error": "stale_observation", "effect": "not_started"}
-        name = action.get("name") if isinstance(action, dict) else None
+        if not isinstance(action, dict):
+            return {"type": "error", "error": "invalid_action", "effect": "not_started"}
+        name = action.get("name")
         if expect:
             why = self._mismatch(obs, action, expect)
             if why:
@@ -245,7 +269,8 @@ class WindowsDriver:
                         "detail": why}
         try:
             result = self._perform(obs, action, name)
-        except NotStarted as exc:
+        except (NotStarted, LookupError) as exc:
+            # LookupError: the backend found the pattern gone before calling it.
             out = {"type": "error", "error": "action_failed", "action": name,
                    "effect": "not_started", "detail": str(exc)}
             if isinstance(exc, _NeedsPointer):
@@ -257,9 +282,11 @@ class WindowsDriver:
             return {"type": "error", "error": "action_failed", "action": name,
                     "effect": "unknown", "detail": str(exc)[:200] if isinstance(exc, RuntimeError)
                     and not isinstance(exc, OSError) else type(exc).__name__}
+        # A pattern call is the app's own synchronous action, like AXPress on
+        # macOS: the engine verifies its outcome with postconditions.
         return {"type": "acted", "action": name, "obs_id": obs_id,
                 "note": "not verified — observe again and check the result (D7)",
-                "unverified": "observe_effect", "reobserve_required": True, **(result or {})}
+                **(result or {})}
 
     def _mismatch(self, obs, action, expect):
         """Why this is no longer what the caller meant, or "" if it still is.
@@ -278,8 +305,8 @@ class WindowsDriver:
             _, props = self._element(obs, action)
         except NotStarted as exc:
             return str(exc)
-        if expect.get("enabled") and props.get("enabled") is False:
-            return "target is disabled"
+        if expect.get("enabled") and props.get("enabled") is not True:
+            return "target is disabled or its state could not be read"
         want_role = expect.get("role")
         role = ROLES.get(props.get("control_type"), "Group")
         if want_role and role != want_role:
@@ -314,10 +341,12 @@ class WindowsDriver:
         if type(index) is not int or not 0 <= index < len(obs.elements):
             raise NotStarted("element_index out of range")
         element = obs.elements[index]
+        if obs.identities[index][0] is None:
+            raise NotStarted("element identity unavailable")
         props = self._backend.props(element)
         # The same element, still in the same process: a reused index after the
         # window changed must not address whatever now sits in its place.
-        if props.get("runtime_id") != obs.identities[index] or props.get("pid") != obs.pid:
+        if _fingerprint(props) != obs.identities[index] or props.get("pid") != obs.pid:
             raise NotStarted("target changed since observation")
         return element, props
 
@@ -377,7 +406,10 @@ class WindowsDriver:
                     raise RuntimeError("option absent or ambiguous")
                 if "selection_item" not in (backend.props(options[0]).get("patterns") or set()):
                     raise RuntimeError("option cannot be selected")
-                backend.select(options[0])
+                try:
+                    backend.select(options[0])
+                except LookupError as exc:
+                    raise RuntimeError("option cannot be selected") from exc
             finally:
                 backend.collapse(element)
             return {"input_route": "uia_selection_item"}

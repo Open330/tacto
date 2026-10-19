@@ -31,6 +31,34 @@ class WindowsCliTests(unittest.TestCase):
             self.assertEqual(2, cli.main(["doctor"]))
         self.assertEqual(["apps"], dispatched)
 
+    def test_run_and_do_never_load_macos_modules_on_windows(self):
+        import sys
+        blocked = dict.fromkeys(("tacto.driver", "tacto.overlay", "tacto.onboard", "tacto.session",
+                                 "AppKit", "Quartz", "ApplicationServices"))
+        with patch.object(cli.sys, "platform", "win32"), patch.dict(sys.modules, blocked):
+            with cli._indicator_for("notepad", []):
+                pass
+            from pathlib import Path
+            source = Path(cli.__file__).read_text(encoding="utf-8")
+        do = source[source.index('    if cmd == "do":'):]
+        do = do[:do.index('learning = "--learn" in rest')]
+        self.assertIn('if sys.platform != "win32":', do)
+        self.assertLess(do.index('if sys.platform != "win32":'), do.index("from . import onboard"))
+
+    def test_scroll_amounts_match_uia_enum(self):
+        import ast, pathlib
+        tree = ast.parse(pathlib.Path(cli.__file__).with_name("uia_backend.py").read_text())
+        values = {}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple)
+                    and isinstance(node.value, ast.Tuple)):
+                for name, value in zip(node.targets[0].elts, node.value.elts):
+                    if isinstance(name, ast.Name) and isinstance(value, ast.Constant):
+                        values[name.id] = value.value
+        # UIA ScrollAmount: LargeDecrement 0, SmallDecrement 1, NoAmount 2, LargeIncrement 3.
+        self.assertEqual({"LARGE_DECREMENT": 0, "NO_AMOUNT": 2, "LARGE_INCREMENT": 3},
+                         {k: values[k] for k in ("LARGE_DECREMENT", "NO_AMOUNT", "LARGE_INCREMENT")})
+
     def test_macos_selection_is_unchanged(self):
         with patch.object(cli.sys, "platform", "darwin"), \
              patch("tacto.driver.Driver") as driver, \

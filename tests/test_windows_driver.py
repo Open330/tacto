@@ -116,7 +116,7 @@ class WindowsDriverTests(unittest.TestCase):
 
     def test_tree_uses_engine_roles_and_attributes(self):
         tree = self.observe()["tree"]
-        self.assertIn("Window  Title: Untitled - Notepad", tree)
+        self.assertIn('Window  Title: "Untitled - Notepad"', tree)
         self.assertIn("Button  Title: Save, Identifier: save", tree)
         self.assertIn("TextField  Title: Text editor, Value: hello, Identifier: body", tree)
         self.assertIn("StaticText  Title: Ln 1, Col 1", tree)
@@ -140,7 +140,8 @@ class WindowsDriverTests(unittest.TestCase):
         obs = self.observe()
         result = self.act(obs, "click", element_index=self.index(obs, title="Save"))
         self.assertEqual(("acted", "uia_invoke"), (result["type"], result["input_route"]))
-        self.assertTrue(result["reobserve_required"])
+        # A synchronous pattern call is not an unverified dispatch (engine contract).
+        self.assertNotIn("unverified", result)
         obs = self.observe()
         self.assertEqual("uia_toggle", self.act(obs, "click", element_index=self.index(obs, title="Word wrap"))["input_route"])
         self.assertEqual([("invoke", "Save"), ("toggle", "Word wrap")], self.backend.calls)
@@ -238,6 +239,69 @@ class WindowsDriverTests(unittest.TestCase):
         ok = act({"role": "Button", "label": "save", "attribute": "Identifier", "enabled": True, "no_modal": True})
         self.assertEqual("acted", ok["type"])
         self.assertEqual([("invoke", "Save")], self.backend.calls)
+
+    def test_identity_includes_kind_and_name_and_refuses_unknown_ids(self):
+        obs = self.observe()
+        save = self.index(obs, title="Save")
+        # A positional proxy id can stay the same while a different item moves in.
+        self.named["Save"].props["name"] = "Delete"
+        self.assertEqual("target changed since observation",
+                         self.act(obs, "click", element_index=save)["detail"])
+        self.named["Save"].props["name"] = "Save"
+        self.named["Save"].props["runtime_id"] = None
+        obs = self.observe()
+        refused = self.act(obs, "click", element_index=self.index(obs, title="Save"))
+        self.assertEqual(("not_started", "element identity unavailable"), (refused["effect"], refused["detail"]))
+        self.assertEqual([], self.backend.calls)
+
+    def test_pattern_vanishing_before_or_after_opening_is_reported_honestly(self):
+        obs = self.observe()
+        def gone(element):
+            raise LookupError("invoke")
+        self.backend.invoke = gone
+        before = self.act(obs, "click", element_index=self.index(obs, title="Save"))
+        self.assertEqual("not_started", before["effect"])
+        def select_gone(element):
+            raise LookupError("selection_item")
+        self.backend.select = select_gone
+        after = self.act(self.observe(), "select_option", element_index=self.index(obs, title="Encoding"),
+                         option_label="ANSI")
+        self.assertEqual("unknown", after["effect"])
+        self.assertEqual("not_started", self.driver.act(self.observe()["obs_id"], "notepad", "click")["effect"])
+
+    def test_unreadable_enabled_state_fails_an_enabled_expectation(self):
+        self.named["Save"].props["enabled"] = None
+        obs = self.observe()
+        result = self.driver.act(obs["obs_id"], "notepad",
+                                 {"name": "click", "element_index": self.index(obs, title="Save")},
+                                 expect={"enabled": True})
+        self.assertEqual("target_changed", result["error"])
+
+    def test_vanishing_elements_truncate_instead_of_crashing(self):
+        original = self.backend.props
+        def flaky(element):
+            if element.props["name"] == "Word wrap":
+                raise OSError("element not available")
+            return original(element)
+        self.backend.props = flaky
+        obs = self.observe()
+        self.assertTrue(obs["truncated"])
+        self.assertIn("트리 일부만 표시", obs["tree"])
+        self.assertNotIn("Word wrap", obs["tree"])
+
+    def test_window_titles_cannot_spoof_keys(self):
+        self.window.props["name"] = "a, Identifier: save"
+        tree = self.observe()["tree"]
+        self.assertIn('Title: "a, Identifier: save"', tree)
+        self.assertEqual(1, Selector(identifier="save").resolve(tree)[0])
+
+    def test_engine_replay_accepts_windows_results(self):
+        from tacto.contract import Resource, SafetyContract
+        from tacto.flow import Flow, Step, replay
+        contract = SafetyContract(effects=["read"], reversibility="reversible", resource=Resource(scope="entry"))
+        result = replay(self.driver, Flow(name="read", target="notepad", steps=[
+            Step(action="read", selector=Selector(identifier="body"), safety=contract)]))
+        self.assertTrue(result.ok, result.log)
 
     def test_probe_reads_one_element_and_rejects_stale_ids(self):
         obs = self.observe()

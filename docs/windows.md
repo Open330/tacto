@@ -47,6 +47,11 @@ refused; use `pid:N`. Recipes bind to the identity `win:<executable>`.
   preparation. `tacto doctor`, onboarding and the setup app are macOS-only.
 - Applications running elevated (as administrator) cannot be automated from a
   non-elevated process (Windows UIPI).
+- Packaged (UWP) apps such as Calculator: their top window belongs to
+  `ApplicationFrameHost.exe` while the content belongs to the app process, so
+  the driver's same-process check refuses those elements. This fails closed.
+- Recipes using `in_focused_window` selectors do not resolve yet: the tree
+  does not mark the focused window.
 
 ## Install from source
 

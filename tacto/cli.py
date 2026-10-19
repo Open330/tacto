@@ -375,7 +375,8 @@ def _params_from(argv):
 def _indicator_for(target, argv):
     """Show a 'being controlled' outline on the target window during a run,
     unless the caller opted out. Never blocks the task if it can't draw."""
-    if "--no-indicator" in argv:
+    if "--no-indicator" in argv or sys.platform == "win32":
+        # Windows has no indicator yet; the macOS overlay must not load there.
         from contextlib import nullcontext
         return nullcontext()
     from .driver import Driver
@@ -1116,7 +1117,6 @@ def _dispatch_command(cmd, rest):
         except ValueError as exc:
             print(str(exc))
             return 2
-        from . import onboard
         # A path where an intent was expected is a recipe, not a sentence —
         # run it rather than failing to resolve it as natural language.
         import os as _os
@@ -1124,15 +1124,18 @@ def _dispatch_command(cmd, rest):
             print("  (" + rest[0] + " 은 IR 파일이라 바로 실행합니다)")
             return main(["run"] + rest)
         intent = " ".join(rest)
-        # gate on permissions first — the beginner path
-        if not onboard.run(interactive=False, narrate=lambda s: None):
-            print("먼저 권한이 필요해요:  tacto doctor")
-            return 1
-        from .session import preflight
-        pf = preflight()
-        if pf["verdict"] == "session_locked":
-            print("화면이 잠겨 있어요. 잠금을 풀어주시면 바로 이어서 할게요.")
-            return 1
+        # gate on permissions first — the beginner path. UI Automation on
+        # Windows has no permission grant or macOS session lock to check.
+        if sys.platform != "win32":
+            from . import onboard
+            if not onboard.run(interactive=False, narrate=lambda s: None):
+                print("먼저 권한이 필요해요:  tacto doctor")
+                return 1
+            from .session import preflight
+            pf = preflight()
+            if pf["verdict"] == "session_locked":
+                print("화면이 잠겨 있어요. 잠금을 풀어주시면 바로 이어서 할게요.")
+                return 1
         # Read the flag BEFORE stripping it. Checking `rest` afterwards, as this
         # did, could never be true — so `--learn` has never once reached the
         # authoring path and every unknown task was reported unconditionally.

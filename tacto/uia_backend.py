@@ -43,7 +43,14 @@ PATTERNS = {
 RUNTIME_ID = 30000
 PROCESS_ID, CONTROL_TYPE, NAME, IS_ENABLED, AUTOMATION_ID = 30002, 30003, 30005, 30010, 30011
 HELP_TEXT, IS_OFFSCREEN, VALUE, VALUE_READONLY, IS_SELECTED = 30013, 30022, 30045, 30046, 30079
-WINDOW_IS_MODAL = 30077
+WINDOW_INTERACTION_STATE, WINDOW_IS_MODAL = 30076, 30077
+BLOCKED_BY_MODAL_WINDOW = 3
+WINDOW_CONTROL = 50032
+TREE_SCOPE_SUBTREE = 7
+
+
+class PatternUnavailable(LookupError):
+    """The element stopped exposing the pattern; nothing was sent."""
 # Is<Pattern>PatternAvailable: read as properties, so one cached round trip
 # answers every pattern instead of one cross-process call per pattern.
 PATTERN_AVAILABLE = {"invoke": 30031, "value": 30043, "scroll": 30034,
@@ -52,7 +59,8 @@ CACHED = (RUNTIME_ID, PROCESS_ID, CONTROL_TYPE, NAME, IS_ENABLED, AUTOMATION_ID,
           IS_OFFSCREEN, VALUE, VALUE_READONLY, IS_SELECTED, *PATTERN_AVAILABLE.values())
 TREE_SCOPE_ELEMENT = 1
 TREE_SCOPE_CHILDREN, TREE_SCOPE_DESCENDANTS = 2, 4
-LARGE_DECREMENT, LARGE_INCREMENT, NO_AMOUNT = 0, 1, 2
+# ScrollAmount: LargeDecrement 0, SmallDecrement 1, NoAmount 2, LargeIncrement 3.
+LARGE_DECREMENT, NO_AMOUNT, LARGE_INCREMENT = 0, 2, 3
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
@@ -100,7 +108,10 @@ class UIABackend:
         seen, out = set(), []
         windows = self._root().FindAll(TREE_SCOPE_CHILDREN, self._uia.CreateTrueCondition())
         for i in range(windows.Length):
-            pid = windows.GetElement(i).CurrentProcessId
+            try:
+                pid = windows.GetElement(i).CurrentProcessId
+            except (comtypes.COMError, ValueError):
+                continue  # a window that closed while being listed
             if pid in seen:
                 continue
             seen.add(pid)
@@ -116,8 +127,9 @@ class UIABackend:
 
     def children(self, element):
         out = []
+        # comtypes returns a falsy NULL pointer, not None, at the end.
         child = self._walker.GetFirstChildElement(element)
-        while child is not None and len(out) < 10000:
+        while child and len(out) < 10000:
             out.append(child)
             try:
                 child = self._walker.GetNextSiblingElement(child)
@@ -132,13 +144,15 @@ class UIABackend:
     def _pattern(self, element, name):
         pattern_id, interface = PATTERNS[name]
         raw = element.GetCurrentPattern(pattern_id)
-        return raw.QueryInterface(interface) if raw else None
+        if not raw:
+            raise PatternUnavailable(name)
+        return raw.QueryInterface(interface)
 
     def props(self, element):
         """Current properties in one cross-process round trip."""
         try:
             cached = element.BuildUpdatedCache(self._cache)
-        except comtypes.COMError:
+        except (comtypes.COMError, ValueError):
             return {"control_type": None, "runtime_id": None, "pid": None, "patterns": set()}
         def value(prop):
             try:
@@ -163,11 +177,26 @@ class UIABackend:
         }
 
     def modal_present(self, pid):
-        """True/False for this process's top windows, None if it cannot be read."""
+        """True/False for this process's windows, None if it cannot be read.
+
+        Owned dialogs (Save As, "save changes?") sit under their owner window,
+        not at the desktop root, so each top window is asked whether it is
+        blocked and its subtree is searched for a modal window.
+        """
+        modal = self._uia.CreateAndCondition(
+            self._uia.CreatePropertyCondition(CONTROL_TYPE, WINDOW_CONTROL),
+            self._uia.CreatePropertyCondition(WINDOW_IS_MODAL, True))
         try:
-            return any(window.GetCurrentPropertyValue(WINDOW_IS_MODAL) is True
-                       for window in self.top_windows(pid))
-        except comtypes.COMError:
+            for window in self.top_windows(pid):
+                if window.GetCurrentPropertyValue(WINDOW_IS_MODAL) is True:
+                    return True
+                state = window.GetCurrentPropertyValue(WINDOW_INTERACTION_STATE)
+                if state == BLOCKED_BY_MODAL_WINDOW:
+                    return True
+                if window.FindFirst(TREE_SCOPE_SUBTREE, modal):
+                    return True
+            return False
+        except (comtypes.COMError, ValueError):
             return None
 
     def invoke(self, element):
@@ -183,9 +212,10 @@ class UIABackend:
         self._pattern(element, "expand_collapse").Expand()
 
     def collapse(self, element):
-        pattern = self._pattern(element, "expand_collapse")
-        if pattern is not None:
-            pattern.Collapse()
+        try:
+            self._pattern(element, "expand_collapse").Collapse()
+        except PatternUnavailable:
+            pass
 
     def set_value(self, element, text):
         self._pattern(element, "value").SetValue(text)
@@ -193,7 +223,7 @@ class UIABackend:
     def scroll_container(self, element):
         current = element
         for _ in range(64):
-            if current is None:
+            if not current:
                 return None
             available = current.GetCurrentPropertyValue(PATTERN_AVAILABLE["scroll"]) is True
             pattern = self._pattern(current, "scroll") if available else None

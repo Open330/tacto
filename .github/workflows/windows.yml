@@ -24,4 +24,5 @@ jobs:
       - name: Real UI Automation against an owned Notepad
         env:
           TACTO_WINDOWS_LIVE: "1"
+          TACTO_WINDOWS_LIVE_REQUIRED: "1"
         run: uv run python -B -m unittest -v tests.test_windows_live
