@@ -251,3 +251,30 @@ The complete stable-release evidence gates remain unqualified; the release
 checker therefore reports stable readiness as blocked. Fresh-Mac installation,
 broader real-app repetition, matched performance qualification and a limited
 beta have not been replaced by the automated checks or notarization.
+
+
+## 2026-10-19 Preview 4 menu bar update
+
+GUI source: `8d2cc4f`; app version `0.1.0`, build `4`. This update adds a menu bar
+app with no Dock or Command + Tab entry. Closing the settings window keeps the
+menu available. An initial `--background` launch shows no settings window; an
+explicit reopen shows settings. Automation helpers still launch on demand and
+end with their CLI session. Login auto-start is not registered.
+
+- Signed checkout-backed and standalone app checks passed: background launch,
+  hidden initial window, hidden Dock icon, explicit reopen and a Dock icon that
+  stays hidden after reopening. Peer code review found no blocking issue.
+- Documentation, branding and packaging checks: 19 tests passed. Preview 3's
+  2,605-test runtime regression is prior evidence; that full suite was not rerun
+  for this GUI update.
+- Developer ID signing, secure timestamps, hardened runtime, app/DMG notarization
+  Accepted, ticket validation and Gatekeeper assessments passed.
+- The exact DMG was installed on two existing macOS installations. Both retained
+  their signing requirements, Accessibility/screen-reading grants and agent
+  connections. Each installed GUI was running with no visible settings window
+  and an accessory activation policy (no Dock icon). Previous apps were retained
+  for rollback. These were upgrades, not fresh-Mac qualification.
+
+DMG SHA-256: `300cfe4561fe533dd14e8b61f42bbaf1cf53ce9fd35c866f6b68dc8b08aa6c8c`.
+[Preview 4 release](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.4).
+The stable-release evidence gates above remain unqualified.
