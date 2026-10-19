@@ -38,11 +38,18 @@ on a real Windows desktop have not yet been recorded in this repository.
   driver cannot check — selection digests, or a modal state it cannot read —
   refuses the step (`target_changed`, `not_started`) instead of passing it.
 - Each element's properties are read in one cached UIA round trip.
+- The app's front window — the highest of its windows in z-order, even while
+  the person works in another app — is marked `[focused]`, so recipes using
+  `in_focused_window` resolve as on macOS. When the front window cannot be
+  read, nothing is marked and such a selector finds nothing.
 
 ## Targets
 
 Name an app by its executable (`notepad` or `notepad.exe`) or by process id
-(`pid:1234`). Two running copies of the same executable are ambiguous and are
+(`pid:1234`). Packaged (UWP) apps are named by their own process
+(`calculatorapp`, not `ApplicationFrameHost`): their frame window belongs to
+the frame host, so it is observed, but its title bar stays in the frame host's
+process and is refused; only the app's own content is acted on. Two running copies of the same executable are ambiguous and are
 refused; use `pid:N`. Recipes bind to the identity `win:<executable>`.
 
 ## Permissions
@@ -61,11 +68,6 @@ access rights.
   `tacto doctor`, onboarding and the setup app are macOS-only.
 - Applications running elevated (as administrator) cannot be automated from a
   non-elevated process (Windows UIPI).
-- Packaged (UWP) apps such as Calculator: their top window belongs to
-  `ApplicationFrameHost.exe` while the content belongs to the app process, so
-  the driver's same-process check refuses those elements. This fails closed.
-- Recipes using `in_focused_window` selectors do not resolve yet: the tree
-  does not mark the focused window.
 
 ## Install from source
 

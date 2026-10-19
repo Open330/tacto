@@ -42,11 +42,15 @@ PATTERNS = {
 }
 RUNTIME_ID = 30000
 PROCESS_ID, CONTROL_TYPE, NAME, IS_ENABLED, AUTOMATION_ID = 30002, 30003, 30005, 30010, 30011
-HELP_TEXT, IS_OFFSCREEN, VALUE, VALUE_READONLY, IS_SELECTED = 30013, 30022, 30045, 30046, 30079
+CLASS_NAME, HELP_TEXT, NATIVE_WINDOW_HANDLE = 30012, 30013, 30020
+IS_OFFSCREEN, VALUE, VALUE_READONLY, IS_SELECTED = 30022, 30045, 30046, 30079
 WINDOW_INTERACTION_STATE, WINDOW_IS_MODAL = 30076, 30077
 BLOCKED_BY_MODAL_WINDOW = 3
 WINDOW_CONTROL = 50032
 TREE_SCOPE_SUBTREE = 7
+# Packaged (UWP) apps: the top window belongs to the frame host and the app's
+# content is a CoreWindow child owned by the app's own process.
+FRAME_HOST, CORE_WINDOW = "applicationframehost.exe", "Windows.UI.Core.CoreWindow"
 
 
 class PatternUnavailable(LookupError):
@@ -55,7 +59,7 @@ class PatternUnavailable(LookupError):
 # answers every pattern instead of one cross-process call per pattern.
 PATTERN_AVAILABLE = {"invoke": 30031, "value": 30043, "scroll": 30034,
                      "expand_collapse": 30028, "selection_item": 30036, "toggle": 30041}
-CACHED = (RUNTIME_ID, PROCESS_ID, CONTROL_TYPE, NAME, IS_ENABLED, AUTOMATION_ID, HELP_TEXT,
+CACHED = (RUNTIME_ID, PROCESS_ID, CONTROL_TYPE, NAME, IS_ENABLED, AUTOMATION_ID, HELP_TEXT, NATIVE_WINDOW_HANDLE,
           IS_OFFSCREEN, VALUE, VALUE_READONLY, IS_SELECTED, *PATTERN_AVAILABLE.values())
 TREE_SCOPE_ELEMENT = 1
 TREE_SCOPE_CHILDREN, TREE_SCOPE_DESCENDANTS = 2, 4
@@ -75,6 +79,12 @@ _kernel32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD
 _kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
 _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
 _kernel32.CloseHandle.restype = wintypes.BOOL
+_user32 = ctypes.WinDLL("user32", use_last_error=True)
+_ENUM_WINDOWS = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+_user32.EnumWindows.argtypes = (_ENUM_WINDOWS, wintypes.LPARAM)
+_user32.EnumWindows.restype = wintypes.BOOL
+_user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+_user32.IsWindowVisible.restype = wintypes.BOOL
 
 
 def _executable(pid):
@@ -104,14 +114,33 @@ class UIABackend:
     def _root(self):
         return self._uia.GetRootElement()
 
-    def processes(self):
-        seen, out = set(), []
+    def _hosted(self):
+        """{app pid: [frame windows]} for packaged apps shown by the frame host."""
+        hosted = {}
+        core = self._uia.CreatePropertyCondition(CLASS_NAME, CORE_WINDOW)
         windows = self._root().FindAll(TREE_SCOPE_CHILDREN, self._uia.CreateTrueCondition())
         for i in range(windows.Length):
             try:
-                pid = windows.GetElement(i).CurrentProcessId
+                frame = windows.GetElement(i)
+                if (_executable(frame.CurrentProcessId) or "").lower() != FRAME_HOST:
+                    continue
+                content = frame.FindFirst(TREE_SCOPE_CHILDREN, core)
+                if content:
+                    hosted.setdefault(content.CurrentProcessId, []).append(frame)
             except (comtypes.COMError, ValueError):
                 continue  # a window that closed while being listed
+        return hosted
+
+    def processes(self):
+        seen, out = set(), []
+        windows = self._root().FindAll(TREE_SCOPE_CHILDREN, self._uia.CreateTrueCondition())
+        pids = []
+        for i in range(windows.Length):
+            try:
+                pids.append(windows.GetElement(i).CurrentProcessId)
+            except (comtypes.COMError, ValueError):
+                continue  # a window that closed while being listed
+        for pid in [*pids, *self._hosted()]:
             if pid in seen:
                 continue
             seen.add(pid)
@@ -123,7 +152,10 @@ class UIABackend:
     def top_windows(self, pid):
         condition = self._uia.CreatePropertyCondition(PROCESS_ID, pid)
         found = self._root().FindAll(TREE_SCOPE_CHILDREN, condition)
-        return [found.GetElement(i) for i in range(found.Length)]
+        # A packaged app's frame belongs to the frame host. Its title bar
+        # stays in that process, so the driver's same-process check still
+        # refuses it; only the app's own content can be acted on.
+        return [*(found.GetElement(i) for i in range(found.Length)), *self._hosted().get(pid, [])]
 
     def children(self, element):
         out = []
@@ -174,7 +206,26 @@ class UIABackend:
             "readonly": value(VALUE_READONLY) if "value" in patterns else None,
             "selected": value(IS_SELECTED) if "selection_item" in patterns else None,
             "runtime_id": runtime_id, "patterns": patterns,
+            "hwnd": value(NATIVE_WINDOW_HANDLE) or None,
         }
+
+    def front_window(self, hwnds):
+        """The highest of these windows in z-order: the app's own front window.
+
+        EnumWindows lists top-level windows from the top down, so the first
+        visible match is the one the app last brought forward, even while the
+        person works in another app. Read-only; nothing is activated.
+        """
+        wanted = {int(h) for h in hwnds if h}
+        found = []
+
+        def visit(hwnd, _):
+            if hwnd and int(hwnd) in wanted and _user32.IsWindowVisible(hwnd):
+                found.append(int(hwnd))
+                return False
+            return True
+        _user32.EnumWindows(_ENUM_WINDOWS(visit), 0)
+        return found[0] if found else None
 
     def modal_present(self, pid):
         """True/False for this process's windows, None if it cannot be read.

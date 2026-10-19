@@ -178,7 +178,7 @@ class WindowsDriver:
         self._latest.clear()
 
     # --------------------------------------------------------- observation
-    def _walk(self, obs, element, depth):
+    def _walk(self, obs, element, depth, *, front=False):
         if depth > MAX_TREE_DEPTH or obs.visited >= MAX_TREE_NODES:
             obs.truncated = True
             return
@@ -199,8 +199,11 @@ class WindowsDriver:
             readonly = " [readonly]" if role in ("TextField", "TextArea") and props.get("readonly") is True else ""
             disabled = "" if props.get("enabled") is not False else " [disabled]"
             selected = " [selected]" if props.get("selected") is True else ""
+            # As on macOS: the app's front window, so a recipe can say "the
+            # one the person is looking at" when two documents look alike.
+            focused = " [focused]" if front and role == "Window" else ""
             obs.lines.append(f"{'  ' * depth}{index} {role}{readonly}"
-                             + (f"  {label}" if label else "") + disabled + selected)
+                             + (f"  {label}" if label else "") + disabled + selected + focused)
         try:
             children = self._backend.children(element)
         except Exception:
@@ -221,8 +224,9 @@ class WindowsDriver:
                               "executable name (notepad.exe) or 'pid:N'."}
         obs = Observation(pid, target)
         windows = self._backend.top_windows(pid)
-        for window in windows:
-            self._walk(obs, window, 0)
+        front = self._front(windows)
+        for position, window in enumerate(windows):
+            self._walk(obs, window, 0, front=position == front)
         if obs.truncated:
             obs.lines.append("… (트리 일부만 표시)")
         if not windows:
@@ -233,6 +237,15 @@ class WindowsDriver:
         return {"type": "observation", "obs_id": obs.obs_id, "target": target, "mode": mode,
                 "tree": "\n".join(obs.lines), "element_count": len(obs.elements),
                 "custom_selects": {}, "truncated": obs.truncated, "waited_ms": 0}
+
+    def _front(self, windows):
+        """Position of the app's front window, or None when it cannot be told."""
+        try:
+            hwnds = [self._backend.props(window).get("hwnd") for window in windows]
+            front = self._backend.front_window(hwnds)
+        except Exception:
+            return None  # unmarked: an in_focused_window selector then fails closed
+        return hwnds.index(front) if front is not None and hwnds.count(front) == 1 else None
 
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
         from .windows_control import stopped
@@ -407,15 +420,16 @@ class WindowsDriver:
             # refusal is reported with an unknown effect, never not_started.
             backend.expand(element)
             try:
-                options = [option for option in backend.descendants(element)
-                           if backend.props(option).get("control_type") == "ListItem"
-                           and backend.props(option).get("name") == label]
+                # One cached read per option: each is a cross-process call.
+                options = [(option, props) for option in backend.descendants(element)
+                           for props in (backend.props(option),)
+                           if props.get("control_type") == "ListItem" and props.get("name") == label]
                 if len(options) != 1:
                     raise RuntimeError("option absent or ambiguous")
-                if "selection_item" not in (backend.props(options[0]).get("patterns") or set()):
+                if "selection_item" not in (options[0][1].get("patterns") or set()):
                     raise RuntimeError("option cannot be selected")
                 try:
-                    backend.select(options[0])
+                    backend.select(options[0][0])
                 except LookupError as exc:
                     raise RuntimeError("option cannot be selected") from exc
             finally:

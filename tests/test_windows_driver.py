@@ -2,7 +2,7 @@
 import unittest
 
 from tacto.general import candidates
-from tacto.flow import Selector
+from tacto.flow import Selector, TargetMissing
 from tacto.windows_driver import WindowsDriver
 
 
@@ -12,7 +12,8 @@ class Element:
         self.props = {"control_type": control_type, "name": name, "automation_id": automation_id,
                       "help": None, "enabled": enabled, "offscreen": offscreen, "pid": pid,
                       "value": value, "readonly": readonly, "selected": selected,
-                      "runtime_id": (id(self),), "patterns": set(patterns)}
+                      "runtime_id": (id(self),), "patterns": set(patterns),
+                      "hwnd": id(self) if control_type == "Window" else None}
         self.kids = list(children)
         self.parent = None
         for child in self.kids:
@@ -25,6 +26,12 @@ class Backend:
         self.apps = apps or [{"pid": 10, "exe": "Notepad.exe", "name": "Notepad"}]
         self.calls = []
         self.modal = False
+        self.front = None
+
+    def front_window(self, hwnds):
+        if isinstance(self.front, Exception):
+            raise self.front
+        return self.front if self.front in hwnds else None
 
     def modal_present(self, pid):
         return self.modal
@@ -113,6 +120,48 @@ class WindowsDriverTests(unittest.TestCase):
 
     def act(self, obs, name, **action):
         return self.driver.act(obs["obs_id"], "notepad", {"name": name, **action})
+
+    def test_front_window_is_marked_for_in_focused_window_selectors(self):
+        # Two identical documents: only the app's front window may be meant.
+        second, named = notepad()
+        self.backend.windows.append(second)
+        field = dict(role="TextField", identifier="body", in_focused_window=True)
+        self.backend.front = second.props["hwnd"]
+        obs = self.observe()
+        self.assertEqual(1, obs["tree"].count("[focused]"))
+        index = self.index(obs, **field)
+        self.act(obs, "set_value", element_index=index, value="x")
+        self.assertEqual("x", named["Text editor"].props["value"])
+        self.assertEqual("hello", self.named["Text editor"].props["value"])
+        # Unknown or unreadable front window: nothing is marked, so the
+        # selector finds nothing instead of guessing.
+        for front in (None, OSError("enum failed")):
+            self.backend.front = front
+            with self.subTest(front=front):
+                obs = self.observe()
+                self.assertNotIn("[focused]", obs["tree"])
+                with self.assertRaises(TargetMissing):
+                    Selector(**field).resolve(obs["tree"])
+
+    def test_packaged_app_content_acts_but_its_frame_host_title_bar_does_not(self):
+        # UWP: the frame window and its title bar belong to the frame host
+        # (pid 20); only the content inside belongs to the app (pid 30).
+        equals = Element("Button", "Equals", automation_id="equalButton", patterns={"invoke"}, pid=30)
+        content = Element("Window", "Calculator", children=[equals], pid=30)
+        close = Element("Button", "Close Calculator", automation_id="Close", patterns={"invoke"}, pid=20)
+        frame = Element("Window", "Calculator", children=[Element("TitleBar", None, children=[close], pid=20),
+                                                          content], pid=20)
+        backend = Backend([frame], apps=[{"pid": 30, "exe": "CalculatorApp.exe", "name": "CalculatorApp"}])
+        backend.top_windows = lambda pid: [frame] if pid == 30 else []
+        driver = WindowsDriver(backend)
+        obs = driver.observe("calculatorapp")
+        self.assertEqual("observation", obs["type"])
+        act = lambda identifier: driver.act(obs["obs_id"], "calculatorapp", {
+            "name": "click", "element_index": Selector(identifier=identifier).resolve(obs["tree"])[0]})
+        self.assertEqual("not_started", act("Close")["effect"])
+        self.assertEqual([], backend.calls)
+        self.assertNotEqual("not_started", act("equalButton").get("effect"))
+        self.assertEqual([("invoke", "Equals")], backend.calls)
 
     def test_tree_uses_engine_roles_and_attributes(self):
         tree = self.observe()["tree"]
