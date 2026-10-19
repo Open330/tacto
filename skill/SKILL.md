@@ -33,8 +33,9 @@ Use the signed `tacto` command for UI work. Resolve `command -v tacto` or
 - **Other failed action or missing window:** [recovery](references/recovery.md).
 
 **Windows (experimental):** the same commands without `--helper`; name the
-app by executable (`notepad.exe`) or `pid:N`. Key presses, menus, packaged
-apps and `doctor` are unavailable there: [Windows](docs/windows.md).
+app by executable (`notepad.exe`, packaged apps by their own process such as
+`calculatorapp.exe`) or `pid:N`. Key presses, the `menu` action and `doctor`
+are unavailable there: [Windows](docs/windows.md).
 
 Load only the guide for the current stage, once. Do not also read CLI help,
 all references, or the API. Session framing problems: [session](references/session.md).

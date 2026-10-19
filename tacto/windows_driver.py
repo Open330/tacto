@@ -83,6 +83,21 @@ class _NeedsForeground(NotStarted):
     """Only keyboard input to the foreground window would do this; nothing was sent."""
 
 
+class _Aborted(Exception):
+    """Esc was pressed; `started` says whether this action already sent input."""
+
+    def __init__(self, started):
+        super().__init__("aborted_by_user")
+        self.started = started
+
+
+def _checkpoint(started):
+    """Checked before every input an action sends, not only before the first."""
+    from .windows_control import stopped
+    if stopped():
+        raise _Aborted(started)
+
+
 def _one_line(text):
     return " ".join(str(text).split())
 
@@ -324,6 +339,10 @@ class WindowsDriver:
                         "detail": why}
         try:
             result = self._perform(obs, action, name)
+        except _Aborted as exc:
+            return {"type": "error", "error": "aborted_by_user", "action": name,
+                    "effect": "unknown" if exc.started else "not_started",
+                    "detail": "사용자가 Esc로 중단했습니다"}
         except (NotStarted, LookupError) as exc:
             # LookupError: the backend found the pattern gone before calling it.
             out = {"type": "error", "error": "action_failed", "action": name,
@@ -405,6 +424,11 @@ class WindowsDriver:
             raise NotStarted("target changed since observation")
         return element, props
 
+    def _owned(self, obs, element, what):
+        props = self._backend.props(element)
+        if props.get("pid") != obs.pid or props.get("runtime_id") is None:
+            raise NotStarted(f"{what} belongs to another process")
+
     def _perform(self, obs, action, name):
         backend = self._backend
         if name == "read":
@@ -422,6 +446,7 @@ class WindowsDriver:
                                   ("selection_item", backend.select),
                                   ("expand_collapse", backend.expand)):
                 if pattern in patterns:
+                    _checkpoint(False)
                     call(element)
                     return {"input_route": "uia_" + pattern}
             raise _NeedsPointer("element exposes no invoke/toggle/select/expand pattern")
@@ -431,6 +456,7 @@ class WindowsDriver:
                 raise NotStarted("set_value requires a text value")
             if "value" not in patterns or props.get("readonly") is True:
                 raise NotStarted("element has no writable value")
+            _checkpoint(False)
             backend.set_value(element, value)
             return {"input_route": "uia_value"}
         if name == "scroll":
@@ -440,7 +466,12 @@ class WindowsDriver:
             container = backend.scroll_container(element)
             if container is None:
                 raise NotStarted("no scrollable container")
-            backend.scroll(container, direction, pages)
+            # The container is found by climbing, so it is checked like the
+            # observed element: it must still be in the observed process.
+            self._owned(obs, container, "scroll container")
+            for page in range(pages):
+                _checkpoint(page > 0)
+                backend.scroll(container, direction, 1)
             return {"input_route": "uia_scroll"}
         if name == "select_option":
             label = action.get("option_label") or action.get("value")
@@ -450,6 +481,7 @@ class WindowsDriver:
                 raise NotStarted("native_option_value_mismatch")
             if "expand_collapse" not in patterns:
                 raise NotStarted("not a selectable list")
+            _checkpoint(False)
             # Opening the list is already input to the app, so from here a
             # refusal is reported with an unknown effect, never not_started.
             backend.expand(element)
@@ -460,13 +492,18 @@ class WindowsDriver:
                            if props.get("control_type") == "ListItem" and props.get("name") == label]
                 if len(options) != 1:
                     raise RuntimeError("option absent or ambiguous")
-                if "selection_item" not in (options[0][1].get("patterns") or set()):
+                option, option_props = options[0]
+                if option_props.get("pid") != obs.pid or option_props.get("runtime_id") is None:
+                    raise RuntimeError("option belongs to another process")
+                if "selection_item" not in (option_props.get("patterns") or set()):
                     raise RuntimeError("option cannot be selected")
+                _checkpoint(True)
                 try:
-                    backend.select(options[0][0])
+                    backend.select(option)
                 except LookupError as exc:
                     raise RuntimeError("option cannot be selected") from exc
             finally:
+                # Cleanup, not a new action: put back the list this step opened.
                 backend.collapse(element)
             return {"input_route": "uia_selection_item"}
         raise NotStarted(f"unsupported action {name!r} on Windows")

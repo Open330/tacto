@@ -16,57 +16,123 @@ import unittest
 LIVE = sys.platform == "win32" and os.environ.get("TACTO_WINDOWS_LIVE") == "1"
 
 
-def _owned(test, driver, command, exe):
-    """Start `command` and return the one new process named `exe`, or skip.
+def _processes(exe):
+    """Every process running `exe`, windowed or not."""
+    import ctypes
+    from ctypes import wintypes
+    from tacto.uia_backend import _executable
+    pids = (wintypes.DWORD * 8192)()
+    size = wintypes.DWORD()
+    ctypes.WinDLL("psapi").EnumProcesses(pids, ctypes.sizeof(pids), ctypes.byref(size))
+    return {pid for pid in pids[:size.value // ctypes.sizeof(wintypes.DWORD)]
+            if pid and (_executable(pid) or "").lower() == exe}
 
-    Windows 11 Notepad and Calculator are packaged: the started process is a
-    stub and the window belongs to a new one. An app the person already has
-    open may take the new window into their own process, so it is never used.
+
+def _owned(test, driver, command, exe):
+    """Start `command` and return the one windowed new process named `exe`.
+
+    Windows 11 Notepad and Calculator are packaged: the started stub may
+    itself be named like the app, and the window belongs to a new process.
+    Any process of that app already running, even one with no window, could
+    take the new window, so the test then touches nothing. With none running
+    before, every such process that appears is this test's, and all of them
+    are ended afterwards.
     """
-    def running():
-        return {app["pid"] for app in driver._backend.processes() if app["exe"].lower() == exe}
-    if running():
-        test.skipTest(f"{exe} the person opened is running; it is not touched")
+    if _processes(exe):
+        test.skipTest(f"{exe} is already running; it is not touched")
     stub = subprocess.Popen([command])
     test.addCleanup(lambda: (stub.kill(), stub.wait()))
+    started = set()
+
+    def end_all():
+        for pid in started | _processes(exe):
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    test.addCleanup(end_all)
     deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and len(running()) != 1:
+    windowed = []
+    while time.monotonic() < deadline:
+        started |= _processes(exe)
+        windowed = [pid for pid in started if driver._backend.top_windows(pid)]
+        if len(windowed) == 1:
+            return f"pid:{windowed[0]}"
         time.sleep(0.25)
-    pids = running()
-    if len(pids) != 1:
-        return None
-    pid = pids.pop()
-    test.addCleanup(subprocess.run, ["taskkill", "/PID", str(pid), "/F"], capture_output=True)
-    return f"pid:{pid}"
+    return None
 
 
 NOTEPAD_TABS = Path(os.environ.get("LOCALAPPDATA", "")) / \
     "Packages/Microsoft.WindowsNotepad_8wekyb3d8bbwe/LocalState/TabState"
 
 
-def _forget_new_tabs(test):
-    """Remove only the tab-state files that appear during this test."""
+def _forget_marked_tabs(test, marker):
+    """Remove the tab state Notepad kept for text this test typed, and only that.
+
+    A new file is ours only if it holds the marker the test wrote (Notepad
+    stores tab text as UTF-16); files sharing its id go with it. Anything
+    else, even a file that appeared meanwhile, belongs to the person.
+    """
     before = set(NOTEPAD_TABS.glob("*")) if NOTEPAD_TABS.is_dir() else set()
+    needle = marker.encode("utf-16-le")
 
     def forget():
         time.sleep(0.5)  # the killed process may still be flushing
-        for path in set(NOTEPAD_TABS.glob("*")) - before if NOTEPAD_TABS.is_dir() else ():
-            path.unlink(missing_ok=True)
+        new = set(NOTEPAD_TABS.glob("*")) - before if NOTEPAD_TABS.is_dir() else set()
+        ours = {path.name.split(".")[0] for path in new if needle in path.read_bytes()}
+        for path in new:
+            if path.name.split(".")[0] in ours:
+                path.unlink(missing_ok=True)
     test.addCleanup(forget)
+
+
+class MarkedTabCleanupTests(unittest.TestCase):
+    """Runs everywhere: the cleanup must never take the person's tab state."""
+
+    def test_only_files_holding_this_tests_marker_are_removed(self):
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            tabs = Path(folder)
+            (tabs / "existing.bin").write_bytes("person's old tab".encode("utf-16-le"))
+            with patch(__name__ + ".NOTEPAD_TABS", tabs):
+                _forget_marked_tabs(self, "tacto-live-x")
+                (tabs / "ours.bin").write_bytes("tacto-live-x".encode("utf-16-le"))
+                (tabs / "ours.0.bin").write_bytes(b"\x00\x01")
+                (tabs / "meanwhile.bin").write_bytes("person typed this".encode("utf-16-le"))
+                with patch(__name__ + ".time.sleep"):
+                    self.doCleanups()
+            self.assertEqual(["existing.bin", "meanwhile.bin"], sorted(p.name for p in tabs.iterdir()))
 
 
 @unittest.skipUnless(LIVE, "real UI Automation runs only with TACTO_WINDOWS_LIVE=1 on Windows")
 class WindowsLiveTests(unittest.TestCase):
     def setUp(self):
+        import uuid
         from tacto.windows_driver import WindowsDriver
         self.driver = WindowsDriver()
-        _forget_new_tabs(self)  # registered first, so it runs after the kill
+        self.marker = "tacto-live-" + uuid.uuid4().hex
+        # Registered before the process exists: cleanups run last-in first-out,
+        # so this runs after the kill, once Notepad has written its state.
+        _forget_marked_tabs(self, self.marker)
         self.target = _owned(self, self.driver, "notepad.exe", "notepad.exe")
         if self.target is None:
             # In CI a skip would read as a pass; there it must fail loudly.
             if os.environ.get("TACTO_WINDOWS_LIVE_REQUIRED") == "1":
                 self.fail("Notepad window did not appear")
             self.skipTest("Notepad window did not appear")
+        # Mark this tab first, so its saved state can be told from the person's.
+        self.set_text(self.marker)
+
+    def editor(self, obs):
+        # A role alone is not a selector for acting, so pick the editor by line.
+        editors = re.findall(r"^\s*(\d+) (?:TextArea|TextField)\b(?!.*\[readonly\])", obs["tree"], re.M)
+        self.assertTrue(editors, obs["tree"])
+        return int(editors[0])
+
+    def set_text(self, text):
+        obs = self.driver.observe(self.target)
+        self.assertEqual("observation", obs["type"], obs)
+        result = self.driver.act(obs["obs_id"], self.target,
+                                 {"name": "set_value", "element_index": self.editor(obs), "value": text})
+        self.assertEqual("acted", result["type"], result)
 
     def test_observe_set_value_and_read_back_without_input(self):
         obs = self.driver.observe(self.target)
@@ -74,13 +140,7 @@ class WindowsLiveTests(unittest.TestCase):
         self.assertIn("Window", obs["tree"])
         # The app's own front window is marked even while another app has focus.
         self.assertEqual(1, obs["tree"].count("[focused]"), obs["tree"])
-        # A role alone is not a selector for acting, so pick the editor by line.
-        editors = re.findall(r"^\s*(\d+) (?:TextArea|TextField)\b(?!.*\[readonly\])", obs["tree"], re.M)
-        self.assertTrue(editors, obs["tree"])
-        index = int(editors[0])
-        result = self.driver.act(obs["obs_id"], self.target,
-                                 {"name": "set_value", "element_index": index, "value": "tacto windows"})
-        self.assertEqual("acted", result["type"], result)
+        self.set_text("tacto windows " + self.marker)
         after = self.driver.wait_until(self.target, lambda tree: "tacto windows" in tree, timeout_ms=5000)
         self.assertEqual("observation", after["type"], after)
 

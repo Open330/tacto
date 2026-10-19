@@ -82,6 +82,37 @@ class WindowsCliTests(unittest.TestCase):
         with patch.object(authoring.sys, "platform", "darwin"):
             self.assertEqual(("bundle identifier", "com.apple.calculator"), authoring._target_kind())
 
+    def test_session_observes_receives_and_replays_without_a_helper(self):
+        import contextlib, io, json, os
+        from tests.test_windows_driver import Backend, notepad
+        from tacto.flow_session import run_session
+        from tacto.windows_driver import WindowsDriver
+        window, named = notepad()
+        made = []
+        def make(argv):
+            made.append(list(argv))
+            return WindowsDriver(Backend([window]))
+        flow = {"schema": 2, "name": "note", "target": "notepad",
+                "safety_defaults": {"effects": ["write_ephemeral"], "reversibility": "reversible",
+                                    "resource": {"object_type": "editor entry", "scope": "entry"}},
+                "steps": [{"action": "set_value", "selector": {"identifier": "body"}, "params": {"value": "hi"},
+                           "postcondition": {"field": {"identifier": "body"}, "attribute": "Value", "equals": "hi"}}]}
+        read, write = os.pipe()
+        os.write(write, (json.dumps(flow) + "\n").encode()); os.close(write)
+        messages = []
+        out = io.StringIO()
+        with patch.object(cli.sys, "platform", "win32"), os.fdopen(read) as stdin, \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            self.assertEqual(2, run_session(["notepad", "--helper"], make_driver=make, run_flow=cli._run_flow,
+                                            stdin=stdin, emit=messages.append))
+            self.assertEqual([], made)
+            result = run_session(["notepad"], make_driver=make, run_flow=cli._run_flow, stdin=stdin,
+                                 emit=messages.append)
+        self.assertEqual(0, result, (messages, out.getvalue()))
+        self.assertEqual([[]], made)
+        self.assertEqual("hi", named["Text editor"].props["value"])
+        self.assertTrue(any(m.startswith("TACTO_SESSION_READY") for m in messages))
+
     @unittest.skipUnless(sys.platform == "darwin", "tacto.driver imports macOS frameworks")
     def test_macos_selection_is_unchanged(self):
         with patch.object(cli.sys, "platform", "darwin"), \

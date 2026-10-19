@@ -191,6 +191,50 @@ class WindowsDriverTests(unittest.TestCase):
         self.backend.walker = lambda window: (_ for _ in ()).throw(OSError("cache refused"))
         self.assertEqual(cached, self.observe()["tree"])
 
+    def test_derived_input_targets_must_be_in_the_observed_process(self):
+        # A scroll container found by climbing, or an option found after
+        # expanding, may belong to another process (a frame host, a popup).
+        self.named["Text editor"].parent.props["pid"] = 99
+        obs = self.observe()
+        refused = self.act(obs, "scroll", element_index=self.index(obs, identifier="body"), direction="down")
+        self.assertEqual(("action_failed", "not_started"), (refused["error"], refused["effect"]))
+        self.assertEqual([], self.backend.calls)
+        self.named["Text editor"].parent.props["pid"] = 10
+        self.named["UTF-8"].props["pid"] = 99
+        obs = self.observe()
+        refused = self.act(obs, "select_option", element_index=self.index(obs, title="Encoding"),
+                           option_label="UTF-8")
+        self.assertEqual(("action_failed", "unknown"), (refused["error"], refused["effect"]))
+        self.assertNotIn("select", [call[0] for call in self.backend.calls])
+
+    def test_esc_during_an_action_stops_its_next_input(self):
+        from tacto import windows_control
+        self.addCleanup(windows_control._stop.clear)
+        # Esc arrives while the list is opening: nothing more is selected.
+        obs = self.observe()
+        expand = self.backend.expand
+        self.backend.expand = lambda element: (expand(element), windows_control._stop.set())
+        stopped = self.act(obs, "select_option", element_index=self.index(obs, title="Encoding"),
+                           option_label="UTF-8")
+        self.assertEqual(("aborted_by_user", "unknown"), (stopped["error"], stopped["effect"]))
+        self.assertEqual(["expand", "collapse"], [call[0] for call in self.backend.calls])
+        # Esc after the first page: the second page is not sent.
+        windows_control._stop.clear(); self.backend.calls.clear()
+        obs = self.observe()
+        scroll = self.backend.scroll
+        self.backend.scroll = lambda *args: (scroll(*args), windows_control._stop.set())
+        stopped = self.act(obs, "scroll", element_index=self.index(obs, identifier="body"), direction="down", pages=3)
+        self.assertEqual(("aborted_by_user", "unknown"), (stopped["error"], stopped["effect"]))
+        self.assertEqual(1, len(self.backend.calls))
+        # Esc while the element is being read: the click is never sent.
+        windows_control._stop.clear(); self.backend.calls.clear()
+        obs = self.observe()
+        props = self.backend.props
+        self.backend.props = lambda element: (windows_control._stop.set(), props(element))[1]
+        stopped = self.act(obs, "click", element_index=self.index(obs, title="Save"))
+        self.assertEqual(("aborted_by_user", "not_started"), (stopped["error"], stopped["effect"]))
+        self.assertEqual([], self.backend.calls)
+
     def test_tree_uses_engine_roles_and_attributes(self):
         tree = self.observe()["tree"]
         self.assertIn('Window  Title: "Untitled - Notepad"', tree)
@@ -275,7 +319,7 @@ class WindowsDriverTests(unittest.TestCase):
         obs = self.observe()
         index = self.index(obs, title="Save")
         self.assertEqual("acted", self.act(obs, "scroll", element_index=index, direction="down", pages=2)["type"])
-        self.assertEqual(("scroll", None, "down", 2), self.backend.calls[-1])
+        self.assertEqual([("scroll", None, "down", 1)] * 2, self.backend.calls[-2:])
         for bad in ({"direction": "sideways"}, {"direction": "down", "pages": 11}, {"direction": "up", "pages": True}):
             self.assertEqual("not_started", self.act(self.observe(), "scroll", element_index=index, **bad)["effect"])
 

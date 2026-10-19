@@ -89,6 +89,12 @@ def read_flow_line(fd, timeout, *, platform=None):
 
 def run_session(args, *, make_driver, run_flow, stdin, emit):
     args = list(args)
+    # Windows has no signed helper: the session drives UI Automation in this
+    # process, so --helper is refused there and required on macOS.
+    windows = sys.platform == "win32"
+    helper = [] if windows else ['--helper']
+    usage = ('usage: session <app.exe | pid:N> [--guide] [--timings] [--idle-timeout 1..600]' if windows
+             else 'usage: session <bundle-id> --helper [--guide] [--timings] [--idle-timeout 1..600]')
     timeout = 90
     save_path = None
     if '--save' in args:
@@ -101,7 +107,7 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
     if '--idle-timeout' in args:
         index = args.index('--idle-timeout')
         if args.count('--idle-timeout') != 1 or index + 1 >= len(args):
-            emit('usage: session <bundle-id> --helper [--guide] [--timings] [--idle-timeout 1..600]')
+            emit(usage)
             return 2
         value = args[index + 1]
         if not value.isdigit() or not 1 <= int(value) <= 600:
@@ -110,16 +116,16 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
         timeout = int(value)
         del args[index:index + 2]
     targets = [value for value in args if value not in ('--helper', '--timings', '--guide', '--reuse-guide')]
-    if (len(targets) != 1 or targets[0].startswith('-') or '--helper' not in args
-            or args.count('--helper') != 1 or args.count('--timings') > 1 or args.count('--guide') > 1 or args.count('--reuse-guide') > 1):
-        emit('usage: session <bundle-id> --helper [--guide] [--timings] [--idle-timeout 1..600]')
+    if (len(targets) != 1 or targets[0].startswith('-') or args.count('--helper') != len(helper)
+            or args.count('--timings') > 1 or args.count('--guide') > 1 or args.count('--reuse-guide') > 1):
+        emit(usage)
         return 2
     target = targets[0]
     driver = None
     started = time.monotonic()
     timing = {}
     try:
-        driver = make_driver(['--helper'])
+        driver = make_driver(list(helper))
         observation = driver.observe(target, 'tree_full')
         timing['observation_ready_seconds'] = time.monotonic() - started
         if observation.get('type') != 'observation':
@@ -161,7 +167,7 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
             return 2
         # A session is one operation, not a daemon or a source of reusable
         # observation IDs. replay reobserves on this same authenticated channel.
-        flags = ['--helper', '--think', '0']
+        flags = [*helper, '--think', '0']
         if '--timings' in args:
             flags.append('--timings')
         result = run_flow(flow, flags, _driver=driver, _confirm=lambda description: False)
