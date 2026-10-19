@@ -311,6 +311,27 @@ class WindowsDriverTests(unittest.TestCase):
         self.assertEqual("stale_observation", self.driver.probe("old", "notepad", index)["error"])
         self.assertEqual("target_missing", self.driver.probe(obs["obs_id"], "notepad", 999)["error"])
 
+    def test_esc_stops_before_dispatch_and_ends_waits(self):
+        from tacto import windows_control
+        obs = self.observe()
+        index = self.index(obs, title="Save")
+        windows_control._stop.set()
+        try:
+            stopped = self.act(obs, "click", element_index=index)
+            self.assertEqual(("aborted_by_user", "not_started"), (stopped["error"], stopped["effect"]))
+            self.assertEqual("aborted_by_user", self.driver.wait_until("notepad", lambda t: False)["error"])
+            self.assertTrue(windows_control.wait(5, sleep=lambda s: None))
+        finally:
+            windows_control._stop.clear()
+        self.assertEqual([], self.backend.calls)
+        self.assertEqual("acted", self.act(self.observe(), "click", element_index=index)["type"])
+
+    def test_control_is_a_quiet_no_op_off_windows_and_resets_the_flag(self):
+        from tacto import windows_control
+        windows_control._stop.set()
+        with windows_control.control():
+            self.assertFalse(windows_control.stopped())
+
     def test_wait_until_polls_until_predicate_or_timeout(self):
         clock = [0.0]
         driver = WindowsDriver(self.backend, clock=lambda: clock[0],

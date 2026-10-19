@@ -26,6 +26,8 @@ class WindowsCliTests(unittest.TestCase):
              patch.dict(sys.modules, blocked), \
              patch("tacto.windows_driver.keep_awake.__enter__", lambda self: self), \
              patch("tacto.windows_driver.keep_awake.__exit__", lambda self, *exc: False), \
+             patch("tacto.windows_control.control.__enter__", lambda self: self), \
+             patch("tacto.windows_control.control.__exit__", lambda self, *exc: False), \
              patch.object(cli, "_dispatch", side_effect=lambda cmd, rest: dispatched.append(cmd) or 0):
             self.assertEqual(0, cli.main(["apps"]))
             self.assertEqual(2, cli.main(["doctor"]))
@@ -58,6 +60,24 @@ class WindowsCliTests(unittest.TestCase):
         # UIA ScrollAmount: LargeDecrement 0, SmallDecrement 1, NoAmount 2, LargeIncrement 3.
         self.assertEqual({"LARGE_DECREMENT": 0, "NO_AMOUNT": 2, "LARGE_INCREMENT": 3},
                          {k: values[k] for k in ("LARGE_DECREMENT", "NO_AMOUNT", "LARGE_INCREMENT")})
+
+    def test_authoring_names_windows_apps_by_executable(self):
+        from tacto import authoring
+        class Driver:
+            def list_targets(self):
+                return {"apps": [{"id": "notepad.exe", "displayName": "Notepad", "pid": 1, "isRunning": True}]}
+            def _resolve(self, target, launch=False):
+                return 1 if target == "notepad.exe" else None
+        prompts = []
+        with patch.object(authoring.sys, "platform", "win32"):
+            self.assertEqual("notepad.exe", authoring.guess_target("메모장에 적어줘", Driver()))
+            self.assertIsNone(authoring.guess_target("계산기로 계산", Driver()))
+            with patch.object(authoring, "reach_model", side_effect=lambda prompt, provider: prompts.append(prompt) or "notepad.exe"):
+                self.assertEqual("notepad.exe", authoring.pick_target("write a note", Driver()))
+        self.assertIn("executable name", prompts[0])
+        self.assertNotIn("bundle identifier", prompts[0])
+        with patch.object(authoring.sys, "platform", "darwin"):
+            self.assertEqual(("bundle identifier", "com.apple.calculator"), authoring._target_kind())
 
     def test_macos_selection_is_unchanged(self):
         with patch.object(cli.sys, "platform", "darwin"), \

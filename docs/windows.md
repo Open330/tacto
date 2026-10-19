@@ -27,6 +27,11 @@ on a real Windows desktop have not yet been recorded in this repository.
 - `select_option` that opened the list but could not select exactly one item
   reports `effect: unknown`, because opening the list was already input.
 - Consent (`confirm`, `preapproved`, `handoff`) is gated exactly as on macOS.
+- **Esc stops a run.** The key is polled (no hook, no permission); after it
+  is pressed nothing more is dispatched and waits end with `aborted_by_user`.
+  A small "Tacto 조작 중 — Esc로 중지" notice sits at the top right without
+  ever taking focus; `--no-indicator` hides it. If the notice cannot be drawn
+  the run continues, and Esc still works.
 - A step's expectations are checked against the live element before dispatch,
   as on macOS: role, label (optionally one attribute), enabled state, and no
   modal window in the target process (UIA `WindowIsModal`). An expectation the
@@ -40,11 +45,20 @@ Name an app by its executable (`notepad` or `notepad.exe`) or by process id
 (`pid:1234`). Two running copies of the same executable are ambiguous and are
 refused; use `pid:N`. Recipes bind to the identity `win:<executable>`.
 
+## Permissions
+
+UI Automation needs no permission grant, so Tacto asks for nothing and adds
+no confirmation of its own beyond the per-step consent every platform uses.
+There is also no separate permission holder: the Python process running Tacto
+can automate any app at the same integrity level, exactly as the person who
+started it can. Private files Tacto writes use the user profile's default
+access rights.
+
 ## Not available on Windows yet
 
-- The signed helper and `--helper` (refused on Windows), indicator/Stop panel,
-  menus (`menu`), document receipts, visual (screenshot) reads and window
-  preparation. `tacto doctor`, onboarding and the setup app are macOS-only.
+- The signed helper and `--helper` (refused on Windows), menus (`menu`),
+  document receipts, visual (screenshot) reads and window preparation.
+  `tacto doctor`, onboarding and the setup app are macOS-only.
 - Applications running elevated (as administrator) cannot be automated from a
   non-elevated process (Windows UIPI).
 - Packaged (UWP) apps such as Calculator: their top window belongs to
@@ -60,4 +74,7 @@ uv sync
 uv run tacto observe notepad
 ```
 
-`comtypes` is installed only on Windows.
+`comtypes` is installed only on Windows. `tacto session` reads its one flow
+line through a background reader, since `select()` on Windows accepts only
+sockets. The skill installer is a bash script; on Windows copy `skill/` to the
+agent's skills folder (for Claude Code, `%USERPROFILE%\.claude\skills\tacto`).

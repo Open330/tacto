@@ -2,6 +2,7 @@
 import json
 import os
 import select
+import sys
 import time
 from contextlib import contextmanager
 
@@ -14,7 +15,9 @@ MAX_FLOW_BYTES = 1024 * 1024
 @contextmanager
 def flow_input_mode(fd):
     original = None
-    if os.isatty(fd):
+    # Windows consoles have no termios; their line mode already delivers
+    # one whole line, which is all a session reads.
+    if os.isatty(fd) and sys.platform != "win32":
         import termios
         original = termios.tcgetattr(fd)
         settings = list(original)
@@ -30,14 +33,48 @@ def flow_input_mode(fd):
             termios.tcsetattr(fd, termios.TCSANOW, original)
 
 
-def read_flow_line(fd, timeout):
+def _windows_reader(fd):
+    """select() takes only sockets on Windows, so one thread reads the pipe."""
+    import queue
+    import threading
+    chunks = queue.Queue()
+
+    def pump():
+        while True:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                chunk = b''
+            chunks.put(chunk)
+            if not chunk:
+                return
+    threading.Thread(target=pump, daemon=True).start()
+
+    def read(remaining):
+        try:
+            return chunks.get(timeout=remaining)
+        except queue.Empty:
+            raise TimeoutError('session_idle_timeout') from None
+    return read
+
+
+def read_flow_line(fd, timeout, *, platform=None):
     deadline = time.monotonic() + timeout
     data = bytearray()
+    windows = (platform or sys.platform) == "win32"
+    reader = _windows_reader(fd) if windows else None
     while True:
         remaining = deadline - time.monotonic()
-        if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+        if remaining <= 0:
             raise TimeoutError('session_idle_timeout')
-        chunk = os.read(fd, min(65536, MAX_FLOW_BYTES + 1 - len(data)))
+        if windows:
+            chunk = reader(remaining)
+            if len(data) + len(chunk) > MAX_FLOW_BYTES + 1:
+                chunk = chunk[:MAX_FLOW_BYTES + 1 - len(data)]
+        elif not select.select([fd], [], [], remaining)[0]:
+            raise TimeoutError('session_idle_timeout')
+        else:
+            chunk = os.read(fd, min(65536, MAX_FLOW_BYTES + 1 - len(data)))
         if not chunk:
             raise ValueError('session_input_closed')
         data.extend(chunk)

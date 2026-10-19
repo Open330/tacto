@@ -611,7 +611,9 @@ def _main(argv=None):
                 print(f"{cmd} is macOS-only; see docs/windows.md")
                 return 2
             from .windows_driver import keep_awake
-            with keep_awake():
+            from .windows_control import control
+            # Esc stops the run; the notice never takes focus. No prompt.
+            with keep_awake(), control(notice="--no-indicator" not in rest):
                 return _dispatch(cmd, rest)
         from .session import SANDBOXED, sandboxed
         if sandboxed():

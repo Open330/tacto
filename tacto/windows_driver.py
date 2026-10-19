@@ -235,9 +235,13 @@ class WindowsDriver:
                 "custom_selects": {}, "truncated": obs.truncated, "waited_ms": 0}
 
     def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
+        from .windows_control import stopped
         deadline = self._clock() + max(0, timeout_ms) / 1000
         last = None
         while True:
+            if stopped():
+                return {"type": "error", "error": "aborted_by_user", "target": target,
+                        "detail": "사용자가 Esc로 중단했습니다"}
             last = self.observe(target, "tree_full", require_window=False)
             if last.get("type") == "observation" and predicate(last["tree"]):
                 return last
@@ -249,6 +253,10 @@ class WindowsDriver:
     # -------------------------------------------------------------- actions
     def act(self, obs_id, target, action, expect=None, risk_class="none", intent_text="",
             approved=False, **_dispatch):
+        from .windows_control import stopped
+        if stopped():
+            return {"type": "error", "error": "aborted_by_user", "effect": "not_started",
+                    "detail": "사용자가 Esc로 중단했습니다"}
         if risk_class not in ("none", "preapproved", "confirm", "handoff"):
             return {"type": "error", "error": "unverifiable_action", "effect": "not_started"}
         if risk_class == "handoff":

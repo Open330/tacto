@@ -20,6 +20,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 
@@ -708,8 +709,15 @@ def _to_flow(spec: dict, *, target_identity: str | None = None) -> Flow:
 
 
 _PICK = """You choose which installed app can satisfy a user's request.
-Answer with ONLY the bundle identifier, nothing else (e.g. com.apple.calculator).
+Answer with ONLY the {kind}, nothing else (e.g. {example}).
 Pick from the list; if none fits, answer NONE."""
+
+
+def _target_kind():
+    """How this platform names an app: macOS bundle ids, Windows executables."""
+    if sys.platform == "win32":
+        return "executable name", "notepad.exe"
+    return "bundle identifier", "com.apple.calculator"
 
 
 _APP_ALIASES = {
@@ -722,6 +730,14 @@ _APP_ALIASES = {
     "텍스트편집기": "com.apple.TextEdit", "safari": "com.apple.Safari",
     "사파리": "com.apple.Safari", "지도": "com.apple.Maps",
     "연락처": "com.apple.AddressBook", "시스템 설정": "com.apple.systempreferences",
+}
+
+
+# Windows names its apps by executable. Packaged apps (Calculator, Photos)
+# are not listed: their content runs outside the framed window's process.
+_WINDOWS_APP_ALIASES = {
+    "메모장": "notepad.exe", "notepad": "notepad.exe", "그림판": "mspaint.exe",
+    "탐색기": "explorer.exe", "워드패드": "wordpad.exe",
 }
 
 
@@ -739,7 +755,7 @@ def guess_target(intent: str, driver: Driver) -> str | None:
     hits = []
     # The system names its apps in its own language while people name them in
     # theirs, so an English-locale Mac never matches "계산기" on its own.
-    for word, bundle in _APP_ALIASES.items():
+    for word, bundle in (_WINDOWS_APP_ALIASES if sys.platform == "win32" else _APP_ALIASES).items():
         if word in said:
             hits.append(bundle)
     for app in driver.list_targets()["apps"]:
@@ -762,7 +778,8 @@ def pick_target(intent: str, driver: Driver, provider: str = "auto") -> str:
     running/installed rather than us guessing from keywords."""
     apps = driver.list_targets()["apps"]
     inventory = "\n".join(f"{a['id']}  ({a['displayName']})" for a in apps)
-    answer = reach_model(f"{_PICK}\n\n# 요청\n{intent}\n\n# 설치된 앱\n{inventory}",
+    kind, example = _target_kind()
+    answer = reach_model(f"{_PICK.format(kind=kind, example=example)}\n\n# 요청\n{intent}\n\n# 설치된 앱\n{inventory}",
                         provider).strip().split()[-1].strip("`'\"")
     if answer.upper() == "NONE" or not answer:
         raise ValueError(f"어떤 앱으로 처리할지 정하지 못했어요: {intent!r}")
@@ -806,7 +823,7 @@ def _author(intent: str, driver: Driver, target: str | None,
     if not isinstance(target_identity, str) or not target_identity:
         raise ValueError('authoring target identity unavailable')
     base = (f"{_SYSTEM}\n\n# 사용자 의도\n{intent}\n\n"
-            f"# 대상 앱 bundle id\n{target}\n\n"
+            f"# 대상 앱 {_target_kind()[0]}\n{target}\n\n"
             f"# Backend capabilities\n{', '.join(sorted(getattr(driver, 'capabilities', ()) or ())) or '(none advertised)'}\n\n"
             f"# 접근성 트리\n{obs['tree']}")
     if '{{' in intent or '{{' in obs['tree']:

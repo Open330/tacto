@@ -1,6 +1,6 @@
 ---
 name: tacto
-description: Automate macOS/web tasks with reusable Tacto flows (formerly NLC); author once, replay without model calls.
+description: Automate macOS/web tasks (Windows experimental) with reusable Tacto flows (formerly NLC); author once, replay without model calls.
 ---
 
 # Tacto
@@ -31,6 +31,10 @@ Use the signed `tacto` command for UI work. Resolve `command -v tacto` or
 - **Invalid flow:** correct the field using the returned hint; no recovery guide.
 - **Missing selector with repair packet:** [selector repair](references/selector-repair.md).
 - **Other failed action or missing window:** [recovery](references/recovery.md).
+
+**Windows (experimental):** the same commands without `--helper`; name the
+app by executable (`notepad.exe`) or `pid:N`. Key presses, menus, packaged
+apps and `doctor` are unavailable there: [Windows](docs/windows.md).
 
 Load only the guide for the current stage, once. Do not also read CLI help,
 all references, or the API. Session framing problems: [session](references/session.md).
