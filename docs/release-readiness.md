@@ -1,7 +1,7 @@
 # Tacto 출시 기준
 
 현재 배포 단계는 **개발자 미리보기**입니다. 사용자의 요청에 따라 공증된
-Preview 6을 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
+Preview 7을 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
 소스 공개와 미리보기 제공은 정식 안정 버전의 출시 승인이 아닙니다.
 
 아래 조건은 **정식 안정 배포**의 기준입니다. 로컬 실행·서명·공증만으로
@@ -455,3 +455,43 @@ DMG SHA-256: `969fb83221998cf4e1671d9360387befe018efde6aed4c08afa8424a697d33d9`.
 
 Prepublication full regression suite: 2,651 tests in 431.247s,
 2,648 passed, 3 opt-in skips, zero failures/errors.
+
+
+<a id="2026-10-19-preview-7-release"></a>
+
+## 2026-10-19 Preview 7 release
+
+[Preview 7](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.7)
+was published as a private developer prerelease. The exact app source is
+`969583c14721f8707e3c6b5298cac43e72164951`; the manifest records the committed
+build inputs and the retained Preview 6 runtime base. This section and README
+validation links are post-publication documentation, not a rebuild of that app.
+
+- The initial full regression run exercised 2,662 tests: 2,658 passed, three
+  opt-in skips, one missing README link to the new quality review. Both READMEs
+  were corrected and all six documentation checks passed. No runtime code changed
+  for the correction. The initial failure is preserved rather than relabeled a
+  clean full-suite run; no automated failure remains unresolved.
+- The affected-scope suite passed 92 checks, including real AppKit button and
+  controller reentry, shell argument boundaries, fixture Node execution, CLI
+  failure normalization and existing replay routes.
+- App and DMG Developer ID signatures, hardened runtime, secure timestamps,
+  Apple notarization, stapled tickets and Gatekeeper passed. All 12 automated
+  artifact checks passed. The 5,373-file bundle path/credential scans passed.
+- Two successive actual installed TextEdit tasks passed: 3.434s and 3.346s wall
+  time, zero internal model calls and no Save command. Existing document bodies
+  remained intact. These are functional smoke checks, not a speed or external
+  agent token benchmark.
+- The same app archive was installed and integrity-checked on all three
+  designated Macs. Previously enabled permissions were retained; command/skill
+  links and hidden Dock icons were verified. One Mac still needs its initial
+  Accessibility and screen-reading permissions, with its onboarding window open.
+- All five uploaded GitHub asset SHA-256 digests matched the local files.
+  The release tag points to the app's recorded source commit. README and landing
+  download links point to Preview 7.
+
+Prior Preview 6 qualification results above are historical evidence, not new
+runs against Preview 7. Stable-release human checks and historical GitHub cleanup
+remain separate; the repository remains private.
+
+DMG SHA-256: `59fc0b2658c069cc5c0cb7cf11f4eb3842a4d2347bca8f63a1eee51fa507e6cb`.

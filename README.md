@@ -96,7 +96,7 @@ This is a **private developer prerelease**. Stable qualification still needs hum
 
 After setup, **Start first task** detects Claude Code or Codex and opens a fresh CLI conversation with one fixed Tacto command. The command launches TextEdit if needed, creates a new document and verifies its welcome text without an internal model call. The agent CLI may still ask for its normal trust or login confirmation.
 
-Tacto runs in the menu bar without a Dock icon. Close the settings window to leave it in the background; use the menu bar icon to reopen settings or quit. [Preview 6 validation](docs/release-readiness.md#2026-10-19-preview-6-qualification).
+Tacto runs in the menu bar without a Dock icon. Close the settings window to leave it in the background; use the menu bar icon to reopen settings or quit. [Preview 7 validation](docs/release-readiness.md#2026-10-19-preview-7-release).
 
 This is an early preview, **not a stable release**. The repository and downloads currently require GitHub access permission. Installation, permissions, Claude/Codex connection and a same-team app update were verified on the build Mac. Fresh-Mac installation, other macOS versions and the full stable-release task/beta checks remain unverified. Windows and Intel Mac builds are not provided. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
 
