@@ -1,7 +1,7 @@
 # Tacto 출시 기준
 
 현재 배포 단계는 **개발자 미리보기**입니다. 사용자의 요청에 따라 공증된
-Preview 5를 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
+Preview 6을 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
 소스 공개와 미리보기 제공은 정식 안정 버전의 출시 승인이 아닙니다.
 
 아래 조건은 **정식 안정 배포**의 기준입니다. 로컬 실행·서명·공증만으로
@@ -26,12 +26,12 @@ Windows·Linux 데스크톱, Intel Mac, 모든 앱의 자동 복구, 무인 인�
 
 | 검사 ID | 통과 조건 | 현재 확보한 근거와 남은 일 |
 |---|---|---|
-| `fresh_install` | 개발 환경이 없는 별도 Mac에서 DMG 복사 → 첫 실행 → 사용자 권한 설정 → Claude·Codex 각각 새 대화의 첫 작업 완료. 터미널 설치 우회 없이 확인 | 현재 Mac 권한·연결 확인 완료. 새 Mac 전체 경로는 미검증 |
-| `real_app_tasks` | 위 실제 앱마다 대표 작업 2개를 각각 10회 실행, 총 60/60 결과 확인. 앱·OS·모델 버전, 실패 시도도 기록 | Preview 5 별도 60회 중 59회 통과, TextEdit 저장 1회 `commit_unverified`. 이전 실패 기록은 보존. 수정 후보 재검증 중 |
-| `failure_recovery` | 창 닫힘·화면 지연·대상 변경·권한 해제·flow 재생 중 실패를 각 3회. 잘못된 대상 입력·확인 없는 중복 실행 0건, 중단 사유와 재개 경로 확인 | 실제 창 닫힘·지연·이름 변경·중간 실패 12/12 통과. 권한 해제 3회 미실행으로 부분 충족 |
-| `upgrade_rollback` | 이전 후보 → 새 후보 → 이전 후보 복귀 1회씩. 저장 flow·설정 보존, 링크·서명·권한 상태 확인. 권한 재요청 여부 기록 | 실제 명령·두 스킬 연결의 업그레이드·복귀 통과. 원래 설치 연결 복원, 저장 flow·설정·기존 권한 보존 |
-| `performance` | 같은 조건 10쌍 비교. 성공률 하락 없음, flow 중앙값·합계 및 관찰 중앙값이 승인된 기준보다 15% 넘게 악화되지 않음. 모델·토큰 비교는 별도 조건 명시 | 2026-10-17 재생 비교 통과. 최종 후보와 런타임 동일성 확인 필요 |
-| `regressions_security` | 전체 자동 테스트에서 미해결 실패 0건. skip 사유 검토, staged diff·배포 파일의 비밀·개인정보 점검. 동료 검토 완료 | Preview 5 소스 전체 2,607개 검사 실패 0건, skip 3개. 수정 후보 전체 검사와 산출물 재검증 진행 중 |
+| `fresh_install` | 개발 환경이 없는 별도 Mac에서 DMG 복사 → 첫 실행 → 사용자 권한 설정 → Claude·Codex 각각 새 대화의 첫 작업 완료. 터미널 설치 우회 없이 확인 | 세 Mac 설치·연결 확인, 기존 권한 보존. 한 Mac의 초기 권한과 사용자 DMG 설치·두 에이전트 새 대화 첫 작업은 남음 |
+| `real_app_tasks` | 위 실제 앱마다 대표 작업 2개를 각각 10회 실행, 총 60/60 결과 확인. 앱·OS·모델 버전, 실패 시도도 기록 | 최종 Preview 6 동일 산출물 60/60 통과. 이전 후보·수정 중 소스의 실패는 아래에 별도 보존 |
+| `failure_recovery` | 창 닫힘·화면 지연·대상 변경·권한 해제·flow 재생 중 실패를 각 3회. 잘못된 대상 입력·확인 없는 중복 실행 0건, 중단 사유와 재개 경로 확인 | 최종 설치본 창 닫힘·지연·이름 변경·중간 실패 12/12 통과. 권한 해제·재부여 3회는 사용자 확인 필요 |
+| `upgrade_rollback` | 이전 후보 → 새 후보 → 이전 후보 복귀 1회씩. 저장 flow·설정 보존, 링크·서명·권한 상태 확인. 권한 재요청 여부 기록 | Preview 5↔6 명령·두 스킬 연결 및 실제 앱 교체·복귀 통과. 최종 6 복원, flow·설정·권한 보존 |
+| `performance` | 같은 조건 10쌍 비교. 성공률 하락 없음, flow 중앙값·합계 및 관찰 중앙값이 승인된 기준보다 15% 넘게 악화되지 않음. 모델·토큰 비교는 별도 조건 명시 | Preview 5 대비 최종 설치본 10쌍 통과. flow 중앙값 +2.1%, 합계 −0.4%, 관찰 중앙값 −1.0%; 세 지표 모두 15% 제한 충족 |
+| `regressions_security` | 전체 자동 테스트에서 미해결 실패 0건. skip 사유 검토, staged diff·배포 파일의 비밀·개인정보 점검. 동료 검토 완료 | 최종 소스 2,629개 실패·오류 0, opt-in 3개 별도 실행. 현재 소스·배포 파일 점검 통과. 과거 GitHub 참조·캐시 정리는 사용자 Support 요청 필요 |
 | `limited_beta` | 최소 5명이 3일간 사용, 각자 실제 작업 3개 이상. 모든 실패를 기록하고 출시 차단 결함 0건 | 아직 수행하지 않음 |
 
 횟수는 첫 출시의 최소 운영 기준이며 무결점이나 통계적 신뢰도를 보장하지
@@ -137,7 +137,7 @@ DMG SHA-256은 `397311851332238df16072462cf95efa06fbbe2a736dc61320944dce3cfbaea5
 이 기록 이후의 실제 앱·장애·복귀 실행은 아래에 구분합니다. 새 Mac 설치,
 배포 파일 보안 검토, 5명 베타는 미완료입니다.
 
-## 실제 앱과 복귀 검증
+## 2026-10-17 후보: 실제 앱과 복귀 검증
 
 환경: macOS 27.0.1, Finder 27.0, Safari 27.0.1, TextEdit 1.21.
 모델 호출 없이 작성한 flow를 signed helper로 재생했습니다. 에이전트의
@@ -353,3 +353,68 @@ These areas are not all qualified for this candidate. Source regression tests,
 notarization and upgrade installation do not automatically complete that packet.
 The private deployment report records preview publication and stable qualification
 as separate fields.
+
+
+## 2026-10-19 Preview 6 qualification
+
+Runtime and packaging source: `b1d5177`; app version `0.1.0`, build `6`.
+[Preview 6 release](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6).
+This is a private developer prerelease. Stable/public qualification still requires
+the human checks listed above. The source revision's bundled documentation is an
+immutable snapshot; this post-build qualification record and release notes carry
+the final image-specific results.
+
+- Full frozen-source regression: **2,629 tests, zero failures/errors, three
+  opt-in skips**. The outside-checkout wheel and actual signing-policy opt-ins
+  passed separately. Live direct-driver contract: 25/28 passed, three foreground
+  popup checks unexecuted. Direct plus signed helper: 50/56 passed, the same
+  three popup checks per transport unexecuted. They are not counted as passes.
+- Actual Finder, Safari and TextEdit: **60/60**, two representative tasks per app,
+  ten repetitions each, zero model requests. TextEdit's twenty saves were checked
+  against the owned files through pinned-document receipts. The tested candidate
+  and installed app have the same full bundle manifest; the DMG artifact check
+  independently verified its packaged copy against that candidate.
+- Earlier attempts remain separate: Preview 5 finished 59/60 with one unverified
+  save. A subsequent source cohort completed 55 successful tasks, then refused
+  one Finder selection because process/target identity could not be confirmed;
+  zero input was attempted and four later tasks were not executed. Those failures
+  were not relabeled or removed. The final 60/60 is a distinct frozen-candidate
+  cohort, not an aggregate that omits the failed attempts.
+- Installed Preview 6 failure/recovery: **12/12** for owned window closure,
+  delayed appearance, renamed Finder targets and partial flow failure. Refused
+  steps sent no mutating input; completed prefixes were not resent. Recovery in
+  this harness is explicitly prescribed, not proof of general model repair.
+  Three actual OS-permission revocation/regrant cycles remain for the user.
+- Both command/agent-link upgrade and rollback passed with an exclusively owned
+  compatibility flow. Physical `/Applications/Tacto.app` replacement with Preview
+  5 and restoration to Preview 6 also passed. Existing flow/config hashes and
+  enabled permissions were preserved; no permission reset or regrant was used.
+- **10 alternating performance pairs**, with independent commit-count checks and
+  two additional negative scenarios per release, passed. Flow median 1.169 →
+  1.193 seconds; ten-run total 11.980 → 11.933 seconds; observation median 0.608 →
+  0.602 seconds. All three ratios met the 1.15 gate. This is one Mac, warmed file
+  caches and a deterministic owned fixture, not a speed-gain claim, single-patch
+  attribution or model/token comparison.
+- Developer ID secure timestamps and hardened runtime, app/DMG notarization
+  Accepted, stapled tickets, Gatekeeper and **12/12 automated artifact checks**
+  passed. GitHub's three uploaded asset digests match the local files.
+- Installed the same DMG on three Macs. Claude/Codex links and hidden Dock icons
+  were verified. Existing grants were retained. One Mac still needs its initial
+  Accessibility and screen-reading grants; its onboarding window remains open.
+  Its denied-helper check now shows permission guidance without the former file
+  descriptor error or advice to grant a shared Python interpreter.
+- Packaging now sanitizes Python build metadata and dylib identity before
+  bytecode generation/signing, compiles the GUI using relative source names, and
+  rejects a bundle containing the build home/checkout path. The final **5,366-file**
+  scan found none of the known historical home/contact, checkout or per-user temp
+  paths. Bounded secret scans found no credentials in current publication history
+  or the final app. The current reachable publication blobs also had no matches
+  for the known historical personal-data targets.
+- Five older GitHub DMGs with confirmed build-path metadata were withdrawn.
+  Byte-identical private backups and original release metadata remain available
+  for audit/rollback; the historical release notes direct users to Preview 6.
+  Downloaded copies, cached asset URLs and the old PR ref are not recalled by
+  that deletion. GitHub Support cleanup remains a human task; the repository
+  therefore remains private.
+
+DMG SHA-256: `ef832c313520f3f57578ed813a551d2b772ddcbbf5e8bf442a1e8172b3971643`.

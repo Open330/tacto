@@ -58,7 +58,7 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 `TACTO_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
 별도로 준비한 Apple Silicon용 DMG는 Developer ID 서명·Apple 공증·Gatekeeper
 검사를 통과했습니다. [Release 페이지](https://github.com/Open330/tacto/releases)의
-첫 배포는 개발자 미리보기입니다. [Preview 5](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.5)의 DMG를 다운로드한 사용자는
+첫 배포는 개발자 미리보기입니다. [Preview 6](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6)의 DMG를 다운로드한 사용자는
 `Tacto.app`을 `Applications`로 드래그하고 앱을 열어 권한·명령·스킬 연결 안내를
 따릅니다. 사용자 자신의 개발용 인증서는 필요하지 않습니다. macOS 27.0.1의 Apple Silicon 빌드 Mac에서 실제 설치·권한·연결·같은 팀 업데이트를 확인했습니다. 새 Mac과 다른 macOS 버전은 미검증이며 Windows·Intel Mac 빌드는 없습니다. 현재 비공개 다운로드에는 GitHub 접근 권한이 필요합니다. 자세한 근거는 [출시 기준](release-readiness.md)을 확인하세요.
 Python 코어·별도 Chromium은 위 wheel 설치 범위에서 사용할 수 있습니다.
@@ -251,3 +251,5 @@ stapled. Local upgrade from Preview 2 retained both existing permissions and
 Claude/Codex connections. Accessibility enables AX-based tasks; screen recording
 is needed for screenshot features and is optional for basic readiness. This does
 not establish a fresh-Mac or stable-release qualification.
+
+번들 Python은 앱 실행용입니다. 번들 안에서 pip로 패키지를 추가하거나 확장 모듈을 빌드하는 경로는 지원하지 않습니다. 번들 문서는 표시된 소스 커밋의 스냅샷이며, 최신 배포 검증은 Release 페이지와 출시 기준 문서를 확인하세요.
