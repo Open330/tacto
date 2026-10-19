@@ -372,7 +372,29 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var installing = false
     var refreshButton: NSButton!
     var exampleButton: NSButton!
-    let firstRequest = "Tacto로 Finder에서 다운로드 폴더를 열어 줘."
+    var firstRequest: String {
+        let launcher = root?.appendingPathComponent("launcher/tacto").path ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/tacto").path
+        return """
+        Tacto의 첫 작업을 실행해주세요. 목표는 새 TextEdit 문서에 Hello, World!와 다음 줄 Tacto로 작성했습니다.를 입력하고 확인하는 것입니다.
+        실행할 명령은 하나입니다:
+        \(firstRunShellQuote(launcher)) first-run --helper --yes
+        이 명령이 꺼진 TextEdit 실행, 새 문서 생성, 두 줄 입력, 새 관찰로 확인까지 처리합니다. 기존 문서를 수정하거나 저장 명령을 실행하지 않습니다. --yes는 이 고정된 첫 작업의 새 문서 입력을 승인합니다.
+        빠른 실행 지침:
+        1. 별도 스킬·문서·예제 탐색이나 Flow JSON 작성 없이 위 명령을 바로 실행하세요. compile/do, osascript, AppleScript, JXA, open -a 등 다른 경로는 사용하지 마세요.
+        2. 도구가 실행 세션 ID를 반환하면 같은 세션에서 완료를 기다리세요. 명령을 다시 보내면 문서가 중복될 수 있으니 재실행하지 마세요.
+        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
+        4. 실패하면 stage와 error를 보고하고 멈추세요. 문서나 입력이 일부 만들어졌을 수 있으므로 다른 도구로 우회하거나 반복하지 마세요. 로그인·OS 권한 등 사용자 확인이 필요하면 그 요청만 알려주세요.
+        """
+    }
+    var permissionDetails = false
+    var permissionDetailsButton: NSButton!
+    let permissionTitle = label("1. Mac 권한", size: 15, weight: .semibold)
+    var lastPermissionLayout: Bool?
+    let firstRunHint = label("", size: 12, color: mutedText, width: contentWidth - 32)
+    var detectedAgents: [FirstRunAgent] = []
+    var agentPicker: NSPopUpButton!
+    var startFirstRunButton: NSButton!
+    var startingFirstRun = false
     var statusItem: NSStatusItem?
     var statusMenuTitle: NSMenuItem?
     var connectButton: NSButton!
@@ -448,8 +470,8 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = canvas
         panel = AccessoryPanel(helper: helper)
         panel.reposition = { [weak self] in if self?.panel.isVisible == true { self?.placeAccessory() } }
-        let stack = DocumentStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
-        stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
+        let stack = DocumentStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 18, left: 32, bottom: 18, right: 32)
         stack.wantsLayer = true
         stack.fill = canvas
         contentStack = stack
@@ -464,7 +486,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stack.widthAnchor.constraint(equalToConstant: contentWidth + 64).isActive = true
         window.contentView = scroll
         scrollView = scroll
-        window.contentMinSize = NSSize(width: mainWidth, height: 520)
+        window.contentMinSize = NSSize(width: mainWidth, height: 420)
         window.contentMaxSize = NSSize(width: mainWidth, height: 2000)
         let logo = NSImageView()
         let assets = snapshotAssets ?? root.appendingPathComponent("docs/assets")
@@ -491,10 +513,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         stack.addArrangedSubview(header)
         stack.addArrangedSubview(label("에이전트가 여러분 대신 Mac 앱을 사용할 수 있도록.",
                                        size: 14, color: mutedText, width: contentWidth))
-        stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
+        stack.setCustomSpacing(14, after: stack.arrangedSubviews.last!)
         refreshButton = NSButton(title: "상태 새로고침", target: self, action: #selector(refreshAll))
         refreshButton.bezelStyle = .rounded; refreshButton.controlSize = .small
-        let permissionHeader = NSStackView(views: [label("1. Mac 권한", size: 15, weight: .semibold), NSView(), refreshButton])
+        permissionDetailsButton = NSButton(title: "상세 보기", target: self, action: #selector(togglePermissionDetails))
+        permissionDetailsButton.bezelStyle = .rounded; permissionDetailsButton.controlSize = .small
+        permissionDetailsButton.setAccessibilityIdentifier("tacto.permission-details")
+        let permissionHeader = NSStackView(views: [permissionTitle, NSView(), permissionDetailsButton, refreshButton])
         permissionHeader.orientation = .horizontal; permissionHeader.alignment = .centerY
         permissionHeader.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(permissionHeader)
@@ -504,7 +529,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             rows.append(row); stack.addArrangedSubview(row)
         }
         stack.addArrangedSubview(status)
-        stack.setCustomSpacing(18, after: status)
+        stack.setCustomSpacing(12, after: status)
         let connect = CoralButton(title: "에이전트에 연결", target: self, action: #selector(connect))
         connect.keyEquivalent = "\r"; connect.isEnabled = false
         connectButton = connect
@@ -514,21 +539,37 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let connection = SurfaceStack(views: [connectionHeader, connectionInfo,
             scopeInfo, message])
         connection.orientation = .vertical; connection.alignment = .leading; connection.spacing = 8
-        connection.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        connection.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         connection.wantsLayer = true; connection.layer?.cornerRadius = 12
         connection.layer?.borderWidth = 1
         connection.fill = .controlBackgroundColor
         connection.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(connection)
-        stack.setCustomSpacing(18, after: connection)
+        stack.setCustomSpacing(12, after: connection)
         exampleButton = NSButton(title: "첫 요청 복사", target: self, action: #selector(copyFirstRequest))
         exampleButton.bezelStyle = .rounded
-        let example = NSStackView(views: [label("3. 새 대화에서 시작하세요", size: 15, weight: .semibold), NSView(), exampleButton])
+        exampleButton.setAccessibilityIdentifier("tacto.copy-first-request")
+        let example = NSStackView(views: [label("3. 첫 작업", size: 15, weight: .semibold), NSView(), exampleButton])
         example.orientation = .horizontal; example.alignment = .centerY
         example.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        agentPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+        agentPicker.setAccessibilityIdentifier("tacto.first-run-agent")
+        startFirstRunButton = CoralButton(title: "첫 작업 시작", target: self, action: #selector(startFirstRun))
+        startFirstRunButton.setAccessibilityIdentifier("tacto.start-first-run")
+        let startRow = NSStackView(views: [agentPicker, startFirstRunButton, NSView()])
+        startRow.orientation = .horizontal; startRow.alignment = .centerY; startRow.spacing = 10
+        startRow.widthAnchor.constraint(equalToConstant: contentWidth - 32).isActive = true
+        let firstRun = SurfaceStack(views: [firstRunHint, startRow,
+            label("새 터미널에서 실행 · 최초 신뢰·로그인 확인과 계정 사용량이 적용됩니다.", size: 11, color: mutedText, width: contentWidth - 32)])
+        firstRun.orientation = .vertical; firstRun.alignment = .leading; firstRun.spacing = 10
+        firstRun.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        firstRun.wantsLayer = true; firstRun.layer?.cornerRadius = 12
+        firstRun.fill = .controlBackgroundColor
+        firstRun.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(example)
-        stack.addArrangedSubview(label("Claude Code나 Codex에서 ‘\(firstRequest)’라고 요청하세요.", size: 12, color: mutedText, width: contentWidth))
-        stack.addArrangedSubview(label("작업할 때 도우미가 자동 실행됩니다. 창을 닫아도 메뉴 막대의 ‘Tacto 설정’에서 다시 열 수 있어요.", size: 11, color: mutedText, width: contentWidth))
+        stack.addArrangedSubview(firstRun)
+        stack.addArrangedSubview(label("창을 닫아도 메뉴 막대에서 Tacto 설정을 다시 열 수 있어요.", size: 11, color: mutedText, width: contentWidth))
+        refreshFirstRunAgents()
         render()
         stack.layoutSubtreeIfNeeded()
         let size = stack.fittingSize
@@ -539,7 +580,19 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func render() {
+        let firstRunReady = known && state.ready && connection == .current && !checkInFlight && !installing
+        firstRunHint.stringValue = firstRunReady && !detectedAgents.isEmpty
+            ? "버튼을 누르면 선택한 에이전트가 Mac에서 첫 작업을 시작합니다."
+            : firstRunReady ? "첫 요청을 복사해 사용 중인 에이전트의 새 대화에 붙여넣으세요."
+            : "권한과 에이전트 연결을 마치면 시작할 수 있어요."
+        startFirstRunButton?.isEnabled = firstRunReady && !detectedAgents.isEmpty && !startingFirstRun
+        let compactPermissions = known && state.ready && !permissionDetails && watch == nil && notice == nil
+        permissionTitle.stringValue = known && state.ready ? "1. Mac 권한 · 준비 완료" : "1. Mac 권한"
+        permissionDetailsButton?.isHidden = !(known && state.ready)
+        permissionDetailsButton?.title = permissionDetails ? "접기" : "상세 보기"
+        status.isHidden = compactPermissions
         for row in rows {
+            row.isHidden = compactPermissions
             let look: PermissionRow.Look
             if state.granted(row.permission) { look = .granted }
             else if watch?.permission == row.permission { look = .waiting }
@@ -559,7 +612,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             switch connection {
             case .current:
                 connectButton.title = "연결 완료"
-                connectionInfo.stringValue = "연결 완료 · 이 Tacto의 명령과 Claude Code · Codex 스킬을 사용할 수 있어요."
+                connectionInfo.stringValue = "Claude Code · Codex 연결 완료"
             case .other:
                 connectButton.title = "이 버전으로 연결"
                 connectionInfo.stringValue = "다른 경로의 Tacto 명령·스킬이 연결되어 있어요. 이 앱의 연결로 바꿀 수 있습니다."
@@ -594,8 +647,20 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             stack.setFrameSize(stack.fittingSize)
             scroll.contentView.scroll(to: NSPoint(x: 0, y: min(offset, max(0, stack.frame.height - scroll.contentSize.height))))
             scroll.reflectScrolledClipView(scroll.contentView)
+            // Resize only when permission details fold/unfold, never on each
+            // polling tick. Keep the top edge and the user's scroll position.
+            if lastPermissionLayout != compactPermissions {
+                lastPermissionLayout = compactPermissions
+                let old = window.frame
+                let available = window.screen?.visibleFrame.height ?? 840
+                let height = max(420, min(stack.fittingSize.height, available - 80))
+                let frameHeight = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: mainWidth, height: height)).height
+                window.setFrame(NSRect(x: old.minX, y: old.maxY - frameHeight, width: old.width, height: frameHeight), display: true)
+            }
         }
     }
+
+    @objc func togglePermissionDetails() { permissionDetails.toggle(); render() }
 
     // MARK: turning a permission on
 
@@ -603,6 +668,47 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !installing else { return }
         connection = agentConnection(root: root, home: FileManager.default.homeDirectoryForCurrentUser,
                                      environment: ProcessInfo.processInfo.environment)
+        if agentPicker != nil { refreshFirstRunAgents() }
+    }
+    func refreshFirstRunAgents() {
+        let previous = agentPicker.titleOfSelectedItem
+        detectedAgents = firstRunAgents(home: FileManager.default.homeDirectoryForCurrentUser,
+                                       environment: ProcessInfo.processInfo.environment)
+        agentPicker.removeAllItems()
+        agentPicker.addItems(withTitles: detectedAgents.map { $0.name })
+        if let previous { agentPicker.selectItem(withTitle: previous) }
+        agentPicker.isHidden = detectedAgents.count < 2
+        startFirstRunButton.title = detectedAgents.count == 1 ? "\(detectedAgents[0].name)로 시작" : "첫 작업 시작"
+    }
+    @objc func startFirstRun() {
+        guard known && state.ready && connection == .current && !checkInFlight && !installing && !startingFirstRun else { return }
+        let selected = agentPicker.titleOfSelectedItem
+        refreshFirstRunAgents()
+        guard let agent = detectedAgents.first(where: { $0.name == selected }) ?? (detectedAgents.count == 1 ? detectedAgents.first : nil) else { render(); return }
+        let fm = FileManager.default
+        let directory = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Tacto/First Run", isDirectory: true)
+        let command = directory.appendingPathComponent("tacto-first-run-\(UUID().uuidString).command")
+        do {
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try Data(firstRunCommand(agent: agent, prompt: firstRequest, directory: directory).utf8).write(to: command, options: .withoutOverwriting)
+            try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: command.path)
+        } catch {
+            try? fm.removeItem(at: command)
+            message.stringValue = "첫 작업을 열지 못했어요. ‘첫 요청 복사’를 사용해 주세요."; render(); return
+        }
+        startingFirstRun = true; render()
+        let config = NSWorkspace.OpenConfiguration(); config.activates = true
+        NSWorkspace.shared.open([command], withApplicationAt: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"), configuration: config) { [weak self] _, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.startingFirstRun = false
+                self.message.stringValue = error == nil
+                    ? "\(agent.name)의 새 터미널 세션을 열었습니다. 로그인·승인 요청이 있다면 터미널에서 진행하세요."
+                    : "터미널을 열지 못했어요. ‘첫 요청 복사’를 사용해 주세요."
+                if error != nil { try? fm.removeItem(at: command) }
+                self.render()
+            }
+        }
     }
     @objc func refreshAll() { refreshConnection(); check() }
     @objc func copyFirstRequest() {
@@ -868,6 +974,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if CommandLine.arguments.contains("--dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
         build()
         state = snapshotState; known = true
+        permissionDetails = CommandLine.arguments.contains("--permission-details")
         let permission = waiting ?? state.nextNeeded ?? .control
         panel.show(for: permission, app: appFor(permission))
         if let waiting { watch = PermissionWatch(permission: waiting, started: Date()) }
@@ -879,6 +986,21 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         render()
         if CommandLine.arguments.contains("--pressed") { connectButton.isHighlighted = true }
         if CommandLine.arguments.contains("--compact") { window.setContentSize(NSSize(width: mainWidth, height: 520)) }
+        if CommandLine.arguments.contains("--verify-first-request") {
+            // Exercise the real button and pasteboard, restoring all original
+            // pasteboard item types after the check (including non-text data).
+            let board = NSPasteboard.general
+            let original = (board.pasteboardItems ?? []).map { item -> NSPasteboardItem in
+                let copy = NSPasteboardItem()
+                for type in item.types { if let data = item.data(forType: type) { copy.setData(data, forType: type) } }
+                return copy
+            }
+            exampleButton.performClick(nil)
+            let copied = board.string(forType: .string) == firstRequest
+            board.clearContents(); if !original.isEmpty { board.writeObjects(original) }
+            assert(copied, "First request copy failed")
+            try? Data("{\"clipboard_exact\":true}\n".utf8).write(to: directory.appendingPathComponent("first-run-check.json"))
+        }
         assert(connectButton.isEnabled == (known && state.ready && connection != .current))
         assert(!applicationShouldTerminateAfterLastWindowClosed(NSApp))
         assert(panel.icon.helperURL == appFor(permission))
@@ -905,7 +1027,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         inspect(contentStack); inspect(panel.contentView!)
         assert(clipped.isEmpty, "Clipped labels: \(clipped)")
         if CommandLine.arguments.contains("--compact") {
-            assert(scrollView.documentView!.frame.height > scrollView.contentSize.height)
+            if !known || !state.ready || permissionDetails { assert(scrollView.documentView!.frame.height > scrollView.contentSize.height) }
             scrollView.contentView.scroll(to: .zero)
         }
         for scroll in [scrollView!, panel.scroll!] {
@@ -928,6 +1050,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent(name))
+        }
+        let layout: [String: Any] = ["content_height": window.contentView!.bounds.height,
+                                    "document_height": contentStack.frame.height,
+                                    "permission_rows_hidden": rows.allSatisfy { $0.isHidden },
+                                    "permission_details_expanded": permissionDetails]
+        if let data = try? JSONSerialization.data(withJSONObject: layout, options: .sortedKeys) {
+            try? data.write(to: directory.appendingPathComponent("layout.json"))
         }
         save(window.contentView!, "setup.png")
         save(panel.contentView!, "panel.png")

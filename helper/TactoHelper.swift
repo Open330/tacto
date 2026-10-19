@@ -921,7 +921,7 @@ func pid(forBundle bundle: String) -> pid_t? {
         && $0.activationPolicy == .regular }?.processIdentifier
 }
 
-func observe(_ target: String, requireWindow: Bool = true, documentToken: String? = nil) -> [String: Any] {
+func observe(_ target: String, requireWindow: Bool = true, documentToken: String? = nil, windowIdentity: Bool = false) -> [String: Any] {
     guard let p = pid(forBundle: target) else {
         let gui = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         if gui.isEmpty {
@@ -1044,6 +1044,17 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
             "custom_selects": customSelects(p, elements, obsID: obsID)]
     if let documentToken { reply["document_token"] = documentToken }
     else { reply["window_listing_diagnostic"] = windowListing.metadata }
+    if windowIdentity {
+        guard let processStart else {
+            return ["type":"error", "error":"window_identity_unavailable", "effect":"not_started"]
+        }
+        reply["window_identity"] = ["pid":Int(p), "process_start":processStart,
+            "windows":windows.compactMap { window -> [String:Int]? in
+                guard let index = elements.firstIndex(where: { CFEqual($0, window) }),
+                      let id = nativeWindowID(window) else { return nil }
+                return ["element_index":index, "window_id":Int(id)]
+            }]
+    }
     return reply
 }
 
@@ -4620,7 +4631,7 @@ let helperCapabilities: [String] = [
     // Reading only, and deliberately NOT document_snapshot: this witnesses what
     // a document contains and where it lives, never its source format or where
     // a save panel would put it.
-    "diagnostic.readiness_read_cost", "diagnostic.readiness_preflight",
+    "diagnostic.readiness_read_cost", "diagnostic.readiness_preflight", "observe.window_identity",
     "evidence.document_window_status", "evidence.document_text", "evidence.document_text.path_selector", "observe.document_token", "evidence.save_panel",
     "action.click.save_panel_guard", "evidence.document_rtf_export", "evidence.document_attachment_metadata",
 ] + experimentalForegroundCapabilities
@@ -5978,12 +5989,16 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     case "menu_state", "menu_items":
         return readMenuState(msg)
     case "observe":
+        if let raw = msg["window_identity"], CFGetTypeID(raw as CFTypeRef) != CFBooleanGetTypeID() {
+            return ["type":"error", "error":"invalid_window_identity_request", "effect":"not_started"]
+        }
         if let raw = msg["document_token"], !(raw is String) {
             return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"]
         }
         return observe(msg["target"] as? String ?? "",
                        requireWindow: msg["require_window"] as? Bool ?? true,
-                       documentToken: msg["document_token"] as? String)
+                       documentToken: msg["document_token"] as? String,
+                       windowIdentity: msg["window_identity"] as? Bool ?? false)
     case "act":
         var savePanelToken: String?
         if let raw = msg["save_panel_token"] {

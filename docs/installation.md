@@ -58,7 +58,7 @@ wheel에는 기본 flow recipe 파일이 포함되지 않습니다. 명시적으
 `TACTO_TEAM_ID` 같은 실행 환경변수로 이 검사를 바꿀 수 없습니다.
 별도로 준비한 Apple Silicon용 DMG는 Developer ID 서명·Apple 공증·Gatekeeper
 검사를 통과했습니다. [Release 페이지](https://github.com/Open330/tacto/releases)의
-첫 배포는 개발자 미리보기입니다. [Preview 6](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6)의 DMG를 다운로드한 사용자는
+첫 배포는 개발자 미리보기입니다. [첫 작업 개선판](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6-first-run.5)의 DMG를 다운로드한 사용자는
 `Tacto.app`을 `Applications`로 드래그하고 앱을 열어 권한·명령·스킬 연결 안내를
 따릅니다. 사용자 자신의 개발용 인증서는 필요하지 않습니다. macOS 27.0.1의 Apple Silicon 빌드 Mac에서 실제 설치·권한·연결·같은 팀 업데이트를 확인했습니다. 새 Mac과 다른 macOS 버전은 미검증이며 Windows·Intel Mac 빌드는 없습니다. 현재 비공개 다운로드에는 GitHub 접근 권한이 필요합니다. 자세한 근거는 [출시 기준](release-readiness.md)을 확인하세요.
 Python 코어·별도 Chromium은 위 wheel 설치 범위에서 사용할 수 있습니다.
@@ -242,6 +242,40 @@ helper만 추가했는데 화면 기록이 미완료라면, 화면 기록 단계
 앱 번들에 화면 기록 권한을 주는 모델이며, 공유 Python이나 터미널 권한은
 요청하지 않습니다. [권한 소유자와 드래그 안내](permission-onboarding.md)를 참고하세요.
 
+
+### 첫 작업 시작 (Preview 6 first-run.5)
+
+권한과 에이전트 연결을 마치면 **첫 작업 시작**을 누릅니다.
+설치된 Claude Code·Codex CLI를 감지하며, 둘 다 있으면 선택할 수 있습니다.
+**첫 작업 시작**은 Terminal의 새 대화에 프롬프트를 전달합니다. 사용 중인 대화를
+재개하거나 권한 승인을 생략하지 않습니다. 로그인·신뢰·도구 승인 절차와 계정의
+일반 사용량이 적용됩니다. CLI 설치 여부만 감지하며 로그인 상태는 판정하지 않습니다.
+
+CLI를 찾지 못했거나 다른 에이전트를 사용한다면 **첫 요청 복사**로 새 대화에
+붙여넣으세요. 권한 준비가 끝나면 상세 카드가 접힙니다. **상세 보기**에서 권한
+상태를 다시 확인할 수 있고, 권한이 필요하거나 확인이 실패하면 안내가 펼쳐집니다.
+
+실제 첫 작업은 기존 문서를 수정하지 않고 새 문서에 다음 두 줄을 입력하고
+Tacto로 다시 읽어 확인합니다. 별도 AppleScript·JXA 조회는 사용하지 않습니다.
+시작 화면에는 이 예문을 미리 표시하지 않습니다. 에이전트는 안내받은
+`tacto first-run --helper --yes` 명령 하나를 실행합니다. 이 명령은 앱 실행부터
+입력과 확인까지 한 연결에서 처리하며, 내부 모델 호출이나 Flow 작성이 없습니다.
+
+```text
+Hello, World!
+Tacto로 작성했습니다.
+```
+
+저장 명령은 실행하지 않습니다. TextEdit은 제목 없는 문서도
+자동 복구 데이터를 남길 수 있으므로 입력 확인과 영구 저장 확인은 구분합니다.
+이 기능은 `v0.1.0-preview.6-first-run.5`부터 포함됩니다. 원래 Preview 6에는 포함되지 않습니다.
+새 문서는 창 제목 대신 macOS 창 ID로 구분하므로 기존 문서의 자동 저장·이름 변경이
+새 창으로 잘못 집계되지 않습니다.
+
+다른 앱이 꺼져 있다면 `tacto launch <bundle-id> --helper`로 실행한 뒤 새로
+관찰할 수 있습니다. 설치된 앱을 LaunchServices로 열며, 실행 중이면 다시 실행하지
+않습니다. 앱 실행 성공은 창 준비 완료와 구분합니다. 실행 시간 초과 시에는 앱이
+늦게 열릴 수 있으므로 재실행하기 전에 관찰하세요.
 
 ### Preview 3 update
 

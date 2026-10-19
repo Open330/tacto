@@ -135,11 +135,13 @@ README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드�
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[Preview 6 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+[첫 작업 개선판 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6-first-run.5) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
 현재 **비공개 개발자 미리보기**입니다. 정식 출시는 새 사용자 설치·권한 복구·제한 베타의 사람 확인이 필요하며, GitHub 과거 참조·캐시 정리도 남아 있습니다.
+
+설정 후 **첫 작업 시작**을 누르면 설치된 Claude Code·Codex를 감지해 새 CLI 대화를 엽니다. 명령 하나로 TextEdit 실행·새 문서 생성·환영 문구 입력과 확인을 처리하며, 내부 모델 호출은 없습니다. 에이전트 CLI 자체의 최초 신뢰·로그인 확인은 나타날 수 있습니다.
 
 Tacto는 Dock 아이콘 없이 메뉴 막대에서 실행됩니다. 설정 창을 닫아도 백그라운드에 남으며, 메뉴 막대 아이콘에서 설정을 다시 열거나 종료할 수 있습니다. [Preview 6 검증](docs/release-readiness.md#2026-10-19-preview-6-qualification).
 

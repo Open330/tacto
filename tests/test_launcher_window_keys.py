@@ -194,3 +194,22 @@ print(String(data:try! JSONSerialization.data(withJSONObject:cases.map { vetted(
         # helper scopes it to the Go to Folder path field. Everything else
         # here is still refused at the launcher.
         self.assertEqual(json.loads(result.stdout),[True]*7+[False]*5+[True]+[False]*6)
+
+    def test_native_window_identity_opt_in_only_on_observe_boolean(self):
+        source=(ROOT/'launcher/tacto.swift').read_text()
+        schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
+        checks = r'''
+let requests:[[String:Any]] = [
+ ["type":"observe", "target":"com.apple.TextEdit", "window_identity":true],
+ ["type":"observe", "target":"com.apple.TextEdit", "window_identity":false],
+ ["type":"observe", "target":"com.apple.TextEdit", "window_identity":1],
+ ["type":"observe", "target":"com.apple.TextEdit", "window_identity":"true"],
+ ["type":"act", "target":"com.apple.TextEdit", "window_identity":true]]
+print(String(data:try! JSONSerialization.data(withJSONObject:requests.map {vetted($0)==nil}),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'main.swift'
+            path.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw:Any?)->Double? {1}\n'+schema+checks)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(json.loads(result.stdout),[True,True,False,False,False])

@@ -14,7 +14,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6-first-run.5) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -90,9 +90,11 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 **Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download Preview 6](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
+[Download first-run update](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.6-first-run.5). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
 
 This is a **private developer prerelease**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
+
+After setup, **Start first task** detects Claude Code or Codex and opens a fresh CLI conversation with one fixed Tacto command. The command launches TextEdit if needed, creates a new document and verifies its welcome text without an internal model call. The agent CLI may still ask for its normal trust or login confirmation.
 
 Tacto runs in the menu bar without a Dock icon. Close the settings window to leave it in the background; use the menu bar icon to reopen settings or quit. [Preview 6 validation](docs/release-readiness.md#2026-10-19-preview-6-qualification).
 

@@ -418,3 +418,40 @@ the final image-specific results.
   therefore remains private.
 
 DMG SHA-256: `ef832c313520f3f57578ed813a551d2b772ddcbbf5e8bf442a1e8172b3971643`.
+
+
+## 2026-10-19 first-run update 5
+
+`v0.1.0-preview.6-first-run.5` is an incremental developer prerelease. It adds
+installed-app launch through LaunchServices and a fixed first-run command,
+compacts the ready onboarding window, and detects installed Claude Code/Codex
+CLIs. First-run document detection uses native window IDs plus process identity
+instead of mutable title sets; verification follows the same window after autosave
+renames it. No Save command is sent, and visible text verification is not a
+persistent-save receipt.
+
+The exact signed app was installed on the designated secondary Mac. Both existing
+permissions and agent links were retained. Two successive actual TextEdit tasks
+passed in 3.352s and 3.257s wall time (2.981s and 2.916s engine time), each with zero
+internal model calls. A first document autosaved to an `.rtf` title during the
+sequence. These two runs are a functional check, not a statistically established
+speed gain or an end-to-end agent/token benchmark. Targeted automated checks ran
+130 tests: 129 passed and one opt-in test was skipped.
+
+The app and DMG passed Developer ID signing, secure timestamps, hardened runtime,
+Apple notarization, stapled tickets and Gatekeeper. The candidate's 5,369-file
+build scan found no build-home or checkout path. An earlier uninstalled candidate
+failed the designated-requirement continuity check and was not deployed; the final
+candidate matches the prior app, launcher and helper signing requirements.
+
+The DMG is the exact tested incremental candidate, not a rebuild after tagging.
+Its source manifest records relative file hashes, the verified Preview 6 runtime
+base and the workspace commit before the then-uncommitted onboarding patch. The
+release tag includes that patch and updated publication documentation. Historical
+Preview 6 qualification results above are not new runs against this update.
+Stable-release human checks and repository privacy restrictions remain unchanged.
+
+DMG SHA-256: `969fb83221998cf4e1671d9360387befe018efde6aed4c08afa8424a697d33d9`.
+
+Prepublication full regression suite: 2,651 tests in 431.247s,
+2,648 passed, 3 opt-in skips, zero failures/errors.

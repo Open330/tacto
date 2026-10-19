@@ -3,6 +3,8 @@
 Usage:
   tacto doctor            # check/guide permissions
   tacto apps              # list running apps (GUI session check)
+  tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
+  tacto first-run --helper --yes      # new TextEdit document, fixed text, fresh verification
   tacto document-attachments <canonical path> --helper
       (read live attachment positions/references; does not verify payload bytes)
   tacto list              # list saved flows (+ where the IR lives)
@@ -597,7 +599,7 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "observe", "session", "batch", "document-attachments", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+    if cmd in ("doctor", "apps", "launch", "first-run", "observe", "session", "batch", "document-attachments", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         from .session import SANDBOXED, sandboxed
         if sandboxed():
             print(SANDBOXED)
@@ -644,6 +646,29 @@ def _dispatch_command(cmd, rest):
     if help_text is not None:
         print(help_text)
         return 0
+
+    if cmd == 'launch':
+        targets = [value for value in rest if value != '--helper']
+        if len(targets) != 1 or rest.count('--helper') > 1:
+            print('usage: launch <bundle-id> [--helper]')
+            return 2
+        from .app_launch import launch_app
+        result = launch_app(targets[0])
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get('type') == 'app_launch' else 1
+
+    if cmd == 'first-run':
+        if sorted(rest) != ['--helper', '--yes']:
+            print('usage: first-run --helper --yes (creates one document and writes the fixed welcome text)')
+            return 2
+        from .first_run import run_first_task
+        driver = _make_driver(rest)
+        try:
+            result = run_first_task(driver)
+        finally:
+            driver.close()
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get('status') == 'text_verified' else 1
 
     if cmd == 'repair':
         from .repair_packet import main as repair_main

@@ -3,6 +3,39 @@ import CoreGraphics
 
 enum AgentConnection { case missing, current, other, conflict }
 
+struct FirstRunAgent {
+    let name: String
+    let executable: URL
+}
+
+/// Discover installed CLIs without running a shell, provider or login check.
+/// GUI apps have a short PATH, so include the usual per-user install locations.
+func firstRunAgents(home: URL, environment: [String: String],
+                    executable: (String) -> Bool = {
+                        FileManager.default.isExecutableFile(atPath: $0)
+                            && ((try? URL(fileURLWithPath: $0).resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true)
+                    }) -> [FirstRunAgent] {
+    let paths = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        + [home.appendingPathComponent(".local/bin").path,
+           home.appendingPathComponent(".npm-global/bin").path,
+           home.appendingPathComponent(".volta/bin").path,
+           "/opt/homebrew/bin", "/usr/local/bin"]
+    return [("Claude Code", "claude"), ("Codex", "codex")].compactMap { name, command in
+        guard let folder = paths.first(where: { $0.hasPrefix("/") && executable(URL(fileURLWithPath: $0).appendingPathComponent(command).path) }) else { return nil }
+        return FirstRunAgent(name: name, executable: URL(fileURLWithPath: folder).appendingPathComponent(command))
+    }
+}
+
+func firstRunShellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+/// Start a fresh, normal interactive CLI: no resume, permission bypass,
+/// model overrides or noninteractive tool approval flags.
+func firstRunCommand(agent: FirstRunAgent, prompt: String, directory: URL) -> String {
+    "#!/bin/zsh\ncd -- \(firstRunShellQuote(directory.path)) || exit 1\nrm -- \"$0\"\nexec \(firstRunShellQuote(agent.executable.path)) \(firstRunShellQuote(prompt))\n"
+}
+
 /// Inspect the command/skill links the installer owns; never run or change them.
 func agentConnectionLinks(root: URL, home: URL, environment: [String: String]) -> [(URL, URL)] {
     func value(_ key: String) -> String? { environment[key].flatMap { $0.isEmpty ? nil : $0 } }

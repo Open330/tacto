@@ -490,7 +490,11 @@ class HelperDriver:
         return self._send({"type": "list_targets"})
 
     def observe(self, target: str, mode: str = "tree_full",
-                require_window: bool = True, *, document_token=None, _settle_after_action=True):
+                require_window: bool = True, *, document_token=None, window_identity=False, _settle_after_action=True):
+        if type(window_identity) is not bool:
+            return {'type':'error', 'error':'invalid_window_identity_request', 'effect':'not_started'}
+        if window_identity and 'observe.window_identity' not in getattr(self, 'capabilities', ()):
+            return {'type':'error', 'error':'window_identity_unavailable', 'effect':'not_started'}
         if document_token is not None and (target != 'com.apple.TextEdit'
                 or not isinstance(document_token, str) or not document_token or len(document_token) > 128):
             return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started'}
@@ -506,6 +510,8 @@ class HelperDriver:
         # return the same tree for the same app: a recipe that starts from an
         # app with nothing open must behave identically whichever one runs it.
         message = {"type":"observe", "target":target, "require_window":require_window}
+        if window_identity:
+            message['window_identity'] = True
         if document_token is not None:
             message['document_token'] = document_token
         out = self._send(message)

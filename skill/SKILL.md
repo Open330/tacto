@@ -8,6 +8,11 @@ description: Automate macOS/web tasks with reusable Tacto flows (formerly NLC); 
 Use the signed `tacto` command for UI work. Resolve `command -v tacto` or
 `~/.local/bin/tacto` in the same tool call as the next command.
 
+For the fixed welcome task, run `tacto first-run --helper --yes` once; it launches
+TextEdit, creates a document and verifies the welcome text without Flow authoring.
+`text_verified` proves visible text, not a save. On failure report stage/error;
+do not repeat a partially completed welcome task.
+
 ## Choose the current stage
 
 - **Existing flow:** `tacto list`, `tacto show <name>`, then
@@ -28,6 +33,9 @@ Use the signed `tacto` command for UI work. Resolve `command -v tacto` or
 - **Document scope, approval, judgment, or no interactive tools:** read
   [run mode](references/run.md) instead of starting a session.
 - **Unavailable command or permission error:** [setup](references/setup.md).
+- **Requested app not running:** `tacto launch <bundle-id> --helper`, then observe
+  again. Launch starts an installed app via LaunchServices; it does not prove a
+  window exists. On timeout observe before retrying; do not use another tool.
 - **Invalid flow:** correct the field using the returned hint; no recovery guide.
 - **Missing selector with repair packet:** [selector repair](references/selector-repair.md).
 - **Other failed action or missing window:** [recovery](references/recovery.md).

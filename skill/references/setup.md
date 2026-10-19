@@ -93,6 +93,14 @@ Reading and writing recipes (`tacto list`, `tacto show`, `tacto candidates`,
 
 ## Start from what already exists
 
+If the requested app is not running, use `tacto launch <bundle-id> --helper`,
+then observe again. This starts an installed app through LaunchServices without
+AppleScript or new automation permissions. A successful launch confirms a running
+process; a window may still need `reopen_window` or the app's New menu.
+For the fixed welcome task, `tacto first-run --helper --yes` handles launch,
+new document, fixed text and fresh text verification in one command. Do not
+author a Flow or retry a partially completed welcome task.
+
 Before writing a recipe, look for one. Tacto ships recipes for common tasks, and
 replaying one costs nothing:
 
