@@ -278,3 +278,46 @@ end with their CLI session. Login auto-start is not registered.
 DMG SHA-256: `300cfe4561fe533dd14e8b61f42bbaf1cf53ce9fd35c866f6b68dc8b08aa6c8c`.
 [Preview 4 release](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.4).
 The stable-release evidence gates above remain unqualified.
+
+
+## 2026-10-19 Preview 5 helper cleanup
+
+Runtime source: `cd93ed9`; app version `0.1.0`, build `5`.
+[Preview 5 is published](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.5)
+with a Developer ID signed and notarized app/DMG, checksums and notarization notes.
+The repository remains private, so downloads require repository access.
+
+- Removed former helper-name fallback paths and stale onboarding references.
+  Helper authority is read only from current `TACTO_` variables. Existing bundle
+  identifiers and signing requirements remain unchanged.
+- Declared `tiktoken` in the checkout-only dev group and synchronized `uv.lock`.
+  The frozen environment ran 2,607 tests in 432.143 seconds: zero failures/errors,
+  three existing opt-in skips. Independent review and main integration each
+  reran 36 related tests successfully. Earlier build/dependency failures and
+  their logs were preserved before approval.
+- Developer ID secure timestamps, hardened runtime, app/DMG notarization Accepted,
+  stapled tickets and Gatekeeper checks passed. All twelve automatic artifact
+  integrity checks passed. GitHub's uploaded asset digests match the local files.
+- Installed the exact DMG on three Macs. Core-file fingerprints match the verified
+  release; each app runs without a Dock icon, with current Claude/Codex links.
+  Existing enabled grants were retained. One newly installed Mac still needs the
+  user's initial Accessibility and screen-reading grants; its onboarding window
+  remains open. Installation is not evidence of completed first-time onboarding.
+- Installed-launcher owned native Flow smoke passed: Alpha/count0 to Alpha/count2
+  through a Beta selection, zero model calls, sampled input audit unchanged,
+  4.720 seconds. This does not certify general-app reliability or human typing
+  preservation.
+
+DMG SHA-256: `b11e1cb5440a0206190b39a666b3eff9c76e1f88676996b2b369b466293575aa`.
+
+### What the blocked status means
+
+Preview deployment is **published** and automatic artifact checks are **passed**.
+The `blocked` result from `setup/check_release.py` describes **stable/public-release
+qualification**. It requires a reviewed evidence packet tied to this exact image
+hash for seven areas: fresh installation, real-app tasks, failure recovery,
+upgrade/rollback, matched performance, regressions/security and a limited beta.
+These areas are not all qualified for this candidate. Source regression tests,
+notarization and upgrade installation do not automatically complete that packet.
+The private deployment report records preview publication and stable qualification
+as separate fields.
