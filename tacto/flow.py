@@ -1015,6 +1015,10 @@ class Flow:
             payload = s.get("params", {})
             if not isinstance(payload, dict) or set(payload) - known[s["action"]]:
                 raise ValueError("invalid action parameters; names and indices are not parameters")
+            if s['action']=='drag':
+                from .native_drag import drag_problem
+                problem=drag_problem(payload)
+                if problem:raise ValueError(problem)
             if s['action']=='open_select':
                 from .protocol import native_opening_parameters_problem
                 problem=native_opening_parameters_problem(payload)
@@ -2164,6 +2168,14 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 or set(step.params) - ACTION_PARAMS.get(step.action, frozenset()):
             res.record(status="error", step=i, error="invalid_action")
             return res
+        if step.action=='drag':
+            from .native_drag import drag_problem
+            problem=drag_problem(step.params)
+            if (problem or not {'action.drag','drag.window_bound'} <= set(getattr(driver,'capabilities',()))
+                    or step.selector is None or step.selector.role != 'Window'
+                    or step.postcondition is None or step.unverified_ok):
+                res.record(status='error',step=i,error='drag_unavailable',effect='not_started',detail=problem)
+                return res
         if step.action=='open_select' and 'opening_action' in step.params:
             from .protocol import native_opening_parameters_problem
             problem=native_opening_parameters_problem(step.params)
@@ -2611,9 +2623,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 confirmation = getattr(context, "confirmation", None)
                 intent = (f"{gate_desc} — {confirmation}"
                           if isinstance(confirmation, str) and confirmation else gate_desc)
+                input_risk = risk
+                if step.action == 'drag' and risk == 'none' and effects <= {'read','write_ephemeral'}:
+                    # The existing task contract already authorizes this local
+                    # gesture. Coordinate transport needs the host flag, not a
+                    # second permission prompt for the same requested action.
+                    input_risk, dispatch_approved = 'preapproved', True
                 response = driver.act(current["obs_id"], flow.target, payload,
                                       **({"expect": claim} if claim else {}),
-                                      risk_class=risk, intent_text=intent,
+                                      risk_class=input_risk, intent_text=intent,
                                       approved=dispatch_approved, **dispatch_parameters)
             except Exception as exc:
                 response = {"type": "error", "error": "driver_exception",
@@ -2645,12 +2663,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 and response.get("reobserve_required") is True
                 and effects <= {"read", "write_ephemeral"})
             from .protocol import (double_click_reobservation, element_click_reobservation,
-                                   window_key_reobservation)
+                                   window_key_reobservation, drag_reobservation)
             caps = getattr(driver, "capabilities", ())
             navigation_observation = (
                 (window_key_reobservation(payload, response, caps)
                  or double_click_reobservation(payload, response, caps)
-                 or element_click_reobservation(payload, response, caps))
+                 or element_click_reobservation(payload, response, caps)
+                 or drag_reobservation(payload, response, caps))
                 and effects <= {"read", "write_ephemeral"})
             if step.action == "prepare_window" and not preparation_observation:
                 event["state"] = "unknown"

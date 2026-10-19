@@ -860,3 +860,32 @@ Group wrapper changes per comparison. It retains every other raw body, flag,
 value, node order and kept ancestor path. Raw selector uniqueness and selected
 node correspondence, result checks and native readiness guards are unchanged.
 [Complex scenario verification](tacto-complex-scenarios-2026-10-14.md).
+
+
+### Window-bound drag (signed macOS helper)
+
+`tacto capture <bundle-id> --helper --window TITLE --output window.png` writes
+a private PNG (refusing existing output files) and reports `pixel_to_point` scale
+factors. Multiply image pixel coordinates by these factors for drag coordinates.
+It uses the existing Screen Recording grant of the installed signed app.
+
+`tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]`
+sends one continuous left-button stroke. `--via X Y` can be repeated up to 12
+times; duration is 0.1–2 seconds (default 0.6). Coordinates are window-relative
+points from the top-left, including the titlebar. `--prepare` prepares a background
+AppKit window that ignores first-mouse input. Default output is compact; `--json`
+includes the complete fresh observation and preparation diagnostics.
+
+Native action: `{"name":"drag","element_index":0,"from":{"x":20,"y":40},"to":{"x":220,"y":80},"duration":0.6}`;
+optional `via` is an array of points. Requires `action.drag`, `drag.window_bound`
+and the existing host coordinate authorization. Flow steps use a Window selector,
+the same params and a receiving postcondition, with the task's normal contract.
+Ephemeral gestures reuse that authorization without a second prompt.
+
+The target is a background app's focused window. This route preserves the global
+cursor and foreground. Cancellation/failure attempts mouse-up at the last sent
+position, bound to the same process/window; partial effects remain unknown and
+are not retried. A completed send returns `unverified: observe_effect` and
+`reobserve_required: true`; verify the receiving control/canvas effect before
+reporting success. It does not establish Finder file transfers, browser HTML
+DragEvent semantics, window moving/resizing, or cross-app drop support.

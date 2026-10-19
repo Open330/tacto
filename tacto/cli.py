@@ -4,6 +4,8 @@ Usage:
   tacto doctor            # check/guide permissions
   tacto apps              # list running apps (GUI session check)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
+  tacto capture <bundle-id> --helper --output window.png [--window TITLE]
+  tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
   tacto first-run --helper --yes      # new TextEdit document, fixed text, fresh verification
   tacto document-attachments <canonical path> --helper
       (read live attachment positions/references; does not verify payload bytes)
@@ -599,7 +601,7 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "launch", "first-run", "observe", "session", "batch", "document-attachments", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+    if cmd in ("doctor", "apps", "launch", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         from .session import SANDBOXED, sandboxed
         if sandboxed():
             print(SANDBOXED)
@@ -791,6 +793,12 @@ def _dispatch_command(cmd, rest):
         from .vroid_focus import main as focus_main
         return focus_main(rest, _make_driver(rest))
 
+    if cmd == "capture":
+        from .native_drag import capture_main
+        return capture_main(rest, _make_driver(rest))
+    if cmd == "drag":
+        from .native_drag import main as drag_main
+        return drag_main(rest, _make_driver(rest))
     if cmd == "vroid-drag":
         from .vroid_drag import main as drag_main
         return drag_main(rest, _make_driver(rest))

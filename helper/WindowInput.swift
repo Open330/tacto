@@ -1346,3 +1346,81 @@ func nativeSheetSubmitReady(tops: [AXUIElement], sheet: AXUIElement, read: AXRea
     }
     guard childEntries == 1 else { throw NativeWindowInputError.refused("the sheet is missing or seen twice") }
 }
+
+
+// A window-relative, continuous left-button stroke. Coordinates use points
+// from the observed window's top-left, just like click_point.
+struct NativeWindowDrag {
+    let path: [CGPoint]
+    let duration: Double
+}
+struct NativeWindowStroke {
+    let events: [CGEvent]
+    let owners: [NSEvent]
+    let offsets: [Double]
+}
+func buildNativeWindowDrag(_ binding: NativeWindowBinding, drag: NativeWindowDrag) throws -> NativeWindowStroke {
+    guard drag.path.count >= 2, drag.path.count <= 14,
+          drag.duration.isFinite, drag.duration >= 0.1, drag.duration <= 2,
+          binding.windowID > 0, windowInputRectIsValid(binding.windowBounds) else {
+        throw NativeWindowInputError.refused("invalid drag path or duration")
+    }
+    let bounds = binding.windowBounds
+    for point in drag.path {
+        guard point.x.isFinite, point.y.isFinite, point.x >= 0, point.y >= 0,
+              point.x < bounds.width, point.y < bounds.height else {
+            throw NativeWindowInputError.refused("drag point outside observed window")
+        }
+    }
+    let lengths = zip(drag.path, drag.path.dropFirst()).map { hypot($1.x-$0.x,$1.y-$0.y) }
+    let total = lengths.reduce(0,+)
+    guard total > 0 else { throw NativeWindowInputError.refused("empty drag stroke") }
+    let count = max(2, Int(ceil(drag.duration * 30)))
+    var points = [drag.path[0]], offsets = [0.0]
+    var travelled = 0.0
+    for i in lengths.indices {
+        let length = lengths[i]
+        if length == 0 { continue }
+        let segments = max(1,Int(ceil(Double(count)*length/total)))
+        for step in 1...segments {
+            let t=Double(step)/Double(segments)
+            // Keep every waypoint, including corners closer than one frame.
+            points.append(step == segments ? drag.path[i+1] : CGPoint(
+                x:drag.path[i].x+(drag.path[i+1].x-drag.path[i].x)*t,
+                y:drag.path[i].y+(drag.path[i+1].y-drag.path[i].y)*t))
+            offsets.append(drag.duration*(travelled+length*t)/total)
+        }
+        travelled += length
+    }
+    points.append(drag.path.last!);offsets.append(drag.duration)
+    let (setLocation,getLocation) = try WindowInputSPI.locationFunctions()
+    let number = windowInputCounter.next()
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    var owners:[NSEvent]=[], events:[CGEvent]=[]
+    for (i,relative) in points.enumerated() {
+        let type:NSEvent.EventType = i == 0 ? .leftMouseDown : i == points.count-1 ? .leftMouseUp : .leftMouseDragged
+        let global=CGPoint(x:bounds.minX+relative.x,y:bounds.minY+relative.y)
+        let pressure:Float = type == .leftMouseUp ? 0 : 1
+        guard let owner=NSEvent.mouseEvent(with:type,location:CGPoint(x:relative.x,y:bounds.height-relative.y),
+            modifierFlags:[],timestamp:timestamp+offsets[i],windowNumber:Int(binding.windowID),context:nil,
+            eventNumber:number,clickCount:1,pressure:pressure),let event=owner.cgEvent else {
+            throw NativeWindowInputError.refused("drag event construction failed")
+        }
+        event.flags=[];event.location=global
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer,value:Int64(binding.windowID))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent,value:Int64(binding.windowID))
+        if i > 0 {
+            event.setIntegerValueField(.mouseEventDeltaX,value:Int64(relative.x.rounded()-points[i-1].x.rounded()))
+            event.setIntegerValueField(.mouseEventDeltaY,value:Int64(relative.y.rounded()-points[i-1].y.rounded()))
+        }
+        setLocation(event,relative)
+        guard event.location == global,getLocation(event) == relative,
+              NSEvent(cgEvent:event)?.windowNumber == Int(binding.windowID),
+              event.getIntegerValueField(.mouseEventNumber)==Int64(number),
+              event.type == (i == 0 ? .leftMouseDown : i == points.count-1 ? .leftMouseUp : .leftMouseDragged) else {
+            throw NativeWindowInputError.refused("drag event readback mismatch")
+        }
+        owners.append(owner);events.append(event)
+    }
+    return NativeWindowStroke(events:events,owners:owners,offsets:offsets)
+}

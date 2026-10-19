@@ -495,3 +495,30 @@ runs against Preview 7. Stable-release human checks and historical GitHub cleanu
 remain separate; the repository remains private.
 
 DMG SHA-256: `59fc0b2658c069cc5c0cb7cf11f4eb3842a4d2347bca8f63a1eee51fa507e6cb`.
+
+
+## 2026-10-19 Preview 8 window drag
+
+Preview 8 adds signed-helper same-window drag and read-only window capture. The
+agent guide loads drag details only when needed; ordinary tasks do not load the
+coordinate schema. See [native drag](native-drag.md) for tested scope and limits.
+
+Development receiving tests verified an opaque canvas, exact short-zigzag
+waypoints/timestamps, a standard NSSlider and actual TextEdit selection without
+changing document text. A reusable Flow checked the resulting slider value.
+Peer review found and resolved waypoint loss, identical event timestamps and
+an unbounded AX call in cancellation cleanup; the follow-up found no additional
+blocker within the documented same-window scope.
+
+The initial full run executed 2,666 tests, with 3 skips and 3 failures. The
+failures were a missing README command example, a native drag test affected by
+the implementation update, and missing drag boundary stubs in the existing
+preparation-diagnostic harness. All were corrected; the affected 15 tests
+passed on rerun. An overlapping focused regression run passed 18 tests with
+1 expected skip. Three newly added CLI/capture tests were included in those
+reruns. The initial full-run failure is retained rather than relabeled as a
+clean full-suite pass.
+
+This change does not qualify cross-app drag/drop or a stable release. Signing,
+notarization and installation results belong to the release's validation asset;
+existing fresh-install/beta qualification requirements remain applicable.

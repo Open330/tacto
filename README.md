@@ -14,7 +14,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.7) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -45,6 +45,13 @@ Also available: [product lookup](sites/tacto/dist/assets/demos/browser-shopping.
 Browser demos use **Python BrowserDriver + Flow in a separate Chromium instance**, rather than your existing Chrome or Safari tabs. TextEdit stopped when save evidence was insufficient; a separate Save verification then passed. Google Translate's output check is separate from proof of input delivery. The Markdown demo edits only the opening section and leaves other sample content intact.
 
 Recordings include illustrative pointers and capture delays. They show authored Flows executing, not natural-language authoring, and are not speed or token benchmarks. Not every demo completed without intervention. [Conditions, results, and limits](docs/tacto-everyday-examples-2026-10-15.md).
+
+Same-window [drag gestures](docs/native-drag.md) are supported by the signed macOS helper: sliders, text selection and canvas paths, with receiving tests in AppKit and TextEdit. Cross-app file drops are outside this route.
+
+```sh
+tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
+tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
+```
 
 <a id="how-it-works"></a>
 
@@ -90,7 +97,7 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 **Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download first-run update](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.7). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
+[Download drag update](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
 
 This is a **private developer prerelease**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
 

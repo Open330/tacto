@@ -29,6 +29,7 @@ Read only if the observed task needs it:
 - Persistent edits, deletion or sending: [safety](safety.md).
 - TextEdit editing/saving: [documents](documents.md).
 - Finder or menus: [finder/menus](finder-menus.md).
+- Drag paths: [drag](drag.md).
 - Pointer/background preparation: [native input](native-input.md).
 - Complex result checks/captures: [outcomes](outcomes.md).
 - Branches or model judgment: [judgment](judgment.md).

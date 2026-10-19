@@ -1942,6 +1942,7 @@ func nativePopupSelectionAnchorMatches(_ control:AXUIElement,_ element:AXUIEleme
 func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIElement,
                              _ pid: pid_t, deadline: Double, key: String? = nil,
                              expectation: [String: Any]? = nil, point: CGPoint? = nil,
+                             drag: NativeWindowDrag? = nil,
                              windowInput: NativeOpaqueWindowInput? = nil,
                              elementClicks: Int = 0, submitKey: Bool = false,
                              popup: AXUIElement? = nil, observedControl:AXUIElement? = nil,
@@ -2104,7 +2105,24 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
         let transition: ((_ checkpoint: () throws -> Void) throws -> Void)?
         if let finalTransition {transition={checkpoint in try finalTransition(checkpoint,scope)}}
         else {transition=nil}
-        let result = try dispatchNativeWindowPreparation(binding, deadline: deadline,
+        let result: NativeWindowPreparation
+        if let drag {
+            try context()
+            if let expectation,let why=mismatch(expectation,element:element,pid:pid) {
+                throw NativeWindowInputError.refused(why)
+            }
+            result = try dispatchNativeWindowDrag(binding,drag:drag,deadline:deadline,
+                stopped:{abortState.isStopped},context:contextIdentity,
+                validate:{try scope.withBindingContext {try validateNativeWindowBinding(binding,scope:scope)}
+                          try requireNativeWindowTarget(binding,scope:scope)},
+                sameProcess:{nativeProcessStartIdentity(pid)==start && (try? windowInputCGFrame(binding.windowID,pid)) != nil},
+                windowUnchanged:{
+                    guard try windowInputCGFrame(binding.windowID,pid)==binding.windowBounds else {
+                        throw NativeWindowInputError.refused("drag window moved or disappeared")
+                    }
+                })
+        } else {
+        result = try dispatchNativeWindowPreparation(binding, deadline: deadline,
             stopped: { abortState.isStopped }, context: context,
             validate: { previous in
                 if popup != nil {
@@ -2125,8 +2143,9 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                 try scope.ready()
             }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks, submitKey: submitKey,
             finalTransition: transition, headroomDiagnostic: { dispatchHeadroom = $0 })
-        return diagnosed(["type":"acted", "action":elementClicks == 2 ? "double_click" : elementClicks == 1 ? "click" : windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
-                "input_route":submitKey ? "window_bound_submit_key" : elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
+        }
+        return diagnosed(["type":"acted", "action":drag != nil ? "drag" : elementClicks == 2 ? "double_click" : elementClicks == 1 ? "click" : windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
+                "input_route":drag != nil ? "window_bound_drag" : submitKey ? "window_bound_submit_key" : elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
                 "posted_events":result.posted, "window_id":result.windowID,
                 "reobserve_required":true, "unverified":"observe_effect"])
     } catch let failure as NativeWindowDispatchFailure {
@@ -2359,7 +2378,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
     if action["name"] as? String == "window_input", !windowInputAuthorized {
         return ["type":"error", "error":"window_input_authorization_required", "effect":"not_started"]
     }
-    if ["click_point", "vroid_drag", "vroid_focus"].contains(action["name"] as? String ?? ""), !coordinateAuthorized {
+    if ["click_point", "drag", "vroid_drag", "vroid_focus"].contains(action["name"] as? String ?? ""), !coordinateAuthorized {
         return ["type":"error", "error":"coordinate_authorization_required", "effect":"not_started"]
     }
     let deadline = min(clickDeadline ?? .infinity, ProcessInfo.processInfo.systemUptime + 5)
@@ -2554,6 +2573,32 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type":"error","error":"vroid_drag_binding_failed","effect":"not_started","detail":String(describing:error)]
         }
 #endif
+    case "drag":
+        guard Set(action.keys).isSubset(of:Set(["name","element_index","from","to","duration","via"])),
+              let index=documentIsWholeNumber(action["element_index"]),index.intValue>=0,index.intValue<elements.count,
+              let el=element(),str(el,kAXRoleAttribute as String)==kAXWindowRole,
+              let duration=action["duration"] as? NSNumber,CFGetTypeID(duration) != CFBooleanGetTypeID(),
+              duration.doubleValue.isFinite,duration.doubleValue>=0.1,duration.doubleValue<=2 else {
+            return ["type":"error","error":"invalid_drag","effect":"not_started"]
+        }
+        func dragPoint(_ raw:Any?) -> CGPoint? {
+            guard let point=raw as? [String:Any],Set(point.keys)==Set(["x","y"]),
+                  let x=point["x"] as? NSNumber,let y=point["y"] as? NSNumber,
+                  CFGetTypeID(x) != CFBooleanGetTypeID(),CFGetTypeID(y) != CFBooleanGetTypeID(),
+                  x.doubleValue.isFinite,y.doubleValue.isFinite,x.doubleValue>=0,y.doubleValue>=0 else {return nil}
+            return CGPoint(x:x.doubleValue,y:y.doubleValue)
+        }
+        guard let from=dragPoint(action["from"]),let to=dragPoint(action["to"]),
+              action["via"] == nil || action["via"] is [Any] else {
+            return ["type":"error","error":"invalid_drag_point","effect":"not_started"]
+        }
+        let rawVia=action["via"] as? [Any] ?? []
+        let via=rawVia.compactMap {dragPoint($0)}
+        guard rawVia.count<=12,via.count==rawVia.count else {
+            return ["type":"error","error":"invalid_drag_path","effect":"not_started"]
+        }
+        return prepareBackgroundWindow(obsID,target,el,p,deadline:deadline,expectation:expect,point:from,
+            drag:NativeWindowDrag(path:[from]+via+[to],duration:duration.doubleValue))
     case "click_point":
         guard Set(action.keys) == Set(["name", "element_index", "point"]),
               let index = documentIsWholeNumber(action["element_index"]),
@@ -4609,6 +4654,7 @@ let helperCapabilities: [String] = [
     // its own becomes reachable without synthesising anything.
     "action.click.by_point",
     "action.click_point", "click_point.window_bound", "click_point.host_authorization",
+    "action.drag", "drag.window_bound",
     // double_click: AXOpen where offered, else two window-bound clicks at the
     // observed element's hit-tested centre (click count 1 then 2).
     "action.double_click",
@@ -6026,7 +6072,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
             }
             submitAuthorized = true
         }
-        let coordinate = ["click_point", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "")
+        let coordinate = ["click_point", "drag", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "")
         var coordinateAuthorized = false
         if coordinate || msg["coordinate_authorized"] != nil {
             guard coordinate, let value = msg["coordinate_authorized"] as? NSNumber,
@@ -6037,7 +6083,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         }
         var clickDeadline: Double?
         if let raw = msg["click_deadline_uptime"] {
-            guard let action = msg["action"] as? [String: Any], ["click", "click_point", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
+            guard let action = msg["action"] as? [String: Any], ["click", "click_point", "drag", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
                   let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite, number.doubleValue > 0 else {
                 return ["type": "error", "error": "invalid_click_deadline", "effect": "not_started"]

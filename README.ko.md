@@ -101,6 +101,13 @@ Markdown은 나머지 예제가 남는 부분 수정입니다. 모든 사례가 
 다른 업무 앱의 호환성·문서 형식·반복 안정성은 별도로 확인해야 합니다.
 정해진 문서 작성이나 반복 양식 입력에 적용하려면, 사용하는 앱에서 한 건을 먼저 완료·검증한 뒤 작업 순서를 저장하세요.
 
+서명된 macOS 도우미에서 [같은 창 안의 드래그](docs/native-drag.md)를 지원합니다. 슬라이더·텍스트 선택·캔버스 경로를 AppKit과 실제 TextEdit에서 확인했습니다. 앱 사이의 파일 드롭은 이 경로의 지원 범위에 포함되지 않습니다.
+
+```sh
+tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
+tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
+```
+
 <a id="how-it-works"></a>
 
 ## Make it once. Use it again.
@@ -135,7 +142,7 @@ README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드�
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[첫 작업 개선판 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.7) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+[드래그 개선판 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 

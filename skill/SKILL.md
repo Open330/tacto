@@ -28,6 +28,7 @@ do not repeat a partially completed welcome task.
   `write_stdin` with `yield_time_ms: 5000`, so short replays can finish without
   another model/status round. If still running, poll that same session; never
   resend the flow. Prefer the guide's compact click format.
+- **Drag a slider, text selection or canvas:** read [drag](references/drag.md).
 - **Save/parameterize:** when repeated tasks need a template, read
   [reuse](references/reuse.md) only.
 - **Document scope, approval, judgment, or no interactive tools:** read
