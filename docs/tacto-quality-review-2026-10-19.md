@@ -2,8 +2,9 @@
 
 Claude peer and Codex agreed on the following split and implemented it in the
 shared source tree. Claude's Windows work stayed in its separate worktree.
-This source update follows `v0.1.0-preview.6-first-run.5`; it has not yet been
-packaged into a new installed or published app.
+This source update follows `v0.1.0-preview.6-first-run.5` and is the source
+for the `v0.1.0-preview.7` release candidate. Final artifact and installation
+results are recorded with the published release.
 
 | Owner | Concrete issue | Change |
 | --- | --- | --- |
