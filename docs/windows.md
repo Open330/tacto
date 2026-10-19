@@ -61,6 +61,10 @@ with an interactive logon instead.
   read: a test form with 1,500 Win32 buttons took about 3 s, almost all of it
   the system proxy listing those windows. At most 400 children of one element
   and 5,000 elements in all are shown, and the tree says when it is cut.
+  These limit the output only: the cached read fetches the window's whole
+  subtree first, so its time and memory grow with the app's full tree, not
+  with what is shown. Very large trees (a browser page, a folder of
+  thousands of files) have not been measured yet.
 - Windows 11 menus open as separate popup windows that UIA also shows inside
   their owner; each popup is shown once, inside its window.
 - A UIA call that fails while observing returns `observation_unavailable`
