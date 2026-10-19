@@ -187,7 +187,7 @@ Open `http://127.0.0.1:8787`.
 
 Detailed guides are primarily Korean, with code examples and some English references.
 
-[Installation](docs/installation.md) · [Flows](docs/recipes.md) · [API](docs/api.md) · [Capabilities](docs/capabilities.md) · [Agent skill](skill/SKILL.md)
+[Installation](docs/installation.md) · [Windows (experimental)](docs/windows.md) · [Flows](docs/recipes.md) · [API](docs/api.md) · [Capabilities](docs/capabilities.md) · [Agent skill](skill/SKILL.md)
 
 <details>
 <summary>CLI reference and legacy nlc compatibility</summary>

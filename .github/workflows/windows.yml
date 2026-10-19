@@ -1,0 +1,27 @@
+name: windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["tacto/windows_driver.py", "tacto/uia_backend.py", "tests/test_windows_*.py", ".github/workflows/windows.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  uia:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.22"
+      - name: Sync
+        run: uv sync --frozen
+      - name: Portable unit tests
+        run: uv run python -B -m unittest tests.test_windows_driver tests.test_windows_cli
+      - name: Real UI Automation against an owned Notepad
+        env:
+          TACTO_WINDOWS_LIVE: "1"
+        run: uv run python -B -m unittest -v tests.test_windows_live

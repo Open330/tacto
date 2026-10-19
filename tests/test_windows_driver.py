@@ -1,0 +1,267 @@
+"""WindowsDriver logic against a fake UI Automation tree (runs on any OS)."""
+import unittest
+
+from tacto.general import candidates
+from tacto.flow import Selector
+from tacto.windows_driver import WindowsDriver
+
+
+class Element:
+    def __init__(self, control_type, name=None, *, automation_id=None, value=None, readonly=None,
+                 enabled=True, offscreen=False, selected=None, patterns=(), children=(), pid=10):
+        self.props = {"control_type": control_type, "name": name, "automation_id": automation_id,
+                      "help": None, "enabled": enabled, "offscreen": offscreen, "pid": pid,
+                      "value": value, "readonly": readonly, "selected": selected,
+                      "runtime_id": (id(self),), "patterns": set(patterns)}
+        self.kids = list(children)
+        self.parent = None
+        for child in self.kids:
+            child.parent = self
+
+
+class Backend:
+    def __init__(self, windows, *, apps=None):
+        self.windows = windows
+        self.apps = apps or [{"pid": 10, "exe": "Notepad.exe", "name": "Notepad"}]
+        self.calls = []
+        self.modal = False
+
+    def modal_present(self, pid):
+        return self.modal
+
+    def processes(self):
+        return self.apps
+
+    def top_windows(self, pid):
+        return [w for w in self.windows if w.props["pid"] == pid]
+
+    def children(self, element):
+        return element.kids
+
+    def descendants(self, element):
+        out = []
+        for child in element.kids:
+            out.append(child)
+            out.extend(self.descendants(child))
+        return out
+
+    def props(self, element):
+        return dict(element.props)
+
+    def _record(self, name, element, *args):
+        self.calls.append((name, element.props["name"], *args))
+
+    def invoke(self, element):
+        self._record("invoke", element)
+
+    def toggle(self, element):
+        self._record("toggle", element)
+
+    def select(self, element):
+        self._record("select", element)
+
+    def expand(self, element):
+        self._record("expand", element)
+
+    def collapse(self, element):
+        self._record("collapse", element)
+
+    def set_value(self, element, text):
+        self._record("set_value", element, text)
+        element.props["value"] = text
+
+    def scroll_container(self, element):
+        while element is not None and "scroll" not in element.props["patterns"]:
+            element = element.parent
+        return element
+
+    def scroll(self, element, direction, pages):
+        self._record("scroll", element, direction, pages)
+
+
+def notepad():
+    save = Element("Button", "Save", automation_id="save", patterns={"invoke"})
+    custom = Element("Custom", "Canvas")
+    wrap = Element("CheckBox", "Word wrap", patterns={"toggle"}, selected=None)
+    edit = Element("Edit", "Text editor", automation_id="body", value="hello", readonly=False,
+                   patterns={"value"})
+    status = Element("Text", "Ln 1, Col 1")
+    hidden = Element("Button", "Hidden", offscreen=True, patterns={"invoke"})
+    disabled = Element("Button", "Print", enabled=False, patterns={"invoke"})
+    options = [Element("ListItem", label, patterns={"selection_item"}) for label in ("UTF-8", "ANSI")]
+    encoding = Element("ComboBox", "Encoding", patterns={"expand_collapse"}, children=options)
+    pane = Element("Pane", None, patterns={"scroll"},
+                   children=[save, custom, wrap, edit, status, hidden, disabled, encoding])
+    window = Element("Window", "Untitled - Notepad", children=[pane])
+    return window, {e.props["name"]: e for e in (save, custom, wrap, edit, status, hidden,
+                                                    disabled, encoding, pane, *options) if e.props["name"]}
+
+
+class WindowsDriverTests(unittest.TestCase):
+    def setUp(self):
+        self.window, self.named = notepad()
+        self.backend = Backend([self.window])
+        self.driver = WindowsDriver(self.backend)
+
+    def observe(self):
+        obs = self.driver.observe("notepad")
+        self.assertEqual("observation", obs["type"])
+        return obs
+
+    def index(self, obs, **selector):
+        return Selector(**selector).resolve(obs["tree"])[0]
+
+    def act(self, obs, name, **action):
+        return self.driver.act(obs["obs_id"], "notepad", {"name": name, **action})
+
+    def test_tree_uses_engine_roles_and_attributes(self):
+        tree = self.observe()["tree"]
+        self.assertIn("Window  Title: Untitled - Notepad", tree)
+        self.assertIn("Button  Title: Save, Identifier: save", tree)
+        self.assertIn("TextField  Title: Text editor, Value: hello, Identifier: body", tree)
+        self.assertIn("StaticText  Title: Ln 1, Col 1", tree)
+        self.assertIn("Button  Title: Print [disabled]", tree)
+        self.assertNotIn("Hidden", tree)
+        roles = {c["role"] for c in candidates(tree)}
+        self.assertTrue({"Button", "TextField", "CheckBox", "StaticText"} <= roles)
+
+    def test_target_resolution_is_exact_and_unambiguous(self):
+        self.assertEqual(10, self.driver._resolve("notepad"))
+        self.assertEqual(10, self.driver._resolve("NOTEPAD.EXE"))
+        self.assertEqual(10, self.driver._resolve("pid:10"))
+        self.assertIsNone(self.driver._resolve("note"))
+        self.backend.apps.append({"pid": 11, "exe": "notepad.exe", "name": "Notepad"})
+        self.backend.windows.append(Element("Window", "Second", pid=11))
+        self.assertIsNone(self.driver._resolve("notepad"))
+        self.assertEqual("target_not_found", self.driver.observe("notepad")["error"])
+        self.assertEqual("win:notepad.exe", self.driver.identity("Notepad"))
+
+    def test_click_uses_patterns_in_order_and_never_synthesizes_input(self):
+        obs = self.observe()
+        result = self.act(obs, "click", element_index=self.index(obs, title="Save"))
+        self.assertEqual(("acted", "uia_invoke"), (result["type"], result["input_route"]))
+        self.assertTrue(result["reobserve_required"])
+        obs = self.observe()
+        self.assertEqual("uia_toggle", self.act(obs, "click", element_index=self.index(obs, title="Word wrap"))["input_route"])
+        self.assertEqual([("invoke", "Save"), ("toggle", "Word wrap")], self.backend.calls)
+
+    def test_elements_without_patterns_are_refused_before_any_call(self):
+        self.window.kids[0].kids[1].props["control_type"] = "Button"
+        obs = self.observe()
+        result = self.act(obs, "click", element_index=self.index(obs, title="Canvas"))
+        self.assertEqual(("error", "not_started", True), (result["type"], result["effect"], result["needs_pointer"]))
+        disabled = self.act(obs, "click", element_index=self.index(obs, title="Print"))
+        self.assertEqual("not_started", disabled["effect"])
+        for name in ("press_key", "type_text"):
+            refused = self.act(obs, name, element_index=0, key="Tab", text="x")
+            self.assertEqual(("not_started", True), (refused["effect"], refused["needs_foreground"]))
+        self.assertEqual([], self.backend.calls)
+
+    def test_set_value_respects_read_only_and_value_type(self):
+        obs = self.observe()
+        index = self.index(obs, identifier="body")
+        self.assertEqual("acted", self.act(obs, "set_value", element_index=index, value="draft")["type"])
+        self.assertEqual("draft", self.named["Text editor"].props["value"])
+        self.named["Text editor"].props["readonly"] = True
+        obs = self.observe()
+        self.assertIn("TextField [readonly]", obs["tree"])
+        self.assertEqual("not_started", self.act(obs, "set_value", element_index=index, value="x")["effect"])
+        self.assertEqual("not_started", self.act(obs, "set_value", element_index=index, value=3)["effect"])
+
+    def test_stale_or_replaced_elements_are_never_addressed(self):
+        obs = self.observe()
+        index = self.index(obs, title="Save")
+        newer = self.observe()
+        self.assertEqual("stale_observation", self.act(obs, "click", element_index=index)["error"])
+        self.named["Save"].props["runtime_id"] = ("replaced",)
+        changed = self.act(newer, "click", element_index=index)
+        self.assertEqual(("not_started", "target changed since observation"), (changed["effect"], changed["detail"]))
+        out_of_range = self.act(newer, "click", element_index=999)
+        self.assertEqual("not_started", out_of_range["effect"])
+        self.assertEqual([], self.backend.calls)
+
+    def test_select_option_is_exact_and_unknown_after_opening(self):
+        obs = self.observe()
+        index = self.index(obs, title="Encoding")
+        result = self.act(obs, "select_option", element_index=index, option_label="ANSI")
+        self.assertEqual("acted", result["type"])
+        self.assertEqual([("expand", "Encoding"), ("select", "ANSI"), ("collapse", "Encoding")], self.backend.calls)
+        self.backend.calls.clear()
+        missing = self.act(self.observe(), "select_option", element_index=index, option_label="UTF-16")
+        self.assertEqual("unknown", missing["effect"])
+        self.assertEqual([("expand", "Encoding"), ("collapse", "Encoding")], self.backend.calls)
+        mismatch = self.act(self.observe(), "select_option", element_index=index, option_label="ANSI", value="x")
+        self.assertEqual("not_started", mismatch["effect"])
+
+    def test_scroll_finds_container_and_bounds_pages(self):
+        obs = self.observe()
+        index = self.index(obs, title="Save")
+        self.assertEqual("acted", self.act(obs, "scroll", element_index=index, direction="down", pages=2)["type"])
+        self.assertEqual(("scroll", None, "down", 2), self.backend.calls[-1])
+        for bad in ({"direction": "sideways"}, {"direction": "down", "pages": 11}, {"direction": "up", "pages": True}):
+            self.assertEqual("not_started", self.act(self.observe(), "scroll", element_index=index, **bad)["effect"])
+
+    def test_consent_gates_match_the_macos_driver(self):
+        obs = self.observe()
+        index = self.index(obs, title="Save")
+        ask = self.driver.act(obs["obs_id"], "notepad", {"name": "click", "element_index": index},
+                              risk_class="confirm", intent_text="save")
+        self.assertEqual("confirm_request", ask["type"])
+        self.assertEqual("handoff_request", self.driver.act(obs["obs_id"], "notepad", {"name": "click"},
+                                                            risk_class="handoff")["type"])
+        self.assertEqual([], self.backend.calls)
+
+    def test_expectations_are_checked_before_dispatch_like_macos(self):
+        obs = self.observe()
+        save = self.index(obs, title="Save")
+        def act(expect, index=save):
+            return self.driver.act(obs["obs_id"], "notepad", {"name": "click", "element_index": index},
+                                   expect=expect)
+        refused = {
+            "role": {"role": "TextField"},
+            "label": {"label": "Open"},
+            "attribute": {"label": "Save", "attribute": "Identifier"},
+            "selection": {"selection": "digest"},
+        }
+        for name, expect in refused.items():
+            with self.subTest(name):
+                result = act(expect)
+                self.assertEqual(("target_changed", "not_started"), (result["error"], result["effect"]))
+        self.backend.modal = True
+        self.assertEqual("target_changed", act({"no_modal": True})["error"])
+        self.backend.modal = None
+        self.assertEqual("target_changed", act({"no_modal": True})["error"])
+        self.backend.modal = False
+        no_index = self.driver.act(obs["obs_id"], "notepad", {"name": "read"}, expect={"role": "Button"})
+        self.assertEqual("target_changed", no_index["error"])
+        self.assertEqual([], self.backend.calls)
+        ok = act({"role": "Button", "label": "save", "attribute": "Identifier", "enabled": True, "no_modal": True})
+        self.assertEqual("acted", ok["type"])
+        self.assertEqual([("invoke", "Save")], self.backend.calls)
+
+    def test_probe_reads_one_element_and_rejects_stale_ids(self):
+        obs = self.observe()
+        index = self.index(obs, identifier="body")
+        self.assertEqual({"type": "probe", "line": "Title: Text editor, Value: hello, Identifier: body"},
+                         self.driver.probe(obs["obs_id"], "notepad", index))
+        self.assertEqual("stale_observation", self.driver.probe("old", "notepad", index)["error"])
+        self.assertEqual("target_missing", self.driver.probe(obs["obs_id"], "notepad", 999)["error"])
+
+    def test_wait_until_polls_until_predicate_or_timeout(self):
+        clock = [0.0]
+        driver = WindowsDriver(self.backend, clock=lambda: clock[0],
+                               sleep=lambda s: clock.__setitem__(0, clock[0] + s))
+        self.assertEqual("observation", driver.wait_until("notepad", lambda t: "Save" in t)["type"])
+        timeout = driver.wait_until("notepad", lambda t: "Never" in t, timeout_ms=500, poll_ms=100)
+        self.assertEqual("timeout", timeout["type"])
+
+    def test_list_targets_and_windowless_observation(self):
+        self.assertEqual([{"id": "Notepad.exe", "displayName": "Notepad", "pid": 10, "isRunning": True}],
+                         self.driver.list_targets()["apps"])
+        self.backend.windows = []
+        self.backend.apps.append({"pid": 12, "exe": "tray.exe", "name": "tray"})
+        self.assertEqual([], self.driver.list_targets()["apps"])
+
+
+if __name__ == "__main__":
+    unittest.main()

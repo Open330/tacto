@@ -102,7 +102,14 @@ def _journal_from(argv):
 def _make_driver(argv):
     """--helper uses the signed Swift helper (which holds the permissions);
     otherwise the in-process Python driver. Same L2 protocol either way."""
-    if "--helper" in argv:
+    if sys.platform == "win32":
+        # UI Automation needs no OS permission grant, so there is no signed
+        # helper to hold one; --helper cannot be honoured and is refused.
+        if "--helper" in argv:
+            raise SystemExit("--helper is macOS-only; on Windows run without it")
+        from .windows_driver import WindowsDriver
+        driver = WindowsDriver()
+    elif "--helper" in argv:
         # Fail closed: --helper asks to run with the permission boundary in
         # place, so falling back to the in-process driver would run the task
         # with exactly the privileges the flag exists to avoid.
@@ -598,6 +605,13 @@ def _main(argv=None):
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
     if cmd in ("doctor", "apps", "observe", "session", "batch", "document-attachments", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+        if sys.platform == "win32":
+            if cmd in ("doctor", "document-attachments", "vroid-drag", "vroid-focus"):
+                print(f"{cmd} is macOS-only; see docs/windows.md")
+                return 2
+            from .windows_driver import keep_awake
+            with keep_awake():
+                return _dispatch(cmd, rest)
         from .session import SANDBOXED, sandboxed
         if sandboxed():
             print(SANDBOXED)

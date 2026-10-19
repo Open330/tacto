@@ -171,7 +171,7 @@ uv sync
 ~/.local/bin/tacto run flow.json --helper
 ```
 
-[설치·권한 안내](docs/installation.md) · [Flow 작성 가이드](docs/recipes.md) · [에이전트 스킬](skill/SKILL.md)
+[설치·권한 안내](docs/installation.md) · [Windows(실험적)](docs/windows.md) · [Flow 작성 가이드](docs/recipes.md) · [에이전트 스킬](skill/SKILL.md)
 
 <details>
 <summary>설치 문제와 개발 버전의 반복 실행</summary>
