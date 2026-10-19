@@ -3397,7 +3397,7 @@ def scenario_every_transport_answers_the_same():
     import importlib.util
     root = __file__.rsplit("/", 2)[0]
     spec = importlib.util.spec_from_file_location(
-        "nlc_helper_contract", f"{root}/tests/test_helper_contract.py")
+        "tacto_helper_contract", f"{root}/tests/test_helper_contract.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 

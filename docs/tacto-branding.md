@@ -25,14 +25,9 @@ Flow를 재사용하는 실행 계층입니다. 문서·웹·CLI·에이전트 �
 명시적 `FlowStore(path=...)` 선택을 요청합니다. import·doctor는 사용자 파일을
 이동하거나 덮어쓰지 않습니다.
 
-Preview 1과 이전 설치는 **NLC Helper**라는 이름을 사용합니다. GUI와 doctor는
-실제 설치된 앱 이름을 읽습니다. 새 빌드는 **Tacto Helper**를 사용하되 macOS 설정
-목록은 이전 이름을 캐시할 수 있습니다. 권한 유지 여부는 실제 업그레이드에서
-별도 검증해야 하며 LaunchServices 캐시는 자동으로 지우지 않습니다.
-helper 번들 경로(`NLC Helper.app` → `Tacto Helper.app`)와 실행 파일(`NLCHelper` →
-`TactoHelper`)은 바뀌었고, 번들 식별자·서명 요구조건만 유지됩니다. 같은 식별자와
-요구조건이면 macOS가 권한을 이어 줄 것으로 예상하지만, 실제 업그레이드로 확인되기
-전까지는 확정된 사실로 안내하지 않습니다.
+권한용 helper는 **Tacto Helper**입니다(번들 `Tacto Helper.app`, 실행 파일
+`TactoHelper`). GUI와 doctor는 실제 설치된 앱 이름을 읽습니다. 번들 식별자와
+서명 요구조건은 `ai.callabo.nlc.*`를 사용합니다.
 
 `./skill/install.sh`는 `tacto`와 `nlc` 명령을 새 서명 실행기로 연결합니다.
 다른 프로그램·스킬은 덮어쓰지 않으며 소유를 확인한 이전 스킬만 백업합니다.

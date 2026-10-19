@@ -5,7 +5,7 @@
 #   (the relay lives inside the launcher — a separate signed broker binary was
 #    removed: anyone could run it, so authenticating it proved nothing)
 #   helper/tacto-helper   the binary that holds the Accessibility grant
-#   NLC Helper.app      that binary packaged so TCC lists it by name
+#   Tacto Helper.app      that binary packaged so TCC lists it by name
 #
 # Nothing here needs an Xcode licence: the Command Line Tools toolchain is used
 # with an explicit SDK path.

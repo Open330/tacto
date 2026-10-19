@@ -114,13 +114,13 @@ class UpgradeRollbackHarnessTests(unittest.TestCase):
         self.assertTrue(harness.standalone_runtime(runtime(self.base, 'tacto')))
         self.assertFalse(harness.standalone_runtime(self.base))
 
-    def test_identity_records_actual_preview1_and_current_artifacts(self):
+    def test_identity_records_actual_current_artifacts(self):
         from unittest.mock import patch
         import subprocess
         identity_spec=importlib.util.spec_from_file_location('release_identity', ROOT/'examples/release_identity.py')
         provenance=importlib.util.module_from_spec(identity_spec)
         identity_spec.loader.exec_module(provenance)
-        for name, helper in [('nlc', 'NLC Helper.app'), ('tacto', 'Tacto Helper.app')]:
+        for name, helper in [('tacto', 'Tacto Helper.app')]:
             root=runtime(self.base,name).resolve()
             package=root/'.venv/lib/python3.11/site-packages'/name
             package.mkdir(parents=True)

@@ -140,7 +140,7 @@ This observation also corrected the earlier transient-pane interpretation.
 
 ## Permission ownership and drop destination correction
 
-After the person added NLC Helper and the Settings toggle showed on, a fresh
+After the person added Tacto Helper and the Settings toggle showed on, a fresh
 standalone receipt still reported screen capture unavailable. A read-only TCC
 log correlated the exact preflight request IDs with services and subjects:
 standalone ScreenCapture used `ai.callabo.nlc.setup.standalone.preview`, while

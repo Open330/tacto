@@ -187,13 +187,10 @@ def helper_status() -> dict:
     other script on the machine also uses.
     """
     import os
-    from .helper import HELPER, helper_display_name, helper_candidates
+    from .helper import HELPER, helper_display_name
     out = {"built": os.path.exists(HELPER), "path": HELPER, "trusted": None,
-           "bundled": HELPER.endswith(("Contents/MacOS/TactoHelper", "Contents/MacOS/NLCHelper")),
+           "bundled": HELPER.endswith("Contents/MacOS/TactoHelper"),
            "name": helper_display_name()}
-    candidates = helper_candidates()
-    if any("/NLC Helper.app/" in path or path.endswith("/nlc-helper") for path in candidates) and any("/Tacto Helper.app/" in path or path.endswith("/tacto-helper") for path in candidates):
-        out["coexisting_builds"] = candidates
     from pathlib import Path
     binary = Path(HELPER).resolve()
     # Fixed standalone layout only; never infer this from a loose '.app' substring.
@@ -212,7 +209,7 @@ def helper_status() -> dict:
             # Under the signed launcher, the channel it handed down is the
             # only one the helper answers. Dialling the helper directly, as
             # this did, is refused BY DESIGN (peer authentication) — so the
-            # check reported "grant NLC Helper" to people whose helper was
+            # check reported "grant the helper" to people whose helper was
             # granted and working, and told them to use the launcher they
             # were already using (2026-09-28).
             driver = InheritedHelperDriver()    # its handshake checks AX trust
@@ -235,9 +232,6 @@ def helper_status() -> dict:
 def run_helper_onboarding(narrate=print, *, interactive=True) -> bool:
     """Walk the user through granting the HELPER, not this interpreter."""
     st = helper_status()
-    if st.get("coexisting_builds"):
-        narrate(f"도우미 빌드가 여러 개 있습니다. 선택된 경로: {st['path']}")
-        narrate("    새 빌드를 사용하려면 ./build.sh로 앱 번들까지 빌드하세요.")
     if not st["built"]:
         narrate("✕ 도우미가 아직 빌드되지 않았어요:")
         narrate("    helper/build.sh && helper/bundle.sh && launcher/build.sh")

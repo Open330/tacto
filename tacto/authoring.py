@@ -227,7 +227,7 @@ def _provider_env() -> dict:
     env = dict(os.environ)
     # A fresh model CLI does not own the launcher's inherited socket. Keeping
     # its markers makes grandchildren mistake a closed/reused fd for authority.
-    for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN', 'NLC_HELPER_FD', 'NLC_LAUNCHER', 'NLC_HELPER_TOKEN'):
+    for key in ('TACTO_HELPER_FD', 'TACTO_LAUNCHER', 'TACTO_HELPER_TOKEN'):
         env.pop(key, None)
     if not env.get("CLAUDECODE"):
         return env                      # no Claude session markers to remove

@@ -46,9 +46,7 @@ guard !exe.path.isEmpty else {
 }
 let root = exe.deletingLastPathComponent().deletingLastPathComponent()
 let python = root.appendingPathComponent(".venv/bin/python")
-let canonicalHelperApp = root.appendingPathComponent("helper/Tacto Helper.app")
-let legacyHelperApp = root.appendingPathComponent("helper/NLC Helper.app")
-let helperApp = FileManager.default.fileExists(atPath: canonicalHelperApp.path) ? canonicalHelperApp : legacyHelperApp
+let helperApp = root.appendingPathComponent("helper/Tacto Helper.app")
 
 guard FileManager.default.isExecutableFile(atPath: python.path) else {
     FileHandle.standardError.write(Data(
@@ -811,10 +809,10 @@ defer { unlink(rendezvousPath); rmdir(runDir) }
 //
 //   from a shell       responsible path = /usr/libexec/sshd-keygen-wrapper
 //   posix_spawned      responsible path = /usr/libexec/sshd-keygen-wrapper
-//   LaunchServices     responsible path = .../NLC Helper.app/.../TactoHelper
+//   LaunchServices     responsible path = .../Tacto Helper.app/.../TactoHelper
 //
 // Only the third is the helper's own identity, and only the third can use the
-// grant the user ticked against "NLC Helper". Accessibility was never affected,
+// grant the user ticked against "Tacto Helper". Accessibility was never affected,
 // which is why this went unnoticed: the two services do not attribute alike.
 //
 // What LaunchServices takes away is the parent-child relationship: no inherited

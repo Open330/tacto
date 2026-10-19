@@ -158,7 +158,7 @@ uv sync
 ~/.local/bin/tacto doctor
 ```
 
-`doctor`와 앱의 ‘허용할 앱’ 안내에 따라 **Tacto Helper**(Preview 1·이전 빌드는 **NLC Helper**)의 macOS 권한을 허용한 뒤, Claude 또는 Codex에 요청하세요.
+`doctor`와 앱의 ‘허용할 앱’ 안내에 따라 **Tacto Helper**의 macOS 권한을 허용한 뒤, Claude 또는 Codex에 요청하세요.
 
 > Tacto 스킬로 계산기에서 12 × 34를 계산하고 결과를 확인해줘.<br>
 > 같은 작업을 다시 쓸 수 있도록 매개변수가 있는 Flow로 저장해줘.
@@ -177,7 +177,7 @@ uv sync
 스킬을 찾지 못하면 에이전트 세션을 다시 열고 `./skill/install.sh --check`로 연결을 확인하세요.
 Python 배포 이름은 `tacto-runtime`이며 기본 import는 `tacto`이며 `nlc`는 호환 계층입니다.
 Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습니다.
-기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 새 빌드의 권한용 앱은 **Tacto Helper**로 표시합니다. Preview 1·이전 설치의 **NLC Helper**는 실제 설치 이름대로 안내합니다. 새 빌드는 helper 번들·실행 파일을 `helper/Tacto Helper.app/Contents/MacOS/TactoHelper`로, 실행기를 `launcher/tacto`로 옮겼습니다. 번들 식별자와 서명 요구조건(`ai.callabo.nlc.*`)은 그대로지만, Preview 1에서 허용한 권한이 이름이 바뀐 번들로 이어지는지는 실제 업그레이드에서 아직 확인하지 않았습니다. 업그레이드 뒤 권한 상태를 다시 확인하세요.
+기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 권한용 앱은 **Tacto Helper**(`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`)이고 실행기는 `launcher/tacto`입니다. 번들 식별자와 서명 요구조건은 `ai.callabo.nlc.*`를 사용합니다.
 
 > **Python 이름 충돌 주의.** 최상위 import 이름 `tacto`는 PyPI의 다른 패키지(촉각 센서 시뮬레이터)도 사용합니다. 이 프로젝트의 배포 이름은 `tacto-runtime`이며 별도 가상환경에 설치하세요. Tacto를 위해 `pip install tacto`를 실행하지 마세요. 두 패키지를 한 환경에 설치하면 서로의 파일을 덮어쓰며, 이때 `import nlc`는 `tacto-runtime`을 안내하는 오류로 거부합니다.
 선택적 Playwright backend는 별도 Chromium 페이지를 사용합니다.

@@ -9,11 +9,11 @@ from tacto.onboard import Check, _screen_recording_for
 
 
 class PermissionDisplayNameTests(unittest.TestCase):
-    def test_current_and_legacy_bundles_are_not_confused(self):
+    def test_the_installed_bundle_name_is_reported_as_is(self):
         with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / 'NLC Helper.app/Contents/MacOS/TactoHelper'
+            binary = Path(directory) / 'Tacto Helper.app/Contents/MacOS/TactoHelper'
             binary.parent.mkdir(parents=True)
-            for name in ['Tacto Helper', 'NLC Helper']:
+            for name in ['Tacto Helper', 'Renamed Helper']:
                 with self.subTest(name=name):
                     (binary.parent.parent / 'Info.plist').write_bytes(plistlib.dumps({
                         'CFBundleDisplayName': name, 'CFBundleIdentifier': 'ai.callabo.nlc.helper'}))
@@ -27,10 +27,10 @@ class PermissionDisplayNameTests(unittest.TestCase):
 
     def test_localized_product_name_and_outer_screen_holder(self):
         with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / 'NLC Helper.app/Contents/MacOS/TactoHelper'
+            binary = Path(directory) / 'Tacto Helper.app/Contents/MacOS/TactoHelper'
             binary.parent.mkdir(parents=True)
             contents = binary.parent.parent
-            (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleDisplayName':'NLC Helper'}))
+            (contents / 'Info.plist').write_bytes(plistlib.dumps({'CFBundleDisplayName':'Base Name'}))
             localized = contents / 'Resources/en.lproj'
             localized.mkdir(parents=True)
             (localized / 'InfoPlist.strings').write_bytes(plistlib.dumps({'CFBundleDisplayName':'Tacto Helper'}))
@@ -62,7 +62,7 @@ class PermissionDisplayNameTests(unittest.TestCase):
 
     def test_bare_or_invalid_bundle_metadata_has_a_product_name(self):
         with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / 'NLC Helper.app/Contents/MacOS/TactoHelper'
+            binary = Path(directory) / 'Tacto Helper.app/Contents/MacOS/TactoHelper'
             binary.parent.mkdir(parents=True)
             for content in [b'not a plist', plistlib.dumps([]), plistlib.dumps({'CFBundleDisplayName': 42})]:
                 (binary.parent.parent / 'Info.plist').write_bytes(content)

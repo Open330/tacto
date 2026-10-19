@@ -111,7 +111,7 @@ uv sync
 ~/.local/bin/tacto doctor
 ```
 
-Follow `doctor` and the app’s “permission holder” label to grant macOS permissions to **Tacto Helper** (Preview 1 and older builds: **NLC Helper**). Then ask Claude or Codex:
+Follow `doctor` and the app’s “permission holder” label to grant macOS permissions to **Tacto Helper**. Then ask Claude or Codex:
 
 > Use the Tacto skill to calculate 12 × 34 in Calculator and verify the result.<br>
 > Save it as a parameterized Flow so I can run it again with different inputs.
@@ -127,7 +127,7 @@ Replay a saved Flow:
 <details>
 <summary>Installation notes and development-only commands</summary>
 
-If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`; `nlc` is a compatibility alias. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported; new builds display **Tacto Helper**, while Preview 1 and older installs may display **NLC Helper**. New builds moved the helper bundle and executable to `helper/Tacto Helper.app/Contents/MacOS/TactoHelper` and the launcher to `launcher/tacto`. Bundle identifiers and signing requirements (`ai.callabo.nlc.*`) are unchanged, but whether macOS carries a Preview 1 grant over to the renamed bundle has not yet been verified on a real upgrade; re-check permissions after upgrading.
+If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`; `nlc` is a compatibility alias. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported. The permission holder is **Tacto Helper** (`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`) and the launcher is `launcher/tacto`; bundle identifiers and signing requirements use `ai.callabo.nlc.*`.
 
 > **Python namespace conflict.** The top-level import `tacto` is also used by an unrelated PyPI package (a tactile-sensor simulator). Install this project's distribution, `tacto-runtime`, in its own environment, and never `pip install tacto` for Tacto. Installing both into one environment overwrites each other's files; `import nlc` then refuses with an error naming `tacto-runtime`.
 

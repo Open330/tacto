@@ -41,8 +41,6 @@ def identity(launcher):
         text=subprocess.run(['codesign','-dv','--verbose=4',str(path)],capture_output=True,text=True,check=True).stderr
         return next(line.split('=',1)[1] for line in text.splitlines() if line.startswith('CDHash='))
     helper=runtime/'helper/Tacto Helper.app'
-    if not helper.is_dir():
-        helper=runtime/'helper/NLC Helper.app'
     result['cdhash']={name:code_hash(path) for name,path in {
         'launcher':Path(launcher).resolve(strict=True), 'helper':helper,
         'python':runtime/'.venv/bin/python'}.items()}

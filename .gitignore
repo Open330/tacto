@@ -41,8 +41,6 @@ credentials.json
 
 # Native build outputs; build from source or use notarized Release assets.
 /launcher/nlc
-/helper/nlc-helper
-/helper/NLC Helper.app/
 /broker/nlc-broker
 
 # Canonical Tacto native outputs (old output names remain ignored above).

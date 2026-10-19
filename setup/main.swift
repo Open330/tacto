@@ -415,9 +415,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         root = runtime
         bundledRuntime = object["bundledRoot"] == "runtime"
-        let currentHelper = root.appendingPathComponent("helper/Tacto Helper.app")
-        let legacyHelper = root.appendingPathComponent("helper/NLC Helper.app")
-        helper = FileManager.default.fileExists(atPath: currentHelper.path) ? currentHelper : legacyHelper
+        helper = root.appendingPathComponent("helper/Tacto Helper.app")
         refreshConnection()
         build()
         installMenus()

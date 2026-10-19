@@ -10,15 +10,21 @@ from tacto import store
 
 class NamespaceConfigurationTests(unittest.TestCase):
     def test_canonical_environment_wins_without_mutating_input(self):
-        env = {'NLC_HELPER_FD':'3', 'TACTO_HELPER_FD':'4'}
-        self.assertEqual('4',value('HELPER_FD',environ=env))
-        del env['TACTO_HELPER_FD']
-        self.assertEqual('3',value('HELPER_FD',environ=env))
-        self.assertEqual({'NLC_HELPER_FD':'3'},env)
+        env = {'NLC_NO_INDICATOR':'0', 'TACTO_NO_INDICATOR':'1'}
+        self.assertEqual('1',value('NO_INDICATOR',environ=env))
+        del env['TACTO_NO_INDICATOR']
+        self.assertEqual('0',value('NO_INDICATOR',environ=env))
+        self.assertEqual({'NLC_NO_INDICATOR':'0'},env)
 
-    def test_legacy_inherited_authority_is_not_forwarded_to_model_processes(self):
+    def test_helper_authority_is_read_only_from_canonical_names(self):
+        for key in ('HELPER_FD', 'HELPER_TOKEN', 'LAUNCHER'):
+            with self.subTest(key):
+                self.assertIsNone(value(key, environ={'NLC_'+key: '3'}))
+                self.assertEqual('4', value(key, environ={'NLC_'+key: '3', 'TACTO_'+key: '4'}))
+
+    def test_inherited_authority_is_not_forwarded_to_model_processes(self):
         from tacto.authoring import _provider_env
-        env = {name:'3' for name in ['NLC_HELPER_FD','TACTO_HELPER_FD','NLC_LAUNCHER','TACTO_LAUNCHER','NLC_HELPER_TOKEN','TACTO_HELPER_TOKEN']}
+        env = {name:'3' for name in ['TACTO_HELPER_FD','TACTO_LAUNCHER','TACTO_HELPER_TOKEN']}
         with patch.dict(os.environ, env, clear=True):
             cleaned = _provider_env()
         self.assertTrue(set(env).isdisjoint(cleaned))
@@ -80,19 +86,33 @@ class NamespaceConfigurationTests(unittest.TestCase):
             self.assertIn('namespace conflict',result.stderr)
             self.assertNotIn('No module named',result.stderr)
 
-    def test_coexisting_old_bundle_and_new_bare_are_diagnosed(self):
-        from tacto import helper, onboard
+    def test_only_the_tacto_helper_build_is_selected(self):
+        from tacto import helper
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            old=root/'NLC Helper.app/Contents/MacOS/NLCHelper'
+            bundled=root/'Tacto Helper.app/Contents/MacOS/TactoHelper'
             bare=root/'tacto-helper'
-            old.parent.mkdir(parents=True);old.touch();bare.touch()
-            with patch.multiple(helper, _BUNDLED=str(root/'missing'), _LEGACY_BUNDLED=str(old), _BARE=str(bare), _LEGACY_BARE=str(root/'missing-old'), HELPER=str(old)), patch.object(helper, 'HelperDriver', side_effect=RuntimeError('test only')):
-                status=onboard.helper_status()
-            self.assertEqual(str(old), status['path'])
-            self.assertEqual([str(old),str(bare)], status['coexisting_builds'])
-            lines=[]
-            with patch.object(onboard, 'helper_status', return_value=status):
-                onboard.run_helper_onboarding(lines.append, interactive=False)
-            self.assertIn(str(old), '\n'.join(lines))
-            self.assertIn('./build.sh', '\n'.join(lines))
+            bundled.parent.mkdir(parents=True);bundled.touch();bare.touch()
+            with patch.multiple(helper, _BUNDLED=str(bundled), _BARE=str(bare)):
+                self.assertEqual([str(bundled),str(bare)], helper.helper_candidates())
+            with patch.multiple(helper, _BUNDLED=str(root/'missing'), _BARE=str(bare)):
+                self.assertEqual([str(bare)], helper.helper_candidates())
+
+    def test_no_tracked_file_names_the_former_helper(self):
+        import re, subprocess
+        root=Path(__file__).resolve().parents[1]
+        listed=subprocess.run(['git','ls-files','-z'],cwd=root,capture_output=True)
+        if listed.returncode:
+            self.skipTest('not a git checkout')
+        former=re.compile('nl'+'c'+r'[ _-]?helper', re.IGNORECASE)
+        hits=[]
+        for name in listed.stdout.decode().split('\0'):
+            path=root/name
+            if not name or not path.is_file():
+                continue
+            try:
+                text=path.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            hits.extend(f'{name}:{n}' for n,line in enumerate(text.splitlines(),1) if former.search(line))
+        self.assertEqual([], hits)

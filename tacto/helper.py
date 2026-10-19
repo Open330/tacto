@@ -28,10 +28,9 @@ def _runtime_root(module_file, prefix):
     package_root = Path(module_file).resolve().parent.parent
     environment = Path(prefix).resolve()
     runtime = environment.parent
-    candidates = [runtime / "helper/Tacto Helper.app/Contents/MacOS/TactoHelper",
-                  runtime / "helper/NLC Helper.app/Contents/MacOS/NLCHelper"]
+    helper = runtime / "helper/Tacto Helper.app/Contents/MacOS/TactoHelper"
     if (environment.name == ".venv" and package_root.is_relative_to(environment)
-            and any(helper.is_file() and helper.resolve().is_relative_to(runtime) for helper in candidates)):
+            and helper.is_file() and helper.resolve().is_relative_to(runtime)):
         return str(runtime)
     return str(package_root)
 
@@ -45,19 +44,16 @@ _ROOT = _runtime_root(__file__, sys.prefix)
 _BUNDLED = os.path.join(_ROOT, "helper", "Tacto Helper.app",
                         "Contents", "MacOS", "TactoHelper")
 _BARE = os.path.join(_ROOT, "helper", "tacto-helper")
-_LEGACY_BUNDLED = os.path.join(_ROOT, "helper", "NLC Helper.app", "Contents", "MacOS", "NLCHelper")
-_LEGACY_BARE = os.path.join(_ROOT, "helper", "nlc-helper")
 def helper_candidates():
-    """Existing builds, ordered exactly as launcher selection (bundles first)."""
-    return [path for path in (_BUNDLED, _LEGACY_BUNDLED, _BARE, _LEGACY_BARE) if os.path.isfile(path)]
+    """Existing builds, ordered exactly as launcher selection (bundle first)."""
+    return [path for path in (_BUNDLED, _BARE) if os.path.isfile(path)]
 
 
-HELPER = next((path for path in (_BUNDLED, _LEGACY_BUNDLED, _BARE, _LEGACY_BARE)
-               if os.path.isfile(path)), _BARE)
+HELPER = next((path for path in (_BUNDLED, _BARE) if os.path.isfile(path)), _BARE)
 
 
 def helper_display_name(path=None) -> str:
-    """Name the installed permission holder; do not mislabel a legacy bundle."""
+    """Name the installed permission holder as macOS lists it."""
     import plistlib
     from pathlib import Path
     binary = Path(HELPER if path is None else path)
@@ -73,8 +69,8 @@ def helper_display_name(path=None) -> str:
             contents = binary.parent.parent
             with (contents / "Info.plist").open("rb") as stream:
                 info = plistlib.load(stream)
-            # Both shipped locales use the same product name. Keep the legacy
-            # base name matching the filename so Finder also localizes it.
+            # Both shipped locales use the same product name. Keep the base
+            # name matching the filename so Finder also localizes it.
             localized = contents / "Resources/en.lproj/InfoPlist.strings"
             if localized.is_file():
                 with localized.open("rb") as stream:
