@@ -26,3 +26,12 @@ full environment parity, actual human typing/caret preservation and broad
 real-app reliability are not certified by these tests. Windows and Intel Mac
 support are not introduced by this update. The public release includes the signed
 and notarized app only after artifact validation; tests alone are not notarization.
+
+
+## Artifact and installed validation
+
+Preview 3 completed app/DMG notarization, stapling and Gatekeeper verification.
+The exact DMG was installed locally and retained both existing grants and agent
+connections. A zero-model owned native Flow smoke passed against the installed
+launcher. The clean-checkout regression ran 2,605 tests with zero failures/errors
+and three skips. See [release validation](release-readiness.md#2026-10-19-preview-3-update).

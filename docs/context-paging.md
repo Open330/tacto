@@ -115,7 +115,7 @@ PYTHONPATH=. .venv/bin/python examples/probes/token-budget-planning.py NEW_DIR -
 
 The Codex text adapter now starts in its private request directory, with matching
 CLI root and subprocess cwd. Text-mode user configuration remains active. In
-[the live 64-registration upload](../reviews/codex-planning-directory-paging-a.json),
+the live 64-registration upload (local evidence: `../reviews/codex-planning-directory-paging-a.json`),
 five task prompts measured by o200k_base used1437/1855/2081/2500/2500 tokens.
 One exact selected file produced one POST and one independently observed message;
 outcome done/confirmed, source subset and executable snapshots stable.

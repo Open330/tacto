@@ -221,3 +221,33 @@ GitHub 접근 권한이 필요하며 정식 안정 버전이나 일반 공개 �
 
 DMG SHA-256: `05f71d93c2bc5f66d16112c5bd1b848f8da284b1a4b7e43cda503bfa545e726a`.
 [Preview 2 릴리스](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.2).
+
+
+## 2026-10-19 Preview 3 update
+
+Runtime source: `4089af1`; app version `0.1.0`, build `3`. This is a developer
+prerelease refresh, not stable-release qualification.
+
+- Final clean-checkout regression: 2,605 tests in 408.635 seconds, zero failures
+  or errors, three opt-in skips. Tracked source hashes were unchanged throughout.
+- The initial integration run had eleven documentation failures and one import
+  error. Those failures were preserved, corrected and followed by the full run
+  above; no failing row was relabeled as a pass.
+- Developer ID secure timestamps, hardened runtime, app and DMG notarization
+  Accepted, stapled tickets and Gatekeeper checks passed. The read-only artifact
+  check passed all twelve automated integrity checks.
+- This exact DMG was installed locally. Existing Accessibility and screen-reading
+  permissions, designated requirements and both agent skill/command connections
+  were retained without resetting permissions. The previous app is retained for
+  rollback.
+- Installed runtime smoke: a fresh owned native popup Flow selected Beta then
+  Alpha, observing count 0→2; zero model calls, sampled input audit unchanged,
+  4.560 seconds for the CLI run. This is not proof of actual human typing/caret
+  preservation or general-app reliability.
+
+DMG SHA-256: `1af52523ee2577a1b8c9780e3ff5b2f8eecd1660a9b84d17531f3b9cca21b65c`.
+
+The complete stable-release evidence gates remain unqualified; the release
+checker therefore reports stable readiness as blocked. Fresh-Mac installation,
+broader real-app repetition, matched performance qualification and a limited
+beta have not been replaced by the automated checks or notarization.

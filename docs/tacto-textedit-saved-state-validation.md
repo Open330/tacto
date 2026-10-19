@@ -68,7 +68,7 @@ API나 OS가 완전한 숫자 정보를 주지 못하면 성공을 추측하지 
 
 실제 Swift handler 테스트는 캡처 권한 확인 호출 자체를 금지한 상태에서
 성공한 부재·남아 있는 창·nil/비정상 메타데이터를 구분했다. 관련54개 회귀가
-통과했고 기존 signing team728FW73BS8로 helper를 빌드·번들링했다.
+통과했고 기존 signing teamYOURTEAMID로 helper를 빌드·번들링했다.
 첫 수정 후 native 시도는 전경 전환 때문에 종료 입력을 보내지 않았다. 이후
 통합 helper 코호트 `1792331901347518000`에서는 `closed_observed=true`,
 `cleanup_status=closed`, `artifact_removed=true`, source subset 안정,
@@ -85,7 +85,7 @@ deadline 미초과를 확인했다. 이1회의 실앱 성공을 모든 앱·OS�
 건너뛴 것이 제품 수정은 아니다. 피어에 no-op 준비와 사용 중인 다른 텍스트 창의
 포커스 보호를 위임했다(`req_18dfa2e9ad339bb8_46`). 이후 구현 완료 회신과
 루트 리뷰(`req_18dfa3ec8c0630a0_49`), 실제 판단 함수 회귀8개와 기존 입력
-harness3개 통과를 확인했다. 통합 helper도 team728FW73BS8로 빌드·번들링했다
+harness3개 통과를 확인했다. 통합 helper도 teamYOURTEAMID로 빌드·번들링했다
 (`foreground-integrated-build.log`, `foreground-integrated-bundle.log`). 설치본은
 바꾸지 않았다. 통합 TextEdit 실기는 화면 잠금으로 조작 전 SKIP이었다
 (`foreground-integrated-textedit-evaluation.json`). 이를 닫힘 성공으로 계산하지 않는다.

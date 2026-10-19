@@ -87,8 +87,8 @@ matching, nested IR dispatch, signed-helper factory selection, trace/receipt
 delegation, invalid options before onboarding, and descriptor cleanup on
 return/exception. With the surrounding regression modules: **64 tests /
 2.994s / OK, no skips**.
-[Raw log](../reviews/2026-10-11/cli-dispatch-journal-regression-20261011-a.log)
-and [explicit source subset report](../reviews/2026-10-11/cli-dispatch-journal-regression-20261011-a.json)
+Raw log (local evidence: `../reviews/2026-10-11/cli-dispatch-journal-regression-20261011-a.log`)
+and explicit source subset report (local evidence: `../reviews/2026-10-11/cli-dispatch-journal-regression-20261011-a.json`)
 are preserved; declared CLI/journal/test sources were unchanged before/after.
 These CLI tests use owned in-memory app/evidence fixtures. Installed signed
 launcher `nlc run --help` also returned0 and displayed the new option; it did
@@ -109,8 +109,8 @@ this CLI invocation to send the operation again.
 
 With the existing Chromium recovery and CLI/journal regression modules:
 **18 tests / 20.761s / OK / no skips**.
-[Raw log](../reviews/2026-10-11/cli-browser-worker-restart-20261011-a.log) and
-[manifest/report](../reviews/2026-10-11/cli-browser-worker-restart-20261011-a.json)
+Raw log (local evidence: `../reviews/2026-10-11/cli-browser-worker-restart-20261011-a.log`) and
+manifest/report (local evidence: `../reviews/2026-10-11/cli-browser-worker-restart-20261011-a.json`)
 are preserved with declared source subset unchanged before/after. This proves
 a real browser/HTTP/file effect and CLI barrier, not the shipped CLI selecting
 a web backend, signed native GUI, an external recipient, automatic
@@ -127,8 +127,8 @@ a reservation before the guarded native Save click. After the helper returns
 The caller preserves an unknown-effect response. A newly constructed barrier
 using the same directory refuses before any second helper call.
 
-[Native producer report](../reviews/2026-10-11/signed-producer-file-1791691604910595000.json)
-and [evaluator report](../reviews/2026-10-11/signed-producer-journal-reply-loss-20261011-a.json):
+Native producer report (local evidence: `../reviews/2026-10-11/signed-producer-file-1791691604910595000.json`)
+and evaluator report (local evidence: `../reviews/2026-10-11/signed-producer-journal-reply-loss-20261011-a.json`):
 **1/1 PASS / 12.895s / no skips**. Underlying commit dispatch1, reservation1 line,
 `ProducerArtifactEvidence` accepted against the original event, one exact new
 producer completion plus exact fresh RTF bytes, producer exit0/owned child
@@ -159,8 +159,8 @@ The next signed launcher starts a different Python PID, reads the one written
 callback and exact bytes, and refuses its journal reservation before any
 underlying input. No channel descriptor is transferred between workers.
 
-[Producer report](../reviews/2026-10-11/signed-producer-file-1791692205073945000.json)
-and [evaluator report](../reviews/2026-10-11/signed-producer-worker-restart-20261011-f.json):
+Producer report (local evidence: `../reviews/2026-10-11/signed-producer-file-1791692205073945000.json`)
+and evaluator report (local evidence: `../reviews/2026-10-11/signed-producer-worker-restart-20261011-f.json`):
 **1/1 PASS/20.018s/no skips**. Worker exits17/0, distinct recorded PIDs,
 restart underlying input calls0/receiving sequence1/fresh bytes match, one
 journal reservation line, event-bound ProducerArtifactEvidence accepted,
@@ -209,7 +209,7 @@ browser page API를 직접 호출하면 여전히 보호 밖이다. 일반 CLI�
 등록/자동 causal resume를 추가한 변경은 아니다.
 
 새 isolated visual_input_journal은 준비 click 뒤 visual Flow에만 wrapper를
-연결한다. [실제 signed 평가](../reviews/2026-10-11/visual-flow-window-input-fixed-1791696415047711000.json):
+연결한다. 실제 signed 평가 (local evidence: `../reviews/2026-10-11/visual-flow-window-input-fixed-1791696415047711000.json`):
 barrier 과제1/1PASS7.776s/no skips, 그러나 사용자 Flow 자체는ok=false다.
 첫 Right의 실제 keyDown/keyUp1/rights1을 수신했고 text는 비어 있었으며 창B는
 unchanged다. native helper의 unverified/observe-effect 응답은 journal unknown으로
@@ -235,11 +235,11 @@ no_modal 거부가 receiving state를 바꾸지 않는지 검사하고, 이름�
 Dismiss recovery 뒤 새 관측·idempotent set_value 재시도로 진행한다.
 이는 새 자동 checkpoint/resume API가 아니라 기존 replay 복구의 실제 확장 평가다.
 
-[실제 반복 복구 b](../reviews/2026-10-11/signed-native-recovery-1791717563034721000.json):
+실제 반복 복구 b (local evidence: `../reviews/2026-10-11/signed-native-recovery-1791717563034721000.json`):
 PASS45.955s/stages24/budget3/accepted24/blockedWrites3/cancels3/sheet=false/
 otherClicks0. escalation step5·11·17/effect unknown, events30/고유 event IDs30,
 세 receiving 쌍 각각 이전 stage 유지→기대 stage로 증가했다.
-[예산 소진 c](../reviews/2026-10-11/signed-native-recovery-1791717672748017000.json):
+예산 소진 c (local evidence: `../reviews/2026-10-11/signed-native-recovery-1791717672748017000.json`):
 expected-stop PASS24.709s/stages24/budget1. 내부 replay.ok=false/
 task_oracle_passed=false를 유지했다. terminal step11/set_value/
 postcondition_timeout/effect unknown, events14/고유 IDs14, accepted11/
@@ -248,14 +248,14 @@ stage 입력·두 번째 복구가 없음을 independent receiving counters와 a
 검사했다. 종료 error code·step·effect도 검사하므로 다른 오류를 예상 중단으로
 채점하지 않는다. 앞선 b25.100s도 같은 수신 상태를 확인했으며 c에서 종료
 로그 oracle을 강화했다. 둘을 동일 source cohort라고 주장하지 않는다.
-[기존 12단계 a](../reviews/2026-10-11/signed-native-recovery-1791717511077405000.json):
+기존 12단계 a (local evidence: `../reviews/2026-10-11/signed-native-recovery-1791717511077405000.json`):
 PASS21.088s/accepted12/blockedWrites1/cancels1/events14. 모든 실행은
 signed InheritedHelperDriver/model calls0/owned child reaped/source subset stable/
 UNCHANGED_SAMPLED다. continuous numeric caret/selection 보존은 증명하지 않는다.
 
 최초 확장 a의 두 outer PASS는 wrapper가 옵션을 전달하지 않아 실제 stages12/
 budget1만 실행했다. 원본을 보존하고
-[scope mismatch record](../reviews/2026-10-11/native-recovery-option-mismatch-20261011-a.json)에서
+scope mismatch record (local evidence: `../reviews/2026-10-11/native-recovery-option-mismatch-20261011-a.json`)에서
 확장 증거로 제외했다. 옵션 전달을 수정하고 eval에서 report stages/budget/
 expected exhaustion의 요청 일치도 검사한다. 관련 unit/integration23 tests/
 17.463s/OK/no skips를 terminal에서 확인했다(별도 raw unit log 없음).

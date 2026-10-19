@@ -725,7 +725,7 @@ The isolated signed evaluator `tacto eval signed_document_attachments` opens one
 new private owned RTFD fixture in already-running background TextEdit, retains the
 window, and records actual signed RTF export payload comparison and sampled input
 audit. It never saves, edits or sends. Missing attachments or changed input keep
-the scenario failed. See the [actual partial result](../reviews/directory-document-url-partial-audit-a.json).
+the scenario failed. See the actual partial result (local evidence: `../reviews/directory-document-url-partial-audit-a.json`).
 
 
 #### Captured private RTFD package reader (trusted host only)
@@ -748,7 +748,7 @@ body/inventory may be mutable; `sampled_stable` does not prove continuous stabil
 General source format, attachment completeness, producer attribution and save
 authority remain false. Compare `.body` to a trusted expected attributed string
 using `compare_attachment_payloads`; equality verifies captured payloads only.
-See the [actual owned package result](../reviews/rtfd-package-partial-audit-a.json).
+See the actual owned package result (local evidence: `../reviews/rtfd-package-partial-audit-a.json`).
 
 
 ### Session guide and compact click input

@@ -18,9 +18,9 @@ UTF-8 byte 안에 유지했다. 완료한 앞 입력을 재송신하지 않고 �
 기대값12를 확인했다. provider별1회이므로 index 추가만의 인과 효과나 provider 간
 속도·토큰·비용 우열을 확정하지 않는다. index 표시와 안내 문구를 함께 변경했다.
 
-[Codex 원본](../reviews/tacto-live-repair-paging-20261018/codex-indexed/report.json) ·
-[Claude 원본](../reviews/tacto-live-repair-paging-20261018/claude-indexed/report.json) ·
-[보존한 Claude 실패](../reviews/tacto-live-repair-paging-20261018/claude/report.json)
+Codex 원본 (local evidence: `../reviews/tacto-live-repair-paging-20261018/codex-indexed/report.json`) ·
+Claude 원본 (local evidence: `../reviews/tacto-live-repair-paging-20261018/claude-indexed/report.json`) ·
+보존한 Claude 실패 (local evidence: `../reviews/tacto-live-repair-paging-20261018/claude/report.json`)
 
 ## 구현 범위
 
@@ -54,11 +54,11 @@ Codex에는 모델 요청 전 로컬 Muxa 거절3개가 있어 CLI 모델 요청
 ## 서명 경로·실제 앱
 
 서명 launcher 경유 단일 JSON 응답 검사도 Codex·Claude 각1회 PASS했다.
-[Codex 평가](../reviews/tacto-live-repair-paging-20261018/signed-codex-evaluation.json) ·
-[Claude 평가](../reviews/tacto-live-repair-paging-20261018/signed-claude-evaluation.json).
+Codex 평가 (local evidence: `../reviews/tacto-live-repair-paging-20261018/signed-codex-evaluation.json`) ·
+Claude 평가 (local evidence: `../reviews/tacto-live-repair-paging-20261018/signed-claude-evaluation.json`).
 UI 없는 typed 응답·metadata 검사이며 원격 취소·과금 중단의 증거가 아니다.
 
-[Finder 평가](../reviews/tacto-real-apps-20261018/finder-evaluation.json)는 화면 잠금으로
+Finder 평가 (local evidence: `../reviews/tacto-real-apps-20261018/finder-evaluation.json`)는 화면 잠금으로
 실행 전 SKIP, scored0, pass_rate=null이다. 폴더 생성·사용자 입력 보존을 시험하지 않았다.
 잠금 해제 전 GUI 조작은 하지 않으며 실제 앱·저장/전송 인과 증거·이전 capture를 보존한
 장기 자동 재개는 미완료다. 이번 변경은 checkout 코드이며 설치 Preview2나 이전 개발.app에

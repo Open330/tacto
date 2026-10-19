@@ -112,8 +112,8 @@ cannot be forcibly interrupted by this receipt gate. The default is monotonic
 host time. File readback still does not identify its producer; service receipt
 callbacks still require an independently bound authoritative receiving source.
 
-[Related regression](../reviews/receipt-clock-regression-b.log): 204 tests,
-78.025s, no skips, [selected source subset stable](../reviews/receipt-clock-regression-b.json).
+Related regression (local evidence: `../reviews/receipt-clock-regression-b.log`): 204 tests,
+78.025s, no skips, selected source subset stable (local evidence: `../reviews/receipt-clock-regression-b.json`).
 Includes an actual owned loopback delivery in isolated headless Chromium: one
 POST and exact receiving body, then a broken acceptance clock yields no evidence;
 a new preparation sees the existing receipt and sends nothing. It is not an

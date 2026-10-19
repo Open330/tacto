@@ -129,8 +129,8 @@ cursor, ephemeral-prefix recovery, general long multi-app work or a fair model
 comparison. Same-control operations whose replay fingerprints remain identical
 are still refused; hosts must not invent labels/expectations to bypass that rule.
 
-[Related regression](../reviews/browser-causal-continuation-b.log):65 tests10.867s/
-OK/no skips, [source manifest](../reviews/browser-causal-continuation-b.json)
+Related regression (local evidence: `../reviews/browser-causal-continuation-b.log`):65 tests10.867s/
+OK/no skips, source manifest (local evidence: `../reviews/browser-causal-continuation-b.json`)
 process11.080s/source subset stable. Initial fixture context-manager errors and
 the first suite's incorrect reservation assertion are preserved in the dated
 verification status.

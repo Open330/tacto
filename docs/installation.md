@@ -242,3 +242,13 @@ helper만 추가했는데 화면 기록이 미완료라면, 화면 기록 단계
 **Tacto.app**을 위쪽 ‘화면 및 시스템 오디오 기록’ 앱 목록에 추가해야 합니다.
 앱 번들에 화면 기록 권한을 주는 모델이며, 공유 Python이나 터미널 권한은
 요청하지 않습니다. [권한 소유자와 드래그 안내](permission-onboarding.md)를 참고하세요.
+
+
+### Preview 3 update
+
+[Preview 3](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.3) is
+version 0.1.0 build 3. The app and DMG are Developer ID signed, notarized and
+stapled. Local upgrade from Preview 2 retained both existing permissions and
+Claude/Codex connections. Accessibility enables AX-based tasks; screen recording
+is needed for screenshot features and is optional for basic readiness. This does
+not establish a fresh-Mac or stable-release qualification.
