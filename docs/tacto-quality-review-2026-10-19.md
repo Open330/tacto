@@ -106,3 +106,22 @@ Regression coverage exercises all four permission combinations, stale/unknown
 receipts, delayed new-window publication, the bounded timeout, and single menu
 and text dispatch. These checks do not replay the user's interrupted task or
 prove an OS authentication interaction.
+
+### 2026-10-20 result presentation and automatic access receipts
+
+After the fixed first task verifies its text, it explicitly activates the same
+TextEdit process and reobserves the same native window with matching text and
+focus. Ordinary launch and Flow replay remain in the background. Presentation
+failure preserves `text_verified` with `foreground_verified=false` and a short
+presentation error; it never resends New, text or Save. The first-request guide
+now explains that distinction.
+
+Supported computer-use CLI invocations create private, bounded JSONL access
+receipts automatically. The transport wrapper records operations and outcomes
+without argument bodies, screen trees or provider messages; a missing end record
+is an unknown outcome. The GUI footer/menu and `tacto logs` expose the records.
+Full screen/action traces remain separate opt-in artifacts. Retention, limits,
+privacy scope and the distinction from outer-agent reasoning are documented in
+[access logging](access-logging.md). Tests cover forwarding the exact driver
+arguments/result once, exception handling, storage failure, restrictive file
+modes, symlink rejection, retention and terminal command records after truncation.

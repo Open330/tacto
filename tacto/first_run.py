@@ -1,7 +1,7 @@
 """One fixed, model-free first task; input verification is not a Save receipt."""
 import time
 import math
-from .app_launch import launch_app
+from .app_launch import launch_app, present_app
 from .document_label import window_attributes, window_flag
 from .flow import Flow, Step, Selector, Postcondition, replay, pin_params, _replay_observation
 from .contract import SafetyContract, Resource, ContextBinding
@@ -54,7 +54,7 @@ def _windows(observation):
     return (pid, start), documents, set(mapping.values())
 
 
-def run_first_task(driver, *, launch=launch_app, execute=replay):
+def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
     started = time.monotonic()
     def result(status, stage, **extra):
         if status == 'failed':
@@ -161,7 +161,33 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
             or verified_window is None or not visible_text.check(verified_window['tree'])):
         return result('failed', 'verify', error=fresh.get('error', 'text_not_verified'), repeat_write=False)
     title = verified_window['attrs'].get('Title')
+    # This fixed welcome task explicitly presents its result. Ordinary flows
+    # and launch_app retain their background behavior. Presentation failure
+    # cannot turn verified text into a request to repeat the write.
+    presentation = {'foreground_verified': False, 'error': 'result_document_not_focused'}
+    if verified_window['focused']:
+        try:
+            presentation = (present or present_app)(TARGET, owner[0])
+        except Exception:
+            presentation = {'foreground_verified': False, 'error': 'presentation_unavailable'}
+    if not isinstance(presentation, dict):
+        presentation = {'foreground_verified': False, 'error': 'presentation_unavailable'}
+    foreground = presentation.get('foreground_verified') is True
+    if foreground:
+        shown = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
+        try:
+            shown_owner, shown_windows, _ = _windows(shown)
+            shown_window = shown_windows.get(new_id)
+            foreground = (shown.get('type') == 'observation' and not shown.get('truncated')
+                          and shown_owner == owner and shown_window is not None
+                          and shown_window['focused'] and visible_text.check(shown_window['tree']))
+        except (ValueError, KeyError, TypeError):
+            foreground = False
+        if not foreground:
+            presentation = {'error': 'result_window_not_verified'}
     return result('text_verified', 'complete', target=TARGET, window_title=title, window_id=new_id,
                   text=TEXT, persistent_commit_verified=False,
+                  foreground_verified=foreground,
+                  **({'presentation_error': presentation.get('error', 'presentation_unavailable')} if not foreground else {}),
                   write_receipt='verified' if written.ok else 'commit_unverified',
                   scope='new document visible text only')

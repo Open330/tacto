@@ -53,6 +53,46 @@ class NativeLaunchBackend:
         NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(seconds))
 
 
+class NativePresentationBackend(NativeLaunchBackend):
+    """Explicit result presentation, separate from background launch/input."""
+    def activate(self, pid):
+        from AppKit import NSRunningApplication, NSApplicationActivateIgnoringOtherApps
+        app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+        return app is not None and bool(app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps))
+
+    def frontmost_pid(self):
+        app = self.workspace.frontmostApplication()
+        return int(app.processIdentifier()) if app is not None else None
+
+
+def present_app(target, pid, *, backend=None, clock=time.monotonic):
+    """Bring an already verified result forward; never launch or write text."""
+    failed = {'foreground_verified': False}
+    if type(pid) is not int or pid <= 0:
+        return dict(failed, error='invalid_presentation_pid')
+    try:
+        backend = backend if backend is not None else NativePresentationBackend()
+        path = backend.resolve(target)
+        apps = backend.running(target)
+        if path is None or len(apps) != 1 or apps[0]['pid'] != pid or apps[0]['path'] != path:
+            return dict(failed, error='presentation_identity_changed')
+        if not backend.session_ready():
+            return dict(failed, error='gui_session_unavailable')
+        if backend.frontmost_pid() == pid:
+            return {'foreground_verified': True}
+        if not backend.activate(pid):
+            return dict(failed, error='activation_refused')
+        deadline = clock() + 1
+        while True:
+            if backend.frontmost_pid() == pid:
+                return {'foreground_verified': True}
+            if clock() >= deadline:
+                return dict(failed, error='activation_not_observed')
+            backend.pump(min(.05, max(0, deadline - clock())))
+    except Exception:
+        return dict(failed, error='presentation_unavailable')
+
+
 def launch_app(target, *, backend=None, timeout=10, clock=time.monotonic):
     def error(code, effect='not_started'):
         return {'type': 'error', 'error': code, 'target': target, 'effect': effect}

@@ -117,3 +117,10 @@ read back. That is expected — confirm with `tacto observe <app> --helper` and 
 
 The longer guides live beside this file: `docs/recipes.md` (recipes, decisions,
 branches) and `docs/api.md`.
+
+## Find access records
+
+`tacto logs` lists the local automatic access receipts; `tacto logs --open`
+opens their folder on macOS. These record command, target app, operation, outcome
+and timing, without screen contents, input values, prompts or agent reasoning.
+For a detailed screen/action trace, explicitly use `--trace` on do/run/replay.

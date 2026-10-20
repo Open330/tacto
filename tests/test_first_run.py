@@ -18,6 +18,31 @@ def observation(tree, **kw):
 
 
 class FirstRunTests(unittest.TestCase):
+    def setUp(self):
+        presenter = patch('tacto.first_run.present_app', return_value=dict(foreground_verified=False, error='test_not_presented'))
+        self.presenter = presenter.start()
+        self.addCleanup(presenter.stop)
+
+    def test_verified_result_is_presented_and_same_window_is_observed_again(self):
+        self.presenter.return_value = dict(foreground_verified=True)
+        r, driver, execute = self.run_case()
+        self.assertTrue(r['foreground_verified'])
+        self.presenter.assert_called_once_with('com.apple.TextEdit', 123)
+        self.assertEqual(2, execute.call_count)
+        self.assertEqual(4, driver.observe.call_count)
+
+    def test_failure_does_not_present_and_presentation_failure_does_not_repeat_input(self):
+        r, _, execute = self.run_case(after=OLD)
+        self.presenter.assert_not_called()
+        self.assertEqual(1, execute.call_count)
+        self.presenter.side_effect = OSError('PRIVATE native failure')
+        r, _, execute = self.run_case()
+        self.assertEqual('text_verified', r['status'])
+        self.assertFalse(r['foreground_verified'])
+        self.assertEqual('presentation_unavailable', r['presentation_error'])
+        self.assertNotIn('PRIVATE', str(r))
+        self.assertEqual(2, execute.call_count)
+
     def run_case(self, *, after=OLD+NEW, final=OLD+DONE, write_error=None, create_ok=True, before=None):
         driver = Mock()
         def observe(*args, **kwargs):

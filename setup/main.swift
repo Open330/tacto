@@ -383,11 +383,11 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Tacto의 첫 작업을 실행해주세요. 목표는 새 TextEdit 문서에 Hello, World!와 다음 줄 Tacto로 작성했습니다.를 입력하고 확인하는 것입니다.
         실행할 명령은 하나입니다:
         \(firstRunShellQuote(launcher)) first-run --helper --yes
-        이 명령이 꺼진 TextEdit 실행, 새 문서 생성, 두 줄 입력, 새 관찰로 확인까지 처리합니다. 기존 문서를 수정하거나 저장 명령을 실행하지 않습니다. --yes는 이 고정된 첫 작업의 새 문서 입력을 승인합니다.
+        이 명령이 꺼진 TextEdit 실행, 새 문서 생성, 두 줄 입력, 새 관찰로 확인하고 TextEdit 결과를 앞으로 표시하는 것까지 처리합니다. 기존 문서를 수정하거나 저장 명령을 실행하지 않습니다. --yes는 이 고정된 첫 작업의 새 문서 입력을 승인합니다.
         빠른 실행 지침:
         1. 별도 스킬·문서·예제 탐색이나 Flow JSON 작성 없이 위 명령을 바로 실행하세요. compile/do, osascript, AppleScript, JXA, open -a 등 다른 경로는 사용하지 마세요.
         2. 도구가 실행 세션 ID를 반환하면 같은 세션에서 완료를 기다리세요. 명령을 다시 보내면 문서가 중복될 수 있으니 재실행하지 마세요.
-        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
+        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. foreground_verified=true이면 결과 문서가 앞으로 표시된 것도 확인된 것입니다. false이면 입력은 완료됐으나 표시를 확인하지 못했다고 알리고 입력을 반복하지 마세요. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
         4. 실패하면 stage와 error를 보고하고 멈추세요. 문서나 입력이 일부 만들어졌을 수 있으므로 다른 도구로 우회하거나 반복하지 마세요. 로그인·OS 권한 등 사용자 확인이 필요하면 그 요청만 알려주세요.
         """
     }
@@ -585,7 +585,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         firstRun.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(example)
         stack.addArrangedSubview(firstRun)
-        stack.addArrangedSubview(label("창을 닫아도 메뉴 막대에서 Tacto 설정을 다시 열 수 있어요.", size: 11, color: mutedText, width: contentWidth))
+        let logs = NSButton(title: "실행 기록 보기", target: self, action: #selector(showAccessLogs))
+        logs.bezelStyle = .rounded
+        logs.setAccessibilityIdentifier("tacto.access-logs")
+        let footer = NSStackView(views: [label("창을 닫아도 메뉴 막대에서 다시 열 수 있어요.", size: 11, color: mutedText), NSView(), logs])
+        footer.orientation = .horizontal; footer.alignment = .centerY
+        footer.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        stack.addArrangedSubview(footer)
         refreshFirstRunAgents()
         render()
         stack.layoutSubtreeIfNeeded()
@@ -982,6 +988,8 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         show.target = self
         let refresh = menu.addItem(withTitle: "권한 다시 확인", action: #selector(refreshPermissions), keyEquivalent: "")
         refresh.target = self
+        let logs = menu.addItem(withTitle: "실행 기록 보기", action: #selector(showAccessLogs), keyEquivalent: "")
+        logs.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         item.menu = menu; statusItem = item
@@ -993,6 +1001,24 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshAll()
     }
     @objc func refreshPermissions() { refreshAll() }
+    @objc func showAccessLogs() {
+        let product = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Tacto")
+        let folder = product.appendingPathComponent("Logs")
+        do {
+            for path in [product, folder] {
+                try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true,
+                                                       attributes: [.posixPermissions: 0o700])
+                let info = try FileManager.default.attributesOfItem(atPath: path.path)
+                guard info[.type] as? FileAttributeType == .typeDirectory,
+                      (info[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else {
+                    throw NSError(domain: "TactoLogs", code: 1)
+                }
+            }
+            if NSWorkspace.shared.open(folder) { return }
+        } catch {}
+        notice = "실행 기록 폴더를 열지 못했어요. tacto logs 명령으로 위치를 확인할 수 있습니다."
+        render()
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         reopen(); return true
     }
