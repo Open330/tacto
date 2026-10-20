@@ -7,6 +7,17 @@ from tacto import cli
 
 
 class WindowsCliTests(unittest.TestCase):
+    def setUp(self):
+        # cli.main records an access log; with sys.platform patched it would
+        # otherwise land in the real profile (or ~/AppData on a Mac).
+        import tempfile
+        from pathlib import Path
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        logs = patch("tacto.access_log.log_directory", return_value=Path(folder.name) / "Tacto/Logs")
+        logs.start()
+        self.addCleanup(logs.stop)
+
     def test_windows_uses_uia_driver_and_never_falls_back_to_helper(self):
         made = []
         class Fake:
