@@ -37,6 +37,12 @@ def audit(url, output, axe_source=None, browser_executable=None):
         response = page.goto(url, wait_until='networkidle')
         checks['http_200'] = response.status == 200
         checks['one_h1'] = page.locator('h1').count() == 1
+        checks['product_story_before_case_library'] = page.evaluate("""() => {
+          const ids=[...document.querySelectorAll('main > section')].map(e=>e.id || e.classList[0]);
+          return ids.indexOf('app')<ids.indexOf('how') && ids.indexOf('how')<ids.indexOf('evidence') &&
+            ids.indexOf('evidence')<ids.indexOf('start') && ids.indexOf('start')<ids.indexOf('workflow-library') &&
+            ids.indexOf('workflow-library')<ids.indexOf('use-cases');
+        }""")
         checks['eleven_recorded_cases'] = page.locator('#use-cases .recorded-case').count() == 11
         checks['ten_everyday_cases'] = page.locator('.everyday-case').count() == 10
         checks['eight_real_app_cases'] = page.locator('.everyday-case[data-real="true"]').count() == 8

@@ -2191,3 +2191,11 @@ h1,h2,h3,h4{word-break:keep-all}
 @media(max-width:1000px){.principles{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 36px}}
 @media(max-width:540px){.principles{grid-template-columns:1fr;gap:20px}.activity-promise{font-size:10px;gap:6px}.app-local-note{font-size:11px}}
 .principles p,.app-local-note{word-break:keep-all}
+
+/* Explain the product first; the full case library follows onboarding. */
+.principles + .app-showcase{padding-top:64px;padding-bottom:64px}
+.app-showcase + .intro{margin-top:0;padding-top:64px;padding-bottom:56px;border-top:0}
+.intro + .evidence-section{margin-top:0}
+.faq + .workflow-library{margin-top:72px;padding-top:64px;border-top:1px solid var(--line)}
+@media(max-width:760px){.header nav a:first-child{display:inline-flex}}
+@media(max-width:540px){.principles + .app-showcase{padding-top:44px;padding-bottom:44px}.app-showcase + .intro{padding-top:44px;padding-bottom:44px}.faq + .workflow-library{margin-top:44px;padding-top:44px}}
