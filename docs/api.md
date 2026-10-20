@@ -797,6 +797,33 @@ lists are historical and bounded; uniqueness in the packet is not a guarantee
 of uniqueness in the current full UI. Reobserve and verify the current checkpoint
 before execution. The command never dispatches, approves, or resumes a Flow.
 
+### Ready hints after unverified steps
+
+A step with no postcondition is followed by a settle of up to one second,
+because nothing says when its effect has landed. `ready_when` names one
+element and the exact value that, in that app, means the step has landed;
+replay moves on as soon as the element shows it:
+
+```json
+{"action": "click", "selector": {"identifier": "One"},
+ "ready_when": {"field": {"role": "ScrollArea", "identifier": "StandardInputView"},
+                "attribute": "Value", "equals": "1"}}
+```
+
+All three keys are required and the field is checked like a selector before
+any input is sent. A hint is used only when false on the screen the step acted
+on, is never recorded as verification, and unmet within the settle the step
+settles as without one. A stop, lock or unreadable screen while waiting ends
+the run. Older engines ignore the key.
+
+A screen value is not a completion signal by itself: an app may show a value,
+even the final one, before its own state has caught up, and moving on then
+sends the next input too early. So hints are written only where the app's
+meaning is known, and are not learned from what a run happened to see. The
+built-in `calc_12x34` carries Calculator's exact display after each press (in
+process on this Mac, 6.4 s to 0.24 s); recipes whose inputs vary settle as
+before.
+
 ### Multiple results at one checkpoint
 
 A postcondition may include `all_of`, an array of other postconditions. The

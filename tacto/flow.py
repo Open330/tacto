@@ -580,6 +580,56 @@ def _same_number(expected: str, observed: str) -> bool:
     return canon(expected) == canon(observed)
 
 
+class ReadyHint:
+    """When the screen is ready after an unverified step — a hint, not proof.
+
+    A step with no postcondition is followed by a fixed settle (up to one
+    second), because nothing says when its effect has landed. A hint names one
+    element and the exact value that, in THIS app, means the step has landed;
+    when the element shows it, replay moves on. A screen value is not that by
+    itself — an app may show the final value before its own state catches up —
+    so hints are written for apps whose meaning is known, never learned from
+    what a run happened to see. Unmet within the settle, the step settles as
+    without a hint. It never counts as verification.
+    """
+
+    def __init__(self, field: "Selector", attribute: str, equals: str):
+        self.field, self.attribute, self.equals = field, attribute, equals
+
+    def __eq__(self, other):
+        return isinstance(other, ReadyHint) and (self.field, self.attribute, self.equals) == \
+            (other.field, other.attribute, other.equals)
+
+    def read(self, tree: str | None):
+        """The attribute's first value in the field's one element, else None.
+
+        Read over the element's block, as a postcondition is: Calculator keeps
+        its displayed Value on a StaticText inside the ScrollArea named.
+        """
+        if not tree:
+            return None
+        try:
+            index, _ = self.field.resolve(tree)
+        except (TargetAmbiguous, TargetMissing):
+            return None
+        return _block_value(_element_block(tree, index), self.attribute)
+
+    def usable(self, before):
+        # Already true before the action would say nothing about the action.
+        return before != self.equals
+
+    def met(self, tree: str) -> bool:
+        return self.read(tree) == self.equals
+
+    def to_dict(self):
+        # Only None and a False flag are defaults; allow_nth=0 names the first.
+        return {"field": {k: v for k, v in vars(self.field).items() if v is not None and v is not False},
+                "attribute": self.attribute, "equals": self.equals}
+
+
+READY_HINT_MS = 1000
+
+
 @dataclass
 class Postcondition:
     """Structured verification that the action landed (D7).
@@ -751,6 +801,9 @@ class Step:
     # of failing on. Empty — the default — keeps replay strictly deterministic:
     # a run that may spend tokens has to say so, step by step.
     on_uncertain: list[str] = field(default_factory=list)
+    # When the screen is ready after this step, if it has no postcondition
+    # (ReadyHint). Older engines ignore the key and settle as before.
+    ready_when: "ReadyHint | None" = None
     # Is the value this step verifies the ANSWER to the request, or just proof
     # that the step landed? A calculator's 408 is an answer; the bold checkbox's
     # "1" is not, and reporting it made "굵게 해줘" reply "결과는 1 입니다".
@@ -863,6 +916,10 @@ class Flow:
                     "captures": [], "answers": False, "on_uncertain": []}
                 for f in fields(value):
                     item = getattr(value, f.name)
+                    if isinstance(value, Step) and f.name == "ready_when":
+                        if item is not None:
+                            out[f.name] = item.to_dict()
+                        continue
                     if isinstance(value, (Selector, ContextBinding)) and f.name == "subrole" and item is None:
                         continue  # unchanged recipes remain readable by older engines
                     if compact and item is None:
@@ -1123,7 +1180,8 @@ class Flow:
                               for_each=s.get("for_each"),
                               captures=_captures_from(s),
                               skip_if=skip_if, answers=s.get("answers", False),
-                              on_uncertain=list(s.get("on_uncertain", [])))
+                              on_uncertain=list(s.get("on_uncertain", [])),
+                              ready_when=_ready_hint(s.get("ready_when")))
         steps = [parse(s, f"steps[{i}]") for i, s in enumerate(d["steps"])]
         if any(p is not None and p.all_of for st in every_step(steps)
                for p in (st.postcondition, st.skip_if)):
@@ -1571,7 +1629,10 @@ def _render_step(st: "Step", ctx: dict) -> "Step":
                 captures=[replace(c, field=render_sel(c.field))
                           for c in st.captures],
                 skip_if=render_post(st.skip_if), answers=st.answers,
-                on_uncertain=list(st.on_uncertain))
+                on_uncertain=list(st.on_uncertain),
+                ready_when=None if st.ready_when is None else ReadyHint(
+                    render_sel(st.ready_when.field), st.ready_when.attribute,
+                    _render(st.ready_when.equals, ctx)))
 
 
 def literal_step(step):
@@ -2018,6 +2079,50 @@ def _replay_exception(exc):
             "exception_class": name if name in public else "Exception"}
 
 
+def _ready_hint(raw):
+    if raw is None:
+        return None
+    if (not isinstance(raw, dict) or set(raw) != {"field", "attribute", "equals"}
+            or not isinstance(raw["field"], dict) or not raw["field"]
+            or not isinstance(raw["attribute"], str) or not raw["attribute"]
+            or not isinstance(raw["equals"], str)):
+        raise ValueError("ready_when needs a field selector, an attribute and the exact value to wait for")
+    return ReadyHint(_hint_selector(raw["field"]), raw["attribute"], raw["equals"])
+
+
+_TEXT_FIELDS = ("identifier", "title", "desc", "value", "ancestor", "click_ancestor")
+
+
+def _hint_selector(raw):
+    """A hint's field, checked before any input is sent: a malformed one would
+    otherwise fail only while waiting, after the step had already acted."""
+    def text(value, many):
+        if isinstance(value, str):
+            return bool(value.strip())
+        return many and isinstance(value, list) and bool(value) and all(
+            isinstance(v, str) and v.strip() for v in value)
+    known = {f.name for f in fields(Selector)}
+    if set(raw) - known or not any(raw.get(k) is not None for k in ("role", *_TEXT_FIELDS)):
+        raise ValueError("ready_when.field needs known selector fields that name an element")
+    for key, value in raw.items():
+        ok = (value is None or (key == "role" and text(value, False))
+              or (key in _TEXT_FIELDS and text(value, True))
+              or (key == "allow_nth" and type(value) is int and value >= 0)
+              or (key == "in_focused_window" and type(value) is bool)
+              or (key == "subrole" and isinstance(value, str)))
+        if not ok:
+            raise ValueError(f"ready_when.field.{key} has the wrong type")
+    return Selector(**raw)
+
+
+def _block_value(block, attribute):
+    for line in block.splitlines():
+        value = Selector._attr(line, attribute)
+        if value is not None:
+            return value
+    return None
+
+
 def _replay_observation(method, *args, **kwargs):
     """Keep transport read failures inside the run's existing evidence record.
 
@@ -2398,6 +2503,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             return res
 
         action = {"name": step.action, **step.params}
+        acted_on_tree = None
         trace = None
         target_line = ""
         if step.action == "menu":
@@ -2729,6 +2835,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             "dispatch_response_unavailable": True}
             return response
 
+        acted_on_tree = obs.get("tree")
         r = dispatch(obs, action)
 
         if r.get("error") in ("commit_unverified", "action_unverified"):
@@ -2777,6 +2884,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     except LookupError as exc:
                         res.record(status="error", step=i, error="target_missing", detail=str(exc))
                         return res
+                acted_on_tree = obs.get("tree")
                 r = dispatch(obs, action)
                 if r.get("error") in ("commit_unverified", "action_unverified"):
                     res.record(status="unverified", step=i, action=step.action,
@@ -2884,11 +2992,31 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                                expected=post.equals, observed=seen)
                     return res
         else:
-            obs = _replay_observation(driver.observe, flow.target, "tree_full")
+            ready = None
+            hint = step.ready_when if step.expect is None else None
+            if hint is not None:
+                before = hint.read(acted_on_tree)
+                if hint.usable(before):
+                    seen = _replay_observation(driver.wait_until, flow.target, hint.met,
+                                               timeout_ms=READY_HINT_MS)
+                    if seen.get("type") == "observation":
+                        obs, ready = seen, "met"
+                    elif seen.get("type") == "timeout":
+                        ready = "timeout"   # unmet: settle exactly as without a hint
+                    else:
+                        # Stopped, locked, unreadable: never carry on from the
+                        # tree the step acted on.
+                        res.record(status="error", step=i, stage="ready_wait",
+                                   error=seen.get("error", "observation_unavailable"), detail=seen)
+                        return res
+            if ready != "met":
+                obs = _replay_observation(driver.observe, flow.target, "tree_full")
             if obs["type"] != "observation":
                 res.record(status="error", step=i, stage="verify_observe",
                            error=obs.get("error", "observation_failed"), detail=obs)
                 return res
+            if ready is not None:
+                res.log.append({"status": "ready_hint", "step": i, "ready": ready})
             if step.expect is not None and step.expect not in obs["tree"]:
                 # settle a moment more, then re-check (transient render lag)
                 obs = _replay_observation(driver.wait_until, flow.target,

@@ -564,9 +564,35 @@ def close_dialog() -> Flow:
 
 # ---------------------------------------------------------------- registry
 
+def _display_ready(build, shown):
+    """Calculator shows each press on its display; let replay see it, not wait.
+
+    `shown` is the exact display after each unverified press, in order. Only
+    a recipe with fixed inputs can say that; a value merely changing is no
+    sign the press has landed. Unmet (another display format), a press
+    settles as before.
+    """
+    from dataclasses import replace
+    from .flow import ReadyHint
+
+    def built():
+        flow = build()
+        display = Selector(role="ScrollArea", identifier="StandardInputView")
+        values = iter(shown)
+        steps = [replace(st, ready_when=ReadyHint(display, "Value", next(values)))
+                 if st.action == "click" and st.postcondition is None and st.expect is None else st
+                 for st in flow.steps]
+        if next(values, None) is not None:
+            raise AssertionError("display values do not match the recipe's presses")
+        return replace(flow, steps=steps)
+    built.__name__ = build.__name__
+    return built
+
+
 def _calculator():
     from .flow import calculator_12x34, calculator_multiply
-    return {"calc_12x34": calculator_12x34, "calc_multiply": calculator_multiply}
+    return {"calc_12x34": _display_ready(calculator_12x34, ["0", "1", "12", "12 ×", "12 × 3", "12 × 34"]),
+            "calc_multiply": calculator_multiply}
 
 
 def builders() -> dict:
