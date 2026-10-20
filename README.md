@@ -8,7 +8,8 @@
 
 **Tacto lets agents operate browsers and Mac apps on your behalf.**<br>
 Turn clicks, typing, and checks into a reusable **Flow**.<br>
-Replay it with new inputs. Bring the agent back when judgment is needed.
+Replay it with new inputs. Bring the agent back when judgment is needed.<br>
+**See the apps your agent accessed, the actions it took, and their outcomes in Tacto.**
 
 [![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
@@ -52,6 +53,19 @@ Same-window [drag gestures](docs/native-drag.md) are supported by the signed mac
 tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
 tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
 ```
+
+## Know what your agent did
+
+**Delegate the work. Inspect the activity.** Tacto's in-app history shows accesses
+made through Tacto: the target app, operation, outcome and elapsed time. Search
+runs, filter failures or unconfirmed completion, and follow each operation in a
+timeline without opening a log directory.
+
+![Actual Tacto app showing an agent's TextEdit operations, results and timings](sites/tacto/dist/assets/tacto-activity.png)
+
+Records stay on this Mac. Settings control automatic logging and 7/30/90-day
+retention. Screen content, input values, prompts and internal agent reasoning
+are excluded. [Activity history and settings](docs/access-logging.md).
 
 <a id="how-it-works"></a>
 

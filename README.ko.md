@@ -8,7 +8,8 @@
 
 **Tacto는 에이전트가 브라우저와 Mac 앱을 조작하게 하는 도구입니다.**<br>
 에이전트가 화면을 읽고 클릭·입력하는 작업을 Flow라는 실행 순서로 저장합니다.<br>
-같은 작업은 입력값만 바꿔 재생하고, 결과를 확인하세요.
+같은 작업은 입력값만 바꿔 재생하고, 결과를 확인하세요.<br>
+**에이전트가 어떤 앱에서 무엇을 했는지, Tacto 실행 기록에서 직접 확인하세요.**
 
 [![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
@@ -70,6 +71,19 @@ Markdown은 나머지 예제가 남는 부분 수정입니다. 모든 사례가 
 [반복 작업 원본](sites/tacto/dist/assets/demos/workflow-replay.mp4) · [계산기 원본](sites/tacto/dist/assets/demos/calculator.mp4)도 제공합니다.
 영상은 작성된 Flow의 실행을 보여주며 자연어 작성 과정의 녹화가 아닙니다.
 테스트 앱은 상용 업무 앱이 아닙니다. 정상 재생 중 모델 호출은 없지만 최초 작성 비용은 별도입니다.
+
+## 에이전트가 한 일을 직접 확인하세요
+
+**작업은 맡기고, 접근 내역은 확인하세요.** Tacto를 통해 접근한 앱과 수행한
+동작, 결과, 소요 시간을 앱 안의 실행 기록에서 볼 수 있습니다. 작업을 검색하고,
+실패하거나 완료를 확인하지 못한 실행을 골라 단계별 타임라인을 확인하세요.
+로그 폴더를 찾아갈 필요가 없습니다.
+
+![실제 Tacto 앱에서 TextEdit 접근과 단계별 동작·결과·시간을 보여주는 화면](sites/tacto/dist/assets/tacto-activity.png)
+
+기록은 이 Mac에 저장됩니다. 설정에서 자동 저장과 보관 기간(7·30·90일)을
+선택할 수 있습니다. 화면 내용·입력값·프롬프트와 에이전트의 내부 추론은
+기록하지 않습니다. [접근 기록과 설정 안내](docs/access-logging.md).
 
 ## 에이전트에게 앱 조작을 맡기세요
 
