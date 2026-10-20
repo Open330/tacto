@@ -67,6 +67,14 @@ def audit(url, output, axe_source=None, browser_executable=None):
         checks['skip_link_first'] = page.locator('.skip').evaluate('(e)=>e===document.activeElement')
         page.keyboard.press('Enter')
         checks['skip_focuses_main'] = page.evaluate('document.activeElement.id==="main"')
+        def connected_canvas():
+            page.wait_for_function('() => { const svg=document.querySelector(".flow-edges"); return Math.abs(svg.viewBox.baseVal.width-svg.getBoundingClientRect().width)<1; }')
+            return page.locator('#flow-edge-paths path').evaluate_all("""paths => paths.length===9 && paths.every(p=>{
+                const b=p.getBBox(), v=p.ownerSVGElement.viewBox.baseVal;
+                return p.getTotalLength()>5 && b.x>=0 && b.y>=0 && b.x+b.width<=v.width+1 && b.y+b.height<=v.height+1;
+            })""")
+        checks['connected_flow_canvas'] = connected_canvas()
+        checks['app_image_opens_full_size'] = page.locator('.app-image-link').get_attribute('href') == 'assets/tacto-activity.png'
         checks['source_backed_six_step_flow'] = page.locator('[data-flow-node]').count() == 6
         flow_response = page.request.get(url.rstrip('/')+'/assets/calculator-reusable.flow.json')
         flow_source = flow_response.json()
@@ -175,6 +183,7 @@ def audit(url, output, axe_source=None, browser_executable=None):
         for width in [320, 360, 390, 768]:
             page.set_viewport_size({'width': width, 'height': 844})
             checks['no_overflow_'+str(width)] = page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+            checks['connected_flow_canvas_'+str(width)] = connected_canvas()
         page.set_viewport_size({'width': 390, 'height': 844})
         run_axe('mobile')
         checks['mobile_touch_targets'] = page.locator('button:visible').evaluate_all(
