@@ -38,7 +38,7 @@
         ></a
       >
       <nav aria-label="주요 메뉴">
-        <a href="#workflow-library">사용 사례</a><a href="#evidence">검증 결과</a
+        <a href="#workflow-library">사용 사례</a><a href="#evidence">성능 비교</a
         ><a href="#start"
           >시작하기
           <svg
@@ -1174,13 +1174,12 @@
         <div class="wrap">
           <div class="evidence-heading">
             <div>
-              <div class="section-label">04 — MEASURED, NOT JUST PROMISED</div>
-              <h2>반복할수록,<br />차이가 생깁니다.</h2>
+              <div class="section-label">TACTO vs OAI/SKY</div>
+              <h2>같은 작업,<br />두 가지 실행 방식.</h2>
             </div>
             <p>
-              요청 모델과 추론 강도, 초기 상태를 맞춘 개발 버전 Tacto·Sky
-              비교입니다. 작은 표본의 관측 결과이며 모든 작업에서의 우위를
-              의미하지 않습니다.
+              Codex의 computer use(OAI/Sky)와 비교했습니다.
+              같은 요청 모델·추론 강도·초기 앱 상태에서 독립 새 대화 3쌍을 실행했습니다.
             </p>
           </div>
           <div class="metric-grid">
@@ -1193,39 +1192,27 @@
               <p>캐시 읽기 제외 입력 감소</p>
             </div>
             <div>
-              <span>ZERO-MODEL REPLAY</span><b>0<small>calls</small></b>
-              <p>정상적인 결정적 Flow 재생</p>
+              <span>SHORTER OBSERVED TIME</span><b>8.8<small>%</small></b>
+              <p>3회 합계 시간 감소 · 단회 표본</p>
             </div>
           </div>
-          <details class="methodology">
-            <summary>
-              측정 조건과 결과 전체 보기
-              <svg
-                class="ui-icon disclosure-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#plus"></use>
-              </svg>
-            </summary>
-            <div class="methodology-content">
-              <p>
-                2026-10-14 · Codex CLI 0.161.0 · 요청 모델 gpt-6.1-sol · medium
-                · 독립 새 대화 · 소유 AppKit 테스트 앱. 보너스 켜기·끄기·버튼
-                변경 각 1쌍, 모두 성공했습니다. 최초 작성·실행·최종 응답을
-                포함하고 테스트 준비 시간은 제외했습니다.
-              </p>
-              <div class="table-scroll">
+          <div class="benchmark-comparison">
+            <div class="benchmark-chart" aria-labelledby="token-chart-title">
+              <div class="benchmark-chart-top"><h3 id="token-chart-title">전체 입력 토큰</h3><span>캐시 읽기 포함 · 3회 합계</span></div>
+              <div class="benchmark-bar-row"><div class="benchmark-bar-label"><span>OAI/Sky</span><strong>433,312</strong></div><div class="benchmark-track"><div class="benchmark-bar sky-bar"></div></div></div>
+              <div class="benchmark-bar-row"><div class="benchmark-bar-label"><span>Tacto</span><strong>201,447</strong></div><div class="benchmark-track"><div class="benchmark-bar tacto-bar"></div></div></div>
+              <p class="benchmark-chart-note">출력 토큰은 거의 같았습니다.<br />Tacto 1,605 · OAI/Sky 1,604</p>
+            </div>
+            <div class="benchmark-table">              <div class="table-scroll">
                 <table>
                   <caption>
-                    Tacto와 Sky의 3회 합계 비교
+                    최초 작성·실행·최종 응답 포함 · 3쌍 합계(시간은 평균)
                   </caption>
                   <thead>
                     <tr>
                       <th scope="col">항목</th>
                       <th scope="col">Tacto</th>
-                      <th scope="col">Sky</th>
+                      <th scope="col">OAI/Sky</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1257,6 +1244,28 @@
                   </tbody>
                 </table>
               </div>
+</div>
+          </div>
+          <p class="benchmark-scope"><strong>측정 범위</strong> 2026-10-14 · 소유 AppKit 테스트 앱 · 보너스 켜기·끄기·버튼 변경 각 1쌍. 양쪽 모두 3/3 성공. 시간은 한 사례에서 OAI/Sky가 더 빨랐습니다. 작은 표본의 관측값이며 최신 Preview 13 재측정이나 전체 앱 성능·청구비용의 비교는 아닙니다.</p>
+          <details class="methodology">
+            <summary>
+              측정 조건과 결과 전체 보기
+              <svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <div class="methodology-content">
+              <p>
+                2026-10-14 · Codex CLI 0.161.0 · 요청 모델 gpt-6.1-sol · medium
+                · 독립 새 대화 · 소유 AppKit 테스트 앱. 보너스 켜기·끄기·버튼
+                변경 각 1쌍, 모두 성공했습니다. 최초 작성·실행·최종 응답을
+                포함하고 테스트 준비 시간은 제외했습니다.
+              </p>
               <p>
                 시간 합계는 Tacto가 8.8% 짧았지만 보너스 끄기에서는 Sky가 더
                 빨랐습니다. 실제 serving model·서버 캐시·청구비용은
@@ -1274,6 +1283,7 @@
               ></a>
             </div>
           </details>
+          <div class="replay-distinction"><div><span>REPLAY IS A SEPARATE ADVANTAGE</span><h3>저장한 Flow의 정상 재생은 모델 호출 0회.</h3></div><p>위 수치는 처음 작업을 작성하고 실행한 비교입니다. OAI/Sky의 재사용 스크립트와 Tacto Flow를 10회씩 재생하는 동일 조건 비교는 아직 측정하지 않았습니다.</p></div>
           <div class="complex-proof">
             <svg
               class="ui-icon proof-icon"
