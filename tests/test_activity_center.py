@@ -59,6 +59,8 @@ assert(center.historyButton.title=="실행 기록" && center.historyButton.image
 assert(center.settingsButton.title=="설정" && center.settingsButton.image != nil)
 center.filter.selectedSegment=1;center.applyFilter();assert(center.filtered.count==1)
 center.search.stringValue="no-match";center.applyFilter();assert(center.filtered.isEmpty)
+center.window!.contentView!.layoutSubtreeIfNeeded()
+assert(center.detail.arrangedSubviews.allSatisfy{abs($0.alignmentRect(forFrame:$0.frame).width-(center.detail.frame.width-48))<2})
 center.search.stringValue="";center.filter.selectedSegment=2;center.applyFilter();assert(center.filtered.count==1)
 center.navigate(center.settingsButton)
 center.logToggle.performClick(nil)

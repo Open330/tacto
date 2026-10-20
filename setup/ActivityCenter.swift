@@ -459,7 +459,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         for v in detail.arrangedSubviews { detail.removeArrangedSubview(v); v.removeFromSuperview() }
         guard let r else {
             detail.addArrangedSubview(activityLabel(allRecords.isEmpty ? (currentSettings.loggingEnabled ? "아직 실행 기록이 없어요" : "실행 기록 저장이 꺼져 있어요") : "조건에 맞는 기록이 없어요",20,.semibold))
-            detail.addArrangedSubview(activityLabel(currentSettings.loggingEnabled ? "Tacto로 작업하면 접근 내역과 결과가 여기에 표시됩니다." : "설정에서 켜면 다음 작업부터 기록을 남깁니다.",13,secondary:true)); return
+            detail.addArrangedSubview(activityLabel(currentSettings.loggingEnabled ? "Tacto로 작업하면 접근 내역과 결과가 여기에 표시됩니다." : "설정에서 켜면 다음 작업부터 기록을 남깁니다.",13,secondary:true)); layoutDetail(); return
         }
         detail.addArrangedSubview(activityLabel(r.title,20,.semibold))
         detail.addArrangedSubview(activityLabel("\(r.appName) · \(r.status)",13,.medium))
@@ -483,6 +483,9 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
             let row = NSStackView(views:[icon,texts]); row.alignment = .top; row.spacing = 12
             detail.addArrangedSubview(row)
         }
+        layoutDetail()
+    }
+    private func layoutDetail() {
         for v in detail.arrangedSubviews { v.widthAnchor.constraint(equalTo:detail.widthAnchor,constant:-48).isActive = true; if let f = v as? NSTextField { f.preferredMaxLayoutWidth = max(200,detail.frame.width-48) } }
         detail.layoutSubtreeIfNeeded(); detail.setFrameSize(NSSize(width:detail.frame.width,height:detail.fittingSize.height))
     }
