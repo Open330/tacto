@@ -216,6 +216,17 @@ private final class ActivityNavigationButton: NSButton {
 
 private final class ActivityDocumentStack: NSStackView { override var isFlipped: Bool { true } }
 
+private func activityErrorMessage(_ code: String) -> String {
+    ["new_window_not_unique":"새 문서 창을 하나로 확인하지 못했어요.",
+     "helper_unavailable":"앱 조작 연결을 사용할 수 없어요. Mac 권한·에이전트 설정을 확인하세요.",
+     "target_not_found":"대상 앱을 찾지 못했어요.", "no_window_content":"아직 열린 창이 없어요.",
+     "observation_unavailable":"앱 상태를 읽지 못했어요.", "aborted_by_user":"사용자가 작업을 중단했어요.",
+     "new_document_not_empty":"새 문서가 비어 있지 않아 입력을 멈췄어요.",
+     "application_identity_changed":"대상 앱이 바뀌어 작업을 멈췄어요.",
+     "text_not_verified":"입력 결과를 확인하지 못했어요.",
+     "action_failed":"요청한 동작을 완료하지 못했어요."][code] ?? ("오류 코드: " + String(code.prefix(120)))
+}
+
 private func activityLabel(_ text: String, _ size: CGFloat = 13, _ weight: NSFont.Weight = .regular, secondary: Bool = false) -> NSTextField {
     let field = NSTextField(wrappingLabelWithString:text)
     field.font = .systemFont(ofSize:size, weight:weight)
@@ -442,7 +453,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         detail.addArrangedSubview(activityLabel(metrics,12,secondary:true))
         if r.foreground == true { detail.addArrangedSubview(activityLabel("결과 문서를 앞으로 표시했어요.",12,.medium)) }
         if r.foreground == false { detail.addArrangedSubview(activityLabel(r.presentationSkipped ? "설정에 따라 백그라운드로 완료했어요." : "결과 화면 표시를 확인하지 못했어요.",12,secondary:true)) }
-        if !r.error.isEmpty { detail.addArrangedSubview(activityLabel("오류: " + r.error,12)) }
+        if !r.error.isEmpty { detail.addArrangedSubview(activityLabel(activityErrorMessage(r.error),12)) }
         if r.truncated || r.damaged { detail.addArrangedSubview(activityLabel(r.truncated ? "용량 제한으로 일부 접근 기록이 생략됐습니다." : "일부 기록이 손상되어 읽을 수 없습니다.",12,secondary:true)) }
         let divider = NSBox(); divider.boxType = .separator; detail.addArrangedSubview(divider)
         if r.steps.isEmpty { detail.addArrangedSubview(activityLabel("세부 접근 내역이 없는 실행입니다.",12,secondary:true)) }
@@ -451,6 +462,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
             icon.contentTintColor = step.outcome == "실패" ? .systemRed : .secondaryLabelColor
             icon.widthAnchor.constraint(equalToConstant:18).isActive = true
             let texts = column([activityLabel(step.title,13,.medium),activityLabel(String(format:"%.2f초 · %@",step.elapsed/1000,step.outcome),11,secondary:true)],spacing:4)
+            if !step.error.isEmpty { texts.addArrangedSubview(activityLabel(activityErrorMessage(step.error),11,secondary:true)) }
             let row = NSStackView(views:[icon,texts]); row.alignment = .top; row.spacing = 10
             detail.addArrangedSubview(row)
         }
