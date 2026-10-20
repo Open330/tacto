@@ -35,7 +35,7 @@ def build(output: Path):
         for name in ("tacto-app.icns", "tacto-logo.svg", "tacto-menu-template.svg"):
             shutil.copy2(root / "docs/assets" / name, contents / "Resources" / name)
         executable = contents / "MacOS/TactoSetup"
-        subprocess.run(["swiftc", str(source / "main.swift"), str(source / "PermissionState.swift"),
+        subprocess.run(["swiftc", str(source / "main.swift"), str(source / "PermissionState.swift"), str(source / "ActivityCenter.swift"),
                         "-o", str(executable)], check=True)
         (contents / "Info.plist").write_bytes(plistlib.dumps({
             "CFBundleDisplayName": "Tacto", "CFBundleName": "Tacto",

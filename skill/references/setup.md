@@ -120,6 +120,7 @@ branches) and `docs/api.md`.
 
 ## Find access records
 
+The app’s **실행 기록 보기** opens its built-in history and settings.
 `tacto logs` lists the local automatic access receipts; `tacto logs --open`
 opens their folder on macOS. These record command, target app, operation, outcome
 and timing, without screen contents, input values, prompts or agent reasoning.

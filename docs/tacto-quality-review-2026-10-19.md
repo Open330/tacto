@@ -125,3 +125,24 @@ privacy scope and the distinction from outer-agent reasoning are documented in
 [access logging](access-logging.md). Tests cover forwarding the exact driver
 arguments/result once, exception handling, storage failure, restrictive file
 modes, symlink rejection, retention and terminal command records after truncation.
+
+### 2026-10-20 native history and settings workspace
+
+The app's record entry now opens a native workspace rather than Finder. A
+sidebar separates history from preferences; connected users reopen that
+workspace, while Mac permission/agent setup remains a dedicated surface.
+History supports app/task search, failure and incomplete-run filters, selection
+retention, operation timelines and explicit partial/capped-record notices.
+Private JSONL reads are bounded and reject symlinks/foreign or nonregular files;
+changed-file caching and a serial background reader avoid repeated parsing on
+the main thread. Refresh pauses when the window is closed/minimized, settings
+are selected, or another app is active.
+
+Shared GUI/runtime preferences control logging, 7/30/90-day retention and fixed
+first-task result presentation. Changes apply to the next CLI invocation.
+Disabling logging creates no new receipt; disabling presentation preserves
+verified text with `presentation_skipped=true`, without a presentation error or
+an input retry. Deleting recognized receipts requires explicit GUI confirmation
+and preserves workflows, preferences and unrelated files. Native tests exercise
+real filtering and controls, private atomic saves read back by Python, partial
+JSONL, boolean/malformed exit codes and restricted deletion in temporary data.

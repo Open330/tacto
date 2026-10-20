@@ -19,6 +19,8 @@ def observation(tree, **kw):
 
 class FirstRunTests(unittest.TestCase):
     def setUp(self):
+        preferences = patch("tacto.first_run.load_preferences", return_value={"present_first_result":True})
+        preferences.start(); self.addCleanup(preferences.stop)
         presenter = patch('tacto.first_run.present_app', return_value=dict(foreground_verified=False, error='test_not_presented'))
         self.presenter = presenter.start()
         self.addCleanup(presenter.stop)
@@ -30,6 +32,16 @@ class FirstRunTests(unittest.TestCase):
         self.presenter.assert_called_once_with('com.apple.TextEdit', 123)
         self.assertEqual(2, execute.call_count)
         self.assertEqual(4, driver.observe.call_count)
+
+    def test_user_setting_can_finish_without_foreground_activation(self):
+        with patch('tacto.first_run.load_preferences', return_value={'present_first_result':False}):
+            r, _, execute = self.run_case()
+        self.assertEqual('text_verified', r['status'])
+        self.assertTrue(r['presentation_skipped'])
+        self.assertFalse(r['foreground_verified'])
+        self.assertNotIn('presentation_error', r)
+        self.presenter.assert_not_called()
+        self.assertEqual(2, execute.call_count)
 
     def test_failure_does_not_present_and_presentation_failure_does_not_repeat_input(self):
         r, _, execute = self.run_case(after=OLD)

@@ -7,6 +7,8 @@ from .flow import Flow, Step, Selector, Postcondition, replay, pin_params, _repl
 from .contract import SafetyContract, Resource, ContextBinding
 from .agent import Agent
 from .library import textedit_new_document
+from .preferences import load_preferences
+from .access_log import current as current_access_log
 
 TARGET = 'com.apple.TextEdit'
 TEXT = 'Hello, World!\nTacto로 작성했습니다.'
@@ -165,7 +167,10 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
     # and launch_app retain their background behavior. Presentation failure
     # cannot turn verified text into a request to repeat the write.
     presentation = {'foreground_verified': False, 'error': 'result_document_not_focused'}
-    if verified_window['focused']:
+    access = current_access_log.get()
+    preferences = access.preferences if access is not None else load_preferences()
+    skipped = not preferences['present_first_result']
+    if not skipped and verified_window['focused']:
         try:
             presentation = (present or present_app)(TARGET, owner[0])
         except Exception:
@@ -188,6 +193,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
     return result('text_verified', 'complete', target=TARGET, window_title=title, window_id=new_id,
                   text=TEXT, persistent_commit_verified=False,
                   foreground_verified=foreground,
-                  **({'presentation_error': presentation.get('error', 'presentation_unavailable')} if not foreground else {}),
+                  **({'presentation_skipped': True} if skipped else
+                     {'presentation_error': presentation.get('error', 'presentation_unavailable')} if not foreground else {}),
                   write_receipt='verified' if written.ok else 'commit_unverified',
                   scope='new document visible text only')

@@ -64,10 +64,10 @@ def compile_setup(executable, folder):
     # Relative input names keep those literals independent of the build host.
     sources = folder/'setup-source'
     sources.mkdir()
-    for name in ('main.swift', 'PermissionState.swift'):
+    for name in ('main.swift', 'PermissionState.swift', 'ActivityCenter.swift'):
         shutil.copy2(ROOT/'setup'/name, sources/name)
     run(['swiftc', '-file-prefix-map', str(ROOT)+'=/tacto-source',
-         'main.swift', 'PermissionState.swift', '-o', str(executable)], cwd=sources)
+         'main.swift', 'PermissionState.swift', 'ActivityCenter.swift', '-o', str(executable)], cwd=sources)
 
 
 def bundled_import_valid(data, runtime):
@@ -162,7 +162,7 @@ def build(output, identity):
     began=time.monotonic()
     def sources():
         paths=[ROOT/name for name in ('pyproject.toml','README.md','setup/build_standalone_preview.py','setup/main.swift',
-            'setup/PermissionState.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
+            'setup/PermissionState.swift','setup/ActivityCenter.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
             'docs/assets/tacto-menu-template.svg','helper/bundle.sh',
             'launcher/tacto.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
             'helper/Tacto Helper.app/Contents/MacOS/TactoHelper','helper/Tacto Helper.app/Contents/Info.plist')]

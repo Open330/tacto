@@ -387,7 +387,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         빠른 실행 지침:
         1. 별도 스킬·문서·예제 탐색이나 Flow JSON 작성 없이 위 명령을 바로 실행하세요. compile/do, osascript, AppleScript, JXA, open -a 등 다른 경로는 사용하지 마세요.
         2. 도구가 실행 세션 ID를 반환하면 같은 세션에서 완료를 기다리세요. 명령을 다시 보내면 문서가 중복될 수 있으니 재실행하지 마세요.
-        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. foreground_verified=true이면 결과 문서가 앞으로 표시된 것도 확인된 것입니다. false이면 입력은 완료됐으나 표시를 확인하지 못했다고 알리고 입력을 반복하지 마세요. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
+        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. presentation_skipped=true는 사용자 설정에 따라 백그라운드로 완료한 것입니다. foreground_verified=true이면 결과 문서가 앞으로 표시된 것도 확인된 것입니다. presentation_skipped가 true가 아닌데 foreground_verified=false이면 입력은 완료됐으나 표시를 확인하지 못했다고 알리고 입력을 반복하지 마세요. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
         4. 실패하면 stage와 error를 보고하고 멈추세요. 문서나 입력이 일부 만들어졌을 수 있으므로 다른 도구로 우회하거나 반복하지 마세요. 로그인·OS 권한 등 사용자 확인이 필요하면 그 요청만 알려주세요.
         """
     }
@@ -423,9 +423,19 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var checkInFlight = false
     var pollTimer: Timer?
     var reportDirectory: URL?
+    var activityCenter: ActivityCenter?
     var snapshot: (URL, SetupState, Permission?)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of:"--activity-snapshot"), i + 1 < args.count,
+           let f = args.firstIndex(of:"--activity-fixture"), f + 1 < args.count {
+            let center = ActivityCenter(store:ActivityStore(root:URL(fileURLWithPath:args[f+1])),refreshAutomatically:false)
+            if args.contains("--dark") { NSApp.appearance = NSAppearance(named:.darkAqua) }
+            do { try center.snapshot(to:URL(fileURLWithPath:args[i+1]),settingsPage:args.contains("--settings-page"),size:args.contains("--compact") ? NSSize(width:900,height:600) : NSSize(width:1060,height:700)) }
+            catch { FileHandle.standardError.write(Data("Activity snapshot failed\n".utf8)); exit(1) }
+            NSApp.terminate(nil); return
+        }
         if let request = snapshotRequest() { renderSnapshot(request); return }
         // A link into a mounted installer disappears when that image is ejected.
         // Require a writable installed copy before permission or skill setup.
@@ -461,8 +471,8 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Background launches keep the settings surface out of the user's way.
         // The menu bar remains available; a normal open or menu click shows it.
         if !CommandLine.arguments.contains("--background") {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            if connection == .current { showAccessLogs() }
+            else { showSetup() }
         }
         // Reading the helper's receipt requests nothing and changes nothing;
         // it is what lets every row start out true. Settings, permission
@@ -669,6 +679,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         connectButton.isHidden = connection == .current && !installing
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
+        activityCenter?.updateStatus(badge.stringValue)
         if let notice { status.stringValue = notice }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
         else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 확인합니다." }
@@ -965,9 +976,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "Tacto 정보", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         let open = appMenu.addItem(withTitle: "Tacto 열기", action: #selector(reopen), keyEquivalent: "0")
         open.target = self
         appMenu.addItem(.separator())
+        let preferences = appMenu.addItem(withTitle: "설정…", action: #selector(showPreferences), keyEquivalent: ",")
+        preferences.target = self
         appMenu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let windowItem = NSMenuItem(); main.addItem(windowItem)
         let windowMenu = NSMenu(title: "윈도우"); windowItem.submenu = windowMenu
@@ -990,34 +1005,36 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refresh.target = self
         let logs = menu.addItem(withTitle: "실행 기록 보기", action: #selector(showAccessLogs), keyEquivalent: "")
         logs.target = self
+        let menuPreferences = menu.addItem(withTitle: "설정…", action: #selector(showPreferences), keyEquivalent: "")
+        menuPreferences.target = self
+        let setup = menu.addItem(withTitle: "Mac 권한·에이전트", action: #selector(showSetup), keyEquivalent: "")
+        setup.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         item.menu = menu; statusItem = item
         render()
     }
     @objc func reopen() {
+        if connection == .current { workspace().presentCurrent() }
+        else { showSetup() }
+    }
+    @objc func showSetup() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         refreshAll()
     }
     @objc func refreshPermissions() { refreshAll() }
     @objc func showAccessLogs() {
-        let product = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Tacto")
-        let folder = product.appendingPathComponent("Logs")
-        do {
-            for path in [product, folder] {
-                try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true,
-                                                       attributes: [.posixPermissions: 0o700])
-                let info = try FileManager.default.attributesOfItem(atPath: path.path)
-                guard info[.type] as? FileAttributeType == .typeDirectory,
-                      (info[.ownerAccountID] as? NSNumber)?.uint32Value == getuid() else {
-                    throw NSError(domain: "TactoLogs", code: 1)
-                }
-            }
-            if NSWorkspace.shared.open(folder) { return }
-        } catch {}
-        notice = "실행 기록 폴더를 열지 못했어요. tacto logs 명령으로 위치를 확인할 수 있습니다."
-        render()
+        workspace().present()
+    }
+    @objc func showPreferences() { workspace().present(settings: true) }
+    func workspace() -> ActivityCenter {
+        if let activityCenter { return activityCenter }
+        let center = ActivityCenter()
+        center.onSetup = { [weak self] in self?.showSetup() }
+        center.updateStatus(badge.stringValue)
+        activityCenter = center
+        return center
     }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         reopen(); return true

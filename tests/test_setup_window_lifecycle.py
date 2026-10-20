@@ -120,6 +120,8 @@ class SetupWindowLifecycleTests(unittest.TestCase):
             .write(to: directory.appendingPathComponent("lifecycle-check.json"))
 '''
         # Keep this regression independent of the person's current windows.
+        source = source.replace('if connection == .current { workspace().presentCurrent() }', 'if connection == .current { testOpenCount += 1 }')
+        source = source.replace('if connection == .current { showAccessLogs() }', 'if connection == .current { testOpenCount += 1 }')
         instrumented = source.replace('        window.makeKeyAndOrderFront(nil)', '        testOpenCount += 1')
         instrumented = instrumented.replace('        NSApp.activate(ignoringOtherApps: true)', '        // Activation disabled in offscreen fixture.')
         instrumented = instrumented.replace('NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences"', 'testSettingsFrontmost')
@@ -131,8 +133,9 @@ class SetupWindowLifecycleTests(unittest.TestCase):
             folder = Path(folder)
             (folder/'main.swift').write_text(instrumented)
             (folder/'PermissionState.swift').write_bytes((ROOT/'setup/PermissionState.swift').read_bytes())
+            (folder/'ActivityCenter.swift').write_bytes((ROOT/'setup/ActivityCenter.swift').read_bytes())
             binary = folder/'TactoSetup'
-            built = subprocess.run(['swiftc', 'main.swift', 'PermissionState.swift', '-o', str(binary)],
+            built = subprocess.run(['swiftc', 'main.swift', 'PermissionState.swift', 'ActivityCenter.swift', '-o', str(binary)],
                                    cwd=folder, capture_output=True, text=True, timeout=90)
             self.assertEqual(0, built.returncode, built.stderr)
             output = folder/'snapshot'

@@ -2,6 +2,7 @@
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
+from .preferences import load_preferences
 import json
 import os
 import re
@@ -82,13 +83,16 @@ class AccessLog:
         self.finished = False
         self.started = time.monotonic()
         self.sequence = 0
+        self.preferences = load_preferences((Path(root) if root is not None else log_directory()).parent)
+        if not self.preferences['logging_enabled']:
+            return
         try:
             root = private_directory(root or log_directory())
             total = count = 0
             for p, info in _files(root):
                 total += info.st_size
                 count += 1
-                if count >= MAX_FILES or total > MAX_TOTAL - MAX_FILE or time.time() - info.st_mtime > MAX_AGE:
+                if count >= MAX_FILES or total > MAX_TOTAL - MAX_FILE or time.time() - info.st_mtime > self.preferences['retention_days'] * 86400:
                     p.unlink()
             name = 'tacto-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ-') + uuid.uuid4().hex + '.jsonl'
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0)
@@ -138,7 +142,7 @@ class AccessLog:
             value = result.get(key)
             if type(value) is int and 0 <= value < 1000000:
                 fields[key] = value
-        for key in ('foreground_verified', 'save_command_sent', 'repeat_write'):
+        for key in ('foreground_verified', 'presentation_skipped', 'save_command_sent', 'repeat_write'):
             if type(result.get(key)) is bool:
                 fields[key] = result[key]
         self.event('task_result', **fields)
