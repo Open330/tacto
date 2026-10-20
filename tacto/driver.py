@@ -1,4 +1,4 @@
-"""NLC Protocol P0 driver — macOS accessibility (AX) backend.
+"""Tacto Protocol P0 driver — macOS accessibility (AX) backend.
 
 L1 (OS driver) + L2 (action protocol) in one module.
 Implements the PROTOCOL.md v0.1 decisions:
@@ -346,7 +346,7 @@ def _real_windows(pid):
         captured and which then appears in that app's own window list: 66x20
         inside a 460x232 window, subrole AXDialog, title "Window", no close,
         minimize or zoom button (2026-09-21). Holding the control indicator is
-        what puts it there, so saying "NLC is working on this window" was what
+        what puts it there, so saying "Tacto is working on this window" was what
         made that window ambiguous.
 
     Only the measured capture badge is excluded. File panels and modal dialogs
@@ -700,7 +700,7 @@ class Driver:
         # reason: macOS's screen-capture badge is a window in the app's own
         # AXWindows, so while the control indicator was up every observation of
         # the app being driven began with a phantom `Window  Title: Window,
-        # Identifier: _NS:8` — our own way of saying "NLC is working here"
+        # Identifier: _NS:8` — our own way of saying "Tacto is working here"
         # walked into the tree it was working on, and shifted every element
         # index behind it.
         windows = _real_windows(obs.pid) if selected_window is None else [selected_window]

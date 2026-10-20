@@ -70,7 +70,7 @@ class NoWindowReasonTests(unittest.TestCase):
 class UnhideQuietlyTests(unittest.TestCase):
     """A hidden app's windows come back without it being made frontmost.
 
-    Found in the 2026-10-07 comparison: NLC asked the person to click TextEdit
+    Found in the 2026-10-07 comparison: TACTO asked the person to click TextEdit
     in the Dock where Sky went on. Measured after the fix: the hidden TextEdit
     was observed with its windows and the focus witness saw no activation.
     """

@@ -123,7 +123,7 @@ final class CanvasDelegate: NSObject, NSApplicationDelegate {
         let window = NSWindow(
             contentRect: NSRect(x: 140, y: 140, width: 460, height: 200),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Native Canvas Fixture"
+        window.title = "TACTO Native Canvas Fixture"
         window.isReleasedWhenClosed = false
         self.window = window
 
@@ -137,11 +137,11 @@ final class CanvasDelegate: NSObject, NSApplicationDelegate {
         // The witnesses. These ARE accessible, on purpose: the point of the
         // fixture is that the target cannot be found through AX while the
         // result of hitting it can be read back through AX.
-        hit.identifier = NSUserInterfaceItemIdentifier("nlc-canvas-hit")
-        hit.setAccessibilityIdentifier("nlc-canvas-hit")
+        hit.identifier = NSUserInterfaceItemIdentifier("tacto-canvas-hit")
+        hit.setAccessibilityIdentifier("tacto-canvas-hit")
         hit.frame = NSRect(x: 20, y: 130, width: 200, height: 24)
-        count.identifier = NSUserInterfaceItemIdentifier("nlc-canvas-count")
-        count.setAccessibilityIdentifier("nlc-canvas-count")
+        count.identifier = NSUserInterfaceItemIdentifier("tacto-canvas-count")
+        count.setAccessibilityIdentifier("tacto-canvas-count")
         count.frame = NSRect(x: 240, y: 130, width: 120, height: 24)
 
         window.contentView?.addSubview(canvas)

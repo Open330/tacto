@@ -43,7 +43,7 @@ final class SentinelDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegat
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 580, height: 310),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Native Input Sentinel"
+        window.title = "TACTO Native Input Sentinel"
         window.isReleasedWhenClosed = false
         self.window = window
         let scroll = NSScrollView(frame: NSRect(x: 20, y: 110, width: 540, height: 175))
@@ -54,18 +54,18 @@ final class SentinelDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegat
         editor.isSelectable = true
         editor.isRichText = false
         editor.font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
-        editor.string = "NLC sentinel 한글 😀\nHarmless text for caret preservation."
+        editor.string = "TACTO sentinel 한글 😀\nHarmless text for caret preservation."
         editor.setSelectedRange(NSRange(location: 4, length: 0))
-        identify(editor, "nlc-sentinel-text")
+        identify(editor, "tacto-sentinel-text")
         editor.delegate = self
         editor.onStateChange = { [weak self] in self?.refreshState() }
         scroll.documentView = editor
         self.editor = editor
         window.contentView?.addSubview(scroll)
 
-        identify(caret, "nlc-sentinel-caret")
-        identify(keyCount, "nlc-sentinel-key-count")
-        identify(state, "nlc-sentinel-state")
+        identify(caret, "tacto-sentinel-caret")
+        identify(keyCount, "tacto-sentinel-key-count")
+        identify(state, "tacto-sentinel-state")
         caret.frame = NSRect(x: 20, y: 76, width: 540, height: 24)
         keyCount.frame = NSRect(x: 20, y: 46, width: 540, height: 24)
         state.frame = NSRect(x: 20, y: 16, width: 540, height: 24)

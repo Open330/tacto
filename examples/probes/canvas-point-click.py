@@ -23,20 +23,20 @@ import subprocess
 import time
 from pathlib import Path
 
-TARGET = 'ai.callabo.nlc.canvas-fixture'
+TARGET = 'ai.callabo.tacto.canvas-fixture'
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def _fixture_app(work):
     """Build the fixture into its own bundle and return the executable."""
     import plistlib
-    app = Path(work) / 'NLC Canvas Fixture.app'
+    app = Path(work) / 'TACTO Canvas Fixture.app'
     binary = app / 'Contents/MacOS/NativeCanvasFixture'
     binary.parent.mkdir(parents=True, exist_ok=True)
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
         'CFBundleIdentifier': TARGET,
         'CFBundleExecutable': binary.name,
-        'CFBundleName': 'NLC Canvas Fixture',
+        'CFBundleName': 'TACTO Canvas Fixture',
         'CFBundlePackageType': 'APPL',
         'CFBundleVersion': '1',
         'LSUIElement': True,
@@ -149,7 +149,7 @@ def _capture_and_click(driver, output: Path):
                                   'control accessibility cannot describe'}
     process = None
     witness = None
-    work = tempfile.mkdtemp(prefix='nlc-canvas-')
+    work = tempfile.mkdtemp(prefix='tacto-canvas-')
     try:
         if Driver()._resolve(TARGET, launch=False) is not None:
             raise RuntimeError('fixture already running; cannot claim ownership')
@@ -162,7 +162,7 @@ def _capture_and_click(driver, output: Path):
         while time.monotonic() < deadline:
             probe._pump()
             pid = probe._resolve(TARGET, launch=False)
-            if pid is not None and _label(pid, 'nlc-canvas-hit') is not None:
+            if pid is not None and _label(pid, 'tacto-canvas-hit') is not None:
                 break
             time.sleep(0.2)
         if pid != process.pid:
@@ -208,8 +208,8 @@ def _capture_and_click(driver, output: Path):
                                 'scale': [round(scale_x, 2), round(scale_y, 2)],
                                 'window_point': [round(wx, 1), round(wy, 1)]})
 
-        before_hit = _label(pid, 'nlc-canvas-hit')
-        before_count = _label(pid, 'nlc-canvas-count')
+        before_hit = _label(pid, 'tacto-canvas-hit')
+        before_count = _label(pid, 'tacto-canvas-count')
         frontmost_before = _frontmost_bundle()
 
         observation = driver.observe(TARGET, 'tree_full')
@@ -219,8 +219,8 @@ def _capture_and_click(driver, output: Path):
         if clicked.get('type') != 'acted':
             raise RuntimeError('click_failed: ' + str(clicked.get('detail') or clicked.get('error')))
 
-        after_hit = _label(pid, 'nlc-canvas-hit')
-        after_count = _label(pid, 'nlc-canvas-count')
+        after_hit = _label(pid, 'tacto-canvas-hit')
+        after_count = _label(pid, 'tacto-canvas-count')
         report['witness'] = {'hit': [before_hit, after_hit],
                              'count': [before_count, after_count]}
         if after_hit != 'green':

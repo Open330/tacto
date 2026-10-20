@@ -126,7 +126,7 @@ class ProtocolTests(unittest.TestCase):
              patch.object(comparison,'_locked',return_value=False), \
              patch.object(comparison,'_agent_executable_available',return_value=True), \
              patch.object(comparison,'_run_agent') as agent:
-            row=comparison.run_one(task,'nlc')
+            row=comparison.run_one(task,'tacto')
         self.assertEqual(prepared,row['owned_fixture_evidence'])
         self.assertFalse(row['comparison_eligible'])
         self.assertEqual('setup_failed_left_as_is',row['cleanup_status'])
@@ -145,7 +145,7 @@ class ProtocolTests(unittest.TestCase):
              patch.object(comparison,'_locked',side_effect=[False,None]), \
              patch.object(comparison,'_agent_executable_available',return_value=True), \
              patch.object(comparison,'_run_agent') as agent:
-            row=comparison.run_one(task,'nlc')
+            row=comparison.run_one(task,'tacto')
         self.assertEqual(prepared,row['owned_fixture_evidence'])
         self.assertFalse(row['comparison_eligible'])
         self.assertEqual('environment_unavailable_left_as_is',row['cleanup_status'])
@@ -292,7 +292,7 @@ class ChainTaskTests(unittest.TestCase):
              patch.object(comparison,'_locked',return_value=False), \
              patch.object(comparison,'run_one',return_value=result) as run, \
              patch('sys.stdout',io.StringIO()):
-            code=comparison.main(['--external-owned-worker',sys.executable,'--only','calc_to_textedit','--arms','nlc'])
+            code=comparison.main(['--external-owned-worker',sys.executable,'--only','calc_to_textedit','--arms','tacto'])
         self.assertEqual(2,code)
         self.assertEqual('calc_to_textedit',factory.call_args.kwargs['task'])
         self.assertEqual('calc_to_textedit',run.call_args.args[0].name)
@@ -303,12 +303,12 @@ class SkyGuideTests(unittest.TestCase):
     def test_host_guide_is_only_added_to_sky_and_constraints_stay_present(self):
         with patch.object(comparison,'_SKY_SKILL_FILE','/host/public skill.md'):
             sky=comparison._arm_prompt('owned task','sky')
-            nlc=comparison._arm_prompt('owned task','nlc')
+            tacto=comparison._arm_prompt('owned task','tacto')
         self.assertIn('"/host/public skill.md"',sky)
         self.assertIn('do not guess arguments',sky)
-        self.assertNotIn('/host/public skill.md',nlc)
+        self.assertNotIn('/host/public skill.md',tacto)
         self.assertIn(comparison.BACKGROUND_CONSTRAINT,sky)
-        self.assertIn(comparison.BACKGROUND_CONSTRAINT,nlc)
+        self.assertIn(comparison.BACKGROUND_CONSTRAINT,tacto)
 
     def test_external_skill_snapshot_detects_change_loss_and_oversize(self):
         with tempfile.TemporaryDirectory() as directory:

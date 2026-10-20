@@ -108,7 +108,7 @@ class OpenCodeResultTests(unittest.TestCase):
 
     def test_route_stdin_isolated_config_and_metadata_attempts(self):
         def run(argv, timeout, **kwargs):
-            self.assertEqual(['opencode','run','--format','json','--agent','NLCPlanner'],argv)
+            self.assertEqual(['opencode','run','--format','json','--agent','TactoPlanner'],argv)
             self.assertEqual('private prompt',kwargs['input_text'])
             self.assertNotIn('private prompt',argv)
             env=kwargs['env'];config=json.loads(env['OPENCODE_CONFIG_CONTENT'])
@@ -138,7 +138,7 @@ class OpenCodeResultTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             executable=Path(folder)/'opencode'
             executable.write_text('#!'+sys.executable+'\n'+'''import json,os,sys
-assert sys.argv[1:]==['run','--format','json','--agent','NLCPlanner']
+assert sys.argv[1:]==['run','--format','json','--agent','TactoPlanner']
 assert sys.stdin.read()=='private stdin prompt'
 assert os.getcwd()!=os.environ['TACTO_TEST_CALLER_CWD']
 assert json.loads(os.environ['OPENCODE_CONFIG_CONTENT'])['permission']=={'*':'deny'}

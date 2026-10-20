@@ -43,7 +43,7 @@ def read_record(path):
         with os.fdopen(fd,'rb',closefd=False) as stream:payload=stream.read(1024*1024+1)
         if len(payload)>1024*1024:raise ValueError('record too large')
         data=json.loads(payload)
-        if type(data) is not dict or set(data)!={'schema','root_identity','entries'} or data['schema']!='nlc-links-v1':raise ValueError('invalid schema')
+        if type(data) is not dict or set(data)!={'schema','root_identity','entries'} or data['schema']!='tacto-links-v1':raise ValueError('invalid schema')
         def stamp(value):return type(value) is list and len(value)==2 and all(type(v) is int and v>=0 for v in value)
         if not stamp(data['root_identity']):raise ValueError('invalid identity')
         if type(data['entries']) is not list or len(data['entries'])>1000:raise ValueError('invalid entries')
@@ -78,7 +78,7 @@ def authorize(record,root,link,kind):
 
 def write_record(path,root,command_link,skill_links,*,command_links=()):
     root=Path(root).resolve(strict=True)
-    data={'schema':'nlc-links-v1','root_identity':identity(root),'entries':[]}
+    data={'schema':'tacto-links-v1','root_identity':identity(root),'entries':[]}
     seen=set()
     for kind,raw in [('command',command_link),*[('command',p) for p in command_links],*[('skill',p) for p in skill_links]]:
         link=link_path(raw)

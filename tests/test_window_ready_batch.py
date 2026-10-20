@@ -103,7 +103,7 @@ print(String(data:try! JSONSerialization.data(withJSONObject:["first":first,"sec
         self.assertTrue(result['refused']);self.assertTrue(result['default_off'])
 
     def run_swift(self, text):
-        with tempfile.TemporaryDirectory(prefix='nlc-ready-batch-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-ready-batch-') as directory:
             src = Path(directory) / 'main.swift'; binary = Path(directory) / 'probe'
             src.write_text(text)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(src),

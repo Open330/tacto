@@ -174,7 +174,7 @@ for mode in ["success","stop","deadline","post","pointer","routing"] {
 }
 print("OPAQUE_SWIFT_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-swift-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-swift-') as directory:
             source=Path(directory)/'main.swift';binary=Path(directory)/'check';source.write_text(harness)
             built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
                 str(ROOT/'helper/WindowInput.swift'),str(ROOT/'helper/WindowDispatch.swift'),
@@ -201,7 +201,7 @@ var both=root;both["action"]=["name":"window_input","element_index":0,"key":"Tab
 var foreign=root;foreign["action"]=["name":"read","element_index":0];precondition(vetted(foreign) != nil)
 print("OPAQUE_LAUNCHER_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-schema-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-schema-') as directory:
             source=Path(directory)/'main.swift';source.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw: Any?) -> Double? { 1 }\n'+schema+harness)
             ran=subprocess.run(['swift',str(source)],capture_output=True,text=True,timeout=60)
             self.assertEqual(0,ran.returncode,ran.stdout+ran.stderr)

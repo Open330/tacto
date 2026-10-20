@@ -14,7 +14,7 @@ import time
 import sys
 import socket
 
-TARGET = 'ai.callabo.nlc.recovery-fixture'
+TARGET = 'ai.callabo.tacto.recovery-fixture'
 
 
 def main(driver, output, *, repeated=False, exhaust_budget=False, interleave_textedit=False,
@@ -46,7 +46,7 @@ def main(driver, output, *, repeated=False, exhaust_budget=False, interleave_tex
     report['interleave_textedit_requested'] = interleave_textedit
     report['expected_interleave_disconnect'] = interleave_disconnect
     report['expected_interleave_parent_change'] = interleave_parent_change
-    paths = list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py')) + list((root/'helper').glob('*.swift')) + [
+    paths = list((root/'tacto').glob('*.py')) + list((root/'helper').glob('*.swift')) + [
         Path(__file__).resolve(), root/'examples/eval.py',
         root/'tests/fixtures/NativeRecoveryFixture.swift', root/'launcher/tacto.swift',
         root/'launcher/tacto', root/'helper/tacto-helper',
@@ -65,8 +65,8 @@ def main(driver, output, *, repeated=False, exhaust_budget=False, interleave_tex
         audit = ProcessInputAudit(interval=.005, startup_timeout=10, stop_timeout=3)
         assert local._resolve(TARGET, launch=False) is None, 'owned fixture already running'
         assert isinstance(driver,InheritedHelperDriver), 'signed inherited helper required'
-        with tempfile.TemporaryDirectory(prefix='nlc-native-recovery-') as work:
-            app = Path(work)/'NLC Recovery Fixture.app'
+        with tempfile.TemporaryDirectory(prefix='tacto-native-recovery-') as work:
+            app = Path(work)/'TACTO Recovery Fixture.app'
             binary = app/'Contents/MacOS/NativeRecoveryFixture'
             binary.parent.mkdir(parents=True)
             (app/'Contents/Info.plist').write_bytes(plistlib.dumps({
@@ -97,7 +97,7 @@ def main(driver, output, *, repeated=False, exhaust_budget=False, interleave_tex
                     def sheet_count():
                         assert process.poll() is None and local._resolve(TARGET,launch=False) == process.pid
                         windows = _attr(AXUIElementCreateApplication(process.pid),'AXWindows') or []
-                        main = [w for w in windows if _attr(w,'AXTitle') == 'NLC Recovery Fixture']
+                        main = [w for w in windows if _attr(w,'AXTitle') == 'TACTO Recovery Fixture']
                         assert len(main)==1
                         sheets = []
                         pending = list(_attr(main[0],'AXChildren') or [])

@@ -15,7 +15,7 @@ class SignedElementReportTests(unittest.TestCase):
         driver = SimpleNamespace(capabilities=[])
         audit = SimpleNamespace(report=lambda: {'status':'NOT_STARTED'})
         for probe in ('signed-element-click.py', 'signed-commit-disconnect.py', 'signed-native-recovery.py', 'native-opaque-point.py'):
-            with self.subTest(probe=probe), tempfile.TemporaryDirectory(prefix='nlc-private-report-') as work:
+            with self.subTest(probe=probe), tempfile.TemporaryDirectory(prefix='tacto-private-report-') as work:
                 main = runpy.run_path(str(root / 'examples/probes' / probe))['main']
                 def invoke(path):
                     return main(driver, path) if probe != 'native-opaque-point.py' else main(path)

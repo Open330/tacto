@@ -1,5 +1,7 @@
 # 전체 목표의 완료 기준과 현재 작업
 
+> 제품·측정 라벨·식별자는 현재 Tacto 이름으로 정규화했습니다. 당시 측정 수치와 성공·실패는 유지하며, 새 서명 배포를 검증했다는 뜻은 아닙니다.
+
 2026-10-10 감사. 기존 장기 목표 G0~G10의 최신 작업 계획이다. G0~G10의 원래 범위와 완료 기준을
 유지한다. 이전의 특정 fixture 성공 또는 14/14 결과로 전체 완료를 선언하지
 않는다. 비교·URL 감사 기준 소스는 401f960이며, 창 timeout 분기 검사는
@@ -664,7 +666,7 @@ source manifest 전후·두 arm 사이 일치, activations[]였다. Tacto46.3초
 Sky40.8초다. CLI telemetry 입력/캐시/출력은 Tacto214245/194048/611,
 Sky159423/150016/620이다. 실제 serving model/비용은 관측하지 않았다.
 `calls`는 인식한 tool item event 수이며 고유 invocation 수가 아니다.
-Tacto shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
+Tacto shell:tacto12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
 
 두 arm의 소유 Codex 주 프로세스는64회 observed/self-responsible였으며
 observer stopped/error 없음이다. sample_limit_reached=true라 전체 실행
@@ -871,7 +873,7 @@ Tacto64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracl
 전체 activation 또는 pointer/typing 보존을 주장하지 않는다.
 
 CLI telemetry 입력/cache/출력은 Tacto311178/282368/1370,
-Sky140453/129280/559다. calls(shell:nlc14/node_repl:js12)는 tool item event
+Sky140453/129280/559다. calls(shell:tacto14/node_repl:js12)는 tool item event
 수이며 고유 invocation 수나 실행 layer의 완전한 attestation이 아니다.
 이 usage는 nested provider 전체 비용이 아니며 actual serving model/cost는
 확인하지 못했다. 전체 초기 UI·좌표/선택 상태, Sky 후손 책임과 실제 TCC 판정,
@@ -993,7 +995,7 @@ owner-only `../reviews/2026-10-10/product-comparison-20261010-214334.jsonl`에�
 agent 구간 초기 frontmost=System Settings, activation=[]였다. source prefix
 b930dd980e0e가 두 arm 전후 stable이다. CLI input/cache/output은
 Sky188422/178944/723, Tacto132725/105472/933다. tool item event 수는
-Sky node_repl:js16, Tacto shell:nlc12/shell:other2이며 고유 호출 수가 아니다.
+Sky node_repl:js16, Tacto shell:tacto12/shell:other2이며 고유 호출 수가 아니다.
 실제 serving model/cost, nested provider 총 비용, typing/caret/pointer 보존,
 Sky descendant/TCC graph, 완전한 초기 UI는 미검증이다. 비교 제외와 command
 exit2를 유지한다. 저장된 상태를 autosave 없는 명시 Save 인과 증거로 승격하지

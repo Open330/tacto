@@ -137,7 +137,7 @@ class SavedStateTests(unittest.TestCase):
         self.assertIn('호스트 영수증이 없습니다',output.getvalue())
         self.assertIn('다시 실행하지 말고',output.getvalue())
         self.assertNotIn('저장된 파일이 없어',output.getvalue())
-        self.assertNotIn('nlc replay textedit_save',output.getvalue())
+        self.assertNotIn('tacto replay textedit_save',output.getvalue())
         self.assertNotIn('저장하지 않은 문서라면 정상',output.getvalue())
 
     def test_persistent_text_edit_reports_uncertain_change_instead_of_save_failure(self):

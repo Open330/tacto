@@ -28,8 +28,8 @@ class ModelProbeFinalizationTests(unittest.TestCase):
                     return {'status':'INCONCLUSIVE','errors':['collector_not_ready']}
             driver=Mock()
             driver.observe.return_value={'type':'observation','tree':
-                '0 StaticText  Value: Alpha, Identifier: nlc-fixture-result\n'
-                '1 StaticText  Value: 0, Identifier: nlc-fixture-count'}
+                '0 StaticText  Value: Alpha, Identifier: tacto-fixture-result\n'
+                '1 StaticText  Value: 0, Identifier: tacto-fixture-count'}
             with patch.object(probe,'ROOT',root),patch.object(probe,'__file__',str(root/names[0])), \
                  patch('tacto.driver.Driver') as reader,patch('tacto.driver.AXUIElementCreateApplication'), \
                  patch('tacto.driver._attr',return_value=False), \

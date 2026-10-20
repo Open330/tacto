@@ -71,7 +71,7 @@ class InstallationTests(unittest.TestCase):
         from tacto import store
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / 'pyproject.toml').write_text('[project]\nname="nlc"\n')
+            (root / 'pyproject.toml').write_text('[project]\nname="tacto"\n')
             (root / 'flows').mkdir()
             with patch.object(store, '__file__', str(root / 'tacto/store.py')), \
                     patch.dict(os.environ, {'XDG_DATA_HOME': str(root / 'data')}):
@@ -103,13 +103,13 @@ class InstallationTests(unittest.TestCase):
         uv = shutil.which('uv')
         if uv is None:
             self.skipTest('uv build frontend is unavailable')
-        with tempfile.TemporaryDirectory(prefix='nlc-wheel-test-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-wheel-test-') as directory:
             work = Path(directory)
             source = work / 'source'
             source.mkdir()
             for name in ('pyproject.toml', 'README.md'):
                 shutil.copy2(ROOT / name, source / name)
-            for package in ('tacto','nlc'):
+            for package in ('tacto',):
                 shutil.copytree(ROOT / package, source / package,
                                 ignore=shutil.ignore_patterns('__pycache__'))
 
@@ -136,7 +136,7 @@ class InstallationTests(unittest.TestCase):
             python = environment / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
             execute([uv, 'pip', 'install', '--python', str(python), '--no-deps', str(wheels[0])])
             execute([str(python), '-I', '-c', PORTABLE_IMPORTS])
-            executable = environment / ('Scripts/tacto.exe' if os.name == 'nt' else 'bin/nlc')
+            executable = environment / ('Scripts/tacto.exe' if os.name == 'nt' else 'bin/tacto')
             result = execute([str(executable), '--help'])
             self.assertIn('Usage:', result.stdout)
             result = execute([str(python), '-I', '-m', 'tacto.cli', '--help'])

@@ -125,7 +125,7 @@ class BrowserContract(unittest.TestCase):
         result = d.act(obs['obs_id'], 'page', {'name':'click', 'element_index':targets[1]}, expect={'role':'button','label':'Save'})
         self.assertEqual('acted', result['type'], result)
         self.assertEqual('second', d._page.evaluate('document.body.dataset.clicked'))
-        self.assertEqual([],d._page.evaluate("Object.getOwnPropertyNames(globalThis).filter(k => k.startsWith('__nlc_node_'))"))
+        self.assertEqual([],d._page.evaluate("Object.getOwnPropertyNames(globalThis).filter(k => k.startsWith('__tacto_node_'))"))
 
     def test_named_regions_keep_their_own_same_named_inputs(self):
         from tacto.general import candidates

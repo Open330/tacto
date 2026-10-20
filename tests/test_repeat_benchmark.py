@@ -38,7 +38,7 @@ class RepeatBenchmarkTests(unittest.TestCase):
         self.assertEqual({True,False},{r['bonus'] for r in rows})
         for r in rows:self.assertEqual(int(r['result']),int(r['amount'])*int(r['factor'])+(5 if r['bonus'] else 0))
     def test_summary_counts_authoring_once_and_repair_and_failed_attempt(self):
-        result={'arm':'codex-nlc-reuse','passed':True,'rows':[
+        result={'arm':'codex-tacto-reuse','passed':True,'rows':[
             {'seconds':10,'oracle':{'passed':True,'single_commit':True}} for _ in range(10)],
             'agent_runs':[{'seconds':10},{'seconds':7}],
             'usage':{'agent_invocations':2,'unknown_usage_records':0,'total_input_tokens':100,
@@ -49,7 +49,7 @@ class RepeatBenchmarkTests(unittest.TestCase):
         with self.assertRaises(ValueError):measured_batch(result)
     def test_historical_claude_summary_includes_cache_creation_without_mutating_raw(self):
         from copy import deepcopy
-        result={'arm':'claude-nlc-reuse','passed':True,'rows':[
+        result={'arm':'claude-tacto-reuse','passed':True,'rows':[
             {'seconds':1,'oracle':{'passed':True,'single_commit':True}} for _ in range(10)],
             'agent_runs':[], 'usage':{'agent_invocations':2,'unknown_usage_records':0,
                 'total_input_tokens':238913,'cache_read_tokens':216996,'cache_creation_tokens':21893,
@@ -72,7 +72,7 @@ class RepeatBenchmarkTests(unittest.TestCase):
         rows=[{'seconds':2,'oracle':{'passed':True,'single_commit':True}} for _ in range(10)]
         rows[0].update(job={'job':'T01'},seconds=9)
         rows[6]['recovery']={'seconds':3}
-        result={'kind':'mixed-reuse','arm':'codex-nlc-ratio70','passed':True,'rows':rows,
+        result={'kind':'mixed-reuse','arm':'codex-tacto-ratio70','passed':True,'rows':rows,
                 'agent_runs':[{'seconds':50},rows[0],{'seconds':7}],
                 'usage':{'agent_invocations':3,'unknown_usage_records':0,'total_input_tokens':100,
                          'new_input_tokens':20,'cache_read_tokens':80,'output_tokens':10}}
@@ -82,7 +82,7 @@ class RepeatBenchmarkTests(unittest.TestCase):
                'oracle':{'passed':True,'single_commit':True,'active':False}} for i in range(1,11)]
         for r in rows:r['usage']={'status':'reported','total_input_tokens':10,'new_input_tokens':2,
                                   'cache_read_tokens':8,'cache_creation_tokens':None,'output_tokens':1}
-        result={'kind':'mixed-reuse','reuse_percent':0,'arm':'codex-nlc-ratio0','passed':True,
+        result={'kind':'mixed-reuse','reuse_percent':0,'arm':'codex-tacto-ratio0','passed':True,
                 'rows':rows,'agent_runs':rows,'usage':sum_usage(rows),'setup':None}
         self.assertEqual(10,summarize(result)['agent_jobs'])
         rows[0]['mode']='flow'

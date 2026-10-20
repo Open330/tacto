@@ -23,7 +23,7 @@ final class SaveDirectoryDelegate: NSObject, NSApplicationDelegate, NSOpenSavePa
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 500, height: 160),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Owned Save Directory Fixture"
+        window.title = "TACTO Owned Save Directory Fixture"
         window.isReleasedWhenClosed = false
         self.window = window
         window.orderBack(nil)

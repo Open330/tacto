@@ -250,7 +250,7 @@ error object나 오류에 관한 설명은 같은 인증 상태로 추론하지 
 
 ## OpenCode의 structured planning adapter
 
-`opencode_result`는 fresh `run --format json --agent NLCPlanner`를 사용하고
+`opencode_result`는 fresh `run --format json --agent TACTOPlanner`를 사용하고
 prompt를 stdin으로 전달한다. 호출별 임시 cwd/config에서 permission 전체 deny,
 plugin 빈 목록, 공유/자동 업데이트/project config/external skills 비활성화를
 요청한다. 사용자 auth data는 유지하며 login/token/원래 config를 수정하지 않는다.

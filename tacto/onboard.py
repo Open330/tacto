@@ -117,7 +117,7 @@ def run(interactive: bool = True, narrate=print) -> bool:
         if required:
             all_ok = False
     # Over-broad grant check. TCC identifies a client by binary, and a venv's
-    # python is usually a symlink to a SHARED interpreter — so granting NLC
+    # python is usually a symlink to a SHARED interpreter — so granting Tacto
     # accessibility grants it to every script run with that interpreter.
     # Verified on this machine: an unrelated /tmp script could read other apps'
     # windows. Users deserve to know that before they click Allow.

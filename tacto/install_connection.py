@@ -35,7 +35,7 @@ def _requested_links(bin_dir, skill_dirs):
     Unresolved/relative defaults cannot authorize reuse.
     """
     home = Path.home()
-    command = Path(bin_dir if bin_dir is not None else (os.environ.get('TACTO_BIN_DIR') or os.environ.get('NLC_BIN_DIR') or str(home/'.local/bin')))
+    command = Path(bin_dir if bin_dir is not None else (os.environ.get('TACTO_BIN_DIR') or str(home/'.local/bin')))
     dirs = list(skill_dirs)
     if not dirs:
         dirs = [home/'.claude/skills', home/'.codex/skills']
@@ -43,7 +43,6 @@ def _requested_links(bin_dir, skill_dirs):
             if os.environ.get(key): dirs.append(Path(os.environ[key])/'skills')
         dirs.extend(p for p in (home/'Library/Application Support/asx/profiles').glob('*/skills') if p.is_dir())
     return {str(link_path(command/'tacto')):'command',
-            str(link_path(command/'nlc')):'command',
             **{str(link_path(Path(parent)/'tacto')):'skill' for parent in dirs}}
 
 

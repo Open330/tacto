@@ -1,6 +1,6 @@
-"""skill/install.sh puts `nlc` on PATH and links the skill — without clobbering.
+"""skill/install.sh puts `tacto` on PATH and links the skill — without clobbering.
 
-Reported from a Codex session (2026-09-28): the skill was there, `nlc` was
+Reported from a Codex session (2026-09-28): the skill was there, `tacto` was
 not — the installer only copied SKILL.md, and every copy was stale. These run
 the real script against a throwaway HOME.
 """
@@ -40,8 +40,8 @@ class SkillInstallTests(unittest.TestCase):
         selected=self.home/'selected skills';selected_bin=self.home/'selected bin'
         result=self.run_script('--bin-dir',str(selected_bin),'--skill-dir',str(selected))
         self.assertEqual(0,result.returncode,result.stdout+result.stderr)
-        self.assertTrue((selected/'tacto').is_symlink());self.assertTrue((selected_bin/'nlc').is_symlink())
-        for path in (self.home/'.claude/skills/tacto',self.home/'.codex/skills/tacto',self.bin/'nlc'):
+        self.assertTrue((selected/'tacto').is_symlink());self.assertTrue((selected_bin/'tacto').is_symlink())
+        for path in (self.home/'.claude/skills/tacto',self.home/'.codex/skills/tacto',self.bin/'tacto'):
             self.assertFalse(path.exists());self.assertFalse(path.is_symlink())
         result=self.run_script('--check','--bin-dir',str(selected_bin),'--skill-dir',str(selected))
         self.assertEqual(0,result.returncode,result.stdout+result.stderr)
@@ -50,7 +50,7 @@ class SkillInstallTests(unittest.TestCase):
         self.entry()
         result=self.run_script('--skill-dir','relative')
         self.assertEqual(2,result.returncode)
-        self.assertFalse((self.bin/'nlc').exists())
+        self.assertFalse((self.bin/'tacto').exists())
         result=self.run_script('--bin-dir')
         self.assertEqual(2,result.returncode)
 
@@ -61,14 +61,14 @@ class SkillInstallTests(unittest.TestCase):
             with self.subTest(args=args):
                 result=self.run_script(*args)
                 self.assertEqual(2,result.returncode,result.stdout+result.stderr)
-                self.assertFalse((self.bin/'nlc').is_symlink())
+                self.assertFalse((self.bin/'tacto').is_symlink())
                 self.assertFalse((self.home/'.codex/skills/tacto').is_symlink())
 
     def test_installs_the_command_and_links_the_skill_everywhere(self):
         entry = self.entry()
         r = self.run_script()
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
-        self.assertEqual(str(entry), os.readlink(self.bin / "nlc"))
+        self.assertEqual(str(entry), os.readlink(self.bin / "tacto"))
         for d in (".claude/skills/tacto", ".codex/skills/tacto"):
             self.assertEqual(str(ROOT / "skill"), os.readlink(self.home / d))
 
@@ -76,7 +76,7 @@ class SkillInstallTests(unittest.TestCase):
         self.entry()
         stale = self.home / ".codex/skills/tacto"
         stale.mkdir()
-        (stale / "SKILL.md").write_text("---\nname: nlc\n---\nold\n")
+        (stale / "SKILL.md").write_text("---\nname: tacto\n---\nold\n")
         self.assertIn("stale copy", self.run_script("--check").stdout)
         self.run_script()
         self.assertTrue(stale.is_symlink())
@@ -92,20 +92,20 @@ class SkillInstallTests(unittest.TestCase):
         self.assertIn("not the Tacto skill", r.stdout)
         self.assertTrue((self.home / ".codex/skills/tacto").is_symlink())
 
-    def test_another_program_called_nlc_is_left_alone(self):
+    def test_another_program_called_tacto_is_left_alone(self):
         self.entry()
         self.bin.mkdir(parents=True)
-        (self.bin / "nlc").write_text("#!/bin/sh\necho not ours\n")
+        (self.bin / "tacto").write_text("#!/bin/sh\necho not ours\n")
         r = self.run_script()
         self.assertNotEqual(0, r.returncode)
-        self.assertEqual("#!/bin/sh\necho not ours\n", (self.bin / "nlc").read_text())
+        self.assertEqual("#!/bin/sh\necho not ours\n", (self.bin / "tacto").read_text())
 
     def test_check_changes_nothing(self):
         self.entry()
         r = self.run_script("--check")
         self.assertEqual(1, r.returncode)
         self.assertIn("missing", r.stdout)
-        self.assertFalse((self.bin / "nlc").exists())
+        self.assertFalse((self.bin / "tacto").exists())
         self.assertFalse((self.home / ".claude/skills/tacto").exists())
 
 
@@ -116,8 +116,8 @@ if __name__ == "__main__":
 class SandboxTests(unittest.TestCase):
     """Inside an agent sandbox the screen is unreachable; say so, not "grant permissions".
 
-    Measured with Codex's workspace-write sandbox (2026-09-28): `nlc apps` said
-    accessibility_permission_missing and `nlc doctor` asked for a permission
+    Measured with Codex's workspace-write sandbox (2026-09-28): `tacto apps` said
+    accessibility_permission_missing and `tacto doctor` asked for a permission
     that was already granted. sandbox_check() answered 1 inside, 0 outside.
     """
     def test_this_process_is_not_sandboxed(self):
@@ -148,7 +148,7 @@ class SandboxTests(unittest.TestCase):
 
 
 class DoctorUnderTheLauncherTests(unittest.TestCase):
-    """`nlc doctor` asked to grant a helper that was granted and working."""
+    """`tacto doctor` asked to grant a helper that was granted and working."""
     def test_under_the_launcher_the_inherited_channel_is_what_is_checked(self):
         from unittest.mock import patch
         from tacto import onboard
@@ -320,7 +320,7 @@ class AgentFrictionTests(unittest.TestCase):
 
 
 class DoctorCheckIsReadOnlyTests(unittest.TestCase):
-    """`nlc doctor --check` opened System Settings when the helper was untrusted
+    """`tacto doctor --check` opened System Settings when the helper was untrusted
     (Codex finding, 2026-10-07): a check must not change what is on screen."""
     def run_doctor(self, interactive):
         from unittest.mock import patch

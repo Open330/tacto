@@ -524,7 +524,7 @@ class CandidateStore:
     def __init__(self, path: str | None = None):
         import os
         # Beside the recipes, wherever they live. A path relative to the
-        # working directory put candidates in whatever folder `nlc` happened
+        # working directory put candidates in whatever folder `tacto` happened
         # to be run from once it was installed.
         if path is None:
             from .store import default_directory

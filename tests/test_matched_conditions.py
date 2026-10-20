@@ -21,7 +21,7 @@ class MatchedConditionsTests(unittest.TestCase):
             with patch('examples.benchmark_agent.subprocess.Popen',side_effect=launch), \
                  patch('tacto.provider_io.communicate_owned_provider',return_value=(stream,'')), \
                  patch('tacto.provider_io.require_provider_child_ownership'):
-                for arm in ('nlc','sky'):
+                for arm in ('tacto','sky'):
                     row=run_agent('codex','same task, layer '+arm,Path(tmp)/arm,
                                   model='gpt-6.1-sol',reasoning_effort='medium')
                     self.assertEqual('gpt-6.1-sol',row['requested_model'])
@@ -39,13 +39,13 @@ class MatchedConditionsTests(unittest.TestCase):
     def test_unknown_usage_and_failed_tasks_do_not_get_zero_token_savings(self):
         rows=[{'arm':arm,'exit':0,'oracle':{'passed':True},'seconds':2,
                'usage':{'total_input_tokens':30,'new_input_tokens':10,'cache_read_tokens':20,'output_tokens':3}}
-              for arm in ('nlc','sky')]
+              for arm in ('tacto','sky')]
         self.assertEqual(30,aggregate(rows)['sky']['total_input_tokens'])
         rows[1]['usage']={};self.assertIsNone(aggregate(rows)['sky']['total_input_tokens'])
-        rows[0]['exit']=1;self.assertEqual(0,aggregate(rows)['nlc']['passed'])
-        self.assertIsNone(aggregate(rows)['nlc']['total_input_tokens'])
-        self.assertEqual(30,aggregate(rows)['nlc']['observed_usage_all_attempts']['total_input_tokens']['sum'])
-        self.assertEqual(0,aggregate(rows)['nlc']['observed_usage_all_attempts']['total_input_tokens']['unknown_records'])
+        rows[0]['exit']=1;self.assertEqual(0,aggregate(rows)['tacto']['passed'])
+        self.assertIsNone(aggregate(rows)['tacto']['total_input_tokens'])
+        self.assertEqual(30,aggregate(rows)['tacto']['observed_usage_all_attempts']['total_input_tokens']['sum'])
+        self.assertEqual(0,aggregate(rows)['tacto']['observed_usage_all_attempts']['total_input_tokens']['unknown_records'])
         self.assertEqual(1,aggregate(rows)['sky']['observed_usage_all_attempts']['total_input_tokens']['unknown_records'])
         self.assertIsNone(aggregate(rows)['sky']['observed_usage_all_attempts']['total_input_tokens']['sum'])
 
@@ -118,8 +118,8 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(6, len(fixtures))
         names = [e[1] for e in events if e[0] == 'start']
-        self.assertEqual(['fixture-01-nlc', 'fixture-01-sky', 'fixture-02-sky', 'fixture-02-nlc',
-                          'fixture-03-nlc', 'fixture-03-sky'], names)
+        self.assertEqual(['fixture-01-tacto', 'fixture-01-sky', 'fixture-02-sky', 'fixture-02-tacto',
+                          'fixture-03-tacto', 'fixture-03-sky'], names)
         self.assertTrue(all(e[2] == 0 for e in events if e[0] == 'start'))
         for start in range(0, len(events), 3):
             kind = [e[0] for e in events[start:start + 3]]
@@ -135,7 +135,7 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
             self.assertEqual(1, row['initial_state']['sequence'])
             self.assertEqual(0, row['fixture_isolation']['exit_code'])
         self.assertEqual(6, len({row['fixture_isolation']['pid'] for row in report['rows']}))
-        self.assertEqual(12, report['summary']['nlc']['observed_usage_all_attempts']['new_input_tokens']['sum'])
+        self.assertEqual(12, report['summary']['tacto']['observed_usage_all_attempts']['new_input_tokens']['sum'])
 
     def test_agent_failure_still_closes_that_arms_fixture_and_stops(self):
         def agent(name):

@@ -216,7 +216,7 @@ def codex_result(prompt: str, *, model: str | None = None,
                 argv += ['--ignore-user-config',
                          '--image', str(image), '--output-schema', str(schema)]
             else:
-                # A text question needs no tools. Without these, every NLC
+                # A text question needs no tools. Without these, every Tacto
                 # question carried the full agent prompt and tool schemas:
                 # 15,368 input tokens for a one-word answer, 6,124 with them
                 # (codex-cli 0.162.1, 2026-10-12). `-c` keys a version does

@@ -1,4 +1,4 @@
-"""The upgrade/rollback harness understands Preview 1 and current layouts.
+"""The upgrade/rollback harness understands current Tacto layouts.
 
 Only pure helpers are exercised, on temporary homes; nothing installs, links
 real commands or touches the person's stores.
@@ -16,8 +16,8 @@ harness = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(harness)
 
 
-def runtime(base, launcher):
-    root = Path(base)/f'{launcher}.app/Contents/Resources/runtime'
+def runtime(base, launcher, label=None):
+    root = Path(base)/f'{label or launcher}.app/Contents/Resources/runtime'
     (root/'launcher').mkdir(parents=True)
     (root/'launcher'/launcher).write_text('fixture')
     (root/'skill').mkdir()
@@ -35,7 +35,7 @@ class UpgradeRollbackHarnessTests(unittest.TestCase):
         self.folder.cleanup()
 
     def install(self, root, environ=None):
-        """What either version's installer leaves behind: both commands, both skills."""
+        """What either version's installer leaves behind: the command and both skills."""
         b = harness.bin_dir(environ or {}, self.home)
         b.mkdir(parents=True, exist_ok=True)
         for name in harness.COMMANDS:
@@ -51,64 +51,64 @@ class UpgradeRollbackHarnessTests(unittest.TestCase):
             skill.symlink_to(root/'skill')
 
     def test_each_runtime_uses_its_own_launcher_name(self):
-        old, new = runtime(self.base, 'nlc'), runtime(self.base, 'tacto')
-        self.assertEqual('nlc', harness.launcher_of(old).name)
+        old, new = runtime(self.base, 'tacto', 'old'), runtime(self.base, 'tacto', 'new')
+        self.assertEqual('tacto', harness.launcher_of(old).name)
         self.assertEqual('tacto', harness.launcher_of(new).name)
         with self.assertRaises(ValueError):
             harness.launcher_of(self.base)
 
-    def test_both_commands_and_skills_must_follow_each_stage(self):
-        old, new = runtime(self.base, 'nlc'), runtime(self.base, 'tacto')
+    def test_command_and_skills_must_follow_each_stage(self):
+        old, new = runtime(self.base, 'tacto', 'old'), runtime(self.base, 'tacto', 'new')
         self.install(old)
         self.assertTrue(harness.links_target(old, {}, self.home))
         self.assertFalse(harness.links_target(new, {}, self.home))
         self.install(new)
         self.assertTrue(harness.links_target(new, {}, self.home))
-        # A stale legacy command alone is caught, not hidden by the other link.
-        (self.home/'.local/bin/nlc').unlink()
-        (self.home/'.local/bin/nlc').symlink_to(harness.launcher_of(old))
+        # A stale command is caught even when both skills are current.
+        (self.home/'.local/bin/tacto').unlink()
+        (self.home/'.local/bin/tacto').symlink_to(harness.launcher_of(old))
         self.assertFalse(harness.links_target(new, {}, self.home))
         watched = [str(p) for p in harness.links({}, self.home)]
-        self.assertEqual(4, len(set(watched)))
-        self.assertIn(str(self.home/'.local/bin/nlc'), watched)
+        self.assertEqual(3, len(set(watched)))
+        self.assertIn(str(self.home/'.local/bin/tacto'), watched)
 
     def test_bin_dir_follows_installer_precedence(self):
-        self.assertEqual(Path('/a'), harness.bin_dir({'TACTO_BIN_DIR': '/a', 'NLC_BIN_DIR': '/b'}, self.home))
-        self.assertEqual(Path('/b'), harness.bin_dir({'NLC_BIN_DIR': '/b'}, self.home))
+        self.assertEqual(Path('/a'), harness.bin_dir({'TACTO_BIN_DIR': '/a'}, self.home))
+        self.assertEqual(Path('/b'), harness.bin_dir({'TACTO_BIN_DIR': '/b'}, self.home))
         self.assertEqual(self.home/'.local/bin', harness.bin_dir({'TACTO_BIN_DIR': ''}, self.home))
 
-    def test_probe_goes_to_the_legacy_store_every_version_reads(self):
+    def test_probe_goes_to_the_canonical_store(self):
         store, refusal = harness.probe_store({}, self.home)
         self.assertIsNone(refusal)
-        self.assertEqual(self.home/'.local/share/nlc/flows', store)
+        self.assertEqual(self.home/'.local/share/tacto/flows', store)
         data = self.base/'xdg'
         store, _ = harness.probe_store({'XDG_DATA_HOME': str(data)}, self.home)
-        self.assertEqual(data/'nlc/flows', store)
+        self.assertEqual(data/'tacto/flows', store)
         # A relative XDG path is ignored, as the store itself does.
         store, _ = harness.probe_store({'XDG_DATA_HOME': 'relative'}, self.home)
-        self.assertEqual(self.home/'.local/share/nlc/flows', store)
+        self.assertEqual(self.home/'.local/share/tacto/flows', store)
 
-    def test_canonical_store_in_use_refuses_instead_of_creating_two_stores(self):
+    def test_existing_canonical_store_remains_usable(self):
         canonical = self.home/'.local/share/tacto/flows'
         canonical.mkdir(parents=True)
         store, refusal = harness.probe_store({}, self.home)
-        self.assertEqual((self.home/'.local/share/nlc/flows', None), (store, refusal))
+        self.assertEqual((self.home/'.local/share/tacto/flows', None), (store, refusal))
         (canonical/'mine.json').write_text('{}')
-        self.assertEqual((None, 'canonical_store_in_use'), harness.probe_store({}, self.home))
-        self.assertFalse((self.home/'.local/share/nlc').exists())
+        self.assertEqual((canonical, None), harness.probe_store({}, self.home))
+        self.assertEqual('{}', (canonical/'mine.json').read_text())
 
-    def test_manifest_watches_legacy_and_canonical_state(self):
-        for relative in ('.local/share/nlc/flows/a.json', '.local/share/tacto/flows/b.json',
-                         '.config/nlc/c', '.config/tacto/d'):
+    def test_manifest_watches_canonical_and_xdg_state(self):
+        for relative in ('.local/share/tacto/flows/a.json', '.local/share/tacto/flows/b.json',
+                         '.config/tacto/c', '.config/tacto/d'):
             path = self.home/relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(relative)
         data = self.base/'xdg'
-        (data/'nlc/flows').mkdir(parents=True)
-        (data/'nlc/flows/e.json').write_text('e')
+        (data/'tacto/flows').mkdir(parents=True)
+        (data/'tacto/flows/e.json').write_text('e')
         seen = harness.manifest({'XDG_DATA_HOME': str(data)}, self.home)
         self.assertEqual(5, len(seen))
-        self.assertIn(str(data/'nlc/flows/e.json'), seen)
+        self.assertIn(str(data/'tacto/flows/e.json'), seen)
 
     def test_layout_check_requires_a_standalone_bundle(self):
         self.assertTrue(harness.standalone_runtime(runtime(self.base, 'tacto')))

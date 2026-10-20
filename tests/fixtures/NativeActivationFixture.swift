@@ -23,7 +23,7 @@ private func windowState() -> [String: Any] {
             }, "timestamp": ProcessInfo.processInfo.systemUptime]
 }
 
-@objc(NLCActivationApplication)
+@objc(TACTOActivationApplication)
 @MainActor
 final class ActivationApplication: NSApplication {
     override func sendEvent(_ event: NSEvent) {
@@ -138,16 +138,16 @@ final class MenuFixtureDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 620, height: 220),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Native Menu Fixture"
+        window.title = "TACTO Native Menu Fixture"
         window.isReleasedWhenClosed = false
         self.window = window
         window.delegate = self
         let content = ResponderView(counter: responderCounter)
         window.contentView = content
-        identify(responderCounter, "nlc-fixture-responder-count")
-        identify(directCounter, "nlc-fixture-direct-count")
-        identify(makeKeyCounter, "nlc-fixture-make-key-count")
-        identify(state, "nlc-fixture-state")
+        identify(responderCounter, "tacto-fixture-responder-count")
+        identify(directCounter, "tacto-fixture-direct-count")
+        identify(makeKeyCounter, "tacto-fixture-make-key-count")
+        identify(state, "tacto-fixture-state")
         responderCounter.frame = NSRect(x: 24, y: 160, width: 260, height: 24)
         directCounter.frame = NSRect(x: 24, y: 125, width: 260, height: 24)
         makeKeyCounter.frame = NSRect(x: 320, y: 125, width: 260, height: 24)
@@ -159,17 +159,17 @@ final class MenuFixtureDelegate: NSObject, NSApplicationDelegate, NSWindowDelega
 
         let button = NSButton(title: "Make Fixture Window Key", target: self,
                               action: #selector(makeWindowKey(_:)))
-        identify(button, "nlc-fixture-make-key")
+        identify(button, "tacto-fixture-make-key")
         button.frame = NSRect(x: 24, y: 24, width: 270, height: 32)
         content.addSubview(button)
 
         let mainMenu = NSMenu(title: "Main")
         // AppKit reserves the first top-level menu for the application name.
         // Keep Probe separate so its observed title is not rewritten.
-        let applicationItem = NSMenuItem(title: "NLC Menu Fixture", action: nil,
+        let applicationItem = NSMenuItem(title: "TACTO Menu Fixture", action: nil,
                                          keyEquivalent: "")
-        let applicationMenu = NSMenu(title: "NLC Menu Fixture")
-        let quit = NSMenuItem(title: "Quit NLC Menu Fixture",
+        let applicationMenu = NSMenu(title: "TACTO Menu Fixture")
+        let quit = NSMenuItem(title: "Quit TACTO Menu Fixture",
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         quit.target = NSApplication.shared
         applicationMenu.addItem(quit)

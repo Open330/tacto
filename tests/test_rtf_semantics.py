@@ -8,7 +8,7 @@ class RTFSemanticsTests(unittest.TestCase):
         from examples.probes.rtf_semantics import TEXT, rich_source, verify_witness, utf16_span
         result = verify_witness(rich_source())
         self.assertEqual(len(TEXT.encode('utf-16-le')) // 2, result['utf16_length'])
-        self.assertEqual((23, 2), utf16_span('한글'))
+        self.assertEqual((25, 2), utf16_span('한글'))
         self.assertFalse(result['attachments_present'])
 
     def test_same_text_with_lost_formatting_is_refused(self):

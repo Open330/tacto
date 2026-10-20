@@ -1,4 +1,4 @@
-"""NLC safety rule engine — the §1.5 confirmations policy as code (D6).
+"""Tacto safety rule engine — the §1.5 confirmations policy as code (D6).
 
 Maps an action + its resolved target's context to a risk_class. This is a
 deliberately conservative, auditable rule set: when a signal is ambiguous it

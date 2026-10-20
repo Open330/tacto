@@ -7,8 +7,8 @@ import AppKit
     func applicationDidFinishLaunching(_ notification: Notification) {
         let main = NSMenu()
         main.autoenablesItems = false
-        let application = NSMenuItem(title: "NLC Menu Readiness Fixture", action: nil, keyEquivalent: "")
-        application.submenu = NSMenu(title: "NLC Menu Readiness Fixture")
+        let application = NSMenuItem(title: "TACTO Menu Readiness Fixture", action: nil, keyEquivalent: "")
+        application.submenu = NSMenu(title: "TACTO Menu Readiness Fixture")
         main.addItem(application)
         let root = NSMenuItem(title: "Probe", action: nil, keyEquivalent: "")
         let menu = NSMenu(title: "Probe"); menu.autoenablesItems = false
@@ -18,7 +18,7 @@ import AppKit
         NSApp.mainMenu = main
         window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 400, height: 180),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Menu Readiness Fixture"; window.isReleasedWhenClosed = false
+        window.title = "TACTO Menu Readiness Fixture"; window.isReleasedWhenClosed = false
         label = NSTextField(labelWithString: "")
         label.setAccessibilityIdentifier("menu-readiness-state")
         label.frame = NSRect(x: 20, y: 50, width: 350, height: 60)

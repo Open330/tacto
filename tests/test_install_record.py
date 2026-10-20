@@ -11,7 +11,7 @@ class InstallRecordTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.folder=Path(self.temp.name).resolve();self.root=self.folder/'runtime';self.root.mkdir()
         (self.root/'launcher').mkdir();(self.root/'launcher/tacto').write_bytes(b'owned executable')
-        (self.root/'skill').mkdir();(self.root/'skill/SKILL.md').write_text('name: nlc')
+        (self.root/'skill').mkdir();(self.root/'skill/SKILL.md').write_text('name: tacto')
         self.command=self.folder/'command';self.skill=self.folder/'skill'
         self.command.symlink_to(self.root/'launcher/tacto');self.skill.symlink_to(self.root/'skill')
         self.record=self.folder/'record.json'

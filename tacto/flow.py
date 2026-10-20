@@ -1,4 +1,4 @@
-"""NLC deterministic replay — token-efficient computer-use emulation.
+"""Tacto deterministic replay — token-efficient computer-use emulation.
 
 The insight behind PROTOCOL.md's token/determinism goal: a model is only needed
 to *author* a flow once. After that, the flow is a fixed list of steps that

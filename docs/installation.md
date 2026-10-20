@@ -19,7 +19,7 @@ Python wheel은 Tacto의 Python 코어를 배포합니다. macOS 앱 조작에 �
 
 저장소 루트에서 wheel을 빌드하고 별도 환경에 설치할 수 있습니다.
 
-> **이름 충돌 주의.** 배포 이름은 `tacto-runtime`입니다. PyPI의 `tacto`는 관련 없는 촉각 시뮬레이터이며 같은 최상위 import 이름 `tacto`를 설치합니다. `pip install tacto`를 실행하지 말고, 그 패키지가 없는 별도 가상환경을 쓰세요. 한 환경에 둘 다 있으면 파일이 서로 덮어써지고 `import nlc`는 오류로 거부합니다.
+> **이름 충돌 주의.** 배포 이름은 `tacto-runtime`입니다. PyPI의 `tacto`는 관련 없는 촉각 시뮬레이터이며 같은 최상위 import 이름 `tacto`를 설치합니다. `pip install tacto`를 실행하지 말고, 그 패키지가 없는 별도 가상환경을 쓰세요. 한 환경에 둘 다 있으면 파일이 서로 덮어써질 수 있습니다.
 
 ```sh
 uv build --wheel
@@ -213,8 +213,9 @@ swiftc setup/PermissionState.swift setup/state-check.swift -o /tmp/tacto-setup-s
 /tmp/tacto-setup-state-check
 ```
 
-Tacto 설치는 `tacto`와 이전 `nlc` 명령을 같은 서명된 런처(`launcher/tacto`)에 연결합니다. Preview 1은 `launcher/nlc`를 사용했습니다.
-스킬 이름 전환과 저장 경로·권한 호환성은 [전환 안내](tacto-branding.md)를 확인하세요.
+Tacto 설치는 `tacto` 명령을 서명된 런처(`launcher/tacto`)에 연결합니다.
+번들·서명 식별자는 `ai.callabo.tacto.*`입니다. 서명 ID가 다른 기존 앱에서 이전하면
+권한을 다시 허용해야 할 수 있습니다. [이름·배포 식별자](tacto-branding.md)를 확인하세요.
 
 ### 드래그로 권한용 앱 추가하기
 

@@ -280,7 +280,7 @@ def scenario_trace_reproducibility():
     res, tr = record(Driver(), calculator_12x34())
     if not res.ok:
         return "실기기 실행이 되지 않아 녹화할 트레이스가 없음"
-    again = rerun(Trace.load(tr.save("/tmp/nlc-eval-trace.json")),
+    again = rerun(Trace.load(tr.save("/tmp/tacto-eval-trace.json")),
                   calculator_12x34())
     return again.ok and again.log[-1]["status"] == "done"
 
@@ -450,7 +450,7 @@ def scenario_permission_boundary():
     import os, subprocess, tempfile, pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     helper = root / "helper" / "Tacto Helper.app" / "Contents" / "MacOS" / "TactoHelper"
-    launcher = root / "launcher" / "nlc"
+    launcher = root / "launcher" / "tacto"
     if not helper.exists() or not launcher.exists():
         return "권한 경계 미빌드 (helper/build.sh, launcher/build.sh)"
 
@@ -480,7 +480,7 @@ def scenario_permission_boundary():
     pid = os.fork()
     if pid == 0:
         try:
-            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "nlc"), "list"])
+            os.execv(str(launcher), [str(pathlib.Path(d) / "launcher" / "tacto"), "list"])
         except Exception:
             os._exit(9)
     os.waitpid(pid, 0)
@@ -492,7 +492,7 @@ def scenario_peer_authentication():
     legacy stdio path is gone, and what crosses is checked per action."""
     import pathlib, subprocess
     root = pathlib.Path(__file__).resolve().parent.parent
-    if not (root / "launcher" / "nlc").exists():
+    if not (root / "launcher" / "tacto").exists():
         return "권한 경계 미빌드 (launcher/build.sh)"
     from tacto.helper import InheritedHelperDriver, HelperUnavailable
 
@@ -548,7 +548,7 @@ def scenario_cli_end_to_end():
     """Exercise the command a person actually types.
 
     Every other scenario calls the engine directly and binds parameters itself,
-    so a stored template that `nlc do` never bound ran as literal
+    so a stored template that `tacto do` never bound ran as literal
     "{{digit[item]}}" while the suite stayed green. This closes that gap: run the
     real CLI path over a stored recipe and require the verified answer."""
     from tacto.agent import Agent
@@ -667,7 +667,7 @@ def scenario_menu_path_pinned():
 
 
 def scenario_builtin_is_not_frozen():
-    """A recipe that ships with NLC comes from the code, not from a cached copy.
+    """A recipe that ships with TACTO comes from the code, not from a cached copy.
 
     The store used to win once a name had been saved, so every built-in froze at
     whatever it looked like the first time it ran — fixes shipped in the library
@@ -986,7 +986,7 @@ def scenario_save_file():
     if problem:
         return problem
     _tidy_textedit(d)
-    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
+    name = f"tacto-eval-{uuid.uuid4().hex}.rtf"
     body = "저장 시나리오 테스트"
     receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
@@ -1259,7 +1259,7 @@ def scenario_save_chooses_its_folder():
     if problem:
         return problem
     _tidy_textedit(d)
-    name = f"nlc-eval-{uuid.uuid4().hex}.rtf"
+    name = f"tacto-eval-{uuid.uuid4().hex}.rtf"
     body = "폴더 지정 저장"
     receipt = _native_rtf_receipt(d, name, body)
     agent = Agent(driver=d)
@@ -1660,7 +1660,7 @@ def scenario_escalation_clears_a_blocked_run():
     # its own "already exists, replace?" dialog, which is a different blockage
     # than the one under test.
     import uuid
-    name = f"nlc-escal-{uuid.uuid4().hex}.rtf"
+    name = f"tacto-escal-{uuid.uuid4().hex}.rtf"
     flow = textedit_save_as().bind(filename=name, folder="Downloads")
     # Only the first step may escalate; the consequential save still cannot.
     receipt = _native_rtf_receipt(d, name, "")
@@ -3585,7 +3585,7 @@ def scenario_an_abort_lasts_the_run_and_no_longer():
             and all(eff == "not_started" for _, eff in stopped.values()))
 
 
-_OBS_HANDOFF = "/tmp/nlc-obs-handoff.txt"
+_OBS_HANDOFF = "/tmp/tacto-obs-handoff.txt"
 
 
 def scenario_a_new_run_rejects_the_old_token():
@@ -3861,9 +3861,9 @@ def scenario_native_document_text():
     from pathlib import Path
     if any(a.startswith('--document-fixture=') for a in sys.argv[1:]):
         return _native_document_text_run(None)
-    work = Path(tempfile.mkdtemp(prefix='nlc-document-'))
-    document = work / 'nlc-document-witness.txt'
-    body = 'NLC document witness — 읽기 전용 확인 본문\n두 번째 줄'
+    work = Path(tempfile.mkdtemp(prefix='tacto-document-'))
+    document = work / 'tacto-document-witness.txt'
+    body = 'TACTO document witness — 읽기 전용 확인 본문\n두 번째 줄'
     document.write_text(body)
     expectations = work / 'expectations.json'
     expectations.write_text(json.dumps({'document_path': str(document.resolve()), 'text': body}))
@@ -4014,7 +4014,7 @@ def scenario_signed_provider_envelope(provider='claude'):
     with os.fdopen(descriptor,'w') as stream:
         try:
             report['source_before']=hashes()
-            result = reach_model_result('Return only the JSON object {"probe":"nlc-envelope"}.',
+            result = reach_model_result('Return only the JSON object {"probe":"tacto-envelope"}.',
                                         provider, expect_json=True, timeout_seconds=60)
             report.update(result=result.to_dict(), source_after=hashes())
         except BaseException as exc:
@@ -4028,7 +4028,7 @@ def scenario_signed_provider_envelope(provider='claude'):
     if result.status=='error' and getattr(result.error,'code',None) in UNAVAILABLE_REASONS:
         return 'provider_unavailable:'+result.error.code
     assert result.status == "ok", result.error
-    assert _extract_json(result.text) == {"probe": "nlc-envelope"}, "unexpected model answer"
+    assert _extract_json(result.text) == {"probe": "tacto-envelope"}, "unexpected model answer"
     return True
 
 
@@ -4044,16 +4044,16 @@ def _coordinate_fixture_self_contained(driver):
     root = Path(__file__).resolve().parents[1]
     _sys.path.insert(0, str(root / "examples/probes"))
     from focus_witness import FocusWitness
-    target = "ai.callabo.nlc.coordinate-fixture"
+    target = "ai.callabo.tacto.coordinate-fixture"
     sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
     if not sdks:
         return "macOS SDK 없음"
-    app = Path(tempfile.mkdtemp(prefix="nlc-coordinate-")) / "NLC Coordinate Fixture.app"
+    app = Path(tempfile.mkdtemp(prefix="tacto-coordinate-")) / "TACTO Coordinate Fixture.app"
     exe = app / "Contents/MacOS/NativeCoordinateFixture"
     exe.parent.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
         "CFBundleIdentifier": target, "CFBundleExecutable": exe.name,
-        "CFBundleName": "NLC Coordinate Fixture", "CFBundlePackageType": "APPL",
+        "CFBundleName": "TACTO Coordinate Fixture", "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1", "LSUIElement": True}))
     build = subprocess.run(
         ["/Library/Developer/CommandLineTools/usr/bin/swiftc", "-parse-as-library",
@@ -4078,13 +4078,13 @@ def _coordinate_fixture_self_contained(driver):
         def count():
             observation = probe.observe(target, "tree_full")
             for line in observation.get("tree", "").splitlines():
-                if "nlc-coordinate-count" in line:
+                if "tacto-coordinate-count" in line:
                     return Selector._attr(line, "Value") or Selector._attr(line, "Title")
             return None
 
         with FocusWitness() as witness:
             observation = driver.observe(target, "tree_full")
-            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
+            index, _ = Selector(identifier="tacto-coordinate-button").resolve(observation["tree"])
             before = count()
             refusals = []
             for token, expectation in (("stale-observation", {"role": "Button"}),
@@ -4099,7 +4099,7 @@ def _coordinate_fixture_self_contained(driver):
             refusals.append(refused)
             unchanged = count()
             observation = driver.observe(target, "tree_full")
-            index, _ = Selector(identifier="nlc-coordinate-button").resolve(observation["tree"])
+            index, _ = Selector(identifier="tacto-coordinate-button").resolve(observation["tree"])
             acted = driver.act(observation["obs_id"], target,
                                {"name": "click", "element_index": index},
                                expect={"role": "Button", "enabled": True})
@@ -4818,7 +4818,7 @@ def scenario_signed_save_panel():
 def scenario_signed_window_capture():
     """One owned window, photographed by the side that holds the grant.
 
-    Screen recording is granted to `ai.callabo.nlc.helper`, not to whatever
+    Screen recording is granted to `ai.callabo.tacto.helper`, not to whatever
     Python is running: on a shared interpreter that permission would belong to
     every script on it, and a screenshot reaches further than a click.
     """
@@ -4942,12 +4942,12 @@ def _owned_select_fixture(options=0, *, duplicates=False, combo=False,replacemen
     sdks = sorted(Path("/Library/Developer/CommandLineTools/SDKs").glob("MacOSX*.sdk"))
     if not sdks:
         raise RuntimeError("no_macos_sdk")
-    app = Path(tempfile.mkdtemp(prefix="nlc-owned-select-")) / "NLC Select Fixture.app"
+    app = Path(tempfile.mkdtemp(prefix="tacto-owned-select-")) / "TACTO Select Fixture.app"
     executable = app / "Contents/MacOS/NativeSelectFixture"
     executable.parent.mkdir(parents=True)
     (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
         "CFBundleIdentifier": TARGET, "CFBundleExecutable": executable.name,
-        "CFBundleName": "NLC Select Fixture", "CFBundlePackageType": "APPL",
+        "CFBundleName": "TACTO Select Fixture", "CFBundlePackageType": "APPL",
         "CFBundleVersion": "1", "LSUIElement": True}))
     build = subprocess.run(
         ["/Library/Developer/CommandLineTools/usr/bin/swiftc", "-parse-as-library",
@@ -5158,19 +5158,19 @@ def scenario_native_select_observe_json_fixture():
             driver=InheritedHelperDriver()
             audit=ProcessInputAudit(strategy='application_frontmost',interval=.005,startup_timeout=10,stop_timeout=3)
             with audit:
-                obs=driver.observe('ai.callabo.nlc.select-fixture','tree_full')
-                index,_=Selector(role='ComboBox',identifier='nlc-fixture-choice').resolve(obs['tree'])
-                report['open_receipt']=driver.act(obs['obs_id'],'ai.callabo.nlc.select-fixture',{'name':'open_select','element_index':index})
+                obs=driver.observe('ai.callabo.tacto.select-fixture','tree_full')
+                index,_=Selector(role='ComboBox',identifier='tacto-fixture-choice').resolve(obs['tree'])
+                report['open_receipt']=driver.act(obs['obs_id'],'ai.callabo.tacto.select-fixture',{'name':'open_select','element_index':index})
                 captured=io.StringIO()
                 with contextlib.redirect_stdout(captured):
-                    report['cli_exit_code']=_dispatch('observe',['ai.callabo.nlc.select-fixture','--helper','--json'])
+                    report['cli_exit_code']=_dispatch('observe',['ai.callabo.tacto.select-fixture','--helper','--json'])
                 report['json_observation']=json.loads(captured.getvalue())
                 result=report['json_observation']
                 report['same_driver']=InheritedHelperDriver() is driver
-                current_index,_=Selector(role='ComboBox',identifier='nlc-fixture-choice').resolve(result['tree'])
+                current_index,_=Selector(role='ComboBox',identifier='tacto-fixture-choice').resolve(result['tree'])
                 meta=result.get('custom_selects',{}).get(str(current_index),{})
                 options={row['label']:row for row in meta.get('options',[])}
-                count_index,_=Selector(identifier='nlc-fixture-count').resolve(result['tree'])
+                count_index,_=Selector(identifier='tacto-fixture-count').resolve(result['tree'])
                 count_line=next(line for line in result['tree'].splitlines() if line.strip().startswith(str(count_index)+' '))
                 report['selection_count']=Selector._attr(count_line,'Value')
                 report['passed']=(report['open_receipt'].get('opened') is True and report['cli_exit_code']==0

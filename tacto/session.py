@@ -8,7 +8,7 @@ learn.chatgpt.com/docs/computer-use#locked-use):
   authorization plug-in (/Library/Security/SecurityAgentPlugins/…) that briefly
   unlocks for a trusted turn, blanks displays, blocks local input, and re-locks
   on any local activity. That is a separate login/unlock product, not a flag a
-  normal app can set. So NLC models it as a capability that is off by default.
+  normal app can set. So Tacto models it as a capability that is off by default.
 
 Pragmatic path (option A): don't fight the lock — prevent an *idle* lock during a
 task with `caffeinate`, and when the screen is genuinely locked, surface it as a

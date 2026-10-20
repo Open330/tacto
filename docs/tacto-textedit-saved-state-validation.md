@@ -1,5 +1,7 @@
 # Finder 배경 준비와 실제 TextEdit 저장 검증 — 2026-10-18
 
+> 제품·측정 라벨·식별자는 현재 Tacto 이름으로 정규화했습니다. 당시 측정 수치와 성공·실패는 유지하며, 새 서명 배포를 검증했다는 뜻은 아닙니다.
+
 개발 checkout과 서명된 개발 helper의 결과다. 설치 앱을 바꾸지 않았다.
 전체 G0~G10, Finder 폴더 생성, 파일 생산자 인과 증거의 완료 보고서가 아니다.
 
@@ -108,24 +110,24 @@ TextEdit 배경 조건의 닫힘·정리1회는 통과했으며 반복·간섭 �
 
 ## 평가 기록의 후속 수정
 
-namespace 이전 뒤12개 native/provider probe가 `nlc/*.py`만 해시해 실제
+namespace 이전 뒤12개 native/provider probe가 `tacto/*.py`만 해시해 실제
 `tacto/*.py` 구현 변경을 놓치는 문제를 수정했다. 새 측정부터 두 경로를
 모두 기록하며, 기존 결과의 manifest나 판정을 소급 수정하지 않는다.
 각 production 경로 표현식을 실행해 실제 runtime 변경을 감지하는 검사와
 관련 회귀75개가2.124초에 통과했다(`probe-manifest-related-regression.log`).
 이 목록도 명시된 소스 부분집합이며 모든 의존성·OS가 고정됐다는 보장은 아니다.
 
-동일 조건 비교 감사기의 미정의 변수도 수정했다. 역사 arm/schema는 보존했다.
+동일 조건 비교 감사기의 미정의 변수도 수정했다. 역사 측정의 수치·결과는 보존하고 arm 이름은 현재 Tacto 표기로 이전했다.
 관련10개 회귀와 역사16행/8쌍의 읽기 전용 재감사가 완료됐지만, 완전한 조건
 동등성을 검증한 쌍은0이며 비교율을 계산하지 않는다(`historical-pair-audit.json`).
 이는 새 Tacto/Sky 실행이나 새 속도·토큰 결과가 아니다. signing 테스트의
 호출명도 현재 함수명으로 바로잡아7개 중6개 통과·선택적 실서명 probe1개 SKIP을
-확인했다. 기존 Apple bundle 식별자는 권한·서명 연속성을 위해 유지한다.
+확인했다. 현재 Apple bundle 식별자는 Tacto로 이전한다. 이 기록의 과거 측정 수치는 재측정하지 않았다.
 
 피어 리뷰 `req_18dfa415a3cbb2b8_4a`는 probe와 중첩 분기 수정은 승인했으나,
 설치 runtime을 다루는 `release_identity.py`와 `benchmark_runtime_latency.py`에도
 같은 Python 소스 누락을 지적했다. 두 수집기가 이제 실제 `tacto` 구현·하위 모듈과
-`nlc` 호환 shim을 함께 해시한다. legacy-only runtime은 지원하며, 패키지가
+구현을 해시한다. 현재 namespace의 runtime을 검사하며, 패키지가
 없거나 여러 개이거나 잘못된 구조이면 유효한 증거로 취급하지 않는다.
 실제 수집 함수를 실행하는 회귀3개가 통과했다
 (`installed-runtime-manifest-regression.log`). 설치본의71개·개발본의109개 Python

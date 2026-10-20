@@ -54,7 +54,7 @@ def timing(row):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--source',required=True);p.add_argument('--output',required=True)
     args=p.parse_args();base=Path(args.output).resolve();base.mkdir(mode=0o700)
-    target='ai.callabo.nlc.repeatbench.'+uuid.uuid4().hex[:8]
+    target='ai.callabo.tacto.repeatbench.'+uuid.uuid4().hex[:8]
     app=build(base,target);fixture=Fixture(base/'fixture',app)
     flows=variants(Flow.from_json(Path(args.source).read_text()),target)
     before=benchmark_manifest();rows=[];negative=[];names=list(flows)

@@ -1,10 +1,8 @@
 """Exercise real installed command/skill links through upgrade and rollback.
 
-Version-aware: a Preview 1 runtime ships `launcher/nlc` and reads the legacy
-`<data>/nlc/flows` store; current runtimes ship `launcher/tacto` and read the
-legacy store until the canonical `<data>/tacto/flows` holds flows. The probe
-flow therefore goes into the legacy store, which every version reads, and the
-canonical store must stay without flows so no dual-store conflict is created.
+The installed and candidate runtimes must both expose the canonical Tacto
+command, skill, and `<data>/tacto/flows` store. This probe does not exercise
+removed command aliases or older storage namespaces.
 Existing grants are read only; this never changes OS permissions.
 """
 from pathlib import Path
@@ -16,25 +14,20 @@ import subprocess
 import time
 import uuid
 
-COMMANDS = ('tacto', 'nlc')
+COMMANDS = ('tacto',)
 AGENTS = ('.codex', '.claude')
 
 
 def launcher_of(runtime):
-    """The runtime's own signed entry: current name first, Preview 1 name otherwise."""
-    for name in ('tacto', 'nlc'):
-        candidate = Path(runtime)/'launcher'/name
-        if candidate.is_file():
-            return candidate
-    raise ValueError(f'{runtime}: no launcher/tacto or launcher/nlc')
+    """Return the runtime's signed Tacto launcher."""
+    candidate = Path(runtime)/'launcher/tacto'
+    if candidate.is_file():
+        return candidate
+    raise ValueError(f'{runtime}: no launcher/tacto')
 
 
 def bin_dir(environ, home):
-    # Same precedence as skill/install.sh.
-    for key in ('TACTO_BIN_DIR', 'NLC_BIN_DIR'):
-        if environ.get(key):
-            return Path(environ[key])
-    return Path(home)/'.local/bin'
+    return Path(environ['TACTO_BIN_DIR']) if environ.get('TACTO_BIN_DIR') else Path(home)/'.local/bin'
 
 
 def data_dir(environ, home):
@@ -44,7 +37,7 @@ def data_dir(environ, home):
 
 def stores(environ, home):
     data = data_dir(environ, home)
-    return {'legacy': data/'nlc/flows', 'canonical': data/'tacto/flows'}
+    return {'canonical': data/'tacto/flows'}
 
 
 def has_flows(path):
@@ -52,16 +45,8 @@ def has_flows(path):
 
 
 def probe_store(environ, home):
-    """Where a probe is visible to old and new runtimes, or why there is none.
-
-    Refuses rather than writing a second store: if the canonical store already
-    holds flows, a Preview 1 runtime cannot see it, and adding a legacy flow
-    would make current runtimes refuse with MigrationRequired.
-    """
-    paths = stores(environ, home)
-    if has_flows(paths['canonical']):
-        return None, 'canonical_store_in_use'
-    return paths['legacy'], None
+    """The canonical store; an exclusively owned probe does not replace user flows."""
+    return stores(environ, home)['canonical'], None
 
 
 def links(environ, home):
@@ -74,7 +59,7 @@ def link_state(paths):
 
 
 def links_target(runtime, environ, home):
-    """Both commands resolve to this runtime's launcher; both skills to its skill."""
+    """The command resolves to this runtime's launcher; both skills to its skill."""
     entry = launcher_of(runtime).resolve()
     b = bin_dir(environ, home)
     return (all((b/name).resolve() == entry for name in COMMANDS)
@@ -83,11 +68,10 @@ def links_target(runtime, environ, home):
 
 
 def manifest(environ, home):
-    """Hashes of every user store and config file, legacy and canonical."""
+    """Hashes of canonical user store and config files."""
     data = data_dir(environ, home)
-    roots = {data/'nlc/flows', data/'tacto/flows',
-             Path(home)/'.local/share/nlc/flows', Path(home)/'.local/share/tacto/flows',
-             Path(home)/'.config/nlc', Path(home)/'.config/tacto'}
+    roots = {data/'tacto/flows', Path(home)/'.local/share/tacto/flows',
+             Path(home)/'.config/tacto'}
     result = {}
     for root in sorted(roots):
         if root.is_dir():
@@ -121,7 +105,7 @@ def main():
     store, refusal = probe_store(environ, home)
     if refusal:
         (out/'report.json').write_text(json.dumps({'passed': False, 'refused': refusal,
-            'detail': 'the upgrade-from-legacy scenario does not apply; nothing was written'}, indent=2))
+            'detail': 'the upgrade scenario does not apply; nothing was written'}, indent=2))
         raise SystemExit(f'refused: {refusal}')
     watched = links(environ, home)
     original = link_state(watched); before = manifest(environ, home); rows = []
@@ -134,9 +118,9 @@ def main():
 
     call(['/bin/bash', str(old/'skill/install.sh'), '--check'], 'initial-check')
 
-    # One exclusively owned compatibility artifact in the store all versions read.
+    # One exclusively owned probe artifact in the canonical store.
     store.mkdir(parents=True, exist_ok=True, mode=0o700)
-    flow = {'schema': 2, 'name': 'release_compat_'+uuid.uuid4().hex[:12], 'target': 'com.apple.finder',
+    flow = {'schema': 2, 'name': 'release_probe_'+uuid.uuid4().hex[:12], 'target': 'com.apple.finder',
             'steps': [{'action': 'read', 'selector': {'role': 'Window', 'title': 'no-action-owned-probe'}}]}
     p = store/(flow['name']+'.json')
     with p.open('x') as owned:
@@ -159,7 +143,6 @@ def main():
                 assert decoded == reference
             assert hashlib.sha256(p.read_bytes()).hexdigest() == digest
             assert {k: v for k, v in manifest(environ, home).items() if k != str(p)} == before
-            assert not has_flows(stores(environ, home)['canonical']), 'probe must not create a dual store'
             call(['codesign', '--verify', '--deep', '--strict', str(root.parents[2])], stage+'-signature')
             assert links_target(root, environ, home)
             rows.append({'candidate_identity': identity(launcher_of(root)), 'stage': stage,
@@ -186,9 +169,9 @@ def main():
                   'original_links_restored': link_state(watched) == original,
                   'original_links': original, 'final_links': link_state(watched),
                   'user_state_unchanged': manifest(environ, home) == before,
-                  'probe_store': str(store), 'owned_compat_flow_sha256': digest,
-                  'scope': 'actual tacto and nlc command links and both agent skill links across launcher/nlc '
-                           'and launcher/tacto runtimes, legacy-store compatibility, existing grants and '
+                  'probe_store': str(store), 'owned_probe_flow_sha256': digest,
+                  'scope': 'actual tacto command and both agent skill links across installed and candidate '
+                           'launcher/tacto runtimes, canonical-store preservation, existing grants and '
                            'signatures; no OS permission changes or cold-machine claims',
                   'permissions_requested': False}
         (out/'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))

@@ -30,7 +30,7 @@ class ArtifactBrowser(unittest.TestCase):
         driver._page.expose_function('saveFixture', save)
         html = '<button onclick="saveFixture()">Save</button>'
         for mode in ('normal', 'noop', 'corrupt'):
-            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='nlc-file-proof-') as folder:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(prefix='tacto-file-proof-') as folder:
                 directory = Path(folder).resolve()
                 current.update(mode=mode, calls=0, path=directory / 'note.txt')
                 receipt = FreshFileReceipt(directory, 'note.txt', 'hello', timeout_seconds=0.2)

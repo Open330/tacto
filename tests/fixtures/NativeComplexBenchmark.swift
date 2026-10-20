@@ -20,7 +20,7 @@ import Foundation
     }
     func applicationDidFinishLaunching(_ notification:Notification) {
         window=NSWindow(contentRect:NSRect(x:200,y:180,width:610,height:470),styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        window.title="NLC Complex Benchmark";window.isReleasedWhenClosed=false
+        window.title="TACTO Complex Benchmark";window.isReleasedWhenClosed=false
         for (i,name) in ["amount","factor","discount","reference","audit-input"].enumerated() {
             let y=CGFloat(425-i*45);_=label(name,"caption-"+name,y)
             let field=NSTextField(string:"0");field.frame=NSRect(x:160,y:y,width:420,height:26)

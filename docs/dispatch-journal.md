@@ -91,7 +91,7 @@ Raw log (local evidence: `../reviews/2026-10-11/cli-dispatch-journal-regression-
 and explicit source subset report (local evidence: `../reviews/2026-10-11/cli-dispatch-journal-regression-20261011-a.json`)
 are preserved; declared CLI/journal/test sources were unchanged before/after.
 These CLI tests use owned in-memory app/evidence fixtures. Installed signed
-launcher `nlc run --help` also returned0 and displayed the new option; it did
+launcher `tacto run --help` also returned0 and displayed the new option; it did
 not launch a task or attest GUI recovery.
 
 ## Chromium + CLI worker termination
@@ -169,7 +169,7 @@ only UNCHANGED_SAMPLED. Related48 unit/integration tests/0.899s/OK/no skips
 were confirmed in the terminal; no separate raw unit log is claimed.
 
 Worker configuration/proof handling is fixture-only. It accepts a private
-owned `nlc-save-writer-*` directory under Library/Caches, a fixed producer
+owned `tacto-save-writer-*` directory under Library/Caches, a fixed producer
 bundle, bounded private single-link records and the parent-bound callback
 inode/nonce/process identity. Configuration options apply only to the isolated
 internal worker scenario. The runtime launcher environment allowlist and

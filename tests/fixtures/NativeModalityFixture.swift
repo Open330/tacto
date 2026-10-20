@@ -15,7 +15,7 @@ import AppKit
         for (index,suffix) in ["A","B"].enumerated() {
             let window=NSWindow(contentRect:NSRect(x:180+index*450,y:230,width:420,height:220),
                 styleMask:[.titled,.closable],backing:.buffered,defer:false)
-            window.title="NLC Modality \(suffix)";window.isReleasedWhenClosed=false
+            window.title="TACTO Modality \(suffix)";window.isReleasedWhenClosed=false
             let field=NSTextField(string:"Owned")
             field.frame=NSRect(x:20,y:150,width:350,height:30)
             window.contentView?.addSubview(field);window.makeFirstResponder(field)

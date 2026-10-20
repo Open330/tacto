@@ -17,9 +17,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-WITNESS = 'ai.callabo.nlc.user-typing-witness'
-TARGET = 'ai.callabo.nlc.navigation-fixture'
-EXPECTED = 'nlc typing 12345'
+WITNESS = 'ai.callabo.tacto.user-typing-witness'
+TARGET = 'ai.callabo.tacto.navigation-fixture'
+EXPECTED = 'tacto typing 12345'
 STATE = re.compile(r'downs=(\d+) ups=(\d+) wrongWindow=(\d+) utf16=(\d+) '
                    r'selection=(\d+),(\d+) key=(true|false) focused=(true|false) sha256=([0-9a-f]{64})')
 
@@ -50,7 +50,7 @@ def prepared_fixtures(directory, witness_build_report):
     witness_raw = _snapshot(witness_build_report, 65536, private=True)
     witness = json.loads(witness_raw, object_pairs_hook=_json_object)
     binary = directory / 'Background Navigation.app/Contents/MacOS/Navigation'
-    witness_app = witness_build_report.parent / 'NLC Typing Witness.app'
+    witness_app = witness_build_report.parent / 'TACTO Typing Witness.app'
     for path, recorded in ((binary, manifest['binary']), (witness_app, witness['app'])):
         if str(path) != recorded or path.resolve(strict=True) != path:
             raise ValueError('prepared_fixture_identity_changed')
@@ -79,7 +79,7 @@ def prepare(directory):
                     str(source), '-o', str(binary)], check=True, capture_output=True, timeout=45)
     (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
         'CFBundleIdentifier': TARGET, 'CFBundleExecutable': 'Navigation',
-        'CFBundleName': 'NLC Background Navigation', 'CFBundlePackageType': 'APPL'}))
+        'CFBundleName': 'TACTO Background Navigation', 'CFBundlePackageType': 'APPL'}))
     subprocess.run(['codesign', '--force', '--sign', '-', str(bundle)],
                    check=True, capture_output=True, timeout=15)
     subprocess.run(['codesign', '--verify', '--strict', str(bundle)],
@@ -179,7 +179,7 @@ def run(directory, output, witness_build_report, *, driver=None, participant_con
             assert value.get('type') == 'observation', 'background observation failed'
             return value
         view = observe()
-        index, _ = Selector(role='Window', title='NLC Navigation Fixture A').resolve(view['tree'])
+        index, _ = Selector(role='Window', title='TACTO Navigation Fixture A').resolve(view['tree'])
         sample()
         prepared = driver.act(view['obs_id'], TARGET, {'name': 'prepare_window', 'element_index': index})
         report['preparation'] = prepared
@@ -189,7 +189,7 @@ def run(directory, output, witness_build_report, *, driver=None, participant_con
         assert state['nav-A-first'] == 'position=0'
         assert all('downs=0 ups=0 routeErrors=0 key=false' in state[f'nav-{suffix}-state'] for suffix in ('A', 'B')), 'fresh background counters required'
         assert sample()['downs'] == 0, 'typing started before arming; fresh trial required'
-        print('ARMED: type "nlc typing 12345" slowly in own witness; first key starts background trial', flush=True)
+        print('ARMED: type "tacto typing 12345" slowly in own witness; first key starts background trial', flush=True)
         report['classification'] = 'waiting_for_user_typing'
         deadline = time.monotonic() + 60
         while sample()['downs'] == 0:

@@ -72,8 +72,8 @@ def main(driver,output,expected_pid):
                     lines=[line for line in observation['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(index)]
                     if len(lines)!=1:raise ValueError('receiving_ambiguous')
                     return Selector._attr(lines[0],'Value')
-                index,_=Selector(identifier='nlc-fixture-choice').resolve(observation['tree'])
-                return {'value':value('nlc-fixture-result'),'count':value('nlc-fixture-count'),
+                index,_=Selector(identifier='tacto-fixture-choice').resolve(observation['tree'])
+                return {'value':value('tacto-fixture-result'),'count':value('tacto-fixture-count'),
                         'menu_state':observation.get('custom_selects',{}).get(str(index),{}).get('state')}
             report['initial']=receiving()
             if report['initial']!={'value':'Alpha','count':'0','menu_state':'closed'}:raise ValueError('initial_mismatch')

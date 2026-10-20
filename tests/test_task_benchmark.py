@@ -19,7 +19,7 @@ class TaskBenchmarkTests(unittest.TestCase):
 
     def success(self):
         event = dict(event='result', passed=True, loop_ok=True,
-                     dom_result='NLC-2026-confirmed', said='NLC-2026-confirmed')
+                     dom_result='TACTO-2026-confirmed', said='TACTO-2026-confirmed')
         with patch.object(bench, '_run_bounded', return_value=(0, json.dumps(event))):
             return bench.run_task(self.manifest, 'input-next-read')
 
@@ -29,7 +29,7 @@ class TaskBenchmarkTests(unittest.TestCase):
         self.assertEqual(3, len(result['evidence']))
         self.assertIsNone(result['model'])
         event = dict(event='result', passed=True, loop_ok=True,
-                     dom_result='WRONG', said='NLC-2026-confirmed')
+                     dom_result='WRONG', said='TACTO-2026-confirmed')
         with patch.object(bench, '_run_bounded', return_value=(0, json.dumps(event))):
             result = bench.run_task(self.manifest, 'input-next-read')
         self.assertEqual('failed', result['status'])
@@ -38,9 +38,9 @@ class TaskBenchmarkTests(unittest.TestCase):
         baseline = bench.run_task(self.manifest, 'input-next-read', 'codex-computer-use')
         self.assertEqual('unavailable', baseline['status'])
         summary = bench.summarize(self.manifest, [self.success(), baseline])
-        self.assertEqual(0.2, summary['totals']['nlc']['planned_task_completion_rate'])
+        self.assertEqual(0.2, summary['totals']['tacto']['planned_task_completion_rate'])
         self.assertEqual(0, summary['totals']['codex-computer-use']['planned_task_completion_rate'])
-        self.assertEqual(4, summary['totals']['nlc']['missing_tasks'])
+        self.assertEqual(4, summary['totals']['tacto']['missing_tasks'])
         self.assertFalse(summary['equivalence_established'])
 
     def test_unimplemented_task_never_executes(self):
@@ -75,8 +75,8 @@ class TaskBenchmarkTests(unittest.TestCase):
         failed = copy.deepcopy(passed)
         failed.update(run_id='retry-failed', status='failed', reason='oracle failed')
         summary = bench.summarize(self.manifest, [passed, failed])
-        self.assertEqual(0, summary['totals']['nlc']['fully_passed_tasks'])
-        self.assertEqual(1, summary['totals']['nlc']['passed_runs'])
+        self.assertEqual(0, summary['totals']['tacto']['fully_passed_tasks'])
+        self.assertEqual(1, summary['totals']['tacto']['passed_runs'])
 
     def test_timeout_and_missing_outcome_do_not_pass(self):
         with patch.object(bench, '_run_bounded', side_effect=subprocess.TimeoutExpired('probe', 180)):
@@ -201,7 +201,7 @@ class ExternalBenchmarkTests(unittest.TestCase):
         task = self.manifest['tasks'][0]
         with tempfile.TemporaryDirectory() as directory:
             artifact = Path(directory) / 'raw.json'
-            artifact.write_text('{"observed":"NLC-2026-confirmed"}')
+            artifact.write_text('{"observed":"TACTO-2026-confirmed"}')
             record = dict(task_id=task['id'], condition_id=bench.condition_id(task),
                 system='codex-computer-use', run_id='external-run', status='passed',
                 elapsed_seconds=10, provider=None, model=None, environment={'sky':'0.7.1'},
@@ -249,7 +249,7 @@ class WebBenchmarkFixtureTests(unittest.TestCase):
         probe = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(probe)
         answers = iter([
-            {'actions': [{'pick': 0, 'do': 'set_value', 'value': 'NLC-2026'},
+            {'actions': [{'pick': 0, 'do': 'set_value', 'value': 'TACTO-2026'},
                          {'pick': 1, 'do': 'click'}]},
             {'actions': [{'pick': 0, 'do': 'read'}]},
             {'done': True, 'actions': []}])

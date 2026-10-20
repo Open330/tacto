@@ -5,7 +5,7 @@
 #   skill/install.sh --check   say what is installed and what is missing; change nothing
 #
 # Two things used to go wrong. This script copied SKILL.md and nothing else,
-# so an agent read "run `nlc apps`" and found no `nlc` anywhere (reported from a
+# so an agent read "run `tacto apps`" and found no `tacto` anywhere (reported from a
 # Codex session, 2026-09-28). And the copies went stale: every installed copy
 # still described the skill as it was on 2026-09-17. Now the command is a link
 # to the signed launcher, and the skill is a link to this directory, so what an
@@ -15,7 +15,7 @@ set -euo pipefail
 skill_dir=$(cd "$(dirname "$0")" && pwd -P)
 repo=$(cd "$skill_dir/.." && pwd -P)
 skill="$repo/skill"
-bin_dir="${TACTO_BIN_DIR:-${NLC_BIN_DIR:-$HOME/.local/bin}}"
+bin_dir="${TACTO_BIN_DIR:-$HOME/.local/bin}"
 check=0
 explicit_dirs=()
 record=""
@@ -58,24 +58,22 @@ record_authorizes() {
 }
 
 say() { printf '  %s\n' "$*"; }
-ours() {   # is this path an owned Tacto or legacy skill we may replace?
+ours() {   # is this path an owned Tacto skill we may replace?
   record_authorizes "$1" skill && return 0
   [ "$(readlink "$1" 2>/dev/null)" = "$skill" ] && return 0
-  [ -f "$1/SKILL.md" ] && grep -Eq '^name: (nlc|tacto)$' "$1/SKILL.md"
+  [ -f "$1/SKILL.md" ] && grep -Eq '^name: tacto$' "$1/SKILL.md"
 }
 our_command_link() {
   record_authorizes "$1" command && return 0
   local old old_repo
   old=$(readlink "$1" 2>/dev/null) || return 1
   case "$old" in
-    "$repo/launcher/tacto"|"$repo/launcher/nlc"|"$repo/.venv/bin/nlc"|"$repo/.venv/bin/tacto") return 0 ;;
+    "$repo/launcher/tacto"|"$repo/.venv/bin/tacto") return 0 ;;
     /*/launcher/tacto) old_repo=${old%/launcher/tacto} ;;
-    /*/launcher/nlc) old_repo=${old%/launcher/nlc} ;;
     /*/.venv/bin/tacto) old_repo=${old%/.venv/bin/tacto} ;;
-    /*/.venv/bin/nlc) old_repo=${old%/.venv/bin/nlc} ;;
     *) return 1 ;;
   esac
-  [ -f "$old_repo/skill/SKILL.md" ] && grep -Eq '^name: (nlc|tacto)$' "$old_repo/skill/SKILL.md"
+  [ -f "$old_repo/skill/SKILL.md" ] && grep -Eq '^name: tacto$' "$old_repo/skill/SKILL.md"
 }
 
 echo "Tacto — $repo"
@@ -84,7 +82,7 @@ echo "Tacto — $repo"
 # incorrectly packaged checkouts before creating command/profile directories.
 # This checks discoverable instructions, not signing or runtime permissions.
 if [ ! -f "$skill/SKILL.md" ] || [ ! -r "$skill/SKILL.md" ] ||
-   ! grep -Eq '^name: (nlc|tacto)$' "$skill/SKILL.md"; then
+   ! grep -Eq '^name: tacto$' "$skill/SKILL.md"; then
   say "missing or invalid: skill/SKILL.md — restore the Tacto skill from this checkout before installing"
   exit 1
 fi
@@ -98,10 +96,6 @@ if [ -x "$repo/launcher/tacto" ]; then
 fi
 target="$bin_dir/tacto"
 echo "command"
-legacy_target="$bin_dir/nlc"
-if [ "$check" = 0 ] && { [ -e "$legacy_target" ] || [ -L "$legacy_target" ]; } && ! our_command_link "$legacy_target"; then
-  say "not replacing $legacy_target: it is not our command link"; exit 1
-fi
 if [ -z "$entry" ]; then
   say "missing: launcher/tacto — build the native checkout first:"
   say "  uv sync && ./build.sh"
@@ -118,10 +112,15 @@ else
   ln -sfn "$entry" "$target"
   say "linked: $target -> $entry"
 fi
-if [ "$check" = 1 ]; then
-  if [ "$(readlink "$legacy_target" 2>/dev/null)" != "$entry" ]; then say "missing: $legacy_target"; status=1; fi
-else
-  ln -sfn "$entry" "$legacy_target"
+# Retirement only: never install or execute the removed command alias.
+retired_command="$bin_dir/nlc"
+if [ -L "$retired_command" ] && our_command_link "$retired_command"; then
+  if [ "$check" = 1 ]; then
+    say "retired command link needs removal: $retired_command"; status=1
+  else
+    rm -- "$retired_command"
+    say "removed retired command link: $retired_command"
+  fi
 fi
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
@@ -153,6 +152,15 @@ for parent in "${dirs[@]}"; do
   case "$seen" in *"|$real|"*) continue ;; esac
   seen="$seen|$real|"
   dest="$parent/tacto"
+  retired_skill="$parent/nlc"
+  if [ -L "$retired_skill" ] && ours "$retired_skill"; then
+    if [ "$check" = 1 ]; then
+      say "retired skill link needs removal: $retired_skill"; status=1
+    else
+      rm -- "$retired_skill"
+      say "removed retired skill link: $retired_skill"
+    fi
+  fi
   if [ $check = 1 ]; then
     if [ "$(readlink "$dest" 2>/dev/null)" = "$skill" ]; then say "ok: $dest"
     elif [ -e "$dest" ] || [ -L "$dest" ]; then say "stale copy or conflicting link: $dest"; status=1
@@ -179,20 +187,13 @@ for parent in "${dirs[@]}"; do
     ln -s "$skill" "$dest"
   fi
   say "linked: $dest"
-  legacy="$parent/nlc"
-  if { [ -e "$legacy" ] || [ -L "$legacy" ]; } && ours "$legacy"; then
-    if [ "$check" = 1 ]; then say "legacy skill needs migration: $legacy"; status=1
-    else
-      backup=$(mktemp -d "$(dirname "$parent")/.tacto-skill-backup.XXXXXX")
-      mv "$legacy" "$backup/nlc"; say "kept previous copy: $backup/nlc"
-    fi
-  fi
+
 done
 if [ "$status" = 0 ] && [ "$check" = 0 ] && [ -n "$record" ]; then
   record_args=()
   for parent in "${dirs[@]}"; do record_args+=(--skill-link "$parent/tacto"); done
   if ! "$repo/.venv/bin/python" -I -B -m tacto.install_record write \
-      --record "$record" --root "$repo" --link "$target" --command-link "$legacy_target" "${record_args[@]}"; then
+      --record "$record" --root "$repo" --link "$target" "${record_args[@]}"; then
     say "links installed, but install record could not be written"; status=1
   fi
 fi

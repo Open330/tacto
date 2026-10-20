@@ -25,10 +25,10 @@ class PairAuditTests(unittest.TestCase):
                 'initial_frontmost_bundle':'owned.sentinel', 'oracle_contract':'exact-v2',
                 'runtime_policy':'background-v2','background_constraint':'owned constraint',
                 'timeout_seconds':120}
-        profile={'schema':'comparison-instructions-v1','nlc_template_sha256':'a'*64,
+        profile={'schema':'comparison-instructions-v1','tacto_template_sha256':'a'*64,
                  'sky_template_sha256':'b'*64,'sky_guide_sha256':None,'sky_guide_provided':False}
         base.update(comparison_instruction_profile=profile,instruction_profile_stable=True)
-        self.rows = [dict(deepcopy(base), arm=arm) for arm in ('nlc', 'sky')]
+        self.rows = [dict(deepcopy(base), arm=arm) for arm in ('tacto', 'sky')]
         for row in self.rows:row['agent_prompt_template_sha256']=profile[row['arm']+'_template_sha256']
 
     def pair(self):

@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET = 'ai.callabo.nlc.list-fixture'
+TARGET = 'ai.callabo.tacto.list-fixture'
 BODY = 'lost_reply_once'
 
 
@@ -77,7 +77,7 @@ def main(driver, output):
               'receipt_kind': 'sender_transcript_independent_owned_AX_reader',
               'external_delivery_verified': False, 'all_dependencies_frozen': False}
     process = audit = interrupted = None
-    source_paths = list((root / 'tacto').glob('*.py')) + list((root / 'nlc').glob('*.py')) + list((root / 'helper').glob('*.swift')) + [
+    source_paths = list((root / 'tacto').glob('*.py')) + list((root / 'helper').glob('*.swift')) + [
         Path(__file__).resolve(), root / 'examples/eval.py', root / 'tests/fixtures/NativeListFixture.swift',
         root / 'launcher/tacto.swift', root / 'launcher/tacto', root / 'helper/tacto-helper',
         root / 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
@@ -97,13 +97,13 @@ def main(driver, output):
                                      'peer_pid_version':identity.peer_pid_version}
         from AppKit import NSRunningApplication
         helper = NSRunningApplication.runningApplicationWithProcessIdentifier_(identity.pid)
-        assert (helper is not None and helper.bundleIdentifier() == 'ai.callabo.nlc.helper'
+        assert (helper is not None and helper.bundleIdentifier() == 'ai.callabo.tacto.helper'
                 and Path(str(helper.executableURL().path())).resolve() ==
                     (root / 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper').resolve())
         report['helper_before'] = helper_instance_status(identity)
         assert report['helper_before'] == 'same_instance'
-        with tempfile.TemporaryDirectory(prefix='nlc-commit-disconnect-') as work:
-            app = Path(work) / 'NLC List Fixture.app'
+        with tempfile.TemporaryDirectory(prefix='tacto-commit-disconnect-') as work:
+            app = Path(work) / 'TACTO List Fixture.app'
             binary = app / 'Contents/MacOS/NativeListFixture'
             binary.parent.mkdir(parents=True)
             (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
@@ -139,7 +139,7 @@ def main(driver, output):
                     report['initial'] = host()
                     assert report['initial']['sent'] == '0' and report['initial']['active'] == 'false'
                     view = driver.observe(TARGET, 'tree_full')
-                    index, _ = Selector(role='Window', title='NLC List Fixture').resolve(view['tree'])
+                    index, _ = Selector(role='Window', title='TACTO List Fixture').resolve(view['tree'])
                     response = driver.act(view['obs_id'], TARGET, {'name':'prepare_window', 'element_index':index})
                     report['preparation'] = response
                     assert response.get('type') == 'acted'
@@ -160,8 +160,8 @@ def main(driver, output):
                                                operation='press_key', params_digest=pin_params(params)),
                         postcondition=Postcondition(field=Selector(identifier='list-state'),
                                                     attribute='Value', contains='sent=1 lastSent=' + BODY))
-                    rec = TranscriptReceipt(reader, target=TARGET, recipient='NLC List Fixture', body=BODY,
-                        recipient_field=Selector(role='Window', title='NLC List Fixture'),
+                    rec = TranscriptReceipt(reader, target=TARGET, recipient='TACTO List Fixture', body=BODY,
+                        recipient_field=Selector(role='Window', title='TACTO List Fixture'),
                         messages=Selector(role='StaticText', ancestor='transcript'), timeout_seconds=3)
                     def received():
                         state = host()

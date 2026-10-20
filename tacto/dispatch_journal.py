@@ -77,7 +77,7 @@ class DurableDispatchDriver:
             fd=os.open(f'{sequence:05d}.jsonl',os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,
                 0o600,dir_fd=self._directory_fd)
             with os.fdopen(fd,'w',closefd=False) as file:
-                file.write(json.dumps({'schema':'nlc-dispatch-v1','slot':sequence,
+                file.write(json.dumps({'schema':'tacto-dispatch-v1','slot':sequence,
                     'operation_sha256':digest,'state':'reserved'})+'\n');file.flush();os.fsync(fd)
             # Persist the directory entry before sending any input. A torn
             # record still blocks reuse because O_EXCL does not parse it.

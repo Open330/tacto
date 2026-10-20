@@ -138,9 +138,9 @@ Replay a saved Flow:
 <details>
 <summary>Installation notes and development-only commands</summary>
 
-If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`; `nlc` is a compatibility alias. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported. The permission holder is **Tacto Helper** (`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`) and the launcher is `launcher/tacto`; bundle identifiers and signing requirements use `ai.callabo.nlc.*`.
+If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`. The Python wheel alone does not supply the signed native launcher/helper. The permission holder is **Tacto Helper** (`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`) and the launcher is `launcher/tacto`; bundle identifiers and signing requirements use `ai.callabo.tacto.*`.
 
-> **Python namespace conflict.** The top-level import `tacto` is also used by an unrelated PyPI package (a tactile-sensor simulator). Install this project's distribution, `tacto-runtime`, in its own environment, and never `pip install tacto` for Tacto. Installing both into one environment overwrites each other's files; `import nlc` then refuses with an error naming `tacto-runtime`.
+> **Python namespace conflict.** The top-level import `tacto` is also used by an unrelated PyPI package (a tactile-sensor simulator). Install this project's distribution, `tacto-runtime`, in its own environment, and never `pip install tacto` for Tacto. Installing both into one environment can overwrite each other's files.
 
 These commands belong to the development checkout, not the main-branch release:
 
@@ -199,7 +199,7 @@ Detailed guides are primarily Korean, with code examples and some English refere
 [Installation](docs/installation.md) · [Flows](docs/recipes.md) · [API](docs/api.md) · [Capabilities](docs/capabilities.md) · [Agent skill](skill/SKILL.md)
 
 <details>
-<summary>CLI reference and legacy nlc compatibility</summary>
+<summary>CLI reference</summary>
 
 Available on the main branch:
 

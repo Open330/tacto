@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 
-_COLLECTORS = ContextVar('nlc_provider_collectors', default=())
+_COLLECTORS = ContextVar('tacto_provider_collectors', default=())
 
 
 @contextmanager

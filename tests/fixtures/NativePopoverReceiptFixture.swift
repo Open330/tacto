@@ -33,7 +33,7 @@ import AppKit
             let suffix=["A","B"][index]
             let window=ReceiptWindow(contentRect:NSRect(x:180+index*450,y:230,width:420,height:220),
                 styleMask:[.titled,.closable],backing:.buffered,defer:false)
-            window.title="NLC Popover Receipt \(suffix)";window.isReleasedWhenClosed=false
+            window.title="TACTO Popover Receipt \(suffix)";window.isReleasedWhenClosed=false
             let receiver=ReceiptView(frame:NSRect(x:20,y:60,width:200,height:60))
             receiver.firstMouse=firstMouse
             receiver.setAccessibilityElement(true);receiver.setAccessibilityRole(.group)

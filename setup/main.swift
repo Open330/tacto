@@ -647,7 +647,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             connectionInfo.stringValue = known ? "앱 조작 권한을 켜면 Claude Code · Codex에 연결할 수 있어요. 화면 캡처는 선택 사항입니다." : "먼저 ‘상태 새로고침’으로 권한을 확인해 주세요."
         }
         let scope = ProcessInfo.processInfo.environment
-        let custom = ["TACTO_BIN_DIR", "NLC_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
+        let custom = ["TACTO_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
         scopeInfo.isHidden = !(custom && (connection == .missing || connection == .other))
         connectButton.isHidden = connection == .current && !installing
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
@@ -860,7 +860,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func check() {
         guard !checkInFlight else { return }
         guard FileManager.default.fileExists(atPath: helper.path) else {
-            known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            known = state.refresh(nil, expected: "ai.callabo.tacto.helper")
             notice = "권한용 앱을 찾지 못했어요. Tacto.app 전체를 Applications 폴더로 다시 옮긴 뒤 열어 주세요."
             render(); return
         }
@@ -870,7 +870,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                      attributes: [.posixPermissions: 0o700]) }
         catch {
-            checkInFlight = false; known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            checkInFlight = false; known = state.refresh(nil, expected: "ai.callabo.tacto.helper")
             notice = "권한을 확인할 임시 파일을 만들지 못했어요. Mac의 저장 공간을 확인하고 Tacto를 다시 열어 주세요."
             render(); return
         }
@@ -895,7 +895,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pollTimer?.invalidate(); pollTimer = nil
         try? FileManager.default.removeItem(at: directory); reportDirectory = nil
         checkInFlight = false
-        known = state.refresh(data, expected: "ai.callabo.nlc.helper")
+        known = state.refresh(data, expected: "ai.callabo.tacto.helper")
         notice = known ? nil : "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요. 계속 실패하면 Tacto를 닫고 다시 열어 주세요."
         if let watching = watch, state.granted(watching.permission) { endWatch(granted: true); return }
         render()
@@ -1033,7 +1033,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let waiting { watch = PermissionWatch(permission: waiting, started: Date()) }
         if CommandLine.arguments.contains("--show-help") { panel.toggleHelp() }
         if CommandLine.arguments.contains("--check-failed") {
-            known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            known = state.refresh(nil, expected: "ai.callabo.tacto.helper")
             notice = "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요."
         }
         render()

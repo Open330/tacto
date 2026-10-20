@@ -187,7 +187,7 @@ if __name__ == "__main__":
 
 
 class ReplayCommandBudgetTests(unittest.TestCase):
-    """`nlc replay`/`nlc run` give walked recipes the same one question as `do`."""
+    """`tacto replay`/`tacto run` give walked recipes the same one question as `do`."""
     def budget(self, walked, argv):
         from contextlib import redirect_stdout
         from io import StringIO

@@ -186,11 +186,11 @@ uv sync
 <summary>설치 문제와 개발 버전의 반복 실행</summary>
 
 스킬을 찾지 못하면 에이전트 세션을 다시 열고 `./skill/install.sh --check`로 연결을 확인하세요.
-Python 배포 이름은 `tacto-runtime`이고 기본 import는 `tacto`입니다. `nlc`는 호환 계층입니다.
+Python 배포 이름은 `tacto-runtime`이고 기본 import는 `tacto`입니다.
 Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습니다.
-기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 권한용 앱은 **Tacto Helper**(`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`)이고 실행기는 `launcher/tacto`입니다. 번들 식별자와 서명 요구조건은 `ai.callabo.nlc.*`를 사용합니다.
+권한용 앱은 **Tacto Helper**(`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`)이고 실행기는 `launcher/tacto`입니다. 번들 식별자와 서명 요구조건은 `ai.callabo.tacto.*`를 사용합니다.
 
-> **Python 이름 충돌 주의.** 최상위 import 이름 `tacto`는 PyPI의 다른 패키지(촉각 센서 시뮬레이터)도 사용합니다. 이 프로젝트의 배포 이름은 `tacto-runtime`이며 별도 가상환경에 설치하세요. Tacto를 위해 `pip install tacto`를 실행하지 마세요. 두 패키지를 한 환경에 설치하면 서로의 파일을 덮어쓰며, 이때 `import nlc`는 `tacto-runtime`을 안내하는 오류로 거부합니다.
+> **Python 이름 충돌 주의.** 최상위 import 이름 `tacto`는 PyPI의 다른 패키지(촉각 센서 시뮬레이터)도 사용합니다. 이 프로젝트의 배포 이름은 `tacto-runtime`이며 별도 가상환경에 설치하세요. Tacto를 위해 `pip install tacto`를 실행하지 마세요. 두 패키지를 한 환경에 설치하면 서로의 파일을 덮어쓸 수 있습니다.
 선택적 Playwright backend는 별도 Chromium 페이지를 사용합니다.
 
 다음 batch·자동 수리 명령은 개발 checkout 기준이며 아직 기본 브랜치의 배포 기능이 아닙니다.
@@ -253,7 +253,7 @@ python3 sites/tacto/serve.py
 [설치](docs/installation.md) · [Flow 작성·재생](docs/recipes.md) · [API](docs/api.md) · [지원 기능](docs/capabilities.md) · [에이전트 스킬](skill/SKILL.md)
 
 <details>
-<summary><strong>CLI 명령 찾아보기 · 이전 nlc 명령 호환</strong></summary>
+<summary><strong>CLI 명령 찾아보기</strong></summary>
 
 기본 브랜치에서 제공하는 명령입니다.
 
@@ -275,7 +275,7 @@ python3 sites/tacto/serve.py
 | 브라우저 파일 등록 | `tacto web-upload` |
 | VRoid 전용 실험 | `tacto vroid-focus`, `tacto vroid-drag` — `TACTO_ENABLE_EXPERIMENTAL_FOREGROUND=1`로 별도 빌드한 개발용 진단 경로. 기본 빌드 제외 |
 
-`tacto --help`로 현재 checkout의 명령을 확인하세요. 기존 `nlc` 별칭도 사용할 수 있습니다.
+`tacto --help`로 현재 checkout의 명령을 확인하세요.
 네이티브 작업은 서명된 런처를 사용하고 필요한 명령에 `--helper`를 지정합니다.
 
 </details>
@@ -293,7 +293,7 @@ python3 sites/tacto/serve.py
 - [첫 작업 품질 개선·교차 검토](docs/tacto-quality-review-2026-10-19.md)
 - [네이티브 서명·기본 빌드·설치 UX 수정 결과](docs/tacto-native-release-fixes-2026-10-16.md)
 - [전체 개선 peer 검토와 잔여 출시 제한](docs/tacto-peer-review-2026-10-16.md)
-- [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
+- [Tacto 이름·배포 식별자](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)
 - [비교 실행 기록](docs/benchmark-records.md)

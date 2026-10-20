@@ -8,7 +8,7 @@ import time
 import hashlib
 import os
 
-TARGET = 'ai.callabo.nlc.navigation-fixture'
+TARGET = 'ai.callabo.tacto.navigation-fixture'
 
 
 def main(driver, output, *, model_provider=None, require_selection=False):
@@ -52,7 +52,7 @@ def main(driver, output, *, model_provider=None, require_selection=False):
 
 
 def source_hashes(root):
-    paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+    paths=list((root/'tacto').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
         root/'examples/probes/native-navigation.py',root/'examples/eval.py',
         root/'tests/fixtures/NativeNavigationFixture.swift',root/'launcher/tacto.swift',
         root/'launcher/tacto',root/'helper/tacto-helper',
@@ -84,12 +84,12 @@ def _run_navigation(driver, report, *, model_provider=None, require_selection=Fa
     child = None
     try:
         assert host_driver._resolve(TARGET, launch=False) is None, 'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-native-navigation-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-native-navigation-') as directory:
             bundle = Path(directory) / 'Navigation.app'
             binaries = bundle / 'Contents/MacOS'; binaries.mkdir(parents=True)
             binary = binaries / 'Navigation'
             (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
-                'CFBundleIdentifier': TARGET, 'CFBundleName': 'NLC Navigation Fixture',
+                'CFBundleIdentifier': TARGET, 'CFBundleName': 'TACTO Navigation Fixture',
                 'CFBundleExecutable': 'Navigation', 'CFBundlePackageType': 'APPL'}))
             subprocess.run(['swiftc', '-parse-as-library', '-O', '-framework', 'AppKit',
                 str(root / 'tests/fixtures/NativeNavigationFixture.swift'), '-o', str(binary)],
@@ -146,7 +146,7 @@ def _run_navigation(driver, report, *, model_provider=None, require_selection=Fa
                     refused(observation, 'nav-A-first', 'Right', stale=True)
                     refused(observation, 'nav-A-first', 'Right', expired=True)
                     assert state() == initial
-                    window, _ = Selector(role='Window', title='NLC Navigation Fixture A').resolve(observation['tree'])
+                    window, _ = Selector(role='Window', title='TACTO Navigation Fixture A').resolve(observation['tree'])
                     prepared = driver.act(observation['obs_id'], TARGET, {'name': 'prepare_window', 'element_index': window})
                     report['preparation'] = prepared
                     assert prepared.get('type') == 'acted', prepared

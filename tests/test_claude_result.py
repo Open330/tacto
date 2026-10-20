@@ -18,10 +18,10 @@ def events(session='session-1'):
         {'type': 'rate_limit_event', 'session_id': session},
         {'type': 'assistant', 'session_id': session, 'parent_tool_use_id': None,
          'message': {'role': 'assistant', 'model': 'observed-model', 'usage': {'output_tokens': 3},
-                     'content': [{'type': 'text', 'text': 'NLC-OK'}]}},
+                     'content': [{'type': 'text', 'text': 'TACTO-OK'}]}},
         {'type': 'result', 'session_id': session, 'subtype': 'success', 'is_error': False,
          'num_turns': 1, 'stop_reason': 'end_turn', 'permission_denials': [],
-         'result': 'NLC-OK', 'usage': {'input_tokens': 10, 'output_tokens': 7, 'cache_read_input_tokens': 50},
+         'result': 'TACTO-OK', 'usage': {'input_tokens': 10, 'output_tokens': 7, 'cache_read_input_tokens': 50},
          'total_cost_usd': 0.003, 'modelUsage': {'observed-model': {'costBasis': 'list'}}}]
 
 
@@ -82,7 +82,7 @@ class ClaudeResultTests(unittest.TestCase):
                     'uuid': '12345678-1234-1234-1234-123456789abd', 'commands': []}
         for prefix in ([notice], [notice, commands], [commands, notice]):
             result = parse_claude_events(stream(prefix + events()), 'session-1')
-            self.assertEqual('NLC-OK', result['text'])
+            self.assertEqual('TACTO-OK', result['text'])
             self.assertEqual(7, result['output_tokens'])
         for variant in (
                 [notice, notice] + events(),
@@ -111,7 +111,7 @@ class ClaudeResultTests(unittest.TestCase):
     def test_one_exact_empty_commands_notice_can_precede_init(self):
         notice = {'type':'system','subtype':'commands_changed','session_id':'session-1',
                   'uuid':'12345678-1234-1234-1234-123456789abc','commands':[]}
-        self.assertEqual(parse_claude_events(stream([notice] + events()), 'session-1')['text'], 'NLC-OK')
+        self.assertEqual(parse_claude_events(stream([notice] + events()), 'session-1')['text'], 'TACTO-OK')
         for prefix in ([notice, notice], [{**notice, 'commands':['unexpected']}],
                        [{**notice, 'uuid':'malformed'}], [{**notice, 'extra':'unobserved'}],
                        [{**notice, 'session_id':'other'}], [notice, events()[2]]):
@@ -171,7 +171,7 @@ class ClaudeResultTests(unittest.TestCase):
         progress = {'type': 'system', 'subtype': 'thinking_tokens', 'session_id': 'session-1'}
         data = events()
         data.insert(2, progress)
-        self.assertEqual('NLC-OK', parse_claude_events(stream(data), 'session-1')['text'])
+        self.assertEqual('TACTO-OK', parse_claude_events(stream(data), 'session-1')['text'])
         for invalid in ([progress] + events(), events() + [progress],
                         [events()[0], {**progress, 'session_id': 'other'}] + events()[1:]):
             with self.subTest(invalid=invalid), self.assertRaises(ClaudeProtocolError):
@@ -283,7 +283,7 @@ class ClaudeResultTests(unittest.TestCase):
     def test_commands_changed_notice_is_not_a_turn(self):
         items = events()
         items.insert(1, {'type': 'system', 'subtype': 'commands_changed', 'session_id': 'session-1'})
-        self.assertEqual('NLC-OK', parse_claude_events(stream(items), 'session-1')['text'])
+        self.assertEqual('TACTO-OK', parse_claude_events(stream(items), 'session-1')['text'])
 
     def test_failed_run_names_a_fixable_state_without_keeping_output(self):
         for stdout, stderr, reason in (

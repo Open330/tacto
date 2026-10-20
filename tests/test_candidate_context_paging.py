@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from tacto.ask import _open_select_order, ask_here_paged
 
-OWNER = 'nlc-fixture-choice'
+OWNER = 'tacto-fixture-choice'
 
 
 def screen(rows=60, visible=8):
@@ -36,11 +36,11 @@ def native_screen():
     candidates=screen()
     candidates[1].update(can=['read','scroll','press_key','select_custom_option'],
         navigation_keys=['Down','Left','Right','Tab','Up','shift+Tab'],
-        where='창: NLC Native Select Fixture',line='  1 ComboBox  Value: Alpha, Identifier: '+OWNER)
+        where='창: TACTO Native Select Fixture',line='  1 ComboBox  Value: Alpha, Identifier: '+OWNER)
     for row in candidates[3:]:
         row.update(can=['click','set_value','read','scroll','press_key','submit'],
             navigation_keys=['Down','Left','Right','Tab','Up','shift+Tab'],
-            match=row['label'],attr='Value',where='안: '+OWNER+' / 창: NLC Native Select Fixture')
+            match=row['label'],attr='Value',where='안: '+OWNER+' / 창: TACTO Native Select Fixture')
     return candidates
 
 

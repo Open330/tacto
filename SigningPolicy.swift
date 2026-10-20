@@ -22,7 +22,7 @@ enum TactoSigning {
         guard SecCodeCopySigningInformation(binary, SecCSFlags(rawValue: kSecCSSigningInformation), &raw) == errSecSuccess,
               let info = raw as? [String: Any],
               let team = info[kSecCodeInfoTeamIdentifier as String] as? String,
-              requirement(identifier: "ai.callabo.nlc", team: team) != nil else { return nil }
+              requirement(identifier: "ai.callabo.tacto", team: team) != nil else { return nil }
         return team
     }
 

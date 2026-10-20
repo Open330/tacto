@@ -10,7 +10,7 @@ from unittest.mock import patch
 from shutil import rmtree as _real_rmtree
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('nlc_product_provenance', ROOT / 'examples/product_comparison.py')
+spec = importlib.util.spec_from_file_location('tacto_product_provenance', ROOT / 'examples/product_comparison.py')
 comparison = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = comparison
 spec.loader.exec_module(comparison)
@@ -67,7 +67,7 @@ class SessionAvailabilityTests(unittest.TestCase):
              patch.object(comparison, 'source_manifest', return_value=manifest), \
              patch('tacto.helper.InheritedHelperDriver.available', return_value=True), \
              patch.object(comparison.subprocess, 'run') as run:
-            result = comparison.run_one(task, 'nlc')
+            result = comparison.run_one(task, 'tacto')
         self.assertEqual('not_run', result['status'])
         self.assertEqual('session_unobservable', result['observed'])
         self.assertFalse(result['comparison_eligible'])
@@ -111,7 +111,7 @@ class Provenance(unittest.TestCase):
         self.assertNotEqual(before['sha256'], comparison.source_manifest()['sha256'])
         self.assertIn('tacto/a.py', before['files'])
 
-    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="nlc", launch_error=False, stdout=""):
+    def execute(self, *, change=False, exit_code=0, setup=None, cleanup=None, observations=(), arm="tacto", launch_error=False, stdout=""):
         class Witness:
             def __enter__(self): return self
             def __exit__(self, *args): pass
@@ -145,19 +145,19 @@ class Provenance(unittest.TestCase):
 
     def test_tool_lifecycle_counts_are_distinct_from_legacy_event_counts(self):
         import json
-        item={'id':'call-1','type':'command_execution','command':'nlc observe fixture --helper'}
+        item={'id':'call-1','type':'command_execution','command':'tacto observe fixture --helper'}
         events=[{'type':kind,'item':item} for kind in ('item.started','item.updated','item.completed','item.completed')]
         events.append({'type':'turn.completed','usage':{}})
         result=self.execute(stdout='\n'.join(json.dumps(event) for event in events))
-        self.assertEqual({'shell:nlc':4},result['calls'])
-        self.assertEqual({'shell:nlc':1},result['tool_item_usage']['observed_unique_items'])
-        self.assertEqual({'shell:nlc':1},result['tool_item_usage']['completed_unique_items'])
+        self.assertEqual({'shell:tacto':4},result['calls'])
+        self.assertEqual({'shell:tacto':1},result['tool_item_usage']['observed_unique_items'])
+        self.assertEqual({'shell:tacto':1},result['tool_item_usage']['completed_unique_items'])
         self.assertTrue(result['tool_item_usage']['complete_unique_counts'])
         self.assertFalse(result['comparison_eligible'])
 
     def test_abnormal_or_unfinished_stream_does_not_claim_complete_counts(self):
         import json
-        start={'type':'item.started','item':{'id':'one','type':'command_execution','command':'nlc list'}}
+        start={'type':'item.started','item':{'id':'one','type':'command_execution','command':'tacto list'}}
         cases=[([start],0),([start,{'type':'turn.failed'}],0),
                ([start,{'type':'turn.completed'}],1),([start,{'type':'turn.completed'}],0)]
         for events,code in cases:
@@ -214,7 +214,7 @@ class OwnedDocumentTests(unittest.TestCase):
         self.P._OWNED.clear()
         self.addCleanup(self.P._OWNED.clear)
 
-    def own(self, path='/private/tmp/x/NLC.txt', window=None):
+    def own(self, path='/private/tmp/x/TACTO.txt', window=None):
         self.P._OWNED.update(path=path, directory='/private/tmp/x', inode=(1, 2),
                              process=('pid', 1), window=window or object())
         return self.P._OWNED['window']
@@ -289,7 +289,7 @@ class OwnedDocumentTests(unittest.TestCase):
                 self.P.owned_setup()
         directory = self.P._OWNED['directory']
         self.assertEqual(0o700, os.stat(directory).st_mode & 0o777)
-        self.assertTrue(os.path.basename(directory).startswith('nlc-compare-owned-'))
+        self.assertTrue(os.path.basename(directory).startswith('tacto-compare-owned-'))
         import shutil; shutil.rmtree(directory)
 
     def test_only_local_file_urls_are_paths(self):
@@ -302,7 +302,7 @@ class OwnedDocumentTests(unittest.TestCase):
 
     def test_korean_names_compare_composed(self):
         import unicodedata
-        self.own(path='/private/tmp/x/NLC 비교 문서.txt')
+        self.own(path='/private/tmp/x/TACTO 비교 문서.txt')
         nfd = unicodedata.normalize('NFD', str(self.P._owned_path()))
         self.assertEqual(self.P._owned_path(), self.P._nfc(nfd))
 
@@ -451,7 +451,7 @@ class FinderFolderTaskTests(unittest.TestCase):
                 self.P.finder_setup()
 
     def test_a_failed_read_is_not_an_empty_finder(self):
-        self.P._FOLDER['path'] = '/tmp/nlc-compare-folder-x'
+        self.P._FOLDER['path'] = '/tmp/tacto-compare-folder-x'
         for failing in ('AXTitle', 'AXChildren', 'AXIdentifier'):
             def ax(el, name, failing=failing):
                 if name == failing:
@@ -543,9 +543,9 @@ class NewTaskOracleTests(unittest.TestCase):
             self.P._OWNED.clear(); self.addCleanup(self.P._OWNED.clear)
             st = os.stat(d)
             self.P._OWNED.update(path=path, directory=d, inode=(st.st_dev, st.st_ino))
-            for disk, shown, want in (('NLC 저장 확인 4417', True, True),
+            for disk, shown, want in (('TACTO 저장 확인 4417', True, True),
                                       ('', True, False),          # typed but not saved
-                                      ('NLC 저장 확인 4417', False, False),
+                                      ('TACTO 저장 확인 4417', False, False),
                                       (None, True, False)):
                 if disk is None:
                     if os.path.exists(path): os.unlink(path)
@@ -553,7 +553,7 @@ class NewTaskOracleTests(unittest.TestCase):
                     pathlib.Path(path).write_text(disk, encoding='utf-8')
                 with self.subTest(disk=disk, shown=shown), \
                         patch.object(self.P, 'owned_oracle', return_value=(shown, 'w')):
-                    self.assertEqual(want, self.P.owned_saved_oracle('NLC 저장 확인 4417')[0])
+                    self.assertEqual(want, self.P.owned_saved_oracle('TACTO 저장 확인 4417')[0])
 
     def test_new_folder_needs_exactly_one_named_folder(self):
         import os

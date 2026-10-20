@@ -34,10 +34,9 @@ dev = ["tiktoken>=0.14,<1"]
 
 [project.scripts]
 tacto = "tacto.cli:main"
-nlc = "tacto.cli:main"
 
 [tool.setuptools]
-packages = ["tacto", "nlc"]
+packages = ["tacto"]
 # This wheel distributes portable Python modules. Signed native executables,
 # source-tree evaluation fixtures and mutable flow stores are not wheel data.
 # Native installation uses the source checkout's build.sh + launcher/tacto;

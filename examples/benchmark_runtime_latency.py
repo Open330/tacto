@@ -1,7 +1,7 @@
 """Paired signed-runtime latency check in a disposable native app; no models.
 
-Example: python3 examples/benchmark_runtime_latency.py --baseline /path/to/nlc
-  --candidate /path/to/new/nlc --output /absolute/new/private-directory
+Example: python3 examples/benchmark_runtime_latency.py --baseline /path/to/tacto
+  --candidate /path/to/new/tacto --output /absolute/new/private-directory
 Both launchers must already have permission. This never installs or grants it.
 """
 import argparse
@@ -110,7 +110,7 @@ def main():
             or launcher_changed != args.launcher_optimized):
         write(base/'mismatch.json', {'manifests': before, 'differences': differences, 'native_equal': native_equal})
         raise ValueError('runtimes must match the declared Python changes and optional launcher change')
-    target = 'ai.callabo.nlc.latency.' + uuid.uuid4().hex[:8]
+    target = 'ai.callabo.tacto.latency.' + uuid.uuid4().hex[:8]
     app = base/'Latency Benchmark.app'; contents = app/'Contents'
     (contents/'MacOS').mkdir(parents=True)
     (contents/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': target,

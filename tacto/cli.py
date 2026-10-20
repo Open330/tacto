@@ -1,4 +1,4 @@
-"""Tacto — reusable computer use. Legacy command: nlc.
+"""Tacto — reusable computer use.
 
 Usage:
   tacto doctor            # check/guide permissions
@@ -69,7 +69,7 @@ from contextvars import ContextVar
 from .agent import Agent
 from .store import FlowStore
 
-_execution_journal = ContextVar('nlc_execution_journal', default=None)
+_execution_journal = ContextVar('tacto_execution_journal', default=None)
 
 
 class _JournalUnavailable(Exception):
@@ -311,7 +311,7 @@ def document_window_view(tree: str, path: str) -> str | None:
 def focused_window_view(tree: str) -> str:
     """The window being worked on, and only the titles of the others.
 
-    An agent reads this on every step. Printing every window cost NLC twice
+    An agent reads this on every step. Printing every window cost Tacto twice
     Sky's tokens on the same TextEdit task — 182 lines across 4 windows per
     look, three of them unrelated documents (2026-10-07). Element indices are
     unchanged, so nothing that refers to them breaks; `--all-windows` prints
@@ -607,7 +607,7 @@ def _main(argv=None):
             print(SANDBOXED)
             return 3
         # Hold the display awake for as long as this command runs. Only `do`
-        # did, but an agent drives NLC one command at a time — observe, run,
+        # did, but an agent drives Tacto one command at a time — observe, run,
         # replay — and with this Mac's 3-minute screensaver lock the screen
         # locked in the middle of its work (2026-09-28). Release the assertion
         # when this invocation ends, even when main is called in a long-lived
@@ -1297,7 +1297,7 @@ def _dispatch_command(cmd, rest):
             if hit and _S().has(hit.name):
                 guess = _S().load(hit.name).target
             elif hit and hit.name in builders():
-                # A recipe that ships with NLC but has not been saved yet still
+                # A recipe that ships with Tacto but has not been saved yet still
                 # deserves the outline — otherwise the very first run of a task
                 # is the one run nobody can see or stop.
                 guess = builders()[hit.name]().target

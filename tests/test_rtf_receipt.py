@@ -21,7 +21,7 @@ class RTFReceiptTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name).resolve()
         self.directory.chmod(0o755)
-        self.name = 'nlc-test-' + uuid.uuid4().hex + '.rtf'
+        self.name = 'tacto-test-' + uuid.uuid4().hex + '.rtf'
         self.path = self.directory / self.name
         self.event = make_event({'name':'click','element_index':5}, {'write_persistent'}, 'com.apple.TextEdit')
         self.response = {'type':'acted'}
@@ -306,7 +306,7 @@ class RTFReceiptTests(unittest.TestCase):
             spawn.assert_not_called()
 
     def xattr(self, value):
-        name='com.tacto.receipt-test' if sys.platform=='darwin' else 'user.nlc_receipt_test'
+        name='com.tacto.receipt-test' if sys.platform=='darwin' else 'user.tacto_receipt_test'
         data=str(value).encode()
         if hasattr(os, 'setxattr'):
             os.setxattr(self.path,name,data)

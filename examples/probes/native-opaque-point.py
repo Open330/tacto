@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET = 'ai.callabo.nlc.opaque-point-fixture'
+TARGET = 'ai.callabo.tacto.opaque-point-fixture'
 
 
 def main(output, *, public_driver=None, vision_provider=None, general_visual=False, flow_visual=False, receiving_cancel=False):
@@ -53,13 +53,13 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
     interrupted = None
     try:
         assert driver._resolve(TARGET, launch=False) is None, 'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-point-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-point-') as directory:
             bundle = Path(directory)/'Opaque.app'; binaries = bundle/'Contents/MacOS'
             binaries.mkdir(parents=True); binary = binaries/'Opaque'
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors', str(root/sources[0]), '-o', str(binary)],
                            check=True, capture_output=True, timeout=45)
             (bundle/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'Opaque',
-                'CFBundleIdentifier':TARGET,'CFBundleName':'NLC Opaque Point Fixture','CFBundlePackageType':'APPL'}))
+                'CFBundleIdentifier':TARGET,'CFBundleName':'TACTO Opaque Point Fixture','CFBundlePackageType':'APPL'}))
             subprocess.run(['codesign','--force','--sign','-',str(bundle)],check=True,capture_output=True,timeout=15)
             with audit:
                 child = subprocess.Popen([str(binary)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -80,14 +80,14 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                     def window(obs,suffix):
                         found=[(index,element) for index,element in enumerate(obs.elements)
                             if _attr(element,'AXRole')=='AXWindow'
-                            and _attr(element,'AXTitle')=='NLC Opaque Point Fixture '+suffix]
+                            and _attr(element,'AXTitle')=='TACTO Opaque Point Fixture '+suffix]
                         assert len(found)==1,'owned window absent or ambiguous'
                         return found[0]
                     report['initial']=state()
                     obs=observe(); index,element=window(obs,'A')
                     if public_driver:
                         view=public_driver.observe(TARGET,'tree_full')
-                        public_index=Selector(role='Window',title='NLC Opaque Point Fixture A').resolve(view['tree'])[0]
+                        public_index=Selector(role='Window',title='TACTO Opaque Point Fixture A').resolve(view['tree'])[0]
                         prepared=public_driver.act(view['obs_id'],TARGET,{'name':'prepare_window','element_index':public_index})
                     else:
                         prepared=driver.act(obs.obs_id,TARGET,{'name':'prepare_window','element_index':index})
@@ -112,7 +112,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                         return binding,deadline,context
                     if public_driver:
                         view=public_driver.observe(TARGET,'tree_full')
-                        public_index=Selector(role='Window',title='NLC Opaque Point Fixture B').resolve(view['tree'])[0]
+                        public_index=Selector(role='Window',title='TACTO Opaque Point Fixture B').resolve(view['tree'])[0]
                         action={'name':'click_point','element_index':public_index,'point':{'x':280,'y':120}}
                         denied=public_driver.act(view['obs_id'],TARGET,action)
                         assert denied.get('effect')=='not_started' and denied.get('error')=='coordinate_authorization_required',denied
@@ -140,7 +140,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                     report['hit']={'role':_attr(hit,'AXRole'),'actions':list(names or ())}
                     if public_driver:
                         view=public_driver.observe(TARGET,'tree_full')
-                        public_index=Selector(role='Window',title='NLC Opaque Point Fixture A').resolve(view['tree'])[0]
+                        public_index=Selector(role='Window',title='TACTO Opaque Point Fixture A').resolve(view['tree'])[0]
                         if vision_provider:
                             from tacto.native_visual_actions import run_native_visual
                             from tacto.visual import plan_visual
@@ -191,7 +191,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                                     from tacto.general_visual import NativeVisualScope
                                     from tacto.contract import Envelope
                                     goal='Click once in the center of the green painted area.'
-                                    scope=NativeVisualScope(Selector(role='Window',title='NLC Opaque Point Fixture A'),
+                                    scope=NativeVisualScope(Selector(role='Window',title='TACTO Opaque Point Fixture A'),
                                         planner,authorize,verify,frozenset({'write_ephemeral'}),label='owned green opaque canvas')
                                     step=Step('visual',params={'scope':'green','max_screens':2,'timeout_seconds':90},
                                         intent_text=goal,safety=Envelope.minimal().contract_for({'write_ephemeral'},goal))
@@ -210,7 +210,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                                     from tacto.general_visual import NativeVisualScope
                                     from tacto.contract import Envelope
                                     goal='Click once in the center of the green painted area.'
-                                    scope=NativeVisualScope(Selector(role='Window',title='NLC Opaque Point Fixture A'),
+                                    scope=NativeVisualScope(Selector(role='Window',title='TACTO Opaque Point Fixture A'),
                                         planner,authorize,verify,frozenset({'write_ephemeral'}),label='owned green opaque canvas')
                                     def no_ax(*args):raise AssertionError('unexpected AX planner fallback')
                                     result=run(public_driver,TARGET,goal,no_ax,visual_scope=scope,
@@ -224,7 +224,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                                     report['dispatch']=result.visual_history[0]['dispatch']
                                 else:
                                     result=run_native_visual(public_driver,TARGET,'Click once in the center of the green painted area.',
-                                        Selector(role='Window',title='NLC Opaque Point Fixture A'),planner,
+                                        Selector(role='Window',title='TACTO Opaque Point Fixture A'),planner,
                                         authorize,verify,max_steps=1,timeout_seconds=90,cancelled=lambda:cancelled)
                                     report['visual_result']=result.to_dict()
                                     if receiving_cancel:
@@ -240,7 +240,7 @@ def main(output, *, public_driver=None, vision_provider=None, general_visual=Fal
                             report['dispatch']=public_driver.act(view['obs_id'],TARGET,
                                 {'name':'click_point','element_index':public_index,'point':{'x':280,'y':120}},
                                 risk_class='preapproved',approved=True,intent_text='owned ephemeral green canvas click',
-                                expect={'role':'Window','label':'NLC Opaque Point Fixture A','attribute':'Title'})
+                                expect={'role':'Window','label':'TACTO Opaque Point Fixture A','attribute':'Title'})
                     else:
                         report['dispatch']=dispatch_point(binding,deadline=deadline,stopped=lambda:False,context=context)
                     assert report['dispatch']['posted_events']==2

@@ -54,9 +54,9 @@ def params(values):
 class Fixture:
     def __init__(self,base,target):
         self.base=base/'fixture';self.base.mkdir(mode=0o700);self.sequence=0
-        app=base/'NLC Complex Benchmark.app';binary=app/'Contents/MacOS';binary.mkdir(parents=True,mode=0o700)
+        app=base/'TACTO Complex Benchmark.app';binary=app/'Contents/MacOS';binary.mkdir(parents=True,mode=0o700)
         with (app/'Contents/Info.plist').open('wb') as stream:
-            plistlib.dump({'CFBundleIdentifier':target,'CFBundleName':'NLC Complex Benchmark','CFBundleExecutable':'ComplexBenchmark',
+            plistlib.dump({'CFBundleIdentifier':target,'CFBundleName':'TACTO Complex Benchmark','CFBundleExecutable':'ComplexBenchmark',
                           'CFBundlePackageType':'APPL','LSUIElement':True},stream)
         subprocess.run(['swiftc','-parse-as-library',str(ROOT/'tests/fixtures/NativeComplexBenchmark.swift'),'-o',str(binary/'ComplexBenchmark')],check=True,capture_output=True)
         subprocess.run(['codesign','--force','--sign','-',str(app)],check=True,capture_output=True)
@@ -95,7 +95,7 @@ def manifest():
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--output',required=True);args=parser.parse_args()
-    base=Path(args.output).resolve();base.mkdir(mode=0o700);target='ai.callabo.nlc.complex.'+uuid.uuid4().hex[:8]
+    base=Path(args.output).resolve();base.mkdir(mode=0o700);target='ai.callabo.tacto.complex.'+uuid.uuid4().hex[:8]
     fixture=Fixture(base,target);template=recipe(target);client=None;cases=[];before=manifest()
     def open_client(name,flow,maximum=1):
         directory=base/name;directory.mkdir(mode=0o700);path=directory/'flow.json'

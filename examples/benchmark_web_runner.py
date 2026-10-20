@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-CONTENT = 'NLC-local-benchmark'
+CONTENT = 'TACTO-local-benchmark'
 SELECT = '''<label>Choice<select aria-label="Choice" onchange="document.querySelector('[aria-label=Result]').value=this.value==='beta'?'Beta-confirmed':'pending'">
 <option value="alpha">Alpha</option><option value="beta">Beta</option></select></label>
 <input aria-label="Result" value="pending" readonly>'''
@@ -38,8 +38,8 @@ FIXTURES = {'select-read': SELECT, 'scroll-read': SCROLL,
 GOALS = {
  'select-read': 'Choose Beta in Choice, then read the Result field aloud.',
  'scroll-read': 'Scroll the panel using Scroll anchor to the bottom, then read Marker aloud.',
- 'save-readback': 'Enter NLC-local-benchmark in Content. Save as note.txt in the prefilled location, then read readback aloud.',
- 'combined': 'Enter NLC-local-benchmark in Content, choose Beta in Choice, scroll the panel using Scroll anchor to the bottom, then Save as note.txt in the prefilled location and read readback aloud.'}
+ 'save-readback': 'Enter TACTO-local-benchmark in Content. Save as note.txt in the prefilled location, then read readback aloud.',
+ 'combined': 'Enter TACTO-local-benchmark in Content, choose Beta in Choice, scroll the panel using Scroll anchor to the bottom, then Save as note.txt in the prefilled location and read readback aloud.'}
 ORACLES = {
  'select-read': ['loop_done', 'selected_value', 'read_answer'],
  'scroll-read': ['loop_done', 'scroll_position', 'read_answer'],
@@ -74,7 +74,7 @@ def execute(task_id, provider='codex', timeout=45, planner=None):
                               validation_retries=1))
         except Exception:
             return record(None)
-    with tempfile.TemporaryDirectory(prefix='nlc-benchmark-') as folder:
+    with tempfile.TemporaryDirectory(prefix='tacto-benchmark-') as folder:
         driver = BrowserDriver()
         writes = []
         active_commit = None

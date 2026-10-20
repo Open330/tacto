@@ -62,7 +62,7 @@ class SyntaxParityTests(unittest.TestCase):
         harness = ("import Foundation\n" + code + "\nlet cases = " + json.dumps(self.CASES) +
                    "\nlet out = cases.map { documentURLSyntaxPath($0) ?? \"<nil>\" }\n"
                    "print(String(data: try! JSONSerialization.data(withJSONObject: out), encoding: .utf8)!)\n")
-        with tempfile.TemporaryDirectory(prefix="nlc-url-parity-") as d:
+        with tempfile.TemporaryDirectory(prefix="tacto-url-parity-") as d:
             src = pathlib.Path(d) / "main.swift"; src.write_text(harness, encoding="utf-8")
             run = subprocess.run(["swift", str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)

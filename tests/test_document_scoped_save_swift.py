@@ -31,7 +31,7 @@ let cases=try! JSONSerialization.jsonObject(with:data) as! [[String:Any]]
 let result=cases.map { documentScopedSaveAction($0["action"] as! [String:Any],selectedPath:$0["path"] as? String) }
 print(String(data:try! JSONSerialization.data(withJSONObject:result),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-scoped-save-predicate-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-scoped-save-predicate-') as work:
             path=Path(work)/'main.swift';path.write_text(code)
             result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
         self.assertEqual(0,result.returncode,result.stderr)

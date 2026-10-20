@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 import stat
 
-TARGET = 'ai.callabo.nlc.save-writer-fixture'
+TARGET = 'ai.callabo.tacto.save-writer-fixture'
 
 
 def private_json(path):
@@ -42,7 +42,7 @@ def configuration(path):
     work = Path(cfg['work']) if type(cfg['work']) is str else Path('.')
     caches = (Path.home()/'Library/Caches').resolve()
     if (not work.is_absolute() or work.resolve() != work or work.parent != caches
-            or not work.name.startswith('nlc-save-writer-')):
+            or not work.name.startswith('tacto-save-writer-')):
         raise ValueError('owned fixture work directory required')
     info = work.lstat()
     if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
@@ -70,7 +70,7 @@ def execute(driver, config_path, phase):
         raise ValueError('signed worker phase required')
     cfg,work = configuration(config_path)
     filename='fresh-'+cfg['nonce']+'.rtf'
-    body='{\\rtf1\\ansi NLC owned save '+cfg['nonce']+'}'
+    body='{\\rtf1\\ansi TACTO owned save '+cfg['nonce']+'}'
     destination=work/'output';path=destination/filename
     fd=os.open(work/'callback.jsonl',os.O_RDONLY|os.O_NOFOLLOW)
     try:

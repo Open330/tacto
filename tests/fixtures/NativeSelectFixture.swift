@@ -39,14 +39,14 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSComboBoxDelegate
         let window = NSWindow(
             contentRect: NSRect(x: 120, y: 120, width: 520, height: decoys > 0 ? 520 : 180),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Native Select Fixture"
+        window.title = "TACTO Native Select Fixture"
         window.isReleasedWhenClosed = false
         self.window = window
 
         let choice = NSPopUpButton(frame: NSRect(x: 24, y: 110, width: 220, height: 28),
                                    pullsDown: false)
-        choice.identifier = NSUserInterfaceItemIdentifier("nlc-fixture-choice")
-        choice.setAccessibilityIdentifier("nlc-fixture-choice")
+        choice.identifier = NSUserInterfaceItemIdentifier("tacto-fixture-choice")
+        choice.setAccessibilityIdentifier("tacto-fixture-choice")
         choice.addItems(withTitles: ["Alpha", "Beta", "Disabled"])
         choice.addItems(withTitles:(0..<options).map { String(format:"Choice%03d",$0) })
         // NSPopUpButton's convenience API replaces matching titles. Add to
@@ -63,21 +63,21 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSComboBoxDelegate
         choice.action = #selector(selectionChanged(_:))
 
         result.frame = NSRect(x: 24, y: 72, width: 300, height: 24)
-        result.identifier = NSUserInterfaceItemIdentifier("nlc-fixture-result")
-        result.setAccessibilityIdentifier("nlc-fixture-result")
+        result.identifier = NSUserInterfaceItemIdentifier("tacto-fixture-result")
+        result.setAccessibilityIdentifier("tacto-fixture-result")
         count.frame = NSRect(x: 24, y: 36, width: 300, height: 24)
-        count.identifier = NSUserInterfaceItemIdentifier("nlc-fixture-count")
-        count.setAccessibilityIdentifier("nlc-fixture-count")
+        count.identifier = NSUserInterfaceItemIdentifier("tacto-fixture-count")
+        count.setAccessibilityIdentifier("tacto-fixture-count")
         for index in 0..<decoys {
             let other = NSPopUpButton(frame: NSRect(x: 24 + (index % 3) * 160,
                 y: 180 + (index / 3) * 30, width: 150, height: 26), pullsDown: false)
-            other.setAccessibilityIdentifier("nlc-fixture-decoy-\(index)")
+            other.setAccessibilityIdentifier("tacto-fixture-decoy-\(index)")
             other.addItems(withTitles: ["Other \(index)", "Alternative \(index)"])
             window.contentView?.addSubview(other)
         }
         if combo {
             let box=NSComboBox(frame:choice.frame)
-            box.setAccessibilityIdentifier("nlc-fixture-choice")
+            box.setAccessibilityIdentifier("tacto-fixture-choice")
             box.isEditable=false
             if visibleItems>0 {box.numberOfVisibleItems=visibleItems}
             box.addItems(withObjectValues:["Alpha","Beta","Gamma"] + (0..<options).map {String(format:"Choice%03d",$0)})
@@ -86,7 +86,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSComboBoxDelegate
             window.contentView?.addSubview(box)
             comboView=box
             selectedIndex.frame=NSRect(x:340,y:36,width:100,height:24)
-            selectedIndex.setAccessibilityIdentifier("nlc-fixture-selected-index")
+            selectedIndex.setAccessibilityIdentifier("tacto-fixture-selected-index")
             window.contentView?.addSubview(selectedIndex)
         } else { window.contentView?.addSubview(choice) }
         window.contentView?.addSubview(result)
@@ -94,10 +94,10 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSComboBoxDelegate
         if replacement {
             let button=NSButton(title:"Replace owned ComboBox",target:self,action:#selector(replaceChoice(_:)))
             button.frame=NSRect(x:340,y:110,width:160,height:28)
-            button.setAccessibilityIdentifier("nlc-fixture-replace")
+            button.setAccessibilityIdentifier("tacto-fixture-replace")
             window.contentView?.addSubview(button)
             replacementCount.frame=NSRect(x:340,y:72,width:100,height:24)
-            replacementCount.setAccessibilityIdentifier("nlc-fixture-replacement-count")
+            replacementCount.setAccessibilityIdentifier("tacto-fixture-replacement-count")
             window.contentView?.addSubview(replacementCount)
         }
 
@@ -140,7 +140,7 @@ final class FixtureDelegate: NSObject, NSApplicationDelegate, NSComboBoxDelegate
         box.delegate=nil
         box.removeFromSuperview()
         let choice=NSPopUpButton(frame:frame,pullsDown:false)
-        choice.setAccessibilityIdentifier("nlc-fixture-choice")
+        choice.setAccessibilityIdentifier("tacto-fixture-choice")
         choice.addItems(withTitles:["Alpha","Beta"])
         choice.selectItem(at:0)
         choice.target=self;choice.action=#selector(selectionChanged(_:))

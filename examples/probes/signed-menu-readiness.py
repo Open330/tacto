@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET='ai.callabo.nlc.menu-readiness-fixture'
+TARGET='ai.callabo.tacto.menu-readiness-fixture'
 
 
 def main(driver,output):
@@ -17,7 +17,7 @@ def main(driver,output):
     from tacto.menu_readiness import wait_menu_enabled
     from tacto.input_audit_process import ProcessInputAudit
     root=Path(__file__).resolve().parents[2]
-    paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+    paths=list((root/'tacto').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
         Path(__file__).resolve(),root/'examples/eval.py',root/'tests/fixtures/NativeMenuReadinessFixture.swift',
         root/'helper/tacto-helper',root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper',root/'launcher/tacto']
     def sources():return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
@@ -28,11 +28,11 @@ def main(driver,output):
     try:
         assert isinstance(driver,InheritedHelperDriver)
         local=Driver();assert local._resolve(TARGET,launch=False) is None
-        with tempfile.TemporaryDirectory(prefix='nlc-menu-readiness-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-menu-readiness-') as work:
             directory=Path(work);signal=directory/'enable'
             binary=directory/'Fixture.app/Contents/MacOS/Fixture';binary.parent.mkdir(parents=True)
             (binary.parent.parent/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':TARGET,
-                'CFBundleExecutable':'Fixture','CFBundleName':'NLC Menu Readiness Fixture','CFBundlePackageType':'APPL','LSUIElement':True}))
+                'CFBundleExecutable':'Fixture','CFBundleName':'TACTO Menu Readiness Fixture','CFBundlePackageType':'APPL','LSUIElement':True}))
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors',str(root/'tests/fixtures/NativeMenuReadinessFixture.swift'),'-o',str(binary)],check=True,capture_output=True,timeout=60)
             with audit:
                 child=subprocess.Popen([str(binary),str(signal)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

@@ -5,6 +5,8 @@ local dependencies; their release licensing/platform compatibility needs a
 separate audit. Output is reserved before work and never replaces an existing app.
 """
 import argparse
+import configparser
+from email.parser import Parser
 import hashlib
 import time
 import json
@@ -15,6 +17,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 MAGICS = {bytes.fromhex(x) for x in ('feedface','cefaedfe','feedfacf','cffaedfe','cafebabe','bebafeca')}
@@ -92,6 +95,61 @@ def run(argv, **kwargs):
     return subprocess.run(argv,check=True,capture_output=True,text=True,timeout=120,**kwargs)
 
 
+def refresh_distribution_metadata(runtime, work):
+    """Build current project metadata; never ship the build host's stale README or entry points."""
+    source = work/'metadata-source'
+    source.mkdir()
+    for name in ('pyproject.toml', 'README.md', 'LICENSE'):
+        if (ROOT/name).is_file():
+            shutil.copy2(ROOT/name, source/name)
+    shutil.copytree(ROOT/'tacto', source/'tacto', ignore=ignored)
+    wheels = work/'metadata-wheel'
+    run(['uv', 'build', '--wheel', '--offline', '--out-dir', str(wheels), str(source)])
+    wheel, = wheels.glob('tacto_runtime-*.whl')
+    sites = list((runtime/'.venv/lib').glob('python*/site-packages'))
+    if len(sites) != 1:
+        raise RuntimeError('runtime site-packages is ambiguous')
+    site = sites[0]
+    # Remove command wrappers advertised by the old *owned* distribution,
+    # including retired command aliases. Only the signed launcher is shipped.
+    for metadata in site.glob('*.dist-info'):
+        metadata_file = metadata/'METADATA'
+        if not metadata_file.is_file():
+            continue
+        name = Parser().parsestr(metadata_file.read_text()).get('Name', '')
+        # Retired distribution removal is migration cleanup, never an alias.
+        if name not in ('tacto-runtime', 'nlc'):
+            continue
+        entries = metadata/'entry_points.txt'
+        parser = configparser.ConfigParser()
+        if entries.is_file():
+            parser.read(entries)
+        if name == 'nlc' and parser.get('console_scripts', 'nlc', fallback='') != 'nlc.cli:main':
+            raise RuntimeError('unrecognized retired project distribution')
+        if entries.is_file():
+            for name in parser['console_scripts'] if parser.has_section('console_scripts') else ():
+                if Path(name).name != name or name in ('.', '..'):
+                    raise RuntimeError('invalid owned console script')
+                script = runtime/'.venv/bin'/name
+                if script.is_file() or script.is_symlink():
+                    script.unlink()
+        shutil.rmtree(metadata)
+    with zipfile.ZipFile(wheel) as archive:
+        for member in archive.namelist():
+            parts = Path(member).parts
+            if not parts or not parts[0].startswith('tacto_runtime-') or not parts[0].endswith('.dist-info'):
+                continue
+            if '..' in parts or member.startswith('/'):
+                raise RuntimeError('invalid wheel metadata path')
+            target = site/member
+            if member.endswith('/'):
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(member))
+    return wheel.name
+
+
 def sign(path, identity, identifier=None, req=None):
     argv=['codesign','--force','--sign',identity,'--options','runtime','--timestamp=none']
     if identifier:argv+=['--identifier',identifier]
@@ -103,13 +161,12 @@ def build(output, identity):
     if platform.system()!='Darwin':raise RuntimeError('macOS required')
     began=time.monotonic()
     def sources():
-        paths=[ROOT/name for name in ('setup/build_standalone_preview.py','setup/main.swift',
+        paths=[ROOT/name for name in ('pyproject.toml','README.md','setup/build_standalone_preview.py','setup/main.swift',
             'setup/PermissionState.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
             'docs/assets/tacto-menu-template.svg','helper/bundle.sh',
             'launcher/tacto.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
             'helper/Tacto Helper.app/Contents/MacOS/TactoHelper','helper/Tacto Helper.app/Contents/Info.plist')]
         paths+=sorted((ROOT/'tacto').glob('*.py'))
-        paths+=sorted((ROOT/'nlc').glob('*.py'))
         return {str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
     output=Path(output).absolute()
     if output.suffix!='.app' or not output.parent.is_dir():raise ValueError('new .app in existing directory required')
@@ -133,8 +190,7 @@ def build(output, identity):
                         dirs_exist_ok=True,symlinks=True,ignore=ignored)
         if (site/'tacto').exists():shutil.rmtree(site/'tacto')
         shutil.copytree(ROOT/'tacto',site/'tacto',ignore=ignored)
-        if (site/'nlc').exists():shutil.rmtree(site/'nlc')
-        shutil.copytree(ROOT/'nlc',site/'nlc',ignore=ignored)
+        report['distribution_metadata_wheel'] = refresh_distribution_metadata(runtime, Path(folder))
         report['python_metadata_normalized'] = normalize_python_metadata(runtime, base)
         # A dylib's install ID is build metadata too; preserve relocatable loads.
         for library in (runtime/'.venv/lib').glob('libpython*.dylib'):
@@ -151,7 +207,7 @@ def build(output, identity):
         shutil.copytree(ROOT/'docs',runtime/'docs',symlinks=False,ignore=ignored)
         (runtime/'helper').mkdir()
         shutil.copytree(ROOT/'helper/Tacto Helper.app',runtime/'helper/Tacto Helper.app',symlinks=True)
-        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(runtime/'helper/Tacto Helper.app')])
+        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.tacto.helper'),str(runtime/'helper/Tacto Helper.app')])
         for path in runtime.rglob('*'):
             if path.is_symlink():
                 try:path.resolve(strict=True).relative_to(runtime.resolve())
@@ -161,8 +217,8 @@ def build(output, identity):
         launcher_source=Path(folder)/'launcher-source';launcher_source.mkdir()
         shutil.copy2(ROOT/'launcher/tacto.swift',launcher_source/'main.swift')
         run(['swiftc','-O','-file-prefix-map',str(ROOT)+'=/tacto-source',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),'-o',str(launcher)])
-        sign(launcher,identity,'ai.callabo.nlc',requirement('ai.callabo.nlc'))
-        run(['codesign','--verify','-R='+requirement('ai.callabo.nlc'),str(launcher)])
+        sign(launcher,identity,'ai.callabo.tacto',requirement('ai.callabo.tacto'))
+        run(['codesign','--verify','-R='+requirement('ai.callabo.tacto'),str(launcher)])
         native=list(native_files(runtime/'.venv'))
         # Native extensions/dylibs before the interpreter, all same identity.
         for path in sorted(native,key=lambda p:(p.parent.name=='bin',str(p))):sign(path,identity)
@@ -190,21 +246,21 @@ def build(output, identity):
             (localized/'InfoPlist.strings').write_bytes(plistlib.dumps({
                 'CFBundleName':'Tacto Helper','CFBundleDisplayName':'Tacto Helper'}))
         helper_plist.write_bytes(plistlib.dumps(helper_info))
-        sign(helper_app,identity,'ai.callabo.nlc.helper',requirement('ai.callabo.nlc.helper'))
-        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.nlc.helper'),str(helper_app)])
+        sign(helper_app,identity,'ai.callabo.tacto.helper',requirement('ai.callabo.tacto.helper'))
+        run(['codesign','--verify','--deep','--strict','-R='+requirement('ai.callabo.tacto.helper'),str(helper_app)])
         compile_setup(executable, Path(folder))
         import plistlib
         (contents/'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',
             'CFBundleIconFile':'tacto-app.icns',
-            'CFBundleExecutable':'TactoSetup','CFBundleIdentifier':'ai.callabo.nlc.setup.standalone.preview',
+            'CFBundleExecutable':'TactoSetup','CFBundleIdentifier':'ai.callabo.tacto.setup.standalone.preview',
             'CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1',
             'LSUIElement':True,
             'LSMinimumSystemVersion':platform.mac_ver()[0]}))
         (resources/'runtime.json').write_text(json.dumps({'bundledRoot':'runtime'}))
-        owner_requirement=requirement('ai.callabo.nlc.setup.standalone.preview')
-        sign(executable,identity,'ai.callabo.nlc.setup.standalone.preview',owner_requirement)
-        sign(app,identity,'ai.callabo.nlc.setup.standalone.preview',owner_requirement)
+        owner_requirement=requirement('ai.callabo.tacto.setup.standalone.preview')
+        sign(executable,identity,'ai.callabo.tacto.setup.standalone.preview',owner_requirement)
+        sign(app,identity,'ai.callabo.tacto.setup.standalone.preview',owner_requirement)
         run(['codesign','--verify','--deep','--strict','-R='+owner_requirement,str(app)])
         shutil.copytree(app,output,dirs_exist_ok=True,symlinks=True)
     # Relocation happened after signing. Run no GUI command and write no caches.
@@ -214,9 +270,6 @@ def build(output, identity):
     if not bundled_import_valid(report['relocated_import'],output/'Contents/Resources/runtime'):
         raise RuntimeError('runtime imported outside bundle')
     run([str(python),'-I','-B','-m','tacto.cli','--help'],cwd='/')
-    run([str(python),'-I','-B','-m','nlc.cli','--help'],cwd='/')
-    run([str(python),'-I','-B','-c',
-         'import tacto.flow,nlc.flow; assert tacto.flow is nlc.flow; assert tacto.flow.Flow is nlc.flow.Flow'],cwd='/')
     # Exercise the actual signed launcher, not only a Python -B probe. A
     # missing -B here used to pass packaging then invalidate its own signature.
     for _ in range(2):

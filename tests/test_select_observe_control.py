@@ -11,9 +11,9 @@ from examples.probe_native_select import run_observe_control
 @unittest.skipUnless(sys.platform=='darwin', 'native driver framework imports require macOS')
 class SelectObserveControlTests(unittest.TestCase):
     def test_observations_require_same_owned_pid_closed_menu_and_unchanged_receiving(self):
-        tree = ('0 Window\n  1 PopUpButton  Value: Alpha, Identifier: nlc-fixture-choice\n'
-                '  2 StaticText  Value: Alpha, Identifier: nlc-fixture-result\n'
-                '  3 StaticText  Value: 0, Identifier: nlc-fixture-count')
+        tree = ('0 Window\n  1 PopUpButton  Value: Alpha, Identifier: tacto-fixture-choice\n'
+                '  2 StaticText  Value: Alpha, Identifier: tacto-fixture-result\n'
+                '  3 StaticText  Value: 0, Identifier: tacto-fixture-count')
         for mode in ('normal','wrong_pid','menu_open','count_changed','input_changed'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 root=Path(directory).resolve();root.chmod(0o700)
@@ -42,7 +42,7 @@ class SelectObserveControlTests(unittest.TestCase):
         nodes={'root':['one'],'one':[],'two':[]}
         def attribute(node,name):
             if name=='AXChildren':return nodes[node]
-            if name=='AXIdentifier':return 'nlc-fixture-choice' if node!='root' else None
+            if name=='AXIdentifier':return 'tacto-fixture-choice' if node!='root' else None
             if name=='AXRole':return 'AXPopUpButton' if node!='root' else 'AXApplication'
             self.fail('unexpected metadata read')
         for mode in ('normal','wrong_owner','duplicate','unreadable'):
@@ -67,9 +67,9 @@ class SelectObserveControlTests(unittest.TestCase):
 
     def test_opening_diagnostic_dispatches_once_and_never_selects_after_audit_failure(self):
         from examples.probe_native_select import run_probe,TARGET
-        tree=('1 PopUpButton  Identifier: nlc-fixture-choice\n'
-              '2 StaticText  Value: Alpha, Identifier: nlc-fixture-result\n'
-              '3 StaticText  Value: 0, Identifier: nlc-fixture-count')
+        tree=('1 PopUpButton  Identifier: tacto-fixture-choice\n'
+              '2 StaticText  Value: Alpha, Identifier: tacto-fixture-result\n'
+              '3 StaticText  Value: 0, Identifier: tacto-fixture-count')
         for mode in ('normal','input_changed','audit_unavailable','wrong_pid','opening_refused','opening_unobserved'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory).resolve();root.chmod(0o700)

@@ -3,25 +3,25 @@ import Foundation
  static func main() {
   var state = SetupState()
   func json(_ text:String)->Data { text.data(using:.utf8)! }
-  assert(state.receive(json("{\"accessibility_trusted\":true,\"screen_capture_preflight\":false,\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":123}"),expected:"ai.callabo.nlc.helper"))
+  assert(state.receive(json("{\"accessibility_trusted\":true,\"screen_capture_preflight\":false,\"bundle_id\":\"ai.callabo.tacto.helper\",\"pid\":123}"),expected:"ai.callabo.tacto.helper"))
   assert(state.accessibility && !state.screen && state.ready && !state.captureReady)
-  for text in ["{}", "{\"accessibility_trusted\":true,\"screen_capture_preflight\":true,\"bundle_id\":\"wrong\",\"pid\":123}", "{\"accessibility_trusted\":true,\"screen_capture_preflight\":true,\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":0}", "{\"accessibility_trusted\":\"true\",\"screen_capture_preflight\":true,\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":123}", "not json"] {
-   assert(!state.receive(json(text),expected:"ai.callabo.nlc.helper"))
+  for text in ["{}", "{\"accessibility_trusted\":true,\"screen_capture_preflight\":true,\"bundle_id\":\"wrong\",\"pid\":123}", "{\"accessibility_trusted\":true,\"screen_capture_preflight\":true,\"bundle_id\":\"ai.callabo.tacto.helper\",\"pid\":0}", "{\"accessibility_trusted\":\"true\",\"screen_capture_preflight\":true,\"bundle_id\":\"ai.callabo.tacto.helper\",\"pid\":123}", "not json"] {
+   assert(!state.receive(json(text),expected:"ai.callabo.tacto.helper"))
    assert(!state.accessibility && !state.screen)
   }
   for ax in [false, true] {
    for screen in [false, true] {
-    let receipt = "{\"accessibility_trusted\":\(ax),\"screen_capture_preflight\":\(screen),\"bundle_id\":\"ai.callabo.nlc.helper\",\"pid\":123}"
-    assert(state.receive(json(receipt),expected:"ai.callabo.nlc.helper"))
+    let receipt = "{\"accessibility_trusted\":\(ax),\"screen_capture_preflight\":\(screen),\"bundle_id\":\"ai.callabo.tacto.helper\",\"pid\":123}"
+    assert(state.receive(json(receipt),expected:"ai.callabo.tacto.helper"))
     assert(state.ready == ax)
     assert(state.captureReady == (ax && screen))
    }
   }
   assert(state.ready)
-  assert(!state.refresh(nil, expected: "ai.callabo.nlc.helper"))
+  assert(!state.refresh(nil, expected: "ai.callabo.tacto.helper"))
   assert(!state.ready && !state.accessibility && !state.screen)
   state.accessibility = true; state.screen = true
-  assert(!state.refresh(json("{}"), expected: "ai.callabo.nlc.helper"))
+  assert(!state.refresh(json("{}"), expected: "ai.callabo.tacto.helper"))
   assert(!state.ready)
   print("Permission state: 12 cases PASS; AX required; capture permission optional for readiness")
 
@@ -94,7 +94,7 @@ import Foundation
   try! Data("---\nname: tacto\n---\n".utf8).write(to: root.appendingPathComponent("skill/SKILL.md"))
   func status(_ environment: [String:String] = [:]) -> AgentConnection { agentConnection(root: root, home: home, environment: environment) }
   assert(status() == .missing)
-  let targets = [(".local/bin/tacto", "launcher/tacto"), (".local/bin/nlc", "launcher/tacto"),
+  let targets = [(".local/bin/tacto", "launcher/tacto"),
                  (".claude/skills/tacto", "skill"), (".codex/skills/tacto", "skill")]
   for (name, destination) in targets {
     let link = home.appendingPathComponent(name); directory(link.deletingLastPathComponent())
@@ -105,8 +105,8 @@ import Foundation
   let canonicalHome = URL(fileURLWithPath: home.path, isDirectory: true)
   let repeatedProfile = ["CODEX_HOME": home.appendingPathComponent(".codex").path + "/"]
   assert(agentConnection(root: canonicalRoot, home: canonicalHome, environment: repeatedProfile) == .current)
-  assert(agentConnectionLinks(root: canonicalRoot, home: canonicalHome, environment: repeatedProfile).count == 4)
-  assert(status(["TACTO_BIN_DIR":"", "NLC_BIN_DIR":""]) == .current)
+  assert(agentConnectionLinks(root: canonicalRoot, home: canonicalHome, environment: repeatedProfile).count == 3)
+  assert(status(["TACTO_BIN_DIR":""]) == .current)
   let codex = home.appendingPathComponent(".codex/skills/tacto")
   try! fm.removeItem(at: codex); assert(status() == .missing)
   let previous = temp.appendingPathComponent("previous/skill"); directory(previous)
@@ -125,7 +125,7 @@ import Foundation
   let command = home.appendingPathComponent(".local/bin/tacto")
   let previousRoot = previous.deletingLastPathComponent()
   directory(previousRoot.appendingPathComponent(".venv/bin"))
-  for name in ["nlc", "tacto"] {
+  for name in ["tacto"] {
     let entry = previousRoot.appendingPathComponent(".venv/bin/" + name)
     try! Data("fixture".utf8).write(to: entry)
     try! fm.removeItem(at: command); try! fm.createSymbolicLink(at: command, withDestinationURL: entry)

@@ -173,7 +173,7 @@ class DeliveryReceiptIntegrationTests(unittest.TestCase):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
         path=Path(folder.name)/'검토.txt';data='소유 첨부 원문 🧪'.encode();path.write_bytes(data)
         self.attachment_payload=[{'filename':path.name,'content':base64.b64encode(data).decode()}]
-        # Only file creation is fixture bootstrap. The public NLC chooser
+        # Only file creation is fixture bootstrap. The public TACTO chooser
         # route selects this non-sensitive file into the owned loopback form.
         observation=self.driver.observe()
         indices=[i for i,node in enumerate(self.driver._latest['page']['nodes'])

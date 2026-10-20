@@ -37,7 +37,7 @@ class SignedOwnedTextEdit:
     def prepare(self):
         if self.directory is not None:
             raise RuntimeError('owned_fixture_already_created')
-        self.directory = Path(tempfile.mkdtemp(prefix='nlc-signed-owned-')).resolve()
+        self.directory = Path(tempfile.mkdtemp(prefix='tacto-signed-owned-')).resolve()
         st=self.directory.lstat()
         self.directory_identity=(st.st_dev,st.st_ino)
         self.path=self.directory/self.name

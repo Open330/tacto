@@ -1,4 +1,4 @@
-"""An explicit backbone must reach every model boundary of nlc do."""
+"""An explicit backbone must reach every model boundary of tacto do."""
 import contextlib
 import io
 from types import SimpleNamespace

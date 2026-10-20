@@ -129,11 +129,11 @@ def opencode_result(prompt, *, timeout=420):
                 OPENCODE_DISABLE_AUTOUPDATE='true', OPENCODE_AUTO_SHARE='false',
                 OPENCODE_CONFIG_CONTENT=json.dumps({'plugin':[], 'autoupdate':False,
                     'share':'disabled', 'permission':{'*':'deny'},
-                    'agent':{'NLCPlanner':{'mode':'primary','permission':{'*':'deny'},
+                    'agent':{'TactoPlanner':{'mode':'primary','permission':{'*':'deny'},
                         'description':'Return a planning answer without tools'}}}))
             remaining = timeout-(time.monotonic()-began)
             if remaining <= 0: raise TimeoutError()
-            response = _run_provider(['opencode','run','--format','json','--agent','NLCPlanner'],
+            response = _run_provider(['opencode','run','--format','json','--agent','TactoPlanner'],
                 remaining, env=env, cwd=folder, input_text=prompt)
             try: fields = parse_opencode_events(response.stdout)
             except OpenCodeProtocolError as exc:

@@ -25,7 +25,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleName</key>            <string>Tacto Helper</string>
   <key>CFBundleDisplayName</key>     <string>Tacto Helper</string>
   <key>CFBundleIconFile</key>        <string>tacto-app.icns</string>
-  <key>CFBundleIdentifier</key>      <string>ai.callabo.nlc.helper</string>
+  <key>CFBundleIdentifier</key>      <string>ai.callabo.tacto.helper</string>
   <key>CFBundleExecutable</key>      <string>TactoHelper</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>CFBundleShortVersionString</key> <string>0.1.0</string>

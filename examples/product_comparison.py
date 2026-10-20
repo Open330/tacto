@@ -5,7 +5,7 @@ serving models, reasoning, account state, or initial app state; those require
 separate recorded evidence. The requested computer-use layers are:
 
   sky  — Codex's own Computer Use plugin (@oai/sky through node_repl `js`)
-  nlc  — the Tacto skill and the `tacto` command (historical arm key retained)
+  tacto  — the Tacto skill and the `tacto` command
 
 Each task names an independent oracle — read by this harness after the run,
 from the app or the file system — and never trusts what the agent says it did.
@@ -14,7 +14,7 @@ personal (Calculator, TextEdit documents this harness creates, Finder on
 /Applications, the macOS version); nothing reads mail, calendars or browsing.
 
     python examples/product_comparison.py --reps 1             # every task, both arms
-    python examples/product_comparison.py --only calc_mult --arms nlc
+    python examples/product_comparison.py --only calc_mult --arms tacto
     python examples/product_comparison.py --list
 
 Each run is a fresh Codex session in /tmp and spends model tokens (measured
@@ -61,8 +61,8 @@ BACKGROUND_CONSTRAINT = (
 ARM_CLAUSE = {
     "sky": ("Use the Computer Use plugin: the `js` tool of the node_repl MCP server with "
             "the @oai/sky interface (search your deferred tools for it if it is not listed). "
-            "Do not use the `tacto` or legacy `nlc` command."),
-    "nlc": ("Use the tacto skill and the `tacto` command to drive the app. "
+            "Do not use the `tacto` command."),
+    "tacto": ("Use the tacto skill and the `tacto` command to drive the app. "
             "Do not use the Computer Use plugin or node_repl. "
             "Use the installed signed tacto (typically ~/.local/bin/tacto) with --helper for GUI operations."),
 }
@@ -103,7 +103,7 @@ def _run_agent(argv, prompt, timeout, diagnostics):
     if len(argv) < 2 or argv[1] != 'exec' or any(arg in ('resume','fork','--last') for arg in argv[2:]):
         raise ValueError('cold_start_requires_new_exec')
     import hashlib
-    with tempfile.TemporaryDirectory(prefix='nlc-cold-agent-') as directory:
+    with tempfile.TemporaryDirectory(prefix='tacto-cold-agent-') as directory:
         work = Path(directory).resolve()
         arguments = [_AGENT_EXECUTABLE, *argv[1:]]
         if '-C' in arguments:
@@ -166,7 +166,7 @@ def _instruction_profile():
     import hashlib
     guide = _sky_skill_evidence()
     return {'schema': 'comparison-instructions-v1',
-            'nlc_template_sha256': hashlib.sha256(_arm_prompt('{TASK}', 'nlc').encode()).hexdigest(),
+            'tacto_template_sha256': hashlib.sha256(_arm_prompt('{TASK}', 'tacto').encode()).hexdigest(),
             'sky_template_sha256': hashlib.sha256(_arm_prompt('{TASK}', 'sky').encode()).hexdigest(),
             'sky_guide_sha256': guide.get('sha256') if guide else None,
             'sky_guide_provided': _SKY_SKILL_FILE is not None}
@@ -204,7 +204,7 @@ def _live_agent_probe():
     controller = observe_responsibility(os.getpid())
     before = source_manifest()
     started = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix='nlc-agent-probe-') as folder:
+    with tempfile.TemporaryDirectory(prefix='tacto-agent-probe-') as folder:
         final = Path(folder) / 'answer.txt'
         fd = os.open(final, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         os.close(fd)
@@ -628,7 +628,7 @@ def owned_setup():
     import os
     import tempfile
     _OWNED.clear()
-    directory = tempfile.mkdtemp(prefix="nlc-compare-owned-")       # 0700, unique
+    directory = tempfile.mkdtemp(prefix="tacto-compare-owned-")       # 0700, unique
     # Real path: mkdtemp answers /var/…, TextEdit reports /private/var/….
     directory = os.path.realpath(directory)
     path = os.path.join(directory, OWNED_NAME)
@@ -779,17 +779,17 @@ def _macos_version():
                           text=True).stdout.strip()
 
 
-TEXT = "NLC 비교 테스트 7781"
-OWNED_NAME = "NLC 비교 문서.txt"
+TEXT = "TACTO 비교 테스트 7781"
+OWNED_NAME = "TACTO 비교 문서.txt"
 # The harness's own document: a fresh 0700 directory per run (mkdtemp), the
 # file created exclusively, the directory's inode remembered; plus the TextEdit process
 # and AX window that showed it. Nothing is assumed from a fixed path.
 _OWNED: dict = {}
 FOLDER_ITEMS = 7
-FOLDER_PREFIX = "nlc-compare-folder-"
+FOLDER_PREFIX = "tacto-compare-folder-"
 # The folder task's own directory: a fresh mkdtemp per run, so its name (the
 # only thing a Finder window shows) is unique to the run, and no fixed path is
-# ever removed. The first version reused /tmp/nlc-compare-folder and removed it
+# ever removed. The first version reused /tmp/tacto-compare-folder and removed it
 # before checking anything (Codex review of 1bf10aa).
 _FOLDER: dict = {}
 
@@ -951,11 +951,11 @@ def finder_cleanup():
     return f"folder_removed; {left}"
 
 
-SAVE_TEXT = "NLC 저장 확인 4417"
+SAVE_TEXT = "TACTO 저장 확인 4417"
 
 
 def _read_owned_file_bytes(path, is_ours):
-    """Independent bounded file oracle; never use NLC's receipt as its judge."""
+    """Independent bounded file oracle; never use TACTO's receipt as its judge."""
     import os
     import stat
     if not path or not is_ours() or os.path.realpath(path) != path:
@@ -1056,7 +1056,7 @@ def newdir_setup():
     import os
     import tempfile
     if _NEWDIR:raise RuntimeError('previous_owned_folder_not_cleaned')
-    path = os.path.realpath(tempfile.mkdtemp(prefix="nlc-compare-newdir-", dir="/tmp"))
+    path = os.path.realpath(tempfile.mkdtemp(prefix="tacto-compare-newdir-", dir="/tmp"))
     st = os.stat(path)
     _NEWDIR.update(path=path, inode=(st.st_dev, st.st_ino), ui_may_have_opened=False)
     return newdir_evidence()
@@ -1155,7 +1155,7 @@ def appearance_oracle(answer):
 def source_manifest():
     """Explicit source/artifact set, not a dependency-closure claim.
 
-    Both arms record the same NLC state. Missing signed artifacts are recorded,
+    Both arms record the same TACTO state. Missing signed artifacts are recorded,
     not silently omitted; package/fixture changes and binary rebuilds matter.
     """
     import hashlib
@@ -1164,7 +1164,7 @@ def source_manifest():
              "helper/Tacto Helper.app/Contents/Info.plist", "signing.sh",
              "pyproject.toml", "uv.lock"]
     paths = {ROOT / name for name in fixed}
-    for directory, pattern in (("tacto", "**/*.py"), ("nlc", "**/*.py"), ("helper", "*.swift"),
+    for directory, pattern in (("tacto", "**/*.py"), ("helper", "*.swift"),
                                ("examples", "*.py"), ("examples/probes", "*.py"),
                                ("tests/fixtures", "*.swift"), ("flows", "*.json")):
         paths.update((ROOT / directory).glob(pattern))
@@ -1366,12 +1366,12 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
             key = f"{item.get('server')}:{item.get('tool')}"
             calls[key] = calls.get(key, 0) + 1
             tool_items.record(event,key)
-            if arm == "nlc" and item.get("server") in ("node_repl", "cua_repl"):
+            if arm == "tacto" and item.get("server") in ("node_repl", "cua_repl"):
                 layer_violation = True
         elif item.get("type") == "command_execution":
             cmd = item.get("command", "")
             if not isinstance(cmd,str):cmd=""
-            if re.search(r"(^|[\s'\"/])nlc\s", cmd):
+            if re.search(r"(^|[\s'\"/])tacto\s", cmd):
                 if event.get('type') == 'item.completed':
                     from tacto.preparation_diagnostic import diagnostic_lines
                     # Tool-reported diagnostics, not a completion oracle or
@@ -1381,8 +1381,8 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
                     from tacto.pin_diagnostic import diagnostic_lines as pin_lines
                     pin_diagnostics.extend(pin_lines(item.get('aggregated_output')))
                     pin_diagnostics = pin_diagnostics[:64]
-                calls["shell:nlc"] = calls.get("shell:nlc", 0) + 1
-                tool_items.record(event,"shell:nlc")
+                calls["shell:tacto"] = calls.get("shell:tacto", 0) + 1
+                tool_items.record(event,"shell:tacto")
                 if arm == "sky":
                     layer_violation = True
             else:
@@ -1463,7 +1463,7 @@ def run_one(task: Task, arm: str, timeout: int = 600) -> dict:
     # Even the external worker mode lacks complete descendant/Sky route and
     # initial-state evidence. Keep task outcomes but exclude product parity.
     result['agent_spawn_parent_boundary'] = ('external_python_controller' if _FIXTURE_WORKER is not None
-                                              else 'signed_nlc_controller')
+                                              else 'signed_tacto_controller')
     if _FIXTURE_WORKER is not None:
         result['fixture_worker_metadata'] = _WORKER_METADATA
     result['agent_requested_executable'] = _AGENT_REQUESTED_EXECUTABLE
@@ -1521,7 +1521,7 @@ def main(argv=None) -> int:
     ap.add_argument('--timeout', type=int, default=600,
                     help='per-arm model timeout in seconds (same for both arms)')
     ap.add_argument("--reps", type=int, default=1)
-    ap.add_argument("--arms", nargs="+", default=["nlc", "sky"], choices=["nlc", "sky"])
+    ap.add_argument("--arms", nargs="+", default=["tacto", "sky"], choices=["tacto", "sky"])
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--list", action="store_true")
     checks = ap.add_mutually_exclusive_group()

@@ -39,7 +39,6 @@
   "working_prototype": true,
   "product": {
     "name": "Tacto",
-    "previous_name": "NLC",
     "measurement_label": "tacto"
   }
 }

@@ -121,7 +121,7 @@ class WhereDiagnosticsGo(unittest.TestCase):
     def test_the_helper_logs_where_it_can_still_be_heard(self):
         # LaunchServices gives a launched app no stderr, so a refusal written
         # only there is a refusal nobody reads.
-        self.assertIn('Logger(subsystem: "ai.callabo.nlc"', HELPER)
+        self.assertIn('Logger(subsystem: "ai.callabo.tacto"', HELPER)
 
     def test_the_rendezvous_refusals_use_it(self):
         body = HELPER[HELPER.index("func connectToLauncher"):]

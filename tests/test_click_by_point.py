@@ -115,7 +115,7 @@ class WindowIndexMeansOneThing(unittest.TestCase):
     def test_the_capture_badge_is_not_counted_as_a_window(self):
         # Holding the control indicator makes macOS attach its capture badge to
         # the window being captured, and the badge appears in that app's own
-        # AXWindows list — so saying "NLC is working on this window" was what
+        # AXWindows list — so saying "TACTO is working on this window" was what
         # made that window ambiguous. Measured at 66x20 inside 460x232, subrole
         # AXDialog, title "Window", no close button (2026-09-21).
         for name, text in (("helper", HELPER), ("driver", DRIVER)):

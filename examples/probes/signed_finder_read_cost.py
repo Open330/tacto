@@ -164,7 +164,7 @@ def main(driver, output, *, include_preflight=False, read_strategy='batch', coll
                 raise RuntimeError('readiness_cost_capability_unavailable')
             from tacto.input_audit_process import ProcessInputAudit
             root=Path(__file__).resolve().parents[2]
-            paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+            paths=list((root/'tacto').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
                 Path(__file__).resolve(),root/'examples/eval.py',root/'launcher/tacto',
                 root/'launcher/tacto.swift',root/'helper/tacto-helper',
                 root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper',root/'helper/build.sh',

@@ -2,7 +2,7 @@
 
 Found 2026-09-20 while verifying browsers: the outline was wired at two CLI
 commands and two signed-helper messages, so every other way in — a script
-holding a Driver, `nlc observe`, the whole evaluation suite, this session's own
+holding a Driver, `tacto observe`, the whole evaluation suite, this session's own
 browser and Calculator probes — drove somebody's machine with nothing on screen
 to say so. Asking each caller to remember is how it went missing; the driver
 owns it now.
@@ -287,7 +287,7 @@ let out: [String: Bool] = [
 ]
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix="nlc-windowless-") as directory:
+        with tempfile.TemporaryDirectory(prefix="tacto-windowless-") as directory:
             source = pathlib.Path(directory) / "main.swift"
             source.write_text(harness)
             result = subprocess.run(["swift", str(source)], capture_output=True, text=True, timeout=120)
@@ -311,7 +311,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
 
     def test_the_held_stream_sees_one_window_not_the_screen(self):
         # `SCContentFilter(display:)` stood here and captured everything, so an
-        # indicator meaning "NLC is looking" was looking at every other window
+        # indicator meaning "TACTO is looking" was looking at every other window
         # the person had open (user report, 2026-09-21). The indicator may not
         # cost more than what it announces.
         text = (ROOT / "helper/TactoHelper.swift").read_text()
@@ -372,7 +372,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
 class TheIndicatorCanBeActedOn(unittest.TestCase):
     """An indicator you cannot act on is half of what it promises.
 
-    It said "NLC is working on Calculator · Esc" and that was the whole of it:
+    It said "TACTO is working on Calculator · Esc" and that was the whole of it:
     someone who did not know about Esc was told something was happening and
     given nothing to do about it. Codex Computer Use's own status item carries
     a menu (`ComputerUseIPCCodexStatusItemMenuState`); macOS has no system

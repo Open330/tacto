@@ -6,7 +6,7 @@
 // every script run with that interpreter — demonstrated on this machine, where
 // an unrelated /tmp script read other apps' windows. A signed, single-purpose
 // helper is identified by its code signature instead, so the grant belongs to
-// NLC alone, survives updates, and keeps OS privilege out of the model loop
+// Tacto alone, survives updates, and keeps OS privilege out of the model loop
 // (decision D8: the agent that talks to a model must not hold the permissions).
 //
 // It speaks the same L2 protocol the Python driver already speaks — one JSON
@@ -32,9 +32,9 @@ let permissionHolderName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDis
 /// the launcher saw only that we had gone. The unified log is the one channel
 /// that survives having no parent:
 ///
-///     log stream --predicate 'subsystem == "ai.callabo.nlc"'
-///     log show --last 5m --predicate 'subsystem == "ai.callabo.nlc"'
-let rendezvousLog = Logger(subsystem: "ai.callabo.nlc", category: "rendezvous")
+///     log stream --predicate 'subsystem == "ai.callabo.tacto"'
+///     log show --last 5m --predicate 'subsystem == "ai.callabo.tacto"'
+let rendezvousLog = Logger(subsystem: "ai.callabo.tacto", category: "rendezvous")
 
 @Sendable func note(_ message: String) {
     rendezvousLog.notice("\(message, privacy: .public)")
@@ -935,7 +935,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     // reason: macOS's screen-capture badge is a window in the app's own
     // AXWindows, so while the control indicator was up every observation of the
     // app being driven began with a phantom `Window  Title: Window, Identifier:
-    // _NS:8` — this helper's own way of saying "NLC is working here" walked
+    // _NS:8` — this helper's own way of saying "Tacto is working here" walked
     // into the tree it was working on, and shifted every element index behind
     // it.
     let windows: [AXUIElement]
@@ -1587,7 +1587,7 @@ func readinessPreflight(_ msg: [String: Any]) -> [String: Any] {
           msg["titlebar_probe"] == nil || CFGetTypeID(msg["titlebar_probe"]! as CFTypeRef) == CFBooleanGetTypeID(),
           msg["type"] as? String == "readiness_preflight",
           let target = msg["target"] as? String,
-          ["com.apple.finder","ai.callabo.nlc.modality-fixture"].contains(target),
+          ["com.apple.finder","ai.callabo.tacto.modality-fixture"].contains(target),
           let obs = msg["obs_id"] as? String, obs == latestObsID,
           latestTargetName == target, latestDocumentToken == nil,
           let number = documentIsWholeNumber(msg["element_index"]), number.intValue >= 0,
@@ -3734,7 +3734,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 // MARK: - The user is the authority
 //
 // Caller identity cannot protect this interface while the client is a shared
-// Python interpreter: any script using that interpreter looks identical to NLC,
+// Python interpreter: any script using that interpreter looks identical to Tacto,
 // which is the very problem the helper exists to fix. What DOES hold regardless
 // of who is calling is that the person can see what is happening and stop it.
 // So the indicator and the abort key belong HERE, in the process that performs
@@ -3993,7 +3993,7 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
         }
         // ONE WINDOW. `SCContentFilter(display:)` stood here and it was wrong:
         // it captures the whole screen, so lighting an indicator that says
-        // "NLC is looking" meant looking at everything — including every other
+        // "Tacto is looking" meant looking at everything — including every other
         // window the person had open and never offered us (user report,
         // 2026-09-21). The filter is the same one `captureWindow` uses, and it
         // sees the target window and nothing else.
@@ -4231,7 +4231,7 @@ func sha256Hex(_ data: Data) -> String {
 /// The screen-recording grant lives on this helper for the same reason the
 /// accessibility grant does: a permission held by a shared Python interpreter
 /// is a permission held by every script that runs on it, and a screenshot
-/// reaches further than a click. `ai.callabo.nlc.helper` is one identity the
+/// reaches further than a click. `ai.callabo.tacto.helper` is one identity the
 /// person can see in System Settings and revoke by itself.
 ///
 /// Pixels are written to a file this process creates and owns, not returned
@@ -4366,7 +4366,7 @@ func captureWindow(_ obsID: String, _ target: String,
         return refuse("target_changed", "the app changed while capturing")
     }
 
-    let directory = NSTemporaryDirectory() + "nlc-capture-\(getpid())"
+    let directory = NSTemporaryDirectory() + "tacto-capture-\(getpid())"
     try? FileManager.default.createDirectory(atPath: directory,
         withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let path = directory + "/\(UUID().uuidString).png"
@@ -5988,7 +5988,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         // request).
         // Screen capture is granted to THIS process's identity (it is opened
         // through LaunchServices), so only it can say whether it holds it; a
-        // Python asking about itself answered for the wrong app, and `nlc
+        // Python asking about itself answered for the wrong app, and `tacto
         // doctor` told people to enable "this app" without saying which.
         var reply: [String: Any] = ["type": "pong", "trusted": AXIsProcessTrusted(),
                 "screen_capture": CGPreflightScreenCaptureAccess(),
@@ -6556,7 +6556,7 @@ guard connectPath != nil else {
 /// Does the process that launched us satisfy the code requirement?
 ///
 /// This is the check that makes the helper refuse to be anyone's deputy: the
-/// grant it holds is usable only through the signed `nlc` launcher, not by any
+/// grant it holds is usable only through the signed `tacto` launcher, not by any
 /// process that can execute this binary. It is a genuine OS check —
 /// `SecCodeCheckValidity` against a requirement, not a name comparison —
 /// though a PID can in principle be reused, so it is made once at startup and
@@ -6572,7 +6572,7 @@ guard connectPath != nil else {
 // and feed it well-formed JSON, so authenticating it proved nothing (advisor
 // finding). The relay now lives inside the launcher, which hands its child an
 // inherited socket nothing else can obtain.
-let clientRequirement = TactoSigning.peerRequirement(identifier: "ai.callabo.nlc")
+let clientRequirement = TactoSigning.peerRequirement(identifier: "ai.callabo.tacto")
 
 /// The PID of `pid`'s parent, via sysctl.
 func parentOf(_ pid: pid_t) -> pid_t? {
@@ -6589,7 +6589,7 @@ func parentOf(_ pid: pid_t) -> pid_t? {
 /// The immediate parent is the Python process the launcher started, so checking
 /// only one level would reject our own client. Descending FROM the signed
 /// launcher is the property that matters: to be one of its descendants a process
-/// has to have been started by it, and the launcher runs only NLC's own code —
+/// has to have been started by it, and the launcher runs only Tacto's own code —
 /// it takes no script path, interpreter override or injectable environment. An
 /// unrelated process has no signed ancestor and is refused.
 func ancestrySatisfiesRequirement(_ start: pid_t, maxDepth: Int = 6) -> (Bool, String) {

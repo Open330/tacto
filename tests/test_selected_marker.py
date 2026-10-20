@@ -1,7 +1,7 @@
 """[selected] marks the chosen button of a set, and does not leak into values.
 
 2026-10-09: System Settings' Light / Dark / Auto showed no selection in the
-tree, so "which appearance is set?" could not be answered (NLC 0/2)."""
+tree, so "which appearance is set?" could not be answered (TACTO 0/2)."""
 import pathlib
 import unittest
 

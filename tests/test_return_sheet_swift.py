@@ -161,7 +161,7 @@ let tops=check(tree,budget:1,tops:[1,4])
 precondition(tops.0=="readiness traversal budget exceeded" && tops.1.isEmpty)
 print("SHEET_BUDGET_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-sheet-budget-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-sheet-budget-') as directory:
             source,binary=Path(directory)/'main.swift',Path(directory)/'check'
             source.write_text(harness)
             built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
@@ -174,7 +174,7 @@ print("SHEET_BUDGET_PASS")
 
     def test_readiness_and_dispatch(self):
         import json
-        with tempfile.TemporaryDirectory(prefix='nlc-return-sheet-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-return-sheet-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(HARNESS)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),

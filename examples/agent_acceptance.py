@@ -1,7 +1,7 @@
 """Agent acceptance: does Tacto work for an agent that only has the skill?
 
 Every problem reported so far was invisible to the unit tests and the eval
-suite, because both run Tacto from inside this checkout: the `nlc` command was
+suite, because both run Tacto from inside this checkout: the `tacto` command was
 never installed (2026-09-28), a sandboxed agent was told to grant a permission
 it already had, and an agent reading Safari on a locked screen had to guess
 why it saw nothing. Each was found by an agent that had nothing but the skill.
@@ -42,9 +42,9 @@ class Case:
     agents: tuple = ("codex", "claude")
 
 
-# Historical result key finds_nlc is retained; new runs exercise Tacto.
+# Acceptance keys use the current Tacto namespace.
 CASES = [
-    Case("finds_nlc", "workspace-write", "any",
+    Case("finds_tacto", "workspace-write", "any",
          "Use the tacto skill. Check whether the tacto command is installed and report its path. "
          "Do not install anything.",
          passes=r"\.local/bin/tacto"),

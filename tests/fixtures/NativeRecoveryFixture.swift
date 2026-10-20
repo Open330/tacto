@@ -40,7 +40,7 @@ import AppKit
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 400, height: 180),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC Recovery Fixture"
+        window.title = "TACTO Recovery Fixture"
         window.isReleasedWhenClosed = false
         let field = StageView(frame: NSRect(x: 20, y: 95, width: 350, height: 55))
         field.owner = self

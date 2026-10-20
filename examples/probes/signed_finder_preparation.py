@@ -160,7 +160,7 @@ def main(driver,output,*,preflight=False):
     descriptor=os.open(output,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     try:journal_descriptor=os.open(journal_path,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
     except BaseException:os.close(descriptor);raise
-    paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+    paths=list((root/'tacto').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
         Path(__file__).resolve(),root/'examples/eval.py',root/'examples/probes/finder-preparation-diagnostic.py',
         root/'launcher/tacto',root/'helper/tacto-helper',root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
     def manifest():return {str(p.relative_to(root)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(paths)}
@@ -173,7 +173,7 @@ def main(driver,output,*,preflight=False):
             if not stages.check_background():
                 report['precondition_status']='not_run'
                 return report
-            created=Path(tempfile.mkdtemp(prefix='nlc-finder-staged-',dir=Path.home()/'Library/Caches'))
+            created=Path(tempfile.mkdtemp(prefix='tacto-finder-staged-',dir=Path.home()/'Library/Caches'))
             # Normalize the parent without following a replaced fixture leaf.
             folder=created.parent.resolve()/created.name
             identity=folder.lstat();report['owned_directory']=str(folder);report['cleanup']='left_as_is'
