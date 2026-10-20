@@ -583,3 +583,29 @@ this is not positive evidence of already-enabled grant retention. Settings were
 left in the background to avoid taking focus from ongoing authentication.
 
 [Preview 10 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.10).
+
+## 2026-10-20 Preview 11 partial permissions and first-task settling
+
+Preview 11 is built from `32839a5`. Only both grants complete/collapse the
+permission section; app control alone remains visible as 1/2 allowed, with the
+screen-capture action available. Basic agent connection still requires app
+control only. The first task observes delayed new-window identities up to eight
+times without repeating New or text input. Failed identity results add document
+counts without document contents. The exact cause of the earlier user-reported
+failure remains unconfirmed because its trace was unavailable.
+
+Targeted tests passed 36/36, including all four permission combinations and
+read-only identity settling/timeout; three layout states passed. An independent
+live TextEdit first-task test on one designated Mac verified the welcome text in
+3.223 seconds, zero model calls and no Save command. It was one test, not a
+multi-scenario reliability claim or a replay of the user's interrupted task.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. All three Macs were updated to the identical Preview 11
+bundle and audited after launch. User Flow data was preserved. One Mac had both
+permissions enabled before the upgrade and retained them; the other two still
+need the user's grants. Temporary previous-app backups were removed after
+successful installation checks, as requested. OS password/Touch ID entry was
+not tested automatically. Stable human qualification remains separate.
+
+[Preview 11 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.11).
