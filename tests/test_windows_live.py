@@ -305,8 +305,11 @@ class WindowsModalAndNoticeLiveTests(unittest.TestCase):
                      ._windows_by_pid().get(os.getpid(), [])]
             foreground = [user32.GetForegroundWindow() for _ in range(5) if not time.sleep(0.1)]
         self.assertEqual(["#32770"], shown)
-        self.assertNotIn(os.getpid(), {_owner(h) for h in foreground if h})
-        self.assertEqual({before}, set(foreground))
+        # The guarantee is that the notice never takes the foreground. On the
+        # person's desktop they may switch windows meanwhile, so the window in
+        # front is not required to stay the same; what was there is reported.
+        seen = [(_owner(h), _class(h)) if h else None for h in [before, *foreground]]
+        self.assertNotIn(os.getpid(), {_owner(h) for h in foreground if h}, (os.getpid(), seen))
 
 
 if __name__ == "__main__":
