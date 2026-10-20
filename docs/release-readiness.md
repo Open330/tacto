@@ -609,3 +609,32 @@ successful installation checks, as requested. OS password/Touch ID entry was
 not tested automatically. Stable human qualification remains separate.
 
 [Preview 11 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.11).
+
+## 2026-10-20 Preview 12 result presentation and automatic access receipts
+
+Preview 12 is built from `55e1515`. The fixed first task presents TextEdit only
+after text verification, then checks the same window, content and focus again.
+Presentation failure cannot repeat input and is reported separately from
+`text_verified`. Normal Flow replay and application launch keep their background
+behavior. Supported computer-use CLI invocations now automatically create local,
+private access receipts; the app footer/menu and `tacto logs` expose them.
+Their scope and retention are documented in [access logging](access-logging.md).
+They do not contain screen/input/prompt contents or outer-agent reasoning, and
+cannot reconstruct previously unlogged executions.
+
+Targeted tests passed 61/61, including native-presentation refusal/timeout,
+logging transparency and storage failure, private permissions, symlinks and
+retention. Skill validation and three rendered layout states passed. One
+independent live TextEdit first task verified text and foreground presentation
+in 3.287 seconds with zero model calls and no Save command. An independent
+process also observed TextEdit frontmost. The associated 21-event receipt
+contained seven observations, one New menu and one text write, with no welcome
+text and 0600 permissions. This single scenario is not a broad reliability test.
+
+App/DMG notarization, tickets, Gatekeeper and all twelve automated artifact
+checks passed. Three designated Macs received identical Preview 12 bundles and
+passed post-launch audits; existing Flow data and enabled permissions were
+preserved. Temporary previous-app backups were removed after successful
+installation. Stable qualification remains separate from this developer preview.
+
+[Preview 12 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.12).
