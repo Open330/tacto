@@ -14,7 +14,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.13) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -97,7 +97,7 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 **Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.13). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Preview 13 adds an in-app history and settings workspace: browse operation timelines, search/filter runs, and configure logging, retention and first-task result presentation. Signing identities are unchanged from Preview 9. Upgrading from Preview 8 or earlier requires granting permissions to **Tacto Helper** (app control) and **Tacto** (screen recording).
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Preview 14 refines native spacing, sidebar padding and resizable history panes: browse operation timelines, search/filter runs, and configure logging, retention and first-task result presentation. Signing identities are unchanged from Preview 9. Upgrading from Preview 8 or earlier requires granting permissions to **Tacto Helper** (app control) and **Tacto** (screen recording).
 
 This is a **private developer prerelease**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
 

@@ -210,8 +210,17 @@ private final class ActivityCard: NSStackView {
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
 }
 private final class ActivityNavigationButton: NSButton {
-    override var wantsUpdateLayer: Bool { true }
-    override func updateLayer() { effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = (state == .on ? NSColor.controlAccentColor.withAlphaComponent(0.14) : .clear).cgColor } }
+    override func draw(_ dirtyRect: NSRect) {
+        let color: NSColor = state == .on ? .controlAccentColor : .labelColor
+        if state == .on || isHighlighted {
+            NSColor.controlAccentColor.withAlphaComponent(state == .on ? 0.12 : 0.06).setFill()
+            NSBezierPath(roundedRect:bounds,xRadius:8,yRadius:8).fill()
+        }
+        let symbol = image?.withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors:[color])) ?? image
+        symbol?.draw(in:NSRect(x:12,y:(bounds.height-16)/2,width:16,height:16),from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byTruncatingTail
+        (title as NSString).draw(in:NSRect(x:36,y:(bounds.height-17)/2,width:bounds.width-48,height:18),withAttributes:[.font:NSFont.systemFont(ofSize:13,weight:.medium),.foregroundColor:color,.paragraphStyle:paragraph])
+    }
 }
 
 private final class ActivityDocumentStack: NSStackView { override var isFlipped: Bool { true } }
@@ -236,14 +245,14 @@ private func activityLabel(_ text: String, _ size: CGFloat = 13, _ weight: NSFon
     return field
 }
 
-final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSSplitViewDelegate {
     let store: ActivityStore
     var onSetup: (() -> Void)?
     private let queue = DispatchQueue(label:"ai.callabo.tacto.activity-reader", qos:.userInitiated)
     private let table = NSTableView()
     private let search = NSSearchField()
     private let filter = NSSegmentedControl(labels:["전체", "실패", "완료 확인 없음"], trackingMode:.selectOne, target:nil, action:nil)
-    private let heading = activityLabel("실행 기록", 26, .bold)
+    private let heading = activityLabel("실행 기록", 24, .semibold)
     private let summary = activityLabel("불러오는 중…", 12, secondary:true)
     private let detail = ActivityDocumentStack()
     private let history = NSStackView()
@@ -278,7 +287,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         window.backgroundColor = .windowBackgroundColor
         let background = ActivityBackground(frame:window.contentView!.bounds); background.wantsLayer = true; window.contentView = background
         if let visible = NSScreen.main?.visibleFrame { window.setContentSize(NSSize(width:max(900,min(1060,visible.width-32)),height:max(600,min(700,visible.height-48)))) }
-        build(); window.contentView?.layoutSubtreeIfNeeded(); split.setPosition(310,ofDividerAt:0); window.center()
+        build(); window.contentView?.layoutSubtreeIfNeeded(); split.setPosition(300,ofDividerAt:0); window.center()
     }
     required init?(coder:NSCoder) { nil }
     private func column(_ views: [NSView], spacing: CGFloat = 12) -> NSStackView {
@@ -299,20 +308,20 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         let brandRow = NSStackView(views:[logo,brand]); brandRow.spacing = 8
         historyButton.title = "실행 기록"; historyButton.image = NSImage(systemSymbolName:"clock.arrow.circlepath", accessibilityDescription:nil)
         settingsButton.title = "설정"; settingsButton.image = NSImage(systemSymbolName:"slider.horizontal.3", accessibilityDescription:nil)
-        for b in [historyButton,settingsButton] { b.target = self; b.action = #selector(navigate(_:)); b.bezelStyle = .rounded; b.isBordered = false; b.setButtonType(.pushOnPushOff); b.wantsLayer = true; b.layer?.cornerRadius = 8; b.imagePosition = .imageLeading; b.alignment = .left; b.widthAnchor.constraint(equalToConstant:156).isActive = true; b.heightAnchor.constraint(equalToConstant:34).isActive = true }
+        for b in [historyButton,settingsButton] { b.font = .systemFont(ofSize:13,weight:.medium); b.target = self; b.action = #selector(navigate(_:)); b.bezelStyle = .rounded; b.isBordered = false; b.setButtonType(.pushOnPushOff); b.wantsLayer = true; b.layer?.cornerRadius = 8; b.imagePosition = .imageLeading; b.alignment = .left; b.widthAnchor.constraint(equalToConstant:176).isActive = true; b.heightAnchor.constraint(equalToConstant:38).isActive = true }
         historyButton.setAccessibilityIdentifier("tacto.activity.history"); settingsButton.setAccessibilityIdentifier("tacto.activity.settings")
         let setup = button("Mac 권한·에이전트", "arrow.up.forward.app", #selector(openSetup))
         let tagline = activityLabel("에이전트의 작업 공간",11,secondary:true)
         let spacer = NSView(); spacer.setContentHuggingPriority(.init(1),for:.vertical)
         let side = column([brandRow,tagline,historyButton,settingsButton,spacer,status,setup])
-        side.spacing = 10; side.setCustomSpacing(28,after:tagline)
-        status.preferredMaxLayoutWidth = 156
-        status.widthAnchor.constraint(lessThanOrEqualToConstant:156).isActive = true
+        side.spacing = 8; side.setCustomSpacing(24,after:tagline)
+        status.preferredMaxLayoutWidth = 176
+        status.widthAnchor.constraint(lessThanOrEqualToConstant:176).isActive = true
         sidebar.addSubview(side); side.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([side.topAnchor.constraint(equalTo:sidebar.topAnchor,constant:26),side.leadingAnchor.constraint(equalTo:sidebar.leadingAnchor,constant:16),side.trailingAnchor.constraint(equalTo:sidebar.trailingAnchor,constant:-16),side.bottomAnchor.constraint(equalTo:sidebar.bottomAnchor,constant:-20)])
         root.addSubview(sidebar); root.addSubview(content)
         for v in [sidebar,content] { v.translatesAutoresizingMaskIntoConstraints = false }
-        NSLayoutConstraint.activate([sidebar.leadingAnchor.constraint(equalTo:root.leadingAnchor),sidebar.topAnchor.constraint(equalTo:root.topAnchor),sidebar.bottomAnchor.constraint(equalTo:root.bottomAnchor),sidebar.widthAnchor.constraint(equalToConstant:192),content.leadingAnchor.constraint(equalTo:sidebar.trailingAnchor),content.trailingAnchor.constraint(equalTo:root.trailingAnchor),content.topAnchor.constraint(equalTo:root.topAnchor),content.bottomAnchor.constraint(equalTo:root.bottomAnchor)])
+        NSLayoutConstraint.activate([sidebar.leadingAnchor.constraint(equalTo:root.leadingAnchor),sidebar.topAnchor.constraint(equalTo:root.topAnchor),sidebar.bottomAnchor.constraint(equalTo:root.bottomAnchor),sidebar.widthAnchor.constraint(equalToConstant:208),content.leadingAnchor.constraint(equalTo:sidebar.trailingAnchor),content.trailingAnchor.constraint(equalTo:root.trailingAnchor),content.topAnchor.constraint(equalTo:root.topAnchor),content.bottomAnchor.constraint(equalTo:root.bottomAnchor)])
         buildHistory(); buildSettings(); navigate(historyButton)
     }
     private func pin(_ view: NSView, into container: NSView, inset: CGFloat = 24) {
@@ -320,26 +329,30 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo:container.leadingAnchor,constant:inset),view.trailingAnchor.constraint(equalTo:container.trailingAnchor,constant:-inset),view.topAnchor.constraint(equalTo:container.topAnchor,constant:inset),view.bottomAnchor.constraint(equalTo:container.bottomAnchor,constant:-inset)])
     }
     private func buildHistory() {
-        history.orientation = .vertical; history.alignment = .leading; history.spacing = 14
+        history.orientation = .vertical; history.alignment = .leading; history.spacing = 16
         let refresh = button("새로고침", "arrow.clockwise", #selector(refresh))
         let top = NSStackView(views:[heading,NSView(),refresh]); top.alignment = .centerY
         search.placeholderString = "앱 또는 작업 검색"; search.delegate = self; search.setAccessibilityIdentifier("tacto.activity.search")
         search.widthAnchor.constraint(greaterThanOrEqualToConstant:160).isActive = true
+        search.heightAnchor.constraint(greaterThanOrEqualToConstant:28).isActive = true
         filter.target = self; filter.action = #selector(applyFilter); filter.selectedSegment = 0
         let tools = NSStackView(views:[search,filter]); tools.spacing = 12
         let list = NSScrollView(); list.hasVerticalScroller = true; list.autohidesScrollers = true
         let col = NSTableColumn(identifier:NSUserInterfaceItemIdentifier("session")); table.addTableColumn(col)
-        table.headerView = nil; table.rowHeight = 72; table.intercellSpacing = NSSize(width:0,height:5)
+        table.headerView = nil; table.rowHeight = 64; table.intercellSpacing = .zero
         table.style = .fullWidth; table.delegate = self; table.dataSource = self; table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         table.setAccessibilityIdentifier("tacto.activity.sessions"); list.documentView = table
         let details = NSScrollView(); details.hasVerticalScroller = true; details.autohidesScrollers = true
-        detail.orientation = .vertical; detail.alignment = .leading; detail.spacing = 12
-        detail.edgeInsets = NSEdgeInsets(top:20,left:20,bottom:20,right:20); detail.translatesAutoresizingMaskIntoConstraints = false
+        detail.orientation = .vertical; detail.alignment = .leading; detail.spacing = 10
+        detail.edgeInsets = NSEdgeInsets(top:24,left:24,bottom:24,right:24); detail.translatesAutoresizingMaskIntoConstraints = false
         details.documentView = detail
         detail.widthAnchor.constraint(equalTo:details.contentView.widthAnchor).isActive = true
-        split.isVertical = true; split.dividerStyle = .thin
+        split.isVertical = true; split.dividerStyle = .thin; split.delegate = self
+        split.wantsLayer = true; split.layer?.cornerRadius = 10; split.layer?.masksToBounds = true
         split.addArrangedSubview(list); split.addArrangedSubview(details)
-        list.widthAnchor.constraint(greaterThanOrEqualToConstant:250).isActive = true
+        split.setHoldingPriority(.defaultHigh,forSubviewAt:0)
+        split.setHoldingPriority(.defaultLow,forSubviewAt:1)
+        list.widthAnchor.constraint(greaterThanOrEqualToConstant:240).isActive = true
         details.widthAnchor.constraint(greaterThanOrEqualToConstant:300).isActive = true
         for view in [top,summary,tools,split] { history.addArrangedSubview(view) }
         for v in [top,tools,split] { v.widthAnchor.constraint(equalTo:history.widthAnchor).isActive = true }
@@ -349,11 +362,14 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
     private func settingsCard(_ title: String, _ explanation: String, _ control: NSView) -> NSView {
         let stack = ActivityCard(views:[activityLabel(title,16,.semibold),activityLabel(explanation,12,secondary:true),control]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12
         stack.edgeInsets = NSEdgeInsets(top:20,left:20,bottom:20,right:20)
+        for view in stack.arrangedSubviews where view is NSTextField {
+            view.widthAnchor.constraint(equalTo:stack.widthAnchor,constant:-40).isActive = true
+        }
         stack.wantsLayer = true; stack.layer?.cornerRadius = 12
         return stack
     }
     private func buildSettings() {
-        settings.orientation = .vertical; settings.alignment = .leading; settings.spacing = 16
+        settings.orientation = .vertical; settings.alignment = .leading; settings.spacing = 14
         logToggle.target = self; logToggle.action = #selector(saveSettings)
         presentToggle.target = self; presentToggle.action = #selector(saveSettings)
         logToggle.setAccessibilityIdentifier("tacto.settings.logging"); presentToggle.setAccessibilityIdentifier("tacto.settings.presentation")
@@ -363,7 +379,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         let cards = [settingsCard("실행 기록", "접근한 앱·동작·결과·시간을 이 Mac에 저장합니다. 화면 내용·입력값·프롬프트는 기록하지 않습니다.",logToggle),
                      settingsCard("기록 보관 기간", "선택한 기간과 최대 200개·20MB 제한 안에서 다음 작업 시작 시 정리합니다.",retention),
                      settingsCard("첫 작업 결과", "첫 작업이 끝나면 TextEdit 문서를 앞으로 보여줍니다. 일반 워크플로는 백그라운드 동작을 유지합니다.",presentToggle)]
-        settings.addArrangedSubview(activityLabel("설정",26,.bold))
+        settings.addArrangedSubview(activityLabel("설정",24,.semibold))
         for card in cards { settings.addArrangedSubview(card); card.widthAnchor.constraint(equalTo:settings.widthAnchor).isActive = true }
         for v in [saveStatus,remove,activityLabel("기록은 Tacto를 통한 접근 내역입니다. 에이전트의 내부 추론이나 전체 대화는 포함하지 않습니다.",12,secondary:true)] { settings.addArrangedSubview(v) }
         settings.addArrangedSubview(activityLabel("Tacto · " + (Bundle.main.object(forInfoDictionaryKey:"TactoReleaseTag") as? String ?? "개발 버전"),11,secondary:true))
@@ -429,7 +445,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         title.lineBreakMode = .byTruncatingTail; subtitle.lineBreakMode = .byTruncatingTail
         for v in [title,subtitle,mark] { cell.addSubview(v); v.translatesAutoresizingMaskIntoConstraints = false }
         cell.textField = title
-        NSLayoutConstraint.activate([title.leadingAnchor.constraint(equalTo:cell.leadingAnchor,constant:12),title.topAnchor.constraint(equalTo:cell.topAnchor,constant:10),title.trailingAnchor.constraint(lessThanOrEqualTo:mark.leadingAnchor,constant:-8),mark.trailingAnchor.constraint(equalTo:cell.trailingAnchor,constant:-12),mark.topAnchor.constraint(equalTo:title.topAnchor),subtitle.leadingAnchor.constraint(equalTo:title.leadingAnchor),subtitle.trailingAnchor.constraint(equalTo:cell.trailingAnchor,constant:-12),subtitle.topAnchor.constraint(equalTo:title.bottomAnchor,constant:8)])
+        NSLayoutConstraint.activate([title.leadingAnchor.constraint(equalTo:cell.leadingAnchor,constant:12),title.topAnchor.constraint(equalTo:cell.topAnchor,constant:13),title.trailingAnchor.constraint(lessThanOrEqualTo:mark.leadingAnchor,constant:-8),mark.trailingAnchor.constraint(equalTo:cell.trailingAnchor,constant:-12),mark.topAnchor.constraint(equalTo:title.topAnchor),subtitle.leadingAnchor.constraint(equalTo:title.leadingAnchor),subtitle.trailingAnchor.constraint(equalTo:cell.trailingAnchor,constant:-12),subtitle.topAnchor.constraint(equalTo:title.bottomAnchor,constant:5)])
 
         return cell
     }
@@ -445,8 +461,8 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
             detail.addArrangedSubview(activityLabel(allRecords.isEmpty ? (currentSettings.loggingEnabled ? "아직 실행 기록이 없어요" : "실행 기록 저장이 꺼져 있어요") : "조건에 맞는 기록이 없어요",20,.semibold))
             detail.addArrangedSubview(activityLabel(currentSettings.loggingEnabled ? "Tacto로 작업하면 접근 내역과 결과가 여기에 표시됩니다." : "설정에서 켜면 다음 작업부터 기록을 남깁니다.",13,secondary:true)); return
         }
-        detail.addArrangedSubview(activityLabel(r.title,21,.bold))
-        detail.addArrangedSubview(activityLabel("\(r.appName) · \(r.status)",14,.semibold))
+        detail.addArrangedSubview(activityLabel(r.title,20,.semibold))
+        detail.addArrangedSubview(activityLabel("\(r.appName) · \(r.status)",13,.medium))
         detail.addArrangedSubview(activityLabel(dateFormatter.string(from:r.started),12,secondary:true))
         var metrics = String(format:"%.2f초 · 동작 %d회",r.elapsed/1000,r.steps.filter { $0.operation == "act" }.count)
         if let calls = r.modelCalls { metrics += " · 모델 호출 \(calls)회" }
@@ -461,12 +477,13 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
             let icon = NSImageView(image:NSImage(systemSymbolName:step.outcome == "실패" ? "exclamationmark.circle" : step.operation == "observe" ? "eye" : "cursorarrow",accessibilityDescription:nil) ?? NSImage())
             icon.contentTintColor = step.outcome == "실패" ? .systemRed : .secondaryLabelColor
             icon.widthAnchor.constraint(equalToConstant:18).isActive = true
+            icon.heightAnchor.constraint(equalToConstant:18).isActive = true
             let texts = column([activityLabel(step.title,13,.medium),activityLabel(String(format:"%.2f초 · %@",step.elapsed/1000,step.outcome),11,secondary:true)],spacing:4)
             if !step.error.isEmpty { texts.addArrangedSubview(activityLabel(activityErrorMessage(step.error),11,secondary:true)) }
-            let row = NSStackView(views:[icon,texts]); row.alignment = .top; row.spacing = 10
+            let row = NSStackView(views:[icon,texts]); row.alignment = .top; row.spacing = 12
             detail.addArrangedSubview(row)
         }
-        for v in detail.arrangedSubviews { v.widthAnchor.constraint(equalTo:detail.widthAnchor,constant:-40).isActive = true; if let f = v as? NSTextField { f.preferredMaxLayoutWidth = max(240,detail.frame.width-40) } }
+        for v in detail.arrangedSubviews { v.widthAnchor.constraint(equalTo:detail.widthAnchor,constant:-48).isActive = true; if let f = v as? NSTextField { f.preferredMaxLayoutWidth = max(200,detail.frame.width-48) } }
         detail.layoutSubtreeIfNeeded(); detail.setFrameSize(NSSize(width:detail.frame.width,height:detail.fittingSize.height))
     }
     private func loadSettings() {
@@ -519,6 +536,11 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         let report: [String:Any] = ["record_count":allRecords.count,"visible_count":filtered.count,"settings_page":settingsPage,"width":view.bounds.width,"height":view.bounds.height]
         try JSONSerialization.data(withJSONObject:report,options:[.sortedKeys]).write(to:directory.appendingPathComponent("layout.json"))
     }
+    func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool {
+        view === splitView.subviews.last
+    }
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { 240 }
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { min(380,splitView.bounds.width-300) }
     func windowDidResize(_ notification: Notification) { let record = rendered; rendered = nil; showDetail(record) }
     func windowWillClose(_ notification: Notification) { timer?.invalidate(); timer = nil }
 }
