@@ -6281,7 +6281,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
     let app = NSApplication.shared
     let policySet = app.setActivationPolicy(.accessory)
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    item.button?.title = "●NLC"
+    item.button?.title = "● Tacto"
     // The audit session id, read here rather than in the interpolation: the
     // type checker gives up on a long one, and the session is the whole point.
     var auditToken = audit_token_t()

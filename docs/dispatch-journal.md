@@ -20,9 +20,9 @@ with DurableDispatchDriver(underlying_driver, journal_directory) as guarded:
 CLI execution can opt in with the same absolute run directory:
 
 ```sh
-nlc run owned-flow.json --helper --journal-dir /absolute/private/run-directory
-nlc replay owned-recipe --helper --journal-dir /absolute/private/run-directory
-nlc do "owned task" --helper --journal-dir /absolute/private/run-directory
+tacto run owned-flow.json --helper --journal-dir /absolute/private/run-directory
+tacto replay owned-recipe --helper --journal-dir /absolute/private/run-directory
+tacto do "owned task" --helper --journal-dir /absolute/private/run-directory
 ```
 
 The option is supported by `do`, `run`, `replay`, and `web-upload`. It is removed before
@@ -120,7 +120,7 @@ as this effect having occurred.
 
 ## Signed native producer reply loss
 
-`nlc eval signed_producer_file_reply_loss` is an isolated, model-free owned
+`tacto eval signed_producer_file_reply_loss` is an isolated, model-free owned
 AppKit save producer evaluation through the installed signed helper. It records
 a reservation before the guarded native Save click. After the helper returns
 `acted`, an owned wrapper injects a TimeoutError before journal reply logging.
@@ -148,7 +148,7 @@ attribution, true native worker restart, or safe automatic continuation.
 
 ## Actual signed native worker restart
 
-`nlc eval signed_producer_worker_restart` keeps the owned Save producer under
+`tacto eval signed_producer_worker_restart` keeps the owned Save producer under
 its parent evaluator. A separate signed launcher runs the internal
 `signed_native_journal_worker` with a parent-created mode0600 configuration.
 The worker uses its own authenticated helper channel, fresh observation and

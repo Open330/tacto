@@ -1,6 +1,6 @@
 ---
 name: tacto
-description: Automate macOS/web tasks with reusable Tacto flows (formerly NLC); author once, replay without model calls.
+description: Automate macOS/web tasks with reusable Tacto flows; author once, replay without model calls.
 ---
 
 # Tacto

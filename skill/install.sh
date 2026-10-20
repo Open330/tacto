@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install NLC for coding agents: the `nlc` command on PATH, and the skill.
+# Install Tacto for coding agents: the signed command on PATH and the skill.
 #
 #   skill/install.sh           install (or repair) both
 #   skill/install.sh --check   say what is installed and what is missing; change nothing
@@ -58,7 +58,7 @@ record_authorizes() {
 }
 
 say() { printf '  %s\n' "$*"; }
-ours() {   # is this path an NLC skill we may replace?
+ours() {   # is this path an owned Tacto or legacy skill we may replace?
   record_authorizes "$1" skill && return 0
   [ "$(readlink "$1" 2>/dev/null)" = "$skill" ] && return 0
   [ -f "$1/SKILL.md" ] && grep -Eq '^name: (nlc|tacto)$' "$1/SKILL.md"
@@ -125,7 +125,7 @@ else
 fi
 case ":$PATH:" in
   *":$bin_dir:"*) ;;
-  *) say "warning: $bin_dir is not on PATH — add it, or agents will not find nlc" ;;
+  *) say "warning: $bin_dir is not on PATH — add it, or agents will not find tacto" ;;
 esac
 
 # 2. The skill, everywhere an agent reads skills: the default Claude Code and
@@ -162,7 +162,7 @@ for parent in "${dirs[@]}"; do
   if { [ -e "$dest" ] || [ -L "$dest" ]; } && ! ours "$dest"; then
     say "not replacing $dest: it is not the Tacto skill"
     if [ -L "$dest" ] && [ ! -e "$dest" ]; then
-      say "link target is missing; verify the previous NLC checkout before replacing this link"
+      say "link target is missing; verify the previous Tacto checkout before replacing this link"
     fi
     status=1
     continue
@@ -181,7 +181,7 @@ for parent in "${dirs[@]}"; do
   say "linked: $dest"
   legacy="$parent/nlc"
   if { [ -e "$legacy" ] || [ -L "$legacy" ]; } && ours "$legacy"; then
-    if [ "$check" = 1 ]; then say "legacy NLC skill needs migration: $legacy"; status=1
+    if [ "$check" = 1 ]; then say "legacy skill needs migration: $legacy"; status=1
     else
       backup=$(mktemp -d "$(dirname "$parent")/.tacto-skill-backup.XXXXXX")
       mv "$legacy" "$backup/nlc"; say "kept previous copy: $backup/nlc"

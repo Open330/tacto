@@ -29,8 +29,8 @@ metadata and sampled input preservation are not completion receipts.
 For read-only Finder profiling through the installed signed launcher:
 
 ```sh
-nlc eval signed_finder_readiness_profile
-nlc eval signed_finder_readiness_single_profile
+tacto eval signed_finder_readiness_profile
+tacto eval signed_finder_readiness_single_profile
 ```
 
 The diagnostic-only `readiness_preflight` request accepts optional
@@ -49,7 +49,7 @@ readiness incomplete. Batch reached5,887/5,830 nodes; single reached2,741/2,674.
 This rules out switching preparation to individual reads on this evidence.
 It is not a stable GUI snapshot comparison or proof that New Folder works.
 
-`nlc eval signed_readiness_scale_systemwide` runs owned preparation fixtures with
+`tacto eval signed_readiness_scale_systemwide` runs owned preparation fixtures with
 system-wide focus cross-checks instead of the application-frontmost reader.
 The fixture's activation callback count and the sampled foreground/focus result
 are separate observations. The receiving oracle waits for the original request's
@@ -58,7 +58,7 @@ terminal. It never repeats preparation. Even a receiving PASS with
 UNCHANGED_SAMPLED has `input_preservation_verified=false`: real concurrent human
 typing, caret/selection and pointer preservation remain separately required.
 
-`nlc eval signed_finder_cpu_profile` adds a read-only whole-process CPU snapshot
+`tacto eval signed_finder_cpu_profile` adds a read-only whole-process CPU snapshot
 immediately before/after the full preflight RPC. It first checks the current
 host's Mach-timebase conversion against its own POSIX CPU time; a failed check
 refuses the measurement. PID/start/timebase changes or a regressing counter

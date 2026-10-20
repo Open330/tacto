@@ -72,7 +72,7 @@ power-loss durability, automatic resume or exactly-once delivery under all failu
 
 ## Signed native integration
 
-`nlc eval signed_producer_worker_reconcile --report NEW.json` explicitly checks
+`tacto eval signed_producer_worker_reconcile --report NEW.json` explicitly checks
 an owned producer Save, worker exit17 before reply logging, and a new signed
 worker. The original event/expectation is retained before input. Fresh callback
 and file reads reconcile slot0; slot1 dispatches one new owned native button

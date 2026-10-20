@@ -186,7 +186,7 @@ uv sync
 <summary>설치 문제와 개발 버전의 반복 실행</summary>
 
 스킬을 찾지 못하면 에이전트 세션을 다시 열고 `./skill/install.sh --check`로 연결을 확인하세요.
-Python 배포 이름은 `tacto-runtime`이며 기본 import는 `tacto`이며 `nlc`는 호환 계층입니다.
+Python 배포 이름은 `tacto-runtime`이고 기본 import는 `tacto`입니다. `nlc`는 호환 계층입니다.
 Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습니다.
 기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 권한용 앱은 **Tacto Helper**(`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`)이고 실행기는 `launcher/tacto`입니다. 번들 식별자와 서명 요구조건은 `ai.callabo.nlc.*`를 사용합니다.
 

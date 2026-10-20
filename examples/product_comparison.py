@@ -1,11 +1,11 @@
-"""Same agent, same task, two computer-use layers: NLC versus OpenAI's Sky.
+"""Same agent, same task, two computer-use layers: Tacto versus OpenAI's Sky.
 
 Both arms invoke the same local Codex CLI route. This does not verify identical
 serving models, reasoning, account state, or initial app state; those require
 separate recorded evidence. The requested computer-use layers are:
 
   sky  — Codex's own Computer Use plugin (@oai/sky through node_repl `js`)
-  nlc  — the NLC skill and the `nlc` command
+  nlc  — the Tacto skill and the `tacto` command (historical arm key retained)
 
 Each task names an independent oracle — read by this harness after the run,
 from the app or the file system — and never trusts what the agent says it did.
@@ -61,10 +61,10 @@ BACKGROUND_CONSTRAINT = (
 ARM_CLAUSE = {
     "sky": ("Use the Computer Use plugin: the `js` tool of the node_repl MCP server with "
             "the @oai/sky interface (search your deferred tools for it if it is not listed). "
-            "Do not use the `nlc` command."),
-    "nlc": ("Use the nlc skill and the `nlc` command to drive the app. "
+            "Do not use the `tacto` or legacy `nlc` command."),
+    "nlc": ("Use the tacto skill and the `tacto` command to drive the app. "
             "Do not use the Computer Use plugin or node_repl. "
-            "Use the installed signed nlc (typically ~/.local/bin/nlc) with --helper for GUI operations."),
+            "Use the installed signed tacto (typically ~/.local/bin/tacto) with --helper for GUI operations."),
 }
 
 
@@ -1657,7 +1657,7 @@ def main(argv=None) -> int:
             worker.close()
     from tacto.helper import InheritedHelperDriver
     if not InheritedHelperDriver.available() and _FIXTURE_WORKER is None:
-        print('Use the signed launcher: nlc eval --product-comparison [options]')
+        print('Use the signed launcher: tacto eval --product-comparison [options]')
         return 2
     if args.diagnose_owned_document_pin:
         reply = _driver().document_text('com.apple.TextEdit', document_path=args.diagnose_owned_document_pin)
