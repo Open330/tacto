@@ -542,3 +542,23 @@ selection while preserving its body. A separate border-selection attempt
 resized its test window before geometry monitoring stopped the stroke with an
 unknown effect. That failed case is retained in validation; window resizing
 remains outside this route's supported scope.
+
+
+## 2026-10-20 Preview 9 namespace migration
+
+Preview 9 is built from `d6bc0fea36800658ce3de5183ab9dee3f1b18e46` and uses
+`ai.callabo.tacto.*` signing identities. The app and DMG passed secure-timestamped
+Developer ID signing, Apple notarization, stapled tickets, and Gatekeeper.
+All twelve automated artifact checks passed. Stable qualification evidence
+remains incomplete; this is a developer prerelease.
+
+The same notarized app was installed on three designated Macs. Complete bundle
+manifests matched before and after launch, signing requirements were verified,
+canonical command/Claude/Codex links were current, retired owned links were
+removed, and all three menu-bar apps were running with hidden Dock icons.
+Existing user Flow bytes were preserved. At installation time all three needed
+macOS permissions granted to the new identities; settings windows were opened.
+This verifies deployment, not successful GUI task execution after the identity
+change. No permission database was changed by the installer.
+
+[Download and signed validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.9).
