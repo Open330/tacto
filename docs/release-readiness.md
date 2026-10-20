@@ -562,3 +562,24 @@ This verifies deployment, not successful GUI task execution after the identity
 change. No permission database was changed by the installer.
 
 [Download and signed validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.9).
+
+
+## 2026-10-20 Preview 10 setup lifecycle fix
+
+Preview 10 is built from `2535b23` and keeps Preview 9 signing identities and
+native automation peers. It fixes automatic setup-window resizing, dismissed
+permission guides reappearing, and the guide taking keyboard focus. Background
+scroll areas are painted consistently. Offscreen AppKit regression checks cover
+state transitions, 20 reopens, guide timers, overlapping completion callbacks,
+and an owned secure-input field; targeted tests 14/14 and five layout states passed.
+Real OS authentication credentials were not entered or inspected by these tests.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. The same app is installed on three designated Macs;
+full manifests after launch, signatures, canonical links, retired command absence,
+menu-bar execution and hidden Dock icons passed. User Flow bytes were preserved.
+Both permission checks were off before and after this update on all three Macs;
+this is not positive evidence of already-enabled grant retention. Settings were
+left in the background to avoid taking focus from ongoing authentication.
+
+[Preview 10 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.10).
