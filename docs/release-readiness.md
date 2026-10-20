@@ -666,3 +666,30 @@ were preserved; only one Mac had both permissions enabled before the upgrade.
 Stable human qualification remains separate from this developer preview.
 
 [Preview 13 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.13).
+
+
+## 2026-10-20 Preview 14 native app spacing and resizing
+
+Preview 14 is built from `219b50d`. Sidebar navigation has explicit 12pt content
+insets and consistent 38pt buttons. The initial run list is 300pt wide; window
+resizing adjusts the detail pane and divider limits preserve usable minimum
+widths. List rows, search controls, headings and timeline spacing were balanced.
+Settings explanations wrap within card padding. Empty-state messages now use
+the same detail width and insets as populated records.
+
+The 67 targeted tests passed, with native checks for list-width preservation on
+resize, detail minimum width, retained navigation labels/icons and empty-state
+alignment. Seven bundled light/dark, compact and empty-state renders were
+reviewed. A signed Tacto test on one designated Mac navigated history/settings,
+searched TextEdit and displayed the existing first-task timeline; the native
+observation independently reported the 300pt divider position. Real preferences
+and records were not changed or deleted, and the first task was not repeated.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. A first empty reserved installer output was discarded
+after staged-image verification failed; the rebuilt image passed before
+submission. All three designated Macs received identical Preview 14 bundles,
+retained existing data and enabled permissions, and passed post-launch audits.
+Stable human qualification remains separate from this developer preview.
+
+[Preview 14 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14).
