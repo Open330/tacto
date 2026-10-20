@@ -92,7 +92,7 @@ def audit(url, output, axe_source=None, browser_executable=None):
                 and page.locator('#demo-panel').get_attribute('aria-labelledby') == 'demo-tab-'+name)
         checks['one_tab_stop'] = page.locator('[role="tab"][tabindex="0"]').count() == 1
         checks['no_autoplay_or_preload'] = page.locator('video').evaluate_all(
-            '(items)=>items.length===12&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.parentElement.querySelector(".video-start"))')
+            '(items)=>items.length===13&&items.every(e=>!e.autoplay&&e.preload==="none"&&e.parentElement.querySelector(".video-start"))')
         page.locator('.fixture-example summary').click()
         for index in range(page.locator('video').count()):
             video = page.locator('video').nth(index)
@@ -180,7 +180,7 @@ def audit(url, output, axe_source=None, browser_executable=None):
         fallback = nojs.new_page()
         fallback.goto(url, wait_until='networkidle')
         checks['nojs_all_ten_cases'] = fallback.locator('.everyday-case:visible').count()==10
-        checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===12&&items.every(e=>e.controls)')
+        checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===13&&items.every(e=>e.controls)')
         checks['nojs_example_complete'] = fallback.locator('#demo-lines').inner_text().endswith('결과 조건 검증 완료')
         checks['nojs_install_present'] = fallback.locator('#start a[href*="/releases/download/"][href$=".dmg"]').is_visible()
         checks['nojs_controls_disabled'] = fallback.locator('[data-copy="install-command"]').is_disabled()
