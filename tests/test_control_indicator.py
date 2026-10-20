@@ -218,6 +218,25 @@ print(String(data:try! JSONSerialization.data(withJSONObject:["inside":screen.co
         self.assertEqual(0,result.returncode,result.stderr)
         self.assertEqual({'inside':True,'moved':True,'blocked':True,'other':True},json.loads(result.stdout))
 
+    def test_compact_control_fits_narrow_gutter_without_covering_target(self):
+        import json, shutil, subprocess, tempfile
+        if not shutil.which('swift'): self.skipTest('macOS Swift required')
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        code=text[text.index('func availableControlFrame('):text.index('func controlTargetFrames(')]
+        harness='import Foundation\nimport CoreGraphics\n'+code+r'''
+let screen=CGRect(x:0,y:62,width:1512,height:887)
+let targets=[CGRect(x:72,y:62,width:1324,height:887),CGRect(x:410,y:62,width:1015,height:754)]
+let compact=availableControlPanelFrame(screens:[screen],avoiding:targets)!
+let normal=availableControlPanelFrame(screens:[screen],avoiding:[])!
+let blocked=availableControlPanelFrame(screens:[screen],avoiding:[screen])
+print(String(data:try! JSONSerialization.data(withJSONObject:["compact":compact.width==96,"inside":screen.contains(compact),"outside":!targets.contains(where:{$0.intersects(compact)}),"normal":normal.width==292,"blocked":blocked==nil]),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/'main.swift';path.write_text(harness)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=60)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual(dict(compact=True,inside=True,outside=True,normal=True,blocked=True),json.loads(result.stdout))
+
     def test_the_indicator_still_gates_every_action(self):
         # The point of it is that a caller cannot act invisibly. Losing the
         # outline must not lose that.

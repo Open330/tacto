@@ -693,3 +693,24 @@ retained existing data and enabled permissions, and passed post-launch audits.
 Stable human qualification remains separate from this developer preview.
 
 [Preview 14 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14).
+
+
+## 2026-10-20 development fix: narrow-gutter stop control
+
+A Safari window occupying the display height left no room for the standard
+292pt stop panel. The signed development helper now tries a 96pt layout with
+an accessible, labeled Stop button when the standard layout cannot fit. Both
+layouts must remain inside an awake display and outside every target window;
+visibility, active-Space, nonactivation and Esc checks remain enforced. A
+fully covered display still refuses work. Existing panels resize their controls
+when switching layouts.
+
+The 32 targeted control-indicator/window-key tests passed. The development
+helper was built and verified with the installed app's signing team. Live
+Safari observation, address editing, opening a new tab and navigation to the
+GitHub Support sign-in page succeeded with the narrow-gutter layout. The
+navigation CLI reported a missing host completion receipt; a separate fresh
+observation verified the resulting Support page. No support request was
+submitted during this validation. This fix is development source, not part of
+the already notarized Preview 14 app or DMG; installed release files were not
+replaced.

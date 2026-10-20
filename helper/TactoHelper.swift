@@ -3790,6 +3790,16 @@ func availableControlFrame(screens: [CGRect], avoiding targets: [CGRect], size: 
     return nil
 }
 
+/// Preserve the outside-target rule when only a narrow screen gutter is free.
+/// The compact layout keeps a labeled Stop button; Esc and menu status remain.
+func availableControlPanelFrame(screens: [CGRect], avoiding targets: [CGRect]) -> CGRect? {
+    for width in [CGFloat(292), CGFloat(96)] {
+        if let frame = availableControlFrame(screens:screens, avoiding:targets,
+                                             size:CGSize(width:width,height:56)) { return frame }
+    }
+    return nil
+}
+
 func controlTargetFrames(forPID pid: pid_t, primaryTop: CGFloat) -> [CGRect]? {
     var listing = WindowListingDiagnostic()
     let windows = realWindows(of: AXUIElementCreateApplication(pid), diagnostic: &listing)
@@ -3816,14 +3826,14 @@ func controlTargetFrames(forPID pid: pid_t, primaryTop: CGFloat) -> [CGRect]? {
 
 func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
     let who = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "앱"
-    guard let frame = availableControlFrame(screens: NSScreen.screens.map { $0.visibleFrame },
-                            avoiding: targets, size: CGSize(width:292,height:56)) else {
+    guard let frame = availableControlPanelFrame(screens: NSScreen.screens.map { $0.visibleFrame },
+                            avoiding: targets) else {
         controlPanelDiagnostic=["frame_available":false];return false
     }
     let size = frame.size
     if let panel = controlPanel {
         guard panel.isOnActiveSpace else { return false }
-        panel.setFrameOrigin(frame.origin)
+        panel.setFrame(frame, display:true)
     }
     if controlPanel == nil {
         let panel = TactoControlPanel(contentRect: frame,
@@ -3848,11 +3858,13 @@ func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
         title.lineBreakMode = .byTruncatingTail
         title.frame = NSRect(x: 16, y: 28, width: 185, height: 18)
         let help = NSTextField(labelWithString: "앱 조작 중 · Esc로 즉시 중단")
+        help.identifier = NSUserInterfaceItemIdentifier("control-help")
         help.font = NSFont.systemFont(ofSize: 11)
         help.textColor = .secondaryLabelColor
         help.frame = NSRect(x: 16, y: 10, width: 185, height: 16)
         let stop = TactoStopButton(title: "중단", target: ControlMenuTarget.shared,
                             action: #selector(ControlMenuTarget.stopNow(_:)))
+        stop.identifier = NSUserInterfaceItemIdentifier("control-stop")
         stop.bezelStyle = .rounded
         stop.frame = NSRect(x: 215, y: 12, width: 63, height: 32)
         stop.setAccessibilityLabel("Tacto 작업 중단")
@@ -3861,6 +3873,14 @@ func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
         controlPanel = panel; controlPanelLabel = title
         // orderFront does not activate the application or make this panel key.
         panel.orderFrontRegardless()
+    }
+    let compact = frame.width < 292
+    controlPanelLabel?.isHidden = compact
+    controlPanel?.contentView?.subviews.first(where: { $0.identifier?.rawValue == "control-help" })?.isHidden = compact
+    if let stop = controlPanel?.contentView?.subviews.first(where: { $0.identifier?.rawValue == "control-stop" }) as? NSButton {
+        stop.frame = compact ? NSRect(x:12,y:12,width:frame.width-24,height:32)
+                             : NSRect(x:215,y:12,width:63,height:32)
+        stop.toolTip = "Tacto · \(who) · Esc로 즉시 중단"
     }
     controlPanelLabel?.stringValue = "Tacto · \(who)"
     // If the person changes Spaces or covers/closes the control, refuse work.
