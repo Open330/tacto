@@ -93,7 +93,7 @@ def _slot(guard, number):
         if not 1<=len(lines)<=2:raise JournalReconciliationError('invalid_journal_record')
         first=json.loads(lines[0],object_pairs_hook=_object)
         if (type(first) is not dict or set(first)!={'schema','slot','operation_sha256','state'}
-                or first['schema']!='nlc-dispatch-v1' or type(first['slot']) is not int
+                or first['schema']!='tacto-dispatch-v1' or type(first['slot']) is not int
                 or first['slot']!=number or first['state']!='reserved'
                 or not isinstance(first['operation_sha256'],str)
                 or re.fullmatch('[0-9a-f]{64}',first['operation_sha256']) is None):

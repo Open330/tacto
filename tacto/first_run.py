@@ -1,12 +1,14 @@
 """One fixed, model-free first task; input verification is not a Save receipt."""
 import time
 import math
-from .app_launch import launch_app
+from .app_launch import launch_app, present_app
 from .document_label import window_attributes, window_flag
 from .flow import Flow, Step, Selector, Postcondition, replay, pin_params, _replay_observation
 from .contract import SafetyContract, Resource, ContextBinding
 from .agent import Agent
 from .library import textedit_new_document
+from .preferences import load_preferences
+from .access_log import current as current_access_log
 
 TARGET = 'com.apple.TextEdit'
 TEXT = 'Hello, World!\nTacto로 작성했습니다.'
@@ -54,7 +56,7 @@ def _windows(observation):
     return (pid, start), documents, set(mapping.values())
 
 
-def run_first_task(driver, *, launch=launch_app, execute=replay):
+def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
     started = time.monotonic()
     def result(status, stage, **extra):
         if status == 'failed':
@@ -80,19 +82,30 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
     created = execute(driver, textedit_new_document())
     if not created.ok:
         return result('failed', 'new_document', error='new_document_not_verified')
-    after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
-    if after.get('type') != 'observation' or after.get('truncated'):
-        return result('failed', 'new_document_identity',
-                      error=after.get('error', 'incomplete_observation'), repeat_write=False)
-    try:
-        after_owner, windows, _ = _windows(after)
-    except ValueError as exc:
-        return result('failed', 'new_document_identity', error=str(exc))
-    new_ids = set(windows) - set(old)
-    if after_owner != owner:
-        return result('failed', 'new_document_identity', error='application_identity_changed')
-    if len(new_ids) != 1 or not set(old).issubset(windows):
-        return result('failed', 'new_document_identity', error='new_window_not_unique')
+    # The New menu's generic postcondition can see an EXISTING text area
+    # before TextEdit publishes its new window. Settle by reading only; never
+    # resend New or a write in response to delayed AX window creation.
+    for identity_read in range(8):
+        after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
+        if after.get('type') != 'observation' or after.get('truncated'):
+            return result('failed', 'new_document_identity',
+                          error=after.get('error', 'incomplete_observation'), repeat_write=False)
+        try:
+            after_owner, windows, _ = _windows(after)
+        except ValueError as exc:
+            return result('failed', 'new_document_identity', error=str(exc))
+        new_ids = set(windows) - set(old)
+        if after_owner != owner:
+            return result('failed', 'new_document_identity', error='application_identity_changed')
+        if len(new_ids) == 1 and set(old).issubset(windows):
+            break
+        if len(new_ids) > 1 or identity_read == 7:
+            return result('failed', 'new_document_identity', error='new_window_not_unique',
+                          identity_reads=identity_read + 1,
+                          before_document_count=len(old), after_document_count=len(windows),
+                          new_document_count=len(new_ids),
+                          missing_existing_document_count=len(set(old) - set(windows)))
+        time.sleep(0.1)
     new_id = next(iter(new_ids))
     if new_id in old_ids:
         return result('failed', 'new_document_identity', error='new_window_not_unique')
@@ -150,7 +163,37 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
             or verified_window is None or not visible_text.check(verified_window['tree'])):
         return result('failed', 'verify', error=fresh.get('error', 'text_not_verified'), repeat_write=False)
     title = verified_window['attrs'].get('Title')
+    # This fixed welcome task explicitly presents its result. Ordinary flows
+    # and launch_app retain their background behavior. Presentation failure
+    # cannot turn verified text into a request to repeat the write.
+    presentation = {'foreground_verified': False, 'error': 'result_document_not_focused'}
+    access = current_access_log.get()
+    preferences = access.preferences if access is not None else load_preferences()
+    skipped = not preferences['present_first_result']
+    if not skipped and verified_window['focused']:
+        try:
+            presentation = (present or present_app)(TARGET, owner[0])
+        except Exception:
+            presentation = {'foreground_verified': False, 'error': 'presentation_unavailable'}
+    if not isinstance(presentation, dict):
+        presentation = {'foreground_verified': False, 'error': 'presentation_unavailable'}
+    foreground = presentation.get('foreground_verified') is True
+    if foreground:
+        shown = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
+        try:
+            shown_owner, shown_windows, _ = _windows(shown)
+            shown_window = shown_windows.get(new_id)
+            foreground = (shown.get('type') == 'observation' and not shown.get('truncated')
+                          and shown_owner == owner and shown_window is not None
+                          and shown_window['focused'] and visible_text.check(shown_window['tree']))
+        except (ValueError, KeyError, TypeError):
+            foreground = False
+        if not foreground:
+            presentation = {'error': 'result_window_not_verified'}
     return result('text_verified', 'complete', target=TARGET, window_title=title, window_id=new_id,
                   text=TEXT, persistent_commit_verified=False,
+                  foreground_verified=foreground,
+                  **({'presentation_skipped': True} if skipped else
+                     {'presentation_error': presentation.get('error', 'presentation_unavailable')} if not foreground else {}),
                   write_receipt='verified' if written.ok else 'commit_unverified',
                   scope='new document visible text only')

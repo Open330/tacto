@@ -1,5 +1,9 @@
 # Tacto native release fixes — 2026-10-16
 
+> 이름 이전 안내: 이 과거 기록의 제품명·서명 ID 표기는 현재 Tacto 이름으로 정규화했습니다. 당시 바이너리를 새 ID로 재서명하거나 아래 결과를 재측정했다는 뜻은 아닙니다. 측정 수치와 성공·실패 결과는 유지합니다.
+
+> 제품·측정 라벨·식별자는 현재 Tacto 이름으로 정규화했습니다. 당시 측정 수치와 성공·실패는 유지하며, 새 서명 배포를 검증했다는 뜻은 아닙니다.
+
 The previous peer review identified a development foreground-input conflict and
 a native signing policy pinned to one project team. Both findings were corrected.
 This report covers these changes and the permission/packaging preview, rather
@@ -143,9 +147,9 @@ This observation also corrected the earlier transient-pane interpretation.
 After the person added Tacto Helper and the Settings toggle showed on, a fresh
 standalone receipt still reported screen capture unavailable. A read-only TCC
 log correlated the exact preflight request IDs with services and subjects:
-standalone ScreenCapture used `ai.callabo.nlc.setup.standalone.preview`, while
-Accessibility used `ai.callabo.nlc.helper`. The external source helper used
-`ai.callabo.nlc.helper` for both services. This establishes why telling the
+standalone ScreenCapture used `ai.callabo.tacto.setup.standalone.preview`, while
+Accessibility used `ai.callabo.tacto.helper`. The external source helper used
+`ai.callabo.tacto.helper` for both services. This establishes why telling the
 person to add only the embedded helper could not complete the screen grant.
 
 The standalone GUI now gives the person Tacto.app for screen capture and the

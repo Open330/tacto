@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET = 'ai.callabo.nlc.readiness-scale-fixture'
+TARGET = 'ai.callabo.tacto.readiness-scale-fixture'
 COUNTS = (0, 512, 6000)
 
 
@@ -48,7 +48,7 @@ def receiving_state(data, nonce, count):
 
 
 def _source_manifest(root):
-    paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+    paths=list((root/'tacto').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
         Path(__file__).resolve(),root/'tests/fixtures/NativeReadinessScaleFixture.swift',
         root/'examples/eval.py',root/'launcher/tacto',root/'launcher/tacto.swift',
         root/'helper/tacto-helper',root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper',
@@ -121,12 +121,12 @@ def _run(driver, report, *, audit_strategy='application_frontmost'):
     if host._resolve(TARGET,launch=False) is not None:
         raise RuntimeError('owned_fixture_already_running')
     try:
-        with tempfile.TemporaryDirectory(prefix='nlc-readiness-scale-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-readiness-scale-') as directory:
             work=Path(directory);bundle=work/'Scale.app';binary=bundle/'Contents/MacOS/Scale'
             binary.parent.mkdir(parents=True)
             info=bundle/'Contents/Info.plist'
             info.write_bytes(plistlib.dumps({'CFBundleIdentifier':TARGET,'CFBundleExecutable':'Scale',
-                'CFBundleName':'NLC Readiness Scale','CFBundlePackageType':'APPL','LSUIElement':True}))
+                'CFBundleName':'TACTO Readiness Scale','CFBundlePackageType':'APPL','LSUIElement':True}))
             subprocess.run(['xcrun','swiftc','-O','-warnings-as-errors','-parse-as-library',
                 str(root/'tests/fixtures/NativeReadinessScaleFixture.swift'),'-o',str(binary)],
                 capture_output=True,check=True,timeout=60)
@@ -197,7 +197,7 @@ def _run(driver, report, *, audit_strategy='application_frontmost'):
                             if actual!=count:raise RuntimeError('owned_leaf_count_mismatch')
                             observation=driver.observe(TARGET,'tree_full')
                             if observation.get('type')!='observation':raise RuntimeError('signed_observation_failed')
-                            window,_=Selector(role='Window',title='NLC Readiness Scale A').resolve(observation['tree'])
+                            window,_=Selector(role='Window',title='TACTO Readiness Scale A').resolve(observation['tree'])
                             case['before_preparation']=state()
                             started=time.monotonic()
                             reply=driver.act(observation['obs_id'],TARGET,{'name':'prepare_window','element_index':window})

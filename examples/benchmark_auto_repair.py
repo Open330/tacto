@@ -21,7 +21,7 @@ def sources():
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--source',required=True);parser.add_argument('--output',required=True)
     args=parser.parse_args();base=Path(args.output).resolve();base.mkdir(mode=0o700)
-    target='ai.callabo.nlc.repeatbench.'+uuid.uuid4().hex[:8]
+    target='ai.callabo.tacto.repeatbench.'+uuid.uuid4().hex[:8]
     fixture=Fixture(base/'fixture',build(base,target));client=None;rows=[]
     recipe=variants(Flow.from_json(Path(args.source).read_text()),target)['grouped_checks']
     template=base/'template.json';template.write_text(recipe.to_json(compact=True));template.chmod(0o600)

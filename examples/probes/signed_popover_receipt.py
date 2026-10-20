@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET='ai.callabo.nlc.popover-receipt-fixture'
+TARGET='ai.callabo.tacto.popover-receipt-fixture'
 MODES=('clear','transient','semitransient')
 
 
@@ -91,7 +91,7 @@ def _run(driver,report,*,prepared=False,routing_refusal=False):
         AXUIElementSetMessagingTimeout,AXUIElementGetPid,AXUIElementGetTypeID)
     from CoreFoundation import CFGetTypeID,CFStringGetTypeID
     root=Path(__file__).resolve().parents[2]
-    paths=list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
+    paths=list((root/'tacto').glob('*.py'))+list((root/'helper').glob('*.swift'))+[
         Path(__file__).resolve(),root/'examples/eval.py',root/'tests/fixtures/NativePopoverReceiptFixture.swift',
         root/'launcher/tacto',root/'launcher/tacto.swift',root/'helper/tacto-helper',
         root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper',root/'helper/Tacto Helper.app/Contents/Info.plist']
@@ -99,10 +99,10 @@ def _run(driver,report,*,prepared=False,routing_refusal=False):
     report['source_subset_before']=manifest();host=Driver();host._pump(.05)
     if host._resolve(TARGET,launch=False) is not None:raise RuntimeError('owned_fixture_already_running')
     try:
-        with tempfile.TemporaryDirectory(prefix='nlc-popover-receipt-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-popover-receipt-') as directory:
             work=Path(directory);binary=work/'Receipt.app/Contents/MacOS/Receipt';binary.parent.mkdir(parents=True)
             info=binary.parent.parent/'Info.plist';info.write_bytes(plistlib.dumps({'CFBundleIdentifier':TARGET,
-                'CFBundleExecutable':'Receipt','CFBundleName':'NLC Popover Receipt','CFBundlePackageType':'APPL','LSUIElement':True}))
+                'CFBundleExecutable':'Receipt','CFBundleName':'TACTO Popover Receipt','CFBundlePackageType':'APPL','LSUIElement':True}))
             subprocess.run(['xcrun','swiftc','-O','-warnings-as-errors','-parse-as-library',
                 str(root/'tests/fixtures/NativePopoverReceiptFixture.swift'),'-o',str(binary)],capture_output=True,check=True,timeout=60)
             report['fixture_artifact']={'binary_sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -147,11 +147,11 @@ def _run(driver,report,*,prepared=False,routing_refusal=False):
                             if owner_error!=0 or owner!=child.pid:raise RuntimeError('focus_window_owner')
                             title=attribute(focused,'AXTitle')
                             case['owned_app_focused_target']=(CFGetTypeID(title)==CFStringGetTypeID()
-                                and str(title)=='NLC Popover Receipt '+'AB'[index])
+                                and str(title)=='TACTO Popover Receipt '+'AB'[index])
                             if case['owned_app_focused_target']==routing_refusal:raise RuntimeError('owned_focus_condition_not_met')
                             observation=driver.observe(TARGET,'tree_full')
                             if observation.get('type')!='observation':raise RuntimeError('observation_unavailable')
-                            window,_=Selector(role='Window',title='NLC Popover Receipt '+'AB'[index]).resolve(observation['tree'])
+                            window,_=Selector(role='Window',title='TACTO Popover Receipt '+'AB'[index]).resolve(observation['tree'])
                             if prepared:
                                 case['before_preparation']=state()
                                 case['preparation_response']=driver.act(observation['obs_id'],TARGET,
@@ -167,7 +167,7 @@ def _run(driver,report,*,prepared=False,routing_refusal=False):
                                 if any(v for r in ready['receivers'] for v in r.values()):raise RuntimeError('preparation_touched_content')
                                 observation=driver.observe(TARGET,'tree_full')
                                 if observation.get('type')!='observation':raise RuntimeError('post_preparation_observation_unavailable')
-                                window,_=Selector(role='Window',title='NLC Popover Receipt '+'AB'[index]).resolve(observation['tree'])
+                                window,_=Selector(role='Window',title='TACTO Popover Receipt '+'AB'[index]).resolve(observation['tree'])
                             case['before']=before=state()
                             if not prepared and mode!='clear' and not before['popover_shown']:raise RuntimeError('popover_closed_before_input')
                             # Window-relative top-left coordinates, inside the owned receiver rectangle.

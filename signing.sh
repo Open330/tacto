@@ -1,10 +1,10 @@
 # Native peers trust the same Apple-issued signing team, not one developer team.
-TACTO_LAUNCHER_ID=ai.callabo.nlc
-TACTO_HELPER_ID=ai.callabo.nlc.helper
+TACTO_LAUNCHER_ID=ai.callabo.tacto
+TACTO_HELPER_ID=ai.callabo.tacto.helper
 
 tacto_select_identity() {
-  if [ -n "${TACTO_SIGN_IDENTITY:-${NLC_SIGN_IDENTITY:-}}" ]; then
-    IDENTITY=${TACTO_SIGN_IDENTITY:-$NLC_SIGN_IDENTITY}
+  if [ -n "${TACTO_SIGN_IDENTITY:-}" ]; then
+    IDENTITY=$TACTO_SIGN_IDENTITY
   else
     IDENTITY=$(security find-identity -p codesigning -v | sed -nE '/CSSMERR/!s/^[[:space:]]*[0-9]+\) ([0-9A-Fa-f]{40}) .*/\1/p' | head -1)
   fi
@@ -37,14 +37,19 @@ tacto_sign() {
   printf 'Verified signing team: %s (%s)\n' "$team" "$identifier"
 }
 
-# Warn before replacing a previously signed artifact. Team changes correctly
-# change its designated requirement and can require a new macOS permission grant.
+# Warn before replacing a signed artifact whose designated identity changed.
+# macOS permission grants bind to both the identifier and the signing team.
 tacto_warn_team_change() {
-  local previous=$1 replacement=$2 old new
+  local previous=$1 replacement=$2 old new old_id new_id
   [ -e "$previous" ] || return 0
   old=$(codesign -dv --verbose=4 "$previous" 2>&1 | sed -n 's/^TeamIdentifier=//p') || return 0
   new=$(codesign -dv --verbose=4 "$replacement" 2>&1 | sed -n 's/^TeamIdentifier=//p') || return 0
+  old_id=$(codesign -dv --verbose=4 "$previous" 2>&1 | sed -n 's/^Identifier=//p') || return 0
+  new_id=$(codesign -dv --verbose=4 "$replacement" 2>&1 | sed -n 's/^Identifier=//p') || return 0
   if [ -n "$old" ] && [ "$old" != "$new" ]; then
     printf 'Signing team changed: %s -> %s. macOS permissions may need to be granted again. Set TACTO_SIGN_IDENTITY to retain the intended team.\n' "$old" "$new" >&2
+  fi
+  if [ -n "$old_id" ] && [ "$old_id" != "$new_id" ]; then
+    printf 'Signing identifier changed: %s -> %s. Grant macOS Accessibility and Screen Recording permissions to the new app identity.\n' "$old_id" "$new_id" >&2
   fi
 }

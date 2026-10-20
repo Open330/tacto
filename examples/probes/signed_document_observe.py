@@ -11,9 +11,9 @@ from signed_owned_textedit import SignedOwnedTextEdit,TARGET
 def run(driver,*,can_cleanup,escaped_name=False,run_read=False):
     from focus_witness import FocusWitness
     nonce=secrets.token_hex(8)
-    wanted='NLC owned selected '+nonce;decoy='NLC owned unselected '+nonce
+    wanted='TACTO owned selected '+nonce;decoy='TACTO owned unselected '+nonce
     # Same basename in different private directories: titles cannot select it.
-    name='NLC scoped '+nonce+(' [focused], Title: "quoted"' if escaped_name else '')+'.txt'
+    name='TACTO scoped '+nonce+(' [focused], Title: "quoted"' if escaped_name else '')+'.txt'
     fixtures=[SignedOwnedTextEdit(driver,name),SignedOwnedTextEdit(driver,name)]
     report={'passed':False,'scope':'installed_signed_cli_replay_two_owned_documents' if run_read else 'installed_signed_cli_observation_two_owned_documents',
             'model_requests':0,'paths':[],'cleanup_statuses':[]}
@@ -26,7 +26,7 @@ def run(driver,*,can_cleanup,escaped_name=False,run_read=False):
             executable=Path.home()/'.local/bin/tacto'
             env={key:value for key,value in os.environ.items()
                  if key not in ('TACTO_HELPER_FD','TACTO_HELPER_TOKEN','TACTO_LAUNCHER')}
-            with tempfile.TemporaryDirectory(prefix='nlc-scoped-replay-') as flow_dir:
+            with tempfile.TemporaryDirectory(prefix='tacto-scoped-replay-') as flow_dir:
                 if run_read:
                     from tacto.flow import Flow,Step,Capture,Selector
                     from tacto.contract import Envelope

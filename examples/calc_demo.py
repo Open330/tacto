@@ -1,4 +1,4 @@
-"""P0 smoke test: reproduce the codex calculator demo through the NLC driver.
+"""P0 smoke test: reproduce the codex calculator demo through the TACTO driver.
 
 Clicks 1 2 × 3 4 = in Calculator using only L2 messages, re-observing after
 every act (D3/D7), and verifies 408 appears in the final tree.

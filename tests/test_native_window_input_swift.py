@@ -32,7 +32,7 @@ for mode in ["nil","duplicate","owner","layer","numeric_bool","missing_id","zero
 }
 print("SWIFT_POPUP_VISIBILITY_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-popup-visibility-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-popup-visibility-') as directory:
             source,binary=Path(directory)/'main.swift',Path(directory)/'check'
             source.write_text(harness)
             built=subprocess.run(['xcrun','swiftc',str(source),str(ROOT/'helper/WindowInput.swift'),
@@ -86,7 +86,7 @@ for anchor in [CGRect(x: 18, y: 100, width: 14, height: 14),
 }
 print("SWIFT_WINDOW_INPUT_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-swift-window-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-swift-window-') as directory:
             source = Path(directory)/'main.swift'
             binary = Path(directory)/'check'
             source.write_text(harness)
@@ -221,7 +221,7 @@ guard (failure["effect"] as? String) == "unknown", writes == 1 else {
 }
 print("SWIFT_PREPARE_GUARD_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-swift-prepare-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-swift-prepare-') as directory:
             script = Path(directory)/'main.swift'
             binary = Path(directory)/'check'
             script.write_text(harness)

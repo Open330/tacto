@@ -371,7 +371,7 @@ Trace JSON   무엇이 보였고 무엇이 일어났는지 — 관찰 트리·�
 링크**다(`~/.local/share/uv/python/.../python3.11`). 그래서:
 
 - Tacto에 접근성 권한을 주면 **그 인터프리터로 실행되는 모든 스크립트**가 권한을
-  얻는다. 실증: Tacto와 무관한 `/tmp/not_nlc.py`가 다른 앱의 창을 그대로 읽었다.
+  얻는다. 실증: Tacto와 무관한 `/tmp/not_tacto.py`가 다른 앱의 창을 그대로 읽었다.
 - 파이썬 버전을 올리거나 재설치하면 경로가 바뀌어 권한이 끊긴다.
 - 모델 루프와 OS 권한이 같은 프로세스에 있다 — **D8(권한 분리) 위반**.
 
@@ -567,7 +567,7 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 
 ### 3.12 서명된 `tacto` — 경계가 실제로 닫힌 지점
 
-**구현 완료.** `launcher/tacto.swift`(서명, `identifier ai.callabo.nlc`, Team
+**구현 완료.** `launcher/tacto.swift`(서명, `identifier ai.callabo.tacto`, Team
 `48H4RZNB97`)가 유일한 클라이언트이고, 도우미는 시작 시 **조상 체인에 이 요구조건을
 만족하는 프로세스가 있는지** `SecCodeCheckValidity`로 확인한다. 없으면 즉시 종료한다.
 
@@ -614,7 +614,7 @@ audit token을 직접 다룰 때는 PID 재조회 대신 `SecTaskCreateWithAudit
 ### 3.13 권한을 도우미에게 — 번들과 온보딩
 
 **`.app` 번들(구현 완료).** `helper/bundle.sh` 가 `Tacto Helper.app`
-(`ai.callabo.nlc.helper`, LSUIElement, 서명)을 만든다. 번들로 묶는 이유는 포장이
+(`ai.callabo.tacto.helper`, LSUIElement, 서명)을 만든다. 번들로 묶는 이유는 포장이
 아니라 **TCC가 클라이언트를 코드 서명으로 식별하고 목록에 번들 이름으로 표시**하기
 때문이다:
 
@@ -678,7 +678,7 @@ broker에 좁은 데이터 요청만 보낸다.
 
 ```
 Python (구별 불가)  →  broker (서명·좁음)  ═══소켓═══>  helper (TCC 권한 보유)
-   stdin/stdout          ai.callabo.nlc.broker          peer audit token 검증
+   stdin/stdout          ai.callabo.tacto.broker          peer audit token 검증
 ```
 
 **왜 broker가 필요한가.** peer 인증은 peer가 OS로 구별 가능한 바이너리일 때만
@@ -779,7 +779,7 @@ asid 100228, 그를 위해 열린 도우미는 100018(콘솔 세션)이었다. �
 **진단은 통합 로그로 나간다.** LaunchServices 가 띄운 앱에는 stdout·stderr 가
 없어서, 도우미가 거절 이유를 말해도 아무데도 닿지 않았다.
 
-    log show --last 5m --predicate 'subsystem == "ai.callabo.nlc"'
+    log show --last 5m --predicate 'subsystem == "ai.callabo.tacto"'
 
 ### 3.17 남은 항목 일괄 구현 (advisor 우선순위대로)
 

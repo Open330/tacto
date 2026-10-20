@@ -7,31 +7,16 @@ import subprocess
 
 
 def python_source_hashes(runtime, *, bundled_only=False):
-    """Hash the implementation plus its optional legacy import shim."""
+    """Hash the canonical Tacto implementation."""
     runtime = Path(runtime)
-    primary = None
-    for name in ('tacto', 'nlc'):
-        packages = list((runtime/'.venv/lib').glob(f'python*/site-packages/{name}'))
-        if len(packages) > 1:
-            raise ValueError(f'multiple bundled {name} packages')
-        candidate = packages[0] if packages else None
-        if candidate is None and not bundled_only:
-            candidate = runtime/name
-        if candidate is not None and candidate.exists():
-            if not (candidate/'__init__.py').is_file():
-                raise ValueError(f'invalid {name} package')
-            primary = candidate
-            break
-    if primary is None:
+    packages = list((runtime/'.venv/lib').glob('python*/site-packages/tacto'))
+    if len(packages) > 1:
+        raise ValueError('multiple bundled tacto packages')
+    primary = packages[0] if packages else (None if bundled_only else runtime/'tacto')
+    if primary is None or not (primary/'__init__.py').is_file():
         raise ValueError('runtime Python package unavailable')
-    sources = {str(path.relative_to(primary)): hashlib.sha256(path.read_bytes()).hexdigest()
-               for path in sorted(primary.rglob('*.py'))}
-    compatibility = primary.with_name('nlc')
-    if primary.name == 'tacto' and compatibility.is_dir():
-        sources.update({'nlc/'+str(path.relative_to(compatibility)):
-                        hashlib.sha256(path.read_bytes()).hexdigest()
-                        for path in sorted(compatibility.rglob('*.py'))})
-    return sources
+    return {str(path.relative_to(primary)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(primary.rglob('*.py'))}
 
 
 def identity(launcher):

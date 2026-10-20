@@ -16,7 +16,7 @@ class PermissionDisplayNameTests(unittest.TestCase):
             for name in ['Tacto Helper', 'Renamed Helper']:
                 with self.subTest(name=name):
                     (binary.parent.parent / 'Info.plist').write_bytes(plistlib.dumps({
-                        'CFBundleDisplayName': name, 'CFBundleIdentifier': 'ai.callabo.nlc.helper'}))
+                        'CFBundleDisplayName': name, 'CFBundleIdentifier': 'ai.callabo.tacto.helper'}))
                     actual = helper_display_name(binary)
                     self.assertEqual(name, actual)
                     check = _screen_recording_for(Check('screen_recording', False, '', '', ''),

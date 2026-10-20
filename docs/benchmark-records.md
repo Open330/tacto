@@ -1,5 +1,7 @@
 # 비교 실행 기록
 
+> 2026-10-20 이름 이전: 제품·arm·도구·fixture 라벨을 Tacto로 정규화했습니다. 재측정이 아니며 모든 토큰·시간·성공·실패 수치와 원래 결과의 한계를 유지합니다. 서명 ID 표기도 현재 이름으로 정규화한 것이며 당시 바이너리를 다시 서명했다는 뜻은 아닙니다. [이전 범위](tacto-branding.md#측정-기록의-이름-이전--2026-10-20).
+
 `examples/task_benchmark.py`의 fixture 실행은 Tacto의 알려진 page target을 사용하는 로컬 작업 평가다. 실제 앱 routing, arbitrary 저장 witness discovery, 범용 computer-use 성공률은 측정하지 않는다.
 
 실행 결과의 `requested_provider`는 설정값이다. `provider`, `model`, `provider_calls`, `model_usage`는 관측한 값만 사용한다. 계측이 없으면 provider/model은 null이며 토큰·비용을 0으로 채우지 않는다. 공통 집계는 route attempt를 한 번만 더하며 비용의 currency/basis 및 관측 누락 개수를 유지한다.
@@ -324,7 +326,7 @@ source manifest 전후·두 arm 사이 일치, activations[]였다. Tacto46.3초
 Sky40.8초다. CLI telemetry 입력/캐시/출력은 Tacto214245/194048/611,
 Sky159423/150016/620이다. 실제 serving model/비용은 관측하지 않았다.
 `calls`는 인식한 tool item event 수이며 고유 invocation 수가 아니다.
-Tacto shell:nlc12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
+Tacto shell:tacto12 및 Sky node_repl:js14를 실행 횟수로 해석하지 않는다.
 
 두 arm의 소유 Codex 주 프로세스는64회 observed/self-responsible였으며
 observer stopped/error 없음이다. sample_limit_reached=true라 전체 실행
@@ -524,7 +526,7 @@ Tacto64.8초·Sky35.2초의 seconds는 agent invocation 구간이며 setup/oracl
 전체 activation 또는 pointer/typing 보존을 주장하지 않는다.
 
 CLI telemetry 입력/cache/출력은 Tacto311178/282368/1370,
-Sky140453/129280/559다. calls(shell:nlc14/node_repl:js12)는 tool item event
+Sky140453/129280/559다. calls(shell:tacto14/node_repl:js12)는 tool item event
 수이며 고유 invocation 수나 실행 layer의 완전한 attestation이 아니다.
 이 usage는 nested provider 전체 비용이 아니며 actual serving model/cost는
 확인하지 못했다. 전체 초기 UI·좌표/선택 상태, Sky 후손 책임과 실제 TCC 판정,

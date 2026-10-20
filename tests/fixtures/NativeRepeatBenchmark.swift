@@ -24,7 +24,7 @@ import Foundation
     func applicationDidFinishLaunching(_ notification:Notification) {
         window=NSWindow(contentRect:NSRect(x:220,y:220,width:580,height:340),
                         styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        window.title="NLC Repeat Benchmark";window.isReleasedWhenClosed=false
+        window.title="TACTO Repeat Benchmark";window.isReleasedWhenClosed=false
         task=label("Waiting for owned task","bench-task",290)
         for (i,name) in ["amount","factor"].enumerated() {
             _=label(name,"caption-"+name,CGFloat(245-i*45))

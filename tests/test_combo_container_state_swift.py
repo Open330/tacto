@@ -45,7 +45,7 @@ for value in ["known_closed","closed_visible","closed_unknown","known_open","rep
 }
 print(String(data:try! JSONSerialization.data(withJSONObject:result),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-combo-slot-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-combo-slot-') as directory:
             path=Path(directory)/'main.swift';path.write_text(support+function+body)
             result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
         self.assertEqual(0,result.returncode,result.stderr)
@@ -112,7 +112,7 @@ for value in ["closed","editable_closed","open","cached_closed","missing_childre
 }
 print(String(data:try! JSONSerialization.data(withJSONObject:results),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-combo-state-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-combo-state-') as directory:
             path=Path(directory)/'main.swift'
             path.write_text(support+extract('comboBoxAttribute')+extract('comboBoxString')+extract('comboBoxChildren')+extract('comboBoxContainerState')+body)
             result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)

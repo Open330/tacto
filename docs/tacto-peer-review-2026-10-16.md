@@ -1,5 +1,7 @@
 # Tacto peer review — 2026-10-16
 
+> 제품·측정 라벨·식별자는 현재 Tacto 이름으로 정규화했습니다. 당시 측정 수치와 성공·실패는 유지하며, 새 서명 배포를 검증했다는 뜻은 아닙니다.
+
 > 후속 수정: 같은 날 기본 빌드의 VRoid 전경 경로 분리와 서명 팀 이식성을 수정했습니다.
 > 아래 내용은 수정 전 리뷰 기록입니다. [수정·검증 결과](tacto-native-release-fixes-2026-10-16.md)를 참고하세요.
 
@@ -60,7 +62,7 @@ internally consistent published skill. These are distinct available versions.
 | Actual isolated wheel build/install/import/help | Opt-in check separately passed, no native UI or signing performed |
 | Development offline evaluation after fixture corrections | 55/55 passed; 133 GUI/model scenarios skipped out of 188 selected |
 | Publication offline evaluation after fixture corrections | 55/55 passed; 82 GUI/model scenarios skipped out of 137 selected |
-| Documentation checks | Six passed in each checkout; command coverage accepts the actual Tacto name or supported legacy nlc alias |
+| Documentation checks | Six passed in each checkout; command coverage checks the Tacto command (record labels normalized; no new measurement) |
 | Publication native input safety checks | 18 passed, source checks and mocked dispatch; no live input |
 | Development native input safety checks | 17 passed, one unresolved global-input invariant failure |
 | Landing page | 83/83 passed; automated axe desktop/expanded/mobile checks reported no violations |

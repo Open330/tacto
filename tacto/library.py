@@ -570,7 +570,7 @@ def _calculator():
 
 
 def builders() -> dict:
-    """Name -> zero-argument builder, for every recipe that ships with NLC."""
+    """Name -> zero-argument builder, for every recipe that ships with Tacto."""
     return {**_calculator(),
             "calc_arith": calc_arith,
             "finder_open_folder": finder_open_folder,

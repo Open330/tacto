@@ -2,7 +2,7 @@
 
 When the agent meets an intent it has no recipe for, it observes the target app
 and asks a model to translate "what the user wants" + "the current accessibility
-tree" into a concrete NLC Flow (selectors + steps + postcondition). The Flow is
+tree" into a concrete Tacto Flow (selectors + steps + postcondition). The Flow is
 then saved, so every future run of that intent replays with zero tokens.
 
 Claude uses a tools-disabled structured CLI adapter. Current Muxa Global Ask

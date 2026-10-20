@@ -55,7 +55,7 @@ for scenario in ["ok","absent","unsupported","read","nil","shape","foreground","
  print("\\(scenario)|\\(reason)|\\(resets)")
 }
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-user-focus-reasons-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-user-focus-reasons-') as work:
             path = Path(work) / 'main.swift'
             path.write_text(script)
             run = subprocess.run(['swift', str(path)], capture_output=True, text=True, timeout=60)

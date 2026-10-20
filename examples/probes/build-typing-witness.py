@@ -13,7 +13,7 @@ def main(output):
     source = root / 'tests/fixtures/NativeTypingWitnessFixture.swift'
     output = Path(output)
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
-    bundle = output / 'NLC Typing Witness.app'
+    bundle = output / 'TACTO Typing Witness.app'
     binaries = bundle / 'Contents/MacOS'
     binaries.mkdir(parents=True)
     copied = output / source.name
@@ -22,8 +22,8 @@ def main(output):
     subprocess.run(['xcrun', 'swiftc', '-parse-as-library', '-warnings-as-errors', str(copied), '-o', str(binary)],
                    check=True, capture_output=True, timeout=45)
     (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
-        'CFBundleExecutable': 'TypingWitness', 'CFBundleIdentifier': 'ai.callabo.nlc.user-typing-witness',
-        'CFBundleName': 'NLC Typing Witness', 'CFBundlePackageType': 'APPL',
+        'CFBundleExecutable': 'TypingWitness', 'CFBundleIdentifier': 'ai.callabo.tacto.user-typing-witness',
+        'CFBundleName': 'TACTO Typing Witness', 'CFBundlePackageType': 'APPL',
         'NSHighResolutionCapable': True}))
     subprocess.run(['codesign', '--force', '--sign', '-', str(bundle)], check=True, capture_output=True, timeout=15)
     subprocess.run(['codesign', '--verify', '--strict', str(bundle)], check=True, capture_output=True, timeout=15)

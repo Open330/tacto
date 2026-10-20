@@ -1,4 +1,4 @@
-"""Read-only prerequisite audit of historical NLC/Sky rows, without GUI access.
+"""Read-only prerequisite audit of historical TACTO/Sky rows, without GUI access.
 
 Matching recorded prerequisites do not prove complete initial-state/model parity.
 Never repair old rows, pair duplicates selectively, or turn missing data into a
@@ -27,14 +27,14 @@ def manifest_valid(value):
 
 
 def instruction_profile_valid(value):
-    if (type(value) is not dict or set(value) != {'schema', 'nlc_template_sha256',
+    if (type(value) is not dict or set(value) != {'schema', 'tacto_template_sha256',
             'sky_template_sha256', 'sky_guide_sha256', 'sky_guide_provided'}
             or value['schema'] != 'comparison-instructions-v1'
             or type(value['sky_guide_provided']) is not bool):
         return False
     def digest(v):
         return type(v) is str and len(v) == 64 and all(c in '0123456789abcdef' for c in v)
-    return (digest(value['nlc_template_sha256']) and digest(value['sky_template_sha256'])
+    return (digest(value['tacto_template_sha256']) and digest(value['sky_template_sha256'])
             and (digest(value['sky_guide_sha256']) if value['sky_guide_provided']
                  else value['sky_guide_sha256'] is None))
 
@@ -45,16 +45,16 @@ def audit(rows):
     for index, row in enumerate(rows):
         if (not isinstance(row, dict) or not isinstance(row.get('task'), str)
                 or not row['task'] or type(row.get('rep')) is not int or row['rep'] < 0
-                or row.get('arm') not in ('nlc', 'sky')):
+                or row.get('arm') not in ('tacto', 'sky')):
             invalid_rows.append(index)
             continue
         groups.setdefault((row['task'], row['rep']), []).append((index, row))
     pairs = []
     for (task, rep), group in sorted(groups.items()):
         issues = set()
-        nlcs = [r for i, r in group if r['arm'] == 'nlc']
+        tactos = [r for i, r in group if r['arm'] == 'tacto']
         skies = [r for i, r in group if r['arm'] == 'sky']
-        if len(nlcs) != 1 or len(skies) != 1:
+        if len(tactos) != 1 or len(skies) != 1:
             issues.add('missing_or_duplicate_arm')
         for index, row in group:
             if row.get('comparison_eligible') is not True:
@@ -97,8 +97,8 @@ def audit(rows):
                 issues.add('runtime_constraint_not_recorded')
             if type(row.get('timeout_seconds')) is not int or row['timeout_seconds'] <= 0:
                 issues.add('timeout_not_recorded')
-        if len(nlcs) == len(skies) == 1:
-            tacto, sky = nlcs[0], skies[0]
+        if len(tactos) == len(skies) == 1:
+            tacto, sky = tactos[0], skies[0]
             for key, reason in (
                     ('initial_frontmost_bundle', 'initial_frontmost_differs'),
                     ('oracle_contract', 'oracle_contract_differs'),
@@ -116,7 +116,7 @@ def audit(rows):
                       'issues': sorted(issues), 'same_conditions_verified': False,
                       'additional_evidence_required': ['independent_initial_task_state',
                                                        'serving_model_identity_and_configuration']})
-    return {'schema': 'nlc-sky-recorded-prerequisites-v2', 'rows': len(rows),
+    return {'schema': 'tacto-sky-recorded-prerequisites-v2', 'rows': len(rows),
             'invalid_row_indices': invalid_rows, 'pairs': pairs,
             'comparison_rates_computed': False,
             'scope': 'recorded_prerequisites_only_not_complete_condition_parity'}

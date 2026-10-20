@@ -337,6 +337,95 @@
     });
   }
 
+  const flowCases = {
+    first: {left: "7", right: "8", result: "15"},
+    second: {left: "3", right: "9", result: "12"},
+  };
+  const flowWalk = document.getElementById("flow-walk");
+  if (flowWalk) {
+    const choices = [...document.querySelectorAll("[data-flow-case]")];
+    const nodes = [...document.querySelectorAll("[data-flow-node]")];
+    const status = document.getElementById("flow-preview-status");
+    const canvas = document.getElementById("flow-canvas");
+    const edgeGroup = document.getElementById("flow-edge-paths");
+    function drawEdges() {
+      const bounds = canvas.getBoundingClientRect();
+      canvas.querySelector(".flow-edges").setAttribute("viewBox", `0 0 ${bounds.width} ${bounds.height}`);
+      const point = (id, side) => {
+        const r = document.getElementById(id).getBoundingClientRect();
+        return { x: r.left - bounds.left + (side === "left" ? 0 : side === "right" ? r.width : r.width / 2),
+          y: r.top - bounds.top + (side === "top" ? 0 : side === "bottom" ? r.height : r.height / 2) };
+      };
+      const edges = [];
+      function connect(from, to, kind, sides) {
+        const a = document.getElementById(from).getBoundingClientRect();
+        const b = document.getElementById(to).getBoundingClientRect();
+        const horizontal = Math.abs(a.top - b.top) < 12;
+        const ports = sides || (horizontal ? (a.left < b.left ? ["right", "left"] : ["left", "right"]) : ["bottom", "top"]);
+        const narrow = window.matchMedia("(max-width: 540px)").matches;
+        const detour = kind === "exception" && window.matchMedia("(max-width: 1000px)").matches;
+        if (detour || (narrow && from === "graph-saved")) {
+          const side = from === "graph-step-5" && narrow ? "right" : "left";
+          const p = point(from, side), q = point(to, side);
+          const x = side === "left" ? 8 : bounds.width - 8;
+          edges.push(`<path class="flow-edge ${kind}" d="M ${p.x} ${p.y} H ${x} V ${q.y} H ${q.x}"/><circle class="flow-connection ${kind}" cx="${p.x}" cy="${p.y}" r="3.5"/><circle class="flow-connection ${kind}" cx="${q.x}" cy="${q.y}" r="3.5"/>`);
+          return;
+        }
+        const p = point(from, ports[0]), q = point(to, ports[1]);
+        const vertical = ["top", "bottom"].includes(ports[0]);
+        const d = vertical ? `M ${p.x} ${p.y} C ${p.x} ${(p.y+q.y)/2}, ${q.x} ${(p.y+q.y)/2}, ${q.x} ${q.y}`
+          : `M ${p.x} ${p.y} C ${(p.x+q.x)/2} ${p.y}, ${(p.x+q.x)/2} ${q.y}, ${q.x} ${q.y}`;
+        edges.push(`<path class="flow-edge ${kind}" d="${d}"/><circle class="flow-connection ${kind}" cx="${p.x}" cy="${p.y}" r="3.5"/><circle class="flow-connection ${kind}" cx="${q.x}" cy="${q.y}" r="3.5"/>`);
+      }
+      connect("graph-agent", "graph-saved", "authoring");
+      connect("graph-saved", "graph-step-0", "authoring", ["bottom", "top"]);
+      for (let i = 0; i < 5; i++) connect(`graph-step-${i}`, `graph-step-${i+1}`, "replay");
+      connect("graph-step-3", "graph-repair", "exception", ["bottom", "top"]);
+      connect("graph-step-5", "graph-stop", "exception", ["bottom", "top"]);
+      edgeGroup.innerHTML = edges.join("");
+    }
+    new ResizeObserver(drawEdges).observe(canvas);
+    document.fonts.ready.then(drawEdges);
+    drawEdges();
+    let selected = "first", timer;
+    const stop = () => { clearTimeout(timer); flowWalk.disabled = false; };
+    function renderFlow(name) {
+      stop(); selected = name;
+      const item = flowCases[name];
+      document.getElementById("flow-left").textContent = item.left;
+      document.getElementById("flow-right").textContent = item.right;
+      document.getElementById("flow-result").textContent = item.result;
+      nodes.forEach(node => node.removeAttribute("data-state"));
+      status.textContent = `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`;
+      choices.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.flowCase === name)));
+    }
+    choices.forEach(button => {
+      button.disabled = false;
+      button.addEventListener("click", () => renderFlow(button.dataset.flowCase));
+    });
+    flowWalk.disabled = false;
+    flowWalk.addEventListener("click", () => {
+      renderFlow(selected); flowWalk.disabled = true;
+      function step(index) {
+        nodes.forEach((node, i) => {
+          if (i < index) node.dataset.state = "done";
+          else if (i === index) node.dataset.state = "active";
+          else node.removeAttribute("data-state");
+        });
+        if (index === nodes.length) {
+          const item = flowCases[selected];
+          status.textContent = `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`;
+          flowWalk.disabled = false; return;
+        }
+        status.textContent = `단계 ${index + 1} / ${nodes.length} · ${nodes[index].querySelector("strong").textContent}`;
+        timer = setTimeout(() => step(index + 1), 550);
+      }
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) step(nodes.length);
+      else step(0);
+    });
+    document.addEventListener("visibilitychange", () => { if (document.hidden) renderFlow(selected); });
+  }
+
   renderDemo("replay");
   document
     .querySelectorAll(

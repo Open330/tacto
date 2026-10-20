@@ -35,7 +35,7 @@ import AppKit
         for (number, suffix) in ["A", "B"].enumerated() {
             let window = NSWindow(contentRect: NSRect(x: 170 + number*460, y: 200, width: 420, height: 230),
                 styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.title = "NLC Opaque Point Fixture \(suffix)"
+            window.title = "TACTO Opaque Point Fixture \(suffix)"
             window.isReleasedWhenClosed = false
             let canvas = OpaqueCanvas(frame: NSRect(x: 0, y: 55, width: 420, height: 175))
             let label = NSTextField(labelWithString: "starting")

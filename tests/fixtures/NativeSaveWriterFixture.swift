@@ -19,7 +19,7 @@ import Darwin
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window=NSWindow(contentRect:NSRect(x:120,y:120,width:500,height:160),
                             styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        self.window=window; window.title="NLC Owned Save Writer"; window.isReleasedWhenClosed=false
+        self.window=window; window.title="TACTO Owned Save Writer"; window.isReleasedWhenClosed=false
         window.orderBack(nil)
         let panel=NSSavePanel(); self.panel=panel
         panel.directoryURL=URL(fileURLWithPath:directory,isDirectory:true)
@@ -51,7 +51,7 @@ import Darwin
             guard format.titleOfSelectedItem == "Rich Text Document", keep.state == .off else {
                 self.emit(["callback":"refused","reason":"format","nonce":self.nonce]);NSApplication.shared.terminate(nil);return
             }
-            let bytes=Data(("{\\rtf1\\ansi NLC owned save "+self.nonce+"}").utf8)
+            let bytes=Data(("{\\rtf1\\ansi TACTO owned save "+self.nonce+"}").utf8)
             do {
                 try bytes.write(to:canonical,options:.withoutOverwriting)
                 self.emit(["callback":"written","nonce":self.nonce,"path":canonical.path,

@@ -60,7 +60,7 @@ final class NavigationDelegate: NSObject, NSApplicationDelegate {
         for (number, suffix) in ["A", "B"].enumerated() {
             let window = NavigationWindow(contentRect: NSRect(x: 170 + number * 460, y: 200,
                 width: 420, height: 230), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.title = "NLC Navigation Fixture \(suffix)"
+            window.title = "TACTO Navigation Fixture \(suffix)"
             window.isReleasedWhenClosed = false
             let first = NavigationField(name: "nav-\(suffix)-first", frame: NSRect(x: 20, y: 130, width: 380, height: 50))
             let second = NavigationField(name: "nav-\(suffix)-second", frame: NSRect(x: 20, y: 65, width: 380, height: 50))

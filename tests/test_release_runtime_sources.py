@@ -1,4 +1,4 @@
-"""Installed-runtime evidence must observe implementation and legacy shim changes."""
+"""Installed-runtime evidence must observe canonical implementation changes."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,11 +15,10 @@ class RuntimeSourceTests(unittest.TestCase):
         (package/'driver.py').write_bytes(b'driver')
         return package
 
-    def test_installed_evidence_tracks_both_packages_and_nested_modules(self):
+    def test_installed_evidence_tracks_package_and_nested_modules(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             implementation = self.package(root)
-            legacy = self.package(root, 'nlc')
             nested = implementation/'nested/module.py'
             nested.parent.mkdir(); nested.write_bytes(b'nested')
             launcher = root/'launcher/tacto'
@@ -34,7 +33,7 @@ class RuntimeSourceTests(unittest.TestCase):
                 self.assertEqual(before[0], before[1])
                 self.assertIn('nested/module.py', before[0])
                 for path, key in ((implementation/'driver.py', 'driver.py'),
-                                  (legacy/'__init__.py', 'nlc/__init__.py'),
+                                  (implementation/'__init__.py', '__init__.py'),
                                   (nested, 'nested/module.py')):
                     path.write_bytes(b'changed')
                     after = snapshots()
@@ -42,24 +41,22 @@ class RuntimeSourceTests(unittest.TestCase):
                         self.assertNotEqual(old[key], new[key])
                     before = after
 
-    def test_checkout_and_legacy_only_runtime_remain_observable(self):
+    def test_checkout_and_installed_runtime_remain_observable(self):
         for checkout in (False, True):
-            for name in ('tacto', 'nlc'):
-                with self.subTest(checkout=checkout, name=name), tempfile.TemporaryDirectory() as directory:
-                    root = Path(directory)
-                    self.package(root, name, checkout=checkout)
-                    self.assertIn('driver.py', release_identity.python_source_hashes(root))
-                    if checkout:
-                        with self.assertRaises(ValueError):
-                            release_identity.python_source_hashes(root, bundled_only=True)
+            with self.subTest(checkout=checkout), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.package(root, checkout=checkout)
+                self.assertIn('driver.py', release_identity.python_source_hashes(root))
+                if checkout:
+                    with self.assertRaises(ValueError):
+                        release_identity.python_source_hashes(root, bundled_only=True)
 
-    def test_missing_ambiguous_or_malformed_implementation_is_not_a_valid_shim(self):
+    def test_missing_ambiguous_or_malformed_implementation_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.assertRaises(ValueError):
                 release_identity.python_source_hashes(root)
             implementation = self.package(root)
-            self.package(root, 'nlc')
             (implementation/'__init__.py').unlink()
             with self.assertRaises(ValueError):
                 release_identity.python_source_hashes(root)

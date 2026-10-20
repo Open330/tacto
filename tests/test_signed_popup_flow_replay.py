@@ -36,10 +36,10 @@ class SignedPopupFlowReplayTests(unittest.TestCase):
         self.assertEqual(['Beta','Alpha'],[s.params['option_label'] for s in flow.steps[1::2]])
         for step in flow.steps:
             self.assertIsNotNone(step.safety)
-            self.assertEqual('nlc-fixture-choice',step.selector.identifier)
+            self.assertEqual('tacto-fixture-choice',step.selector.identifier)
         for step in flow.steps[::2]:self.assertEqual({'opening_action':'AXPress'},step.params)
         for step in flow.steps[1::2]:
-            self.assertEqual('nlc-fixture-result',step.postcondition.field.identifier)
+            self.assertEqual('tacto-fixture-result',step.postcondition.field.identifier)
             self.assertEqual('Value',step.postcondition.attribute)
 
     def test_wrong_first_or_second_transition_stops_real_replay_before_next_input(self):
@@ -51,8 +51,8 @@ class SignedPopupFlowReplayTests(unittest.TestCase):
             @property
             def tree(self):
                 return ('0 Window Title: Native\n'
-                        f'  1 PopUpButton Identifier: nlc-fixture-choice, Value: {self.value}\n'
-                        f'  2 StaticText Identifier: nlc-fixture-result, Value: {self.value}')
+                        f'  1 PopUpButton Identifier: tacto-fixture-choice, Value: {self.value}\n'
+                        f'  2 StaticText Identifier: tacto-fixture-result, Value: {self.value}')
             def act(self,obs_id,target,action,**kwargs):
                 response=super().act(obs_id,target,action,**kwargs)
                 ordinal=len(self.calls)-1

@@ -30,7 +30,7 @@ class AgentLifecycle(unittest.TestCase):
              patch.object(comparison,'_locked',return_value=False), \
              patch.object(InheritedHelperDriver,'available',return_value=True), \
              patch.object(comparison,'_run_agent') as run:
-            result=comparison.run_one(task,'nlc')
+            result=comparison.run_one(task,'tacto')
         self.assertEqual('not_run',result['status'])
         self.assertIsNone(result['oracle_passed'])
         self.assertEqual('not_requested',result['cleanup_status'])
@@ -77,7 +77,7 @@ class AgentLifecycle(unittest.TestCase):
         fixture.setUp()
         diagnostic = {'samples':[{'status':'observed'}], 'descendants_observed':False}
         try:
-            for arm in ('nlc', 'sky'):
+            for arm in ('tacto', 'sky'):
                 result = fixture.execute(observations=[diagnostic], arm=arm)
                 self.assertTrue(result['oracle_passed'])
                 self.assertEqual([diagnostic], result['agent_primary_process_diagnostics'])

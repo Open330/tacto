@@ -1,4 +1,4 @@
-"""Fresh paired NLC/Sky runs under fixed requested model and initial fixture state."""
+"""Fresh paired TACTO/Sky runs under fixed requested model and initial fixture state."""
 import argparse
 import hashlib
 import json
@@ -28,7 +28,7 @@ def manifest(launcher=None, tacto_guide=None):
 
 def aggregate(rows):
     result={}
-    for arm in ('nlc','sky'):
+    for arm in ('tacto','sky'):
         selected=[row for row in rows if row['arm']==arm]
         complete=all(r['exit']==0 and r['oracle']['passed'] for r in selected)
         entry={'runs':len(selected),'passed':sum(r['exit']==0 and r['oracle']['passed'] for r in selected),
@@ -120,15 +120,15 @@ def main():
     if args.preflight_only:return
     config=Path.home()/'.codex/config.toml'
     config_hash=hashlib.sha256(config.read_bytes()).hexdigest()
-    target='ai.callabo.nlc.matched.'+uuid.uuid4().hex[:8]
+    target='ai.callabo.tacto.matched.'+uuid.uuid4().hex[:8]
     app=build(base,target);rows=[]
     cases=[('bonus_on',jobs()[0],False),('bonus_off',jobs()[1],False),('renamed_button',jobs()[6],True)]
     cases=[case for case in cases if case[0] in args.cases]
     for pair,(case,values,changed) in enumerate(cases,1):
-        for arm in (('nlc','sky') if pair%2 else ('sky','nlc')):
+        for arm in (('tacto','sky') if pair%2 else ('sky','tacto')):
             job=dict(values,job=f'P{pair:02d}')
             own_prompt=prompt(job,target,arm,launcher=args.launcher,tacto_guide=selected_guide['path'])
-            if args.profile and arm=='nlc':
+            if args.profile and arm=='tacto':
                 own_prompt+=' Profiling: include --timings on your tacto session command; preserve timing output.'
             row=run_arm(app,base,pair,arm,job,changed,lambda:run_agent('codex',own_prompt,base/f'{pair:02d}-{arm}',
                 timeout=args.timeout,model=args.model,reasoning_effort=args.reasoning_effort,

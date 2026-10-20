@@ -41,7 +41,7 @@ class DocsFollowCodeTests(unittest.TestCase):
         readme = read("README.md")
         for cmd in commands:
             with self.subTest(cmd=cmd):
-                self.assertRegex(readme, rf"(?:tacto|nlc) {cmd}\b")
+                self.assertRegex(readme, rf"tacto {cmd}\b")
 
     def test_every_replay_and_agent_argument_is_in_the_api_doc(self):
         from tacto.agent import Agent
@@ -80,7 +80,7 @@ class DocsFollowCodeTests(unittest.TestCase):
         readme = read("README.md")
         self.assertIn(LABEL, readme)
         self.assertNotIn("테두리가", readme)     # the outline was removed 2026-09-21
-        self.assertNotIn("NLC1", readme)        # there is no synthetic input to mark
+        self.assertNotIn("TACTO1", readme)        # there is no synthetic input to mark
 
 
 if __name__ == "__main__":

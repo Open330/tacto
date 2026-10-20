@@ -21,7 +21,7 @@ class ColdStartTests(unittest.TestCase):
             directories.append(cwd)
             return subprocess.CompletedProcess(argv,0,'','')
         with patch.object(comparison,'_COLD_START',True),patch('tacto.codex_result._run_codex',side_effect=execute):
-            for arm in ('nlc','sky'):
+            for arm in ('tacto','sky'):
                 result=comparison._run_agent(['codex','exec','-C','/tmp','-'],comparison._arm_prompt('Read the same app.',arm),9,[])
                 self.assertTrue(result.comparison_context['workspace_empty_before_launch'])
                 self.assertFalse(result.comparison_context['prior_conversation_supplied_by_harness'])

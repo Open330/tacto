@@ -18,7 +18,7 @@ def snapshot(path, index):
         raise ValueError('snapshot_report_too_large')
     report = json.loads(raw)
     if (report.get('evaluation_kind') != 'real_model_owned_appkit'
-            or report.get('target') != 'ai.callabo.nlc.select-fixture'
+            or report.get('target') != 'ai.callabo.tacto.select-fixture'
             or type(index) is not int or index < 0):
         raise ValueError('owned_native_snapshot_required')
     candidates = report['plans'][index]['candidates']
@@ -79,7 +79,7 @@ def run(path, index, provider, output):
         result['valid_scroll_plan'] = bool(actions) and all(
             a.get('do') == 'scroll' and a.get('direction') == 'down'
             and type(a.get('pages',1)) is int and 1 <= a.get('pages',1) <= 10
-            and a.get('candidate',{}).get('container') == 'nlc-fixture-choice' for a in actions)
+            and a.get('candidate',{}).get('container') == 'tacto-fixture-choice' for a in actions)
     except BaseException as error:
         result['error_class'] = type(error).__name__
         if not isinstance(error, Exception):

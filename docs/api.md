@@ -8,7 +8,7 @@ error는 원래 reason/diagnostic을 JSON으로 출력하고 exit1이다. 연결
 실패는 기존 helper/doctor 진단을 따른다. JSON의 obs_id/index는 그 관측의
 값이며 별도 CLI 호출의 입력 허가나 선택 목록 pin을 이어 주지 않는다.
 
-CLI(`nlc …`)가 하는 일은 모두 Python에서도 할 수 있습니다. 이 문서는 공개 진입점과 그 약속을
+CLI(`tacto …`)가 하는 일은 모두 Python에서도 할 수 있습니다. 이 문서는 공개 진입점과 그 약속을
 정리합니다. 흐름 전체의 설명은 [`recipes.md`](recipes.md), IR 작성 가이드는
 [`../skill/SKILL.md`](../skill/SKILL.md)에 있습니다.
 
@@ -102,7 +102,7 @@ consumers. Missing meaning remains a runtime refusal. `tacto run --help` include
 a complete Calculator example; ordinary authors need not read this manual.
 
 `tacto run flow.json --helper --think 0 --timings` prints aggregate driver-call
-and replay durations as `NLC_TIMINGS` on stderr, without UI values or action
+and replay durations as `TACTO_TIMINGS` on stderr, without UI values or action
 parameters. Polling duration includes the driver's internal observations.
 This measures local replay, not an outer agent's model latency or billed cost.
 
@@ -120,7 +120,7 @@ representation, so policy, bindings and result verification are unchanged.
 ### One-flow signed session
 
 `tacto session <bundle-id> --helper [--timings] [--idle-timeout 1..600]` observes,
-prints `NLC_SESSION_READY`, accepts one minified newline-terminated Flow JSON
+prints `TACTO_SESSION_READY`, accepts one minified newline-terminated Flow JSON
 record on stdin, replays on that signed connection, and exits. Input is bounded
 to1 MiB and the default input deadline is90 seconds. Replay refreshes the
 observation; it never acts on a borrowed index from another invocation.
@@ -756,7 +756,7 @@ See the actual owned package result (local evidence: `../reviews/rtfd-package-pa
 `tacto session <bundle-id> --helper --guide` returns a trusted minimal authoring
 guide and the initial observation in the same invocation. Normal session framing
 and policy still apply. No guide is emitted without the flag. With --timings,
-NLC_SESSION_TIMINGS gives monotonic offsets for observation_ready_seconds,
+TACTO_SESSION_TIMINGS gives monotonic offsets for observation_ready_seconds,
 input_ready_seconds, flow_received_seconds, replay_done_seconds and
 session_done_seconds. Input waiting is not pure model inference.
 
@@ -826,7 +826,7 @@ Literal learning and validation (internal validation record; not published).
 
 `tacto batch <flow.json> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings]`
 loads one immutable, fixed-target deterministic Flow and keeps one signed
-connection. After NLC_BATCH_READY, send newline-terminated objects containing
+connection. After TACTO_BATCH_READY, send newline-terminated objects containing
 only params, with string values. Per-job normal replay authorization, fresh
 observation and completion checks remain. By default no model is called.
 Opt-in selector repair is described below; interactive approval, document scope

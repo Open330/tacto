@@ -70,7 +70,7 @@ NSWorkspace.shared.apps=[]
 precondition(pid(forBundle:"missing")==nil)
 print(checked)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-resolver-contract-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-resolver-contract-') as work:
             path = Path(work) / 'main.swift'
             path.write_text(script)
             run = subprocess.run(['swift', str(path)], capture_output=True, text=True, timeout=60)

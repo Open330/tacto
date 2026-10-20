@@ -100,7 +100,7 @@ class WindowReadySwiftTests(unittest.TestCase):
     maxDiff = None
 
     def test_cases(self):
-        with tempfile.TemporaryDirectory(prefix='nlc-window-ready-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-window-ready-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(HARNESS)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),

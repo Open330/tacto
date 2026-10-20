@@ -1,19 +1,19 @@
 {
   "schema": 1,
   "systems": [
-    "nlc",
+    "tacto",
     "codex-computer-use"
   ],
   "tasks": [
     {
       "id": "input-next-read",
-      "goal": "Name 입력칸에 NLC-2026을 입력하고 Next를 누른 다음, 새 화면의 Result 값을 읽어서 알려주세요.",
+      "goal": "Name 입력칸에 TACTO-2026을 입력하고 Next를 누른 다음, 새 화면의 Result 값을 읽어서 알려주세요.",
       "time_budget_seconds": 180,
       "initial_conditions": {
         "environment": "disposable local browser page; no external navigation or accounts",
         "entrypoint": "known page target; excludes CLI goal/app routing",
         "fixture": "probe_browser_task.PAGE",
-        "fixture_sha256": "1f4341abc8809e2bc0f747f8a06e060fc0e6ec4e2043b359a3ef89308d381c05",
+        "fixture_sha256": "f7a1c8f9e4fe8b38e1810e7ba3befcd6415f36db1ec970359cc4bacbc74e3189",
         "fresh_browser": true,
         "external_effects": false
       },
@@ -71,7 +71,7 @@
     },
     {
       "id": "save-readback",
-      "goal": "Enter NLC-local-benchmark in Content. Save as note.txt in the prefilled location, then read readback aloud.",
+      "goal": "Enter TACTO-local-benchmark in Content. Save as note.txt in the prefilled location, then read readback aloud.",
       "time_budget_seconds": 180,
       "initial_conditions": {
         "environment": "disposable local browser page; no external navigation or accounts",
@@ -95,7 +95,7 @@
     },
     {
       "id": "combined",
-      "goal": "Enter NLC-local-benchmark in Content, choose Beta in Choice, scroll the panel using Scroll anchor to the bottom, then Save as note.txt in the prefilled location and read readback aloud.",
+      "goal": "Enter TACTO-local-benchmark in Content, choose Beta in Choice, scroll the panel using Scroll anchor to the bottom, then Save as note.txt in the prefilled location and read readback aloud.",
       "time_budget_seconds": 180,
       "initial_conditions": {
         "environment": "disposable local browser page; no external navigation or accounts",

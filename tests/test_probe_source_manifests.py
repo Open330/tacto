@@ -22,8 +22,8 @@ class ProbeSourceManifestTests(unittest.TestCase):
             with self.subTest(probe=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 runtime = root/'tacto/runtime.py'
-                legacy = root/'nlc/__init__.py'
-                for path in (runtime, legacy):
+                package_init = root/'tacto/__init__.py'
+                for path in (runtime, package_init):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(b'initial')
                 source = ROOT/'examples/probes'/name
@@ -45,8 +45,8 @@ class ProbeSourceManifestTests(unittest.TestCase):
                             for path in paths if path.is_file()}
                 before = snapshot()
                 self.assertIn('tacto/runtime.py', before)
-                self.assertIn('nlc/__init__.py', before)
+                self.assertIn('tacto/__init__.py', before)
                 runtime.write_bytes(b'changed-runtime')
                 after = snapshot()
                 self.assertNotEqual(before['tacto/runtime.py'], after['tacto/runtime.py'])
-                self.assertEqual(before['nlc/__init__.py'], after['nlc/__init__.py'])
+                self.assertEqual(before['tacto/__init__.py'], after['tacto/__init__.py'])

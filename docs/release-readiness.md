@@ -1,5 +1,7 @@
 # Tacto 출시 기준
 
+> 제품·측정 라벨·식별자는 현재 Tacto 이름으로 정규화했습니다. 당시 측정 수치와 성공·실패는 유지하며, 새 서명 배포를 검증했다는 뜻은 아닙니다.
+
 현재 배포 단계는 **개발자 미리보기**입니다. 사용자의 요청에 따라 공증된
 Preview 7을 prerelease로 제공하며, 미완료 검증과 알려진 한계를 함께 명시합니다.
 소스 공개와 미리보기 제공은 정식 안정 버전의 출시 승인이 아닙니다.
@@ -169,7 +171,7 @@ DMG SHA-256은 `397311851332238df16072462cf95efa06fbbe2a736dc61320944dce3cfbaea5
 복구는 테스트 호스트가 정한 절차이며 범용 모델 자동 수리의 증거는 아닙니다.
 시스템 권한은 변경하지 않았으므로 권한 해제·재부여 실증 3회는 남습니다.
 
-이전 설치와 수정 후보 사이에서 실제 `tacto`·`nlc` 명령, Claude·Codex 스킬 연결을
+이전 설치와 수정 후보 사이에서 실제 명령 연결(이 기록에서는 현재 `tacto` 이름으로 정규화), Claude·Codex 스킬 연결을
 갱신하고 복귀했습니다. 실제 사용자 저장 위치에 전용 flow 하나를 독점 생성해
 각 버전의 해석·원본 파일 해시를 확인하고, 내용이 같을 때만 그 테스트 파일을
 제거했습니다. 기존 flow·설정은 해시가 유지됐고 두 권한도 재요청하지 않았습니다.
@@ -540,3 +542,175 @@ selection while preserving its body. A separate border-selection attempt
 resized its test window before geometry monitoring stopped the stroke with an
 unknown effect. That failed case is retained in validation; window resizing
 remains outside this route's supported scope.
+
+
+## 2026-10-20 Preview 9 namespace migration
+
+Preview 9 is built from `d6bc0fea36800658ce3de5183ab9dee3f1b18e46` and uses
+`ai.callabo.tacto.*` signing identities. The app and DMG passed secure-timestamped
+Developer ID signing, Apple notarization, stapled tickets, and Gatekeeper.
+All twelve automated artifact checks passed. Stable qualification evidence
+remains incomplete; this is a developer prerelease.
+
+The same notarized app was installed on three designated Macs. Complete bundle
+manifests matched before and after launch, signing requirements were verified,
+canonical command/Claude/Codex links were current, retired owned links were
+removed, and all three menu-bar apps were running with hidden Dock icons.
+Existing user Flow bytes were preserved. At installation time all three needed
+macOS permissions granted to the new identities; settings windows were opened.
+This verifies deployment, not successful GUI task execution after the identity
+change. No permission database was changed by the installer.
+
+[Download and signed validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.9).
+
+
+## 2026-10-20 Preview 10 setup lifecycle fix
+
+Preview 10 is built from `2535b23` and keeps Preview 9 signing identities and
+native automation peers. It fixes automatic setup-window resizing, dismissed
+permission guides reappearing, and the guide taking keyboard focus. Background
+scroll areas are painted consistently. Offscreen AppKit regression checks cover
+state transitions, 20 reopens, guide timers, overlapping completion callbacks,
+and an owned secure-input field; targeted tests 14/14 and five layout states passed.
+Real OS authentication credentials were not entered or inspected by these tests.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. The same app is installed on three designated Macs;
+full manifests after launch, signatures, canonical links, retired command absence,
+menu-bar execution and hidden Dock icons passed. User Flow bytes were preserved.
+Both permission checks were off before and after this update on all three Macs;
+this is not positive evidence of already-enabled grant retention. Settings were
+left in the background to avoid taking focus from ongoing authentication.
+
+[Preview 10 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.10).
+
+## 2026-10-20 Preview 11 partial permissions and first-task settling
+
+Preview 11 is built from `32839a5`. Only both grants complete/collapse the
+permission section; app control alone remains visible as 1/2 allowed, with the
+screen-capture action available. Basic agent connection still requires app
+control only. The first task observes delayed new-window identities up to eight
+times without repeating New or text input. Failed identity results add document
+counts without document contents. The exact cause of the earlier user-reported
+failure remains unconfirmed because its trace was unavailable.
+
+Targeted tests passed 36/36, including all four permission combinations and
+read-only identity settling/timeout; three layout states passed. An independent
+live TextEdit first-task test on one designated Mac verified the welcome text in
+3.223 seconds, zero model calls and no Save command. It was one test, not a
+multi-scenario reliability claim or a replay of the user's interrupted task.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. All three Macs were updated to the identical Preview 11
+bundle and audited after launch. User Flow data was preserved. One Mac had both
+permissions enabled before the upgrade and retained them; the other two still
+need the user's grants. Temporary previous-app backups were removed after
+successful installation checks, as requested. OS password/Touch ID entry was
+not tested automatically. Stable human qualification remains separate.
+
+[Preview 11 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.11).
+
+## 2026-10-20 Preview 12 result presentation and automatic access receipts
+
+Preview 12 is built from `55e1515`. The fixed first task presents TextEdit only
+after text verification, then checks the same window, content and focus again.
+Presentation failure cannot repeat input and is reported separately from
+`text_verified`. Normal Flow replay and application launch keep their background
+behavior. Supported computer-use CLI invocations now automatically create local,
+private access receipts; the app footer/menu and `tacto logs` expose them.
+Their scope and retention are documented in [access logging](access-logging.md).
+They do not contain screen/input/prompt contents or outer-agent reasoning, and
+cannot reconstruct previously unlogged executions.
+
+Targeted tests passed 61/61, including native-presentation refusal/timeout,
+logging transparency and storage failure, private permissions, symlinks and
+retention. Skill validation and three rendered layout states passed. One
+independent live TextEdit first task verified text and foreground presentation
+in 3.287 seconds with zero model calls and no Save command. An independent
+process also observed TextEdit frontmost. The associated 21-event receipt
+contained seven observations, one New menu and one text write, with no welcome
+text and 0600 permissions. This single scenario is not a broad reliability test.
+
+App/DMG notarization, tickets, Gatekeeper and all twelve automated artifact
+checks passed. Three designated Macs received identical Preview 12 bundles and
+passed post-launch audits; existing Flow data and enabled permissions were
+preserved. Temporary previous-app backups were removed after successful
+installation. Stable qualification remains separate from this developer preview.
+
+[Preview 12 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.12).
+
+## 2026-10-20 Preview 13 native activity and preferences
+
+Preview 13 is built from `2c0a981`. The app now opens a native activity workspace
+instead of a Finder folder. Runs can be searched and filtered, with operation
+timelines, durations, outcomes and incomplete-record indicators. Settings control
+automatic local receipts, 7/30/90-day retention and first-task result presentation.
+Deleting receipts requires confirmation and preserves preferences, saved flows
+and unrelated files. The reader caches changed files and pauses polling when
+the history view is inactive. The Dock remains hidden.
+
+Targeted tests passed 67/67. Native AppKit fixture tests exercised filters,
+malformed/incomplete records, atomic preference persistence shared with Python,
+disabled logging and scoped receipt deletion. Seven bundled light/dark,
+compact and empty-state renders passed visual inspection. On one designated
+Mac, signed Tacto navigation verified history-to-settings and back, searched
+TextEdit and displayed the existing first-task timeline. Live screenshots were
+reviewed; real preferences and receipts were left intact. The welcome task was
+not repeated. This is scoped GUI validation, not a full-suite or broad reliability
+claim. Receipts exclude input/screen/prompt content and internal agent reasoning.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. All three designated Macs received identical Preview 13
+bundles and passed post-launch audits. Existing user data and enabled permissions
+were preserved; only one Mac had both permissions enabled before the upgrade.
+Stable human qualification remains separate from this developer preview.
+
+[Preview 13 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.13).
+
+
+## 2026-10-20 Preview 14 native app spacing and resizing
+
+Preview 14 is built from `219b50d`. Sidebar navigation has explicit 12pt content
+insets and consistent 38pt buttons. The initial run list is 300pt wide; window
+resizing adjusts the detail pane and divider limits preserve usable minimum
+widths. List rows, search controls, headings and timeline spacing were balanced.
+Settings explanations wrap within card padding. Empty-state messages now use
+the same detail width and insets as populated records.
+
+The 67 targeted tests passed, with native checks for list-width preservation on
+resize, detail minimum width, retained navigation labels/icons and empty-state
+alignment. Seven bundled light/dark, compact and empty-state renders were
+reviewed. A signed Tacto test on one designated Mac navigated history/settings,
+searched TextEdit and displayed the existing first-task timeline; the native
+observation independently reported the 300pt divider position. Real preferences
+and records were not changed or deleted, and the first task was not repeated.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. A first empty reserved installer output was discarded
+after staged-image verification failed; the rebuilt image passed before
+submission. All three designated Macs received identical Preview 14 bundles,
+retained existing data and enabled permissions, and passed post-launch audits.
+Stable human qualification remains separate from this developer preview.
+
+[Preview 14 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14).
+
+
+## 2026-10-20 development fix: narrow-gutter stop control
+
+A Safari window occupying the display height left no room for the standard
+292pt stop panel. The signed development helper now tries a 96pt layout with
+an accessible, labeled Stop button when the standard layout cannot fit. Both
+layouts must remain inside an awake display and outside every target window;
+visibility, active-Space, nonactivation and Esc checks remain enforced. A
+fully covered display still refuses work. Existing panels resize their controls
+when switching layouts.
+
+The 32 targeted control-indicator/window-key tests passed. The development
+helper was built and verified with the installed app's signing team. Live
+Safari observation, address editing, opening a new tab and navigation to the
+GitHub Support sign-in page succeeded with the narrow-gutter layout. The
+navigation CLI reported a missing host completion receipt; a separate fresh
+observation verified the resulting Support page. No support request was
+submitted during this validation. This fix is development source, not part of
+the already notarized Preview 14 app or DMG; installed release files were not
+replaced.

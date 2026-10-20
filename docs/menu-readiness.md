@@ -24,7 +24,7 @@ retried. Host cancellation and the signed backend's user-stop response end the
 wait. The result contains only closed reasons, counts and observed booleans.
 
 ```sh
-nlc menu-state com.apple.TextEdit File Save --helper --wait-enabled 1
+tacto menu-state com.apple.TextEdit File Save --helper --wait-enabled 1
 ```
 
 With `--wait-enabled`, exit 0 means ready; other results exit 1. Invalid durations
@@ -34,7 +34,7 @@ seconds of polling. Zero issues no menu reads. Without this option, the existing
 single-read command and exit semantics are unchanged. Ready means availability,
 not completion, an atomic UI lease, or a Save/delivery receipt.
 
-`nlc eval signed_menu_readiness` is an explicit isolated GUI/native evaluation.
+`tacto eval signed_menu_readiness` is an explicit isolated GUI/native evaluation.
 Its owned app enables a menu after the first signed disabled read. Independent
 receiving state must remain `invoked=0`; no command is pressed. Offline skips the
 fixture and model. This controlled transition does not prove that a real

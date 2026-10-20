@@ -1,0 +1,211 @@
+{
+  "name": "calculator-reusable",
+  "target": "com.apple.calculator",
+  "schema": 2,
+  "steps": [
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": [
+          "AllClear",
+          "Clear"
+        ],
+        "in_focused_window": false
+      },
+      "safety": {
+        "effects": [
+          "delete"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "calculator entry",
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none"
+        },
+        "reversibility": "reversible",
+        "evidence": [],
+        "unknowns": []
+      },
+      "skip_if": {
+        "field": {
+          "role": "ScrollArea",
+          "identifier": "StandardInputView",
+          "in_focused_window": false
+        },
+        "equals": "0",
+        "attribute": "Value"
+      }
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": [
+          "AllClear",
+          "Clear"
+        ],
+        "in_focused_window": false
+      },
+      "postcondition": {
+        "field": {
+          "role": "ScrollArea",
+          "identifier": "StandardInputView",
+          "in_focused_window": false
+        },
+        "equals": "0",
+        "attribute": "Value"
+      },
+      "safety": {
+        "effects": [
+          "delete"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "calculator entry",
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none"
+        },
+        "reversibility": "reversible",
+        "evidence": [],
+        "unknowns": []
+      },
+      "skip_if": {
+        "field": {
+          "role": "ScrollArea",
+          "identifier": "StandardInputView",
+          "in_focused_window": false
+        },
+        "equals": "0",
+        "attribute": "Value"
+      }
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "{{left_key}}",
+        "in_focused_window": false
+      },
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "calculator entry",
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none"
+        },
+        "reversibility": "reversible",
+        "evidence": [],
+        "unknowns": []
+      }
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Add",
+        "in_focused_window": false
+      },
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "calculator entry",
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none"
+        },
+        "reversibility": "reversible",
+        "evidence": [],
+        "unknowns": []
+      }
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "{{right_key}}",
+        "in_focused_window": false
+      },
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "calculator entry",
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none"
+        },
+        "reversibility": "reversible",
+        "evidence": [],
+        "unknowns": []
+      }
+    },
+    {
+      "action": "click",
+      "selector": {
+        "role": "Button",
+        "identifier": "Equals",
+        "in_focused_window": false
+      },
+      "postcondition": {
+        "field": {
+          "role": "ScrollArea",
+          "identifier": "StandardInputView",
+          "in_focused_window": false
+        },
+        "equals": "{{result}}",
+        "attribute": "Value"
+      },
+      "safety": {
+        "effects": [
+          "write_ephemeral"
+        ],
+        "data_classes": [
+          "none"
+        ],
+        "resource": {
+          "object_type": "calculator entry",
+          "scope": "entry"
+        },
+        "destination": {
+          "kind": "none"
+        },
+        "reversibility": "reversible",
+        "evidence": [],
+        "unknowns": []
+      },
+      "answers": true
+    }
+  ],
+  "params": {
+    "left_key": "Seven",
+    "right_key": "Eight",
+    "result": "15"
+  }
+}

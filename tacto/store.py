@@ -30,12 +30,7 @@ def default_directory() -> str:
     data = os.environ.get("XDG_DATA_HOME", "")
     if not data or not os.path.isabs(data):
         data = os.path.join(os.path.expanduser("~"), ".local", "share")
-    canonical = os.path.join(data, "tacto", "flows")
-    legacy = os.path.join(data, "nlc", "flows")
-    # Never move user data merely by importing or diagnosing the runtime.
-    canonical_has_flows = os.path.isdir(canonical) and any(name.endswith(".json") for name in os.listdir(canonical))
-    legacy_has_flows = os.path.isdir(legacy) and any(name.endswith(".json") for name in os.listdir(legacy))
-    return legacy if legacy_has_flows and not canonical_has_flows else canonical
+    return os.path.join(data, "tacto", "flows")
 
 
 DEFAULT_DIR = default_directory()
@@ -50,10 +45,6 @@ def builtin_directory() -> str | None:
 class FlowStore:
     def __init__(self, path: str | None = None, *, builtin_path: str | None = None):
         self.path = default_directory() if path is None else os.fspath(path)
-        if path is None and os.path.basename(os.path.dirname(self.path)) == "tacto":
-            legacy = os.path.join(os.path.dirname(os.path.dirname(self.path)), "nlc", "flows")
-            if os.path.isdir(legacy) and any(name.endswith(".json") for name in os.listdir(legacy)):
-                raise self.MigrationRequired(f"Both flow stores contain data: {self.path} and {legacy}. Choose FlowStore(path=...) explicitly before migrating; no files were moved or overwritten.")
         # An explicit custom store remains isolated unless its caller opts in.
         if builtin_path is not None:
             self.builtin_path = os.fspath(builtin_path)

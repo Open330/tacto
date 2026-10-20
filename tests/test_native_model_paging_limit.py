@@ -21,8 +21,8 @@ class NativeModelPagingLimitTests(unittest.TestCase):
             with self.subTest(limit=limit):
                 driver=Mock()
                 driver.observe.return_value={'type':'observation','tree':
-                    '0 StaticText  Value: Alpha, Identifier: nlc-fixture-result\n'
-                    '1 StaticText  Value: 0, Identifier: nlc-fixture-count'}
+                    '0 StaticText  Value: Alpha, Identifier: tacto-fixture-result\n'
+                    '1 StaticText  Value: 0, Identifier: tacto-fixture-count'}
                 def run(d,target,goal,planner,**kwargs):
                     planner(goal,[{'label':'owned','can':['read']}],[])
                     return SimpleNamespace(ok=False,why='test_without_dispatch',said=[],events=[],provider_calls=[])
@@ -53,8 +53,8 @@ class NativeModelPagingLimitTests(unittest.TestCase):
             def report(self): return {'status': 'INCONCLUSIVE'}
         driver = Mock()
         initial = {'type':'observation','tree':
-            '0 StaticText  Value: Alpha, Identifier: nlc-fixture-result\n'
-            '1 StaticText  Value: 0, Identifier: nlc-fixture-count'}
+            '0 StaticText  Value: Alpha, Identifier: tacto-fixture-result\n'
+            '1 StaticText  Value: 0, Identifier: tacto-fixture-count'}
         driver.observe.side_effect = [initial, RuntimeError('disconnected')]
         events = [{'state':'dispatched'}]
         def run(*args, **kwargs):

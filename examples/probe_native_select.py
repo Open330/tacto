@@ -1,6 +1,6 @@
 """Owned AppKit popup probe. Does not launch or activate any application.
 
-Requires ai.callabo.nlc.select-fixture already running in the background with
+Requires ai.callabo.tacto.select-fixture already running in the background with
 Alpha selected and selection count zero. No user app is used or restarted.
 """
 import argparse
@@ -13,7 +13,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-TARGET = 'ai.callabo.nlc.select-fixture'
+TARGET = 'ai.callabo.tacto.select-fixture'
 
 
 def _record_native_call(receipts,operation,obs_id,target,action,*args,**kwargs):
@@ -203,7 +203,7 @@ def _owned_combo_scroll_geometry(pid, option):
     reader=Driver();reader.observe(TARGET,'tree_full')
     backend=_MacBackend()
     controls=[el for el in reader._latest[TARGET.lower()].elements
-              if _attr(el,'AXRole')=='AXComboBox' and _attr(el,'AXIdentifier')=='nlc-fixture-choice']
+              if _attr(el,'AXRole')=='AXComboBox' and _attr(el,'AXIdentifier')=='tacto-fixture-choice']
     if len(controls)!=1:raise RuntimeError('owned_combo_control_ambiguous')
     def children(parent,role):
         result=[el for el in (_attr(parent,'AXChildren') or []) if _attr(el,'AXRole')==role]
@@ -283,15 +283,15 @@ def run_probe(driver, *, duplicates=False, combo=False, visible_items=0,focus_di
                 raise RuntimeError('fixture_value_ambiguous')
             return Selector._attr(lines[0], 'Value')
         def control(obs):
-            index, _ = Selector(role='ComboBox' if combo else 'PopUpButton',identifier='nlc-fixture-choice').resolve(obs['tree'])
+            index, _ = Selector(role='ComboBox' if combo else 'PopUpButton',identifier='tacto-fixture-choice').resolve(obs['tree'])
             return index
         initial = observe()
-        if value(initial,'nlc-fixture-result') != 'Alpha' or value(initial,'nlc-fixture-count') != '0':
+        if value(initial,'tacto-fixture-result') != 'Alpha' or value(initial,'tacto-fixture-count') != '0':
             raise RuntimeError('fixture_initial_state_mismatch')
         report['initial_pid'] = pid
         report['initial_tree'] = initial['tree']
         report['initial_popup_count'] = len(initial.get('custom_selects', {}))
-        if combo and value(initial,'nlc-fixture-selected-index')!='0':
+        if combo and value(initial,'tacto-fixture-selected-index')!='0':
             raise RuntimeError('fixture_initial_index_mismatch')
         # The refusal occurs AFTER observing the open menu. A valid choice then
         # uses that same menu after another observation, without opening again.
@@ -320,7 +320,7 @@ def run_probe(driver, *, duplicates=False, combo=False, visible_items=0,focus_di
                     popup_id=geometry['popup_id']
                     if geometry['direction'] is None:break
                     obs=observe()
-                    indices=Selector(role='ScrollArea',ancestor='nlc-fixture-choice').resolve_all(obs['tree'])
+                    indices=Selector(role='ScrollArea',ancestor='tacto-fixture-choice').resolve_all(obs['tree'])
                     if len(indices)!=1:raise RuntimeError('owned_combo_scroll_target_ambiguous')
                     index=indices[0]
                     action={'name':'scroll','element_index':index,'direction':geometry['direction'],'pages':1}
@@ -331,7 +331,7 @@ def run_probe(driver, *, duplicates=False, combo=False, visible_items=0,focus_di
                         with audit:
                             background();step['result']=driver.act(obs['obs_id'],TARGET,action)
                             time.sleep(.15);after=observe()
-                            step['readback']=[value(after,'nlc-fixture-result'),value(after,'nlc-fixture-count')]
+                            step['readback']=[value(after,'tacto-fixture-result'),value(after,'tacto-fixture-count')]
                             step['geometry_after']=_owned_combo_scroll_geometry(pid,option)
                     finally:step['audit']=audit.report()
                     if (step['result'].get('type')!='acted' or step['result'].get('unverified')
@@ -384,11 +384,11 @@ def run_probe(driver, *, duplicates=False, combo=False, visible_items=0,focus_di
                     step['result'] = result
                     time.sleep(.15)
                     after = observe()
-                    step['result_value'] = value(after,'nlc-fixture-result')
-                    step['selection_count'] = value(after,'nlc-fixture-count')
+                    step['result_value'] = value(after,'tacto-fixture-result')
+                    step['selection_count'] = value(after,'tacto-fixture-count')
                     step['menu'] = after.get('custom_selects',{}).get(str(control(after)))
                     if combo:
-                        step['selected_index']=value(after,'nlc-fixture-selected-index')
+                        step['selected_index']=value(after,'tacto-fixture-selected-index')
                         step['owned_tree_after']=after['tree']
                         from ApplicationServices import AXUIElementCopyActionNames,AXUIElementIsAttributeSettable
                         own_reader=Driver();own_reader.observe(TARGET,'tree_full')
@@ -479,7 +479,7 @@ def run_process_exit_probe(driver, fixture_factory, *,replacement=False):
             index,_=Selector(identifier=identifier).resolve(obs['tree'])
             line=next(line for line in obs['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(index))
             return Selector._attr(line,'Value')
-        def act(process,role,operation,option=None,identifier='nlc-fixture-choice'):
+        def act(process,role,operation,option=None,identifier='tacto-fixture-choice'):
             obs=observe(process)
             index,_=Selector(role=role,identifier=identifier).resolve(obs['tree'])
             action={'name':operation,'element_index':index}
@@ -498,7 +498,7 @@ def run_process_exit_probe(driver, fixture_factory, *,replacement=False):
         if len(scrolls)!=1:raise RuntimeError('popup_missing')
         backend=_MacBackend();report['retired_popup_id']=backend.window_id(scrolls[0])
         if replacement:
-            act(first,'Button','click',identifier='nlc-fixture-replace')
+            act(first,'Button','click',identifier='tacto-fixture-replace')
             report['fixture_same_instance']=first.poll() is None and process_start_identity(first.pid)==report['retired_start']
             if not report['fixture_same_instance']:raise RuntimeError('fixture_instance_changed')
         else:
@@ -515,13 +515,13 @@ def run_process_exit_probe(driver, fixture_factory, *,replacement=False):
         report['retired_popup_absent']=True
         second=first if replacement else start(False);report['successor_pid']=second.pid
         current=observe(second)
-        if [value(current,k) for k in ('nlc-fixture-result','nlc-fixture-count')]!=['Alpha','0']:
+        if [value(current,k) for k in ('tacto-fixture-result','tacto-fixture-count')]!=['Alpha','0']:
             raise RuntimeError('successor_initial_state_mismatch')
-        if replacement and value(current,'nlc-fixture-replacement-count')!='1':
+        if replacement and value(current,'tacto-fixture-replacement-count')!='1':
             raise RuntimeError('view_replacement_not_received')
         act(second,'PopUpButton','open_select')
         final=act(second,'PopUpButton','select_custom_option','Beta')
-        report['successor_readback']=[value(final,k) for k in ('nlc-fixture-result','nlc-fixture-count')]
+        report['successor_readback']=[value(final,k) for k in ('tacto-fixture-result','tacto-fixture-count')]
         pong=driver._send({'type':'ping'})
         after=parse_helper_identity(pong.get('helper_process'),pong.get('helper_peer'))
         report['helper_after']=asdict(after) if after else None
@@ -590,14 +590,14 @@ def run_model_probe(driver, *, provider, option='Beta', budget=16000, tokenizer=
             obs=driver.observe(TARGET,'tree_full')
             if obs.get('type')!='observation': raise RuntimeError('observation_failed')
             values=[]
-            for identifier in ('nlc-fixture-result','nlc-fixture-count'):
+            for identifier in ('tacto-fixture-result','tacto-fixture-count'):
                 index,_=Selector(identifier=identifier).resolve(obs['tree'])
                 line=next(line for line in obs['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(index))
                 values.append(Selector._attr(line,'Value'))
             if combo:
-                index,_=Selector(role='ComboBox',identifier='nlc-fixture-choice').resolve(obs['tree'])
+                index,_=Selector(role='ComboBox',identifier='tacto-fixture-choice').resolve(obs['tree'])
                 line=next(line for line in obs['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(index))
-                selected,_=Selector(identifier='nlc-fixture-selected-index').resolve(obs['tree'])
+                selected,_=Selector(identifier='tacto-fixture-selected-index').resolve(obs['tree'])
                 index_line=next(line for line in obs['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(selected))
                 report['combo_readback']={'control_value':Selector._attr(line,'Value'),
                     'selected_index':Selector._attr(index_line,'Value'),
@@ -644,13 +644,13 @@ def run_model_probe(driver, *, provider, option='Beta', budget=16000, tokenizer=
                 if visible_items and action.get('name')=='scroll':
                     indices=[]
                     for role in ('ScrollArea','TextField'):
-                        indices+=Selector(role=role,ancestor='nlc-fixture-choice').resolve_all(latest.get('tree',''))
+                        indices+=Selector(role=role,ancestor='tacto-fixture-choice').resolve_all(latest.get('tree',''))
                     proof['scoped']=(target==TARGET and latest.get('obs_id')==obs_id and action.get('element_index') in indices)
                     if not proof['scoped']:raise RuntimeError('model_scroll_target_not_owned_popup')
                     proof['before']=_owned_combo_scroll_geometry(pid,option)
                     # Read from the current signed observation without replacing its ID.
                     proof['readback_before']=[Selector._attr(next(line for line in latest['tree'].splitlines()
-                        if 'Identifier: '+identifier in line),'Value') for identifier in ('nlc-fixture-result','nlc-fixture-count')]
+                        if 'Identifier: '+identifier in line),'Value') for identifier in ('tacto-fixture-result','tacto-fixture-count')]
                 return original_act(*call_args,**call_kwargs)
             try:
                 result=_record_native_call(report['native_receipts'],operation,obs_id,target,action,*args,**kwargs)
@@ -717,7 +717,7 @@ def owned_popup_capabilities(app, expected_pid):
         seen.append(node)
         role=read(node,'AXRole')
         if not isinstance(role,str) or not role:raise RuntimeError('owned_metadata_role_unavailable')
-        if (read(node,'AXIdentifier')=='nlc-fixture-choice' and role=='AXPopUpButton'):
+        if (read(node,'AXIdentifier')=='tacto-fixture-choice' and role=='AXPopUpButton'):
             matches.append(node)
         children=read(node,'AXChildren')
         if children is not None:queue.extend(list(children))
@@ -766,16 +766,16 @@ def run_observe_control(driver, *, output, focus_diagnostics_dir,expected_pid):
                 obs=driver.observe(TARGET,'tree_full')
                 if obs.get('type')!='observation':raise RuntimeError('owned_observation_unavailable')
                 values={}
-                for name in ('nlc-fixture-result','nlc-fixture-count'):
+                for name in ('tacto-fixture-result','tacto-fixture-count'):
                     index,_=Selector(identifier=name).resolve(obs['tree'])
                     lines=[line for line in obs['tree'].splitlines() if line.strip().split(maxsplit=1)[0]==str(index)]
                     if len(lines)!=1:raise RuntimeError('owned_receiving_ambiguous')
                     values[name]=Selector._attr(lines[0],'Value')
                 report['observations'].append({'started_at':started,'finished_at':time.monotonic(),
                     'values':values,'custom_selects':obs.get('custom_selects')})
-                if values!={'nlc-fixture-result':'Alpha','nlc-fixture-count':'0'}:
+                if values!={'tacto-fixture-result':'Alpha','tacto-fixture-count':'0'}:
                     raise RuntimeError('owned_receiving_changed')
-                index,_=Selector(role='PopUpButton',identifier='nlc-fixture-choice').resolve(obs['tree'])
+                index,_=Selector(role='PopUpButton',identifier='tacto-fixture-choice').resolve(obs['tree'])
                 if obs.get('custom_selects',{}).get(str(index),{}).get('state')!='closed':
                     raise RuntimeError('owned_menu_not_closed')
                 if 'owned_popup_capabilities' not in report:

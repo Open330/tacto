@@ -1,4 +1,4 @@
-// nlc — the signed entry point, the trust anchor, and the only thing that talks
+// tacto — the signed entry point, the trust anchor, and the only thing that talks
 // to the privileged helper.
 //
 // Three properties, each of which was missing at some point and put back after
@@ -21,7 +21,7 @@
 //    isolated so the caller's directory is not on sys.path, with an allowlisted
 //    environment and a fixed PATH.
 //
-// What running this still buys a caller is the NLC command surface — flows,
+// What running this still buys a caller is the Tacto command surface — flows,
 // which are declarative, policy-checked, shown on screen and interruptible —
 // not raw control of the accessibility API.
 
@@ -239,7 +239,7 @@ func vetted(_ msg: [String: Any]) -> String? {
               msg["read_strategy"] == nil || ["batch","single"].contains(msg["read_strategy"] as? String ?? ""),
               msg["titlebar_probe"] == nil || CFGetTypeID(msg["titlebar_probe"]! as CFTypeRef) == CFBooleanGetTypeID(),
               let target = msg["target"] as? String,
-              ["com.apple.finder","ai.callabo.nlc.modality-fixture"].contains(target),
+              ["com.apple.finder","ai.callabo.tacto.modality-fixture"].contains(target),
               let obs = msg["obs_id"] as? String, !obs.isEmpty, obs.count <= 128,
               let value = msg["element_index"], isInt(value), let number = value as? NSNumber,
               !CFNumberIsFloatType(number as CFNumber), (0..<2500).contains(number.intValue) else {
@@ -680,7 +680,7 @@ func vetted(_ msg: [String: Any]) -> String? {
     return addr
 }
 
-let helperRequirement = TactoSigning.peerRequirement(identifier: "ai.callabo.nlc.helper")
+let helperRequirement = TactoSigning.peerRequirement(identifier: "ai.callabo.tacto.helper")
 
 /// Authenticate the SERVER we just connected to.
 ///
@@ -950,7 +950,7 @@ var helperRunning: NSRunningApplication?
         helperRunning = nil
         FileHandle.standardError.write(Data((vanished
             ? "tacto: 도우미가 연결 직후 종료했습니다 — 이유는 다음에서 확인하세요:\n"
-              + "    log show --last 2m --predicate 'subsystem == \"ai.callabo.nlc\"'\n"
+              + "    log show --last 2m --predicate 'subsystem == \"ai.callabo.tacto\"'\n"
             : "tacto: \(why)\n").utf8))
         return nil
     }

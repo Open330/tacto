@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET='ai.callabo.nlc.continuation-fixture'
+TARGET='ai.callabo.tacto.continuation-fixture'
 
 
 def run(driver,guard):
@@ -16,12 +16,12 @@ def run(driver,guard):
     if local._resolve(TARGET,launch=False) is not None:raise ValueError('continuation fixture already running')
     root=Path(__file__).resolve().parents[2]
     report={'new_input_calls':0,'owned_child_reaped':False}
-    with tempfile.TemporaryDirectory(prefix='nlc-native-continuation-') as work:
-        binary=Path(work)/'NLC Continuation.app/Contents/MacOS/Continuation'
+    with tempfile.TemporaryDirectory(prefix='tacto-native-continuation-') as work:
+        binary=Path(work)/'TACTO Continuation.app/Contents/MacOS/Continuation'
         binary.parent.mkdir(parents=True)
         (binary.parent.parent/'Info.plist').write_bytes(plistlib.dumps({
             'CFBundleIdentifier':TARGET,'CFBundleExecutable':binary.name,
-            'CFBundlePackageType':'APPL','CFBundleName':'NLC Continuation','LSUIElement':True}))
+            'CFBundlePackageType':'APPL','CFBundleName':'TACTO Continuation','LSUIElement':True}))
         subprocess.run(['xcrun','swiftc','-parse-as-library',str(root/'tests/fixtures/NativeContinuationFixture.swift'),
             '-o',str(binary)],capture_output=True,check=True,timeout=60)
         try:

@@ -1,0 +1,41 @@
+# Tacto access records
+
+Tacto automatically records supported computer-use CLI invocations. Open
+**실행 기록 보기** from the app or menu bar to read them inside Tacto: search
+by app/task, filter failed or incomplete runs, select a run and follow its
+operation timeline, duration and result. New records refresh while the history
+window is active; closing/minimizing it or switching apps pauses refresh work.
+
+**설정** (also Command–comma) controls automatic logging, retention (7/30/90
+days), and whether the fixed first task presents its result document. Changes
+are saved immediately and apply to the next invocation; disabling logging does
+not erase existing records. **저장된 기록 모두 삭제…** asks for confirmation and
+removes recognized local access receipts, preserving saved workflows and other
+files. Mac permissions and agent connection remain available through
+**Mac 권한·에이전트**.
+
+For file-level diagnostics, `tacto logs` lists recent filenames and `tacto logs
+--json` returns metadata. `tacto logs --open` opens the underlying macOS folder,
+`~/Library/Application Support/Tacto/Logs/`. The app's normal record viewer does
+not require navigating that folder.
+
+Each CLI invocation has one JSONL file with ordered command/access start and end
+records, target bundle identifiers, operation/action names, outcome codes and
+elapsed time. First-task results also include the stage, failure document counts,
+and whether foreground presentation was verified. A missing end record means an
+interrupted or unknown outcome; it never authorizes repeating an input.
+
+These are Tacto's observable accesses, not the outer agent's full conversation
+or private reasoning. Screen trees, screenshots, field values, document titles,
+paths from input arguments, prompts and provider replies are not stored in the
+automatic access receipts. There is no automatic upload. Detailed screen/action
+traces remain an explicit separate `--trace` option on do/run/replay; review a
+trace before sharing it because it contains screen data.
+
+The Tacto/Logs directories are owner-only on POSIX, with 0600 files. Receipts
+are capped at approximately 1 MiB per invocation, 200 files, 20 MiB total and
+30 days by default (adjustable in the app). Cleanup occurs at the next logged invocation and only removes owned
+files matching the receipt naming scheme. A capped invocation records
+`log_truncated` and still attempts to record command termination. Storage failure
+prints one short diagnostic and does not interrupt the computer-use operation.
+Files can be deleted locally; the next invocation creates a fresh receipt.

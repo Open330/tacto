@@ -7,7 +7,7 @@
 .venv/bin/python examples/probes/build-typing-witness.py /existing/parent/new-directory
 ```
 
-`NLC Typing Witness.app`은 사용자 문서를 열지 않는 빈 NSTextView와 자체 window의
+`TACTO Typing Witness.app`은 사용자 문서를 열지 않는 빈 NSTextView와 자체 window의
 key down/up 횟수·UTF-16 선택 범위·본문 SHA256 상태를 제공합니다. 본문을 파일에
 기록하지 않습니다. 실행 후 실제 AX caret 노출과 launch의 전경 변화는 별도로
 측정해야 하며 빌드 성공이 입력 보존 증거는 아닙니다. 창은 닫으면 종료되며
@@ -33,7 +33,7 @@ navigation 앱을 컴파일·서명하며 실행하지 않습니다.
 ```
 
 실행 전 사용자가 전용 witness의 빈 입력 필드를 선택해야 합니다. `ARMED` 안내
-후 영문 입력 상태에서 `nlc typing 12345`를 약 1초에 한 글자씩 직접 입력합니다.
+후 영문 입력 상태에서 `tacto typing 12345`를 약 1초에 한 글자씩 직접 입력합니다.
 붙여넣기나 Enter는 사용하지 않습니다. 첫 입력을 최대 60초 기다린 뒤 배경 A 창에
 Right 16회를 보내며, 각 단계에서 실제 위치와 A/B 수신 횟수를 확인합니다.
 전경 본문을 읽거나 기록하지 않고 자체 상태 label의 hash·입력 횟수·선택 범위를

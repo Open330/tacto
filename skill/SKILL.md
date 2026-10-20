@@ -1,6 +1,6 @@
 ---
 name: tacto
-description: Automate macOS/web tasks (Windows experimental) with reusable Tacto flows (formerly NLC); author once, replay without model calls.
+description: Automate macOS/web tasks (Windows experimental) with reusable Tacto flows; author once, replay without model calls.
 ---
 
 # Tacto
@@ -9,7 +9,8 @@ Use the signed `tacto` command for UI work. Resolve `command -v tacto` or
 `~/.local/bin/tacto` in the same tool call as the next command.
 
 For the fixed welcome task, run `tacto first-run --helper --yes` once; it launches
-TextEdit, creates a document and verifies the welcome text without Flow authoring.
+TextEdit, creates a document, verifies the welcome text and brings the result
+forward unless disabled in settings, without Flow authoring. `foreground_verified` confirms result presentation.
 `text_verified` proves visible text, not a save. On failure report stage/error;
 do not repeat a partially completed welcome task.
 

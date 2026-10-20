@@ -5,7 +5,7 @@ import AppKit
     func applicationDidFinishLaunching(_ notification: Notification) {
         window=NSWindow(contentRect:NSRect(x:260,y:280,width:340,height:130),
             styleMask:[.titled,.closable],backing:.buffered,defer:false)
-        window.title="NLC Owned Continuation";window.isReleasedWhenClosed=false
+        window.title="TACTO Owned Continuation";window.isReleasedWhenClosed=false
         let button=NSButton(title:"Continue once",target:self,action:#selector(continued))
         button.frame=NSRect(x:20,y:65,width:200,height:30)
         button.setAccessibilityIdentifier("continue-once");window.contentView?.addSubview(button)

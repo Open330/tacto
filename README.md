@@ -8,13 +8,14 @@
 
 **Tacto lets agents operate browsers and Mac apps on your behalf.**<br>
 Turn clicks, typing, and checks into a reusable **Flow**.<br>
-Replay it with new inputs. Bring the agent back when judgment is needed.
+Replay it with new inputs. Bring the agent back when judgment is needed.<br>
+**See the apps your agent accessed, the actions it took, and their outcomes in Tacto.**
 
 [![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -52,6 +53,19 @@ Same-window [drag gestures](docs/native-drag.md) are supported by the signed mac
 tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
 tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
 ```
+
+## Know what your agent did
+
+**Delegate the work. Inspect the activity.** Tacto's in-app history shows accesses
+made through Tacto: the target app, operation, outcome and elapsed time. Search
+runs, filter failures or unconfirmed completion, and follow each operation in a
+timeline without opening a log directory.
+
+![Tacto preview with multiple actual access records and the selected TextEdit timeline](sites/tacto/dist/assets/tacto-activity.png)
+
+Records stay on this Mac. Settings control automatic logging and 7/30/90-day
+retention. Screen content, input values, prompts and internal agent reasoning
+are excluded. [Activity history and settings](docs/access-logging.md).
 
 <a id="how-it-works"></a>
 
@@ -97,7 +111,7 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 **Developer preview for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download drag update](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app.
+[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Preview 14 refines native spacing, sidebar padding and resizable history panes: browse operation timelines, search/filter runs, and configure logging, retention and first-task result presentation. Signing identities are unchanged from Preview 9. Upgrading from Preview 8 or earlier requires granting permissions to **Tacto Helper** (app control) and **Tacto** (screen recording).
 
 This is a **private developer prerelease**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
 
@@ -138,9 +152,9 @@ Replay a saved Flow:
 <details>
 <summary>Installation notes and development-only commands</summary>
 
-If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`; `nlc` is a compatibility alias. The Python wheel alone does not supply the signed native launcher/helper. Legacy `nlc` commands and Flow paths remain supported. The permission holder is **Tacto Helper** (`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`) and the launcher is `launcher/tacto`; bundle identifiers and signing requirements use `ai.callabo.nlc.*`.
+If your agent cannot find the skill, restart its session and check `./skill/install.sh --check`. The Python distribution is `tacto-runtime`; the canonical Python import is `tacto`. The Python wheel alone does not supply the signed native launcher/helper. The permission holder is **Tacto Helper** (`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`) and the launcher is `launcher/tacto`; bundle identifiers and signing requirements use `ai.callabo.tacto.*`.
 
-> **Python namespace conflict.** The top-level import `tacto` is also used by an unrelated PyPI package (a tactile-sensor simulator). Install this project's distribution, `tacto-runtime`, in its own environment, and never `pip install tacto` for Tacto. Installing both into one environment overwrites each other's files; `import nlc` then refuses with an error naming `tacto-runtime`.
+> **Python namespace conflict.** The top-level import `tacto` is also used by an unrelated PyPI package (a tactile-sensor simulator). Install this project's distribution, `tacto-runtime`, in its own environment, and never `pip install tacto` for Tacto. Installing both into one environment can overwrite each other's files.
 
 These commands belong to the development checkout, not the main-branch release:
 
@@ -199,7 +213,7 @@ Detailed guides are primarily Korean, with code examples and some English refere
 [Installation](docs/installation.md) · [Windows (experimental)](docs/windows.md) · [Flows](docs/recipes.md) · [API](docs/api.md) · [Capabilities](docs/capabilities.md) · [Agent skill](skill/SKILL.md)
 
 <details>
-<summary>CLI reference and legacy nlc compatibility</summary>
+<summary>CLI reference</summary>
 
 Available on the main branch:
 
@@ -251,6 +265,7 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 - [input observation](docs/input-observation.md)
 - [permission onboarding](docs/permission-onboarding.md)
 - [installation](docs/installation.md)
+- [Automatic access records](docs/access-logging.md)
 - [menu discovery](docs/menu-discovery.md)
 - [model deadlines](docs/model-deadlines.md)
 - [native visual](docs/native-visual.md)

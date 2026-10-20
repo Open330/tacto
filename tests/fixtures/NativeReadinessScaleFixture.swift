@@ -22,7 +22,7 @@ import AppKit
         for (index, suffix) in ["A", "B"].enumerated() {
             let window = ScaleWindow(contentRect:NSRect(x:170 + index*460,y:200,width:420,height:230),
                 styleMask:[.titled,.closable],backing:.buffered,defer:false)
-            window.title = "NLC Readiness Scale \(suffix)"
+            window.title = "TACTO Readiness Scale \(suffix)"
             window.isReleasedWhenClosed = false
             let label = NSTextField(labelWithString:"Owned AX scale \(suffix)")
             label.frame = NSRect(x:20,y:140,width:360,height:40)

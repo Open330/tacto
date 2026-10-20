@@ -325,7 +325,7 @@ class EverySwitchIsTheSameSwitch(unittest.TestCase):
         with `--foreground`, which has nothing to do with `_bring_forward`.
         Gating one and not the other left a run that believed it could not take
         the screen pulling the fixture in front of it — measured: frontmost
-        went Finder -> NLC Select Fixture.
+        went Finder -> TACTO Select Fixture.
         """
         text = (ROOT / "tests/test_helper_contract.py").read_text()
         launches = [line for line in text.splitlines()

@@ -1,5 +1,5 @@
 """Known owned rich-text witness; no GUI input or general format attestation."""
-TEXT = 'NLC signed RTF witness 한글 😀\n'
+TEXT = 'TACTO signed RTF witness 한글 😀\n'
 
 
 def utf16_span(segment):
@@ -17,7 +17,7 @@ def rich_source():
     if font is None: raise ValueError('witness_font_unavailable')
     body.addAttribute_value_range_(NSFontAttributeName, font, (0, body.length()))
     manager = NSFontManager.sharedFontManager()
-    for segment, trait in (('NLC', NSBoldFontMask), ('signed', NSItalicFontMask)):
+    for segment, trait in (('TACTO', NSBoldFontMask), ('signed', NSItalicFontMask)):
         body.addAttribute_value_range_(NSFontAttributeName,
             manager.convertFont_toHaveTrait_(font, trait), utf16_span(segment))
     body.addAttribute_value_range_(NSUnderlineStyleAttributeName, 1, utf16_span('RTF'))
@@ -46,7 +46,7 @@ def verify_witness(raw):
         return range(start, start + count)
     manager = NSFontManager.sharedFontManager()
     snapshot = {}
-    for segment, trait in (('NLC', NSBoldFontMask), ('signed', NSItalicFontMask)):
+    for segment, trait in (('TACTO', NSBoldFontMask), ('signed', NSItalicFontMask)):
         fonts = [attribute(NSFontAttributeName, i) for i in indices(segment)]
         if any(f is None or not manager.traitsOfFont_(f) & trait
                or abs(f.pointSize() - 14) > .001 or f.familyName() != 'Helvetica' for f in fonts):

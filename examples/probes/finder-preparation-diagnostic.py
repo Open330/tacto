@@ -69,16 +69,16 @@ def preparation_flow(path):
 
 def main(report):
     fd = os.open(report, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    directory = os.path.realpath(tempfile.mkdtemp(prefix='nlc-finder-ready-'))
+    directory = os.path.realpath(tempfile.mkdtemp(prefix='tacto-finder-ready-'))
     identity = os.stat(directory)
     result = {'kind':'owned-finder-preparation', 'model_calls':0,
               'owned_directory':directory, 'diagnostics':[], 'cleanup':'left_as_is',
               'source_manifest_before':source_manifest()}
     try:
-        with tempfile.TemporaryDirectory(prefix='nlc-finder-flow-') as work:
+        with tempfile.TemporaryDirectory(prefix='tacto-finder-flow-') as work:
             flow = Path(work) / 'prepare.json'
             flow.write_text(preparation_flow(directory).to_json())
-            launcher = Path.home() / '.local/bin/nlc'
+            launcher = Path.home() / '.local/bin/tacto'
             if launcher.resolve() != ROOT / 'launcher/tacto':
                 raise RuntimeError('signed launcher checkout mismatch')
             with subprocess.Popen([str(launcher), 'run', str(flow), '--helper', '--yes', '--think', '0'],

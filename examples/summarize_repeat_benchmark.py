@@ -37,7 +37,7 @@ def main():
     for filename in args.reports:
         for r in json.loads(Path(filename).read_text())['results']:
             if r.get('passed'):batches.append(measured_batch(r))
-    reused=next(r for r in batches if r['arm']=='codex-nlc-reuse')
+    reused=next(r for r in batches if r['arm']=='codex-tacto-reuse')
     result={'schema':1,'batches':batches,'savings_against':{r['arm']:savings(r,reused)
             for r in batches if r['arm']!=reused['arm']},'raw_reports':args.reports,
             'comparison_eligible':False,'billing_verified':False,

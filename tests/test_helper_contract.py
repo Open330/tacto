@@ -1,6 +1,6 @@
 """The three drivers have to answer the same questions the same way.
 
-NLC has three ways to reach a screen: the in-process `Driver`, the signed
+TACTO has three ways to reach a screen: the in-process `Driver`, the signed
 helper over an inherited socket, and the same helper over its own socket. They
 are supposed to be one L2 protocol with different transports underneath.
 
@@ -437,7 +437,7 @@ def _view_popup(d):
     skip("이 Finder 창에는 보기 팝업이 없습니다")
 
 
-SELECT_FIXTURE = "ai.callabo.nlc.select-fixture"
+SELECT_FIXTURE = "ai.callabo.tacto.select-fixture"
 _FIXTURE = {}          # built once per process, torn down by its own timeout
 
 
@@ -485,16 +485,16 @@ def _select_fixture(d, lifetime=180):
 
     # Kept for the life of the process, not a `with` block: the fixture has to
     # outlive the build and both checks, and it ends itself on --timeout.
-    work = _FIXTURE.get("dir") or tempfile.mkdtemp(prefix="nlc-select-fixture-")
+    work = _FIXTURE.get("dir") or tempfile.mkdtemp(prefix="tacto-select-fixture-")
     _FIXTURE["dir"] = work
-    app = pathlib.Path(work) / "NLC Select Fixture.app"
+    app = pathlib.Path(work) / "TACTO Select Fixture.app"
     executable = app / "Contents/MacOS/NativeSelectFixture"
     if not executable.is_file():
         executable.parent.mkdir(parents=True, exist_ok=True)
         (app / "Contents/Info.plist").write_bytes(plistlib.dumps({
             "CFBundleIdentifier": SELECT_FIXTURE,
             "CFBundleExecutable": executable.name,
-            "CFBundleName": "NLC Select Fixture",
+            "CFBundleName": "TACTO Select Fixture",
             "CFBundlePackageType": "APPL",
             "CFBundleVersion": "1",
         }))
@@ -547,7 +547,7 @@ def _select_fixture(d, lifetime=180):
         # `-g`: LaunchServices activates what it opens unless told not to,
         # so dropping `--foreground` from the fixture was not enough — the
         # launch itself took the screen. Measured by the focus witness during a
-        # default run: ['ai.callabo.nlc.select-fixture', 'com.apple.finder'],
+        # default run: ['ai.callabo.tacto.select-fixture', 'com.apple.finder'],
         # with Finder frontmost at both ends. In foreground mode the fixture
         # still comes forward, because `--foreground` makes it activate itself.
         ["open", "-g", "-n", "-a", str(app), "--args",
@@ -569,7 +569,7 @@ def _select_fixture(d, lifetime=180):
     while time.monotonic() < deadline:
         probe._pump()
         pid = probe._resolve(SELECT_FIXTURE, launch=False)
-        if pid is not None and _fixture_label(pid, "nlc-fixture-result") is not None:
+        if pid is not None and _fixture_label(pid, "tacto-fixture-result") is not None:
             _FIXTURE["pid"] = pid
             if not _bring_forward(SELECT_FIXTURE, probe):
                 skip("픽스처를 앞으로 가져오지 못했습니다 — "
@@ -605,7 +605,7 @@ def _fixture_popup(d):
     if obs is None or obs.get("type") != "observation":
         skip(f"픽스처를 관측할 수 없습니다: {obs.get('error') if obs else 'none'}")
     for line in obs["tree"].splitlines():
-        if "PopUpButton" in line and "nlc-fixture-choice" in line:
+        if "PopUpButton" in line and "tacto-fixture-choice" in line:
             return obs, int(line.strip().split()[0]), pid
     skip("픽스처에 choice 팝업이 없습니다")
 
@@ -718,11 +718,11 @@ def _select_option_round_trip(d):
     the label is the fact.
     """
     obs, idx, pid = _fixture_popup(d)
-    start = _fixture_label(pid, "nlc-fixture-result")
+    start = _fixture_label(pid, "tacto-fixture-result")
     if start not in ("Alpha", "Beta"):
         skip(f"픽스처가 예상 상태가 아닙니다: {start!r}")
     other = "Beta" if start == "Alpha" else "Alpha"
-    before = _fixture_label(pid, "nlc-fixture-count")
+    before = _fixture_label(pid, "tacto-fixture-count")
     try:
         r = d.act(obs["obs_id"], SELECT_FIXTURE,
                   {"name": "select_option", "element_index": idx,
@@ -732,9 +732,9 @@ def _select_option_round_trip(d):
         # The app's own callback ran. Not the driver's word for it: this label
         # is written by the control's action, so it moves only if a real
         # selection happened.
-        landed = _fixture_label(pid, "nlc-fixture-result")
+        landed = _fixture_label(pid, "tacto-fixture-result")
         assert landed == other, f"고른 것이 반영되지 않았습니다: {landed!r}"
-        after = _fixture_label(pid, "nlc-fixture-count")
+        after = _fixture_label(pid, "tacto-fixture-count")
         assert after != before, (
             f"값은 바뀌었는데 선택 콜백이 돌지 않았습니다 "
             f"({before!r} -> {after!r}) — 값을 직접 써넣은 것입니다")
@@ -750,7 +750,7 @@ def _select_option_round_trip(d):
         d.act(obs2["obs_id"], SELECT_FIXTURE,
               {"name": "select_option", "element_index": idx2,
                "option_label": start})
-        back = _fixture_label(pid, "nlc-fixture-result")
+        back = _fixture_label(pid, "tacto-fixture-result")
         assert back == start, f"원래 값으로 못 되돌렸습니다: {start!r} -> {back!r}"
     finally:
         _discard_fixture()
@@ -759,7 +759,7 @@ def _select_option_round_trip(d):
 @check("없는 선택지·모호한 값은 거절하고 무엇이 있는지 말한다")
 def _select_option_refusals(d):
     obs, idx, pid = _fixture_popup(d)
-    before = _fixture_label(pid, "nlc-fixture-result")
+    before = _fixture_label(pid, "tacto-fixture-result")
     missing = d.act(obs["obs_id"], SELECT_FIXTURE,
                     {"name": "select_option", "element_index": idx,
                      "option_label": "이런 선택지는 없습니다"})
@@ -792,7 +792,7 @@ def _select_option_refusals(d):
     assert clash.get("effect") == "not_started", clash
 
     # And that claim is checked against the world, not taken from the reply.
-    after = _fixture_label(pid, "nlc-fixture-result")
+    after = _fixture_label(pid, "tacto-fixture-result")
     _discard_fixture()
     assert after == before, (
         f"거절했다면서 값이 {before!r} 에서 {after!r} 로 바뀌었습니다")
@@ -809,11 +809,11 @@ def _select_option_disabled(d):
     forever.
     """
     obs, idx, pid = _fixture_popup(d)
-    before = _fixture_label(pid, "nlc-fixture-result")
+    before = _fixture_label(pid, "tacto-fixture-result")
     r = d.act(obs["obs_id"], SELECT_FIXTURE,
               {"name": "select_option", "element_index": idx,
                "option_label": "Disabled"})
-    after = _fixture_label(pid, "nlc-fixture-result")
+    after = _fixture_label(pid, "tacto-fixture-result")
     _discard_fixture()
     assert r["type"] == "error", f"비활성 선택지가 통과함: {r}"
     assert r.get("option_selected") is False, r

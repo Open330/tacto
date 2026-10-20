@@ -21,7 +21,7 @@ def main(driver, output):
             if 'select_option.strict_parameters' not in driver.capabilities:
                 raise RuntimeError('strict_native_selection_capability_required')
             root = Path(__file__).resolve().parents[2]
-            paths = list((root/'tacto').glob('*.py'))+list((root/'nlc').glob('*.py')) + list((root/'helper').glob('*.swift')) + [
+            paths = list((root/'tacto').glob('*.py')) + list((root/'helper').glob('*.swift')) + [
                 Path(__file__), root/'examples/eval.py', root/'launcher/tacto', root/'launcher/tacto.swift',
                 root/'helper/tacto-helper', root/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
             def manifest():

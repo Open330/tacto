@@ -8,7 +8,8 @@
 
 **Tacto는 에이전트가 브라우저와 Mac 앱을 조작하게 하는 도구입니다.**<br>
 에이전트가 화면을 읽고 클릭·입력하는 작업을 Flow라는 실행 순서로 저장합니다.<br>
-같은 작업은 입력값만 바꿔 재생하고, 결과를 확인하세요.
+같은 작업은 입력값만 바꿔 재생하고, 결과를 확인하세요.<br>
+**에이전트가 어떤 앱에서 무엇을 했는지, Tacto 실행 기록에서 직접 확인하세요.**
 
 [![macOS](docs/assets/badge-macos.svg)](docs/installation.md)
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
@@ -70,6 +71,19 @@ Markdown은 나머지 예제가 남는 부분 수정입니다. 모든 사례가 
 [반복 작업 원본](sites/tacto/dist/assets/demos/workflow-replay.mp4) · [계산기 원본](sites/tacto/dist/assets/demos/calculator.mp4)도 제공합니다.
 영상은 작성된 Flow의 실행을 보여주며 자연어 작성 과정의 녹화가 아닙니다.
 테스트 앱은 상용 업무 앱이 아닙니다. 정상 재생 중 모델 호출은 없지만 최초 작성 비용은 별도입니다.
+
+## 에이전트가 한 일을 직접 확인하세요
+
+**작업은 맡기고, 접근 내역은 확인하세요.** Tacto를 통해 접근한 앱과 수행한
+동작, 결과, 소요 시간을 앱 안의 실행 기록에서 볼 수 있습니다. 작업을 검색하고,
+실패하거나 완료를 확인하지 못한 실행을 골라 단계별 타임라인을 확인하세요.
+로그 폴더를 찾아갈 필요가 없습니다.
+
+![실제 접근 기록 여러 개와 선택한 TextEdit 작업의 동작·결과·시간을 함께 보여주는 앱 미리보기](sites/tacto/dist/assets/tacto-activity.png)
+
+기록은 이 Mac에 저장됩니다. 설정에서 자동 저장과 보관 기간(7·30·90일)을
+선택할 수 있습니다. 화면 내용·입력값·프롬프트와 에이전트의 내부 추론은
+기록하지 않습니다. [접근 기록과 설정 안내](docs/access-logging.md).
 
 ## 에이전트에게 앱 조작을 맡기세요
 
@@ -142,7 +156,9 @@ README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드�
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[드래그 개선판 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+[Tacto 미리보기 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+
+Preview 14는 사이드바 안쪽 여백, 목록·상세 영역 비율, 설정 설명의 줄바꿈과 간격을 다듬었습니다. 앱 안에서 실행 기록을 검색하고 동작 순서·결과를 확인할 수 있습니다. 기록 저장 여부·보관 기간·첫 작업 결과 표시를 직접 바꿀 수 있습니다. Preview 9와 서명 식별자가 같습니다. Preview 8 이하에서 전환하는 경우 앱 조작은 **Tacto Helper**, 화면 기록은 **Tacto**에 다시 허용하세요.
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
@@ -186,11 +202,11 @@ uv sync
 <summary>설치 문제와 개발 버전의 반복 실행</summary>
 
 스킬을 찾지 못하면 에이전트 세션을 다시 열고 `./skill/install.sh --check`로 연결을 확인하세요.
-Python 배포 이름은 `tacto-runtime`이며 기본 import는 `tacto`이며 `nlc`는 호환 계층입니다.
+Python 배포 이름은 `tacto-runtime`이고 기본 import는 `tacto`입니다.
 Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습니다.
-기존 `nlc` 명령과 Flow 저장 경로는 계속 지원합니다. 권한용 앱은 **Tacto Helper**(`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`)이고 실행기는 `launcher/tacto`입니다. 번들 식별자와 서명 요구조건은 `ai.callabo.nlc.*`를 사용합니다.
+권한용 앱은 **Tacto Helper**(`helper/Tacto Helper.app/Contents/MacOS/TactoHelper`)이고 실행기는 `launcher/tacto`입니다. 번들 식별자와 서명 요구조건은 `ai.callabo.tacto.*`를 사용합니다.
 
-> **Python 이름 충돌 주의.** 최상위 import 이름 `tacto`는 PyPI의 다른 패키지(촉각 센서 시뮬레이터)도 사용합니다. 이 프로젝트의 배포 이름은 `tacto-runtime`이며 별도 가상환경에 설치하세요. Tacto를 위해 `pip install tacto`를 실행하지 마세요. 두 패키지를 한 환경에 설치하면 서로의 파일을 덮어쓰며, 이때 `import nlc`는 `tacto-runtime`을 안내하는 오류로 거부합니다.
+> **Python 이름 충돌 주의.** 최상위 import 이름 `tacto`는 PyPI의 다른 패키지(촉각 센서 시뮬레이터)도 사용합니다. 이 프로젝트의 배포 이름은 `tacto-runtime`이며 별도 가상환경에 설치하세요. Tacto를 위해 `pip install tacto`를 실행하지 마세요. 두 패키지를 한 환경에 설치하면 서로의 파일을 덮어쓸 수 있습니다.
 선택적 Playwright backend는 별도 Chromium 페이지를 사용합니다.
 
 다음 batch·자동 수리 명령은 개발 checkout 기준이며 아직 기본 브랜치의 배포 기능이 아닙니다.
@@ -253,7 +269,7 @@ python3 sites/tacto/serve.py
 [설치](docs/installation.md) · [Flow 작성·재생](docs/recipes.md) · [API](docs/api.md) · [지원 기능](docs/capabilities.md) · [에이전트 스킬](skill/SKILL.md)
 
 <details>
-<summary><strong>CLI 명령 찾아보기 · 이전 nlc 명령 호환</strong></summary>
+<summary><strong>CLI 명령 찾아보기</strong></summary>
 
 기본 브랜치에서 제공하는 명령입니다.
 
@@ -275,7 +291,7 @@ python3 sites/tacto/serve.py
 | 브라우저 파일 등록 | `tacto web-upload` |
 | VRoid 전용 실험 | `tacto vroid-focus`, `tacto vroid-drag` — `TACTO_ENABLE_EXPERIMENTAL_FOREGROUND=1`로 별도 빌드한 개발용 진단 경로. 기본 빌드 제외 |
 
-`tacto --help`로 현재 checkout의 명령을 확인하세요. 기존 `nlc` 별칭도 사용할 수 있습니다.
+`tacto --help`로 현재 checkout의 명령을 확인하세요.
 네이티브 작업은 서명된 런처를 사용하고 필요한 명령에 `--helper`를 지정합니다.
 
 </details>
@@ -293,7 +309,7 @@ python3 sites/tacto/serve.py
 - [첫 작업 품질 개선·교차 검토](docs/tacto-quality-review-2026-10-19.md)
 - [네이티브 서명·기본 빌드·설치 UX 수정 결과](docs/tacto-native-release-fixes-2026-10-16.md)
 - [전체 개선 peer 검토와 잔여 출시 제한](docs/tacto-peer-review-2026-10-16.md)
-- [Tacto 전환·이전 이름 호환](docs/tacto-branding.md)
+- [Tacto 이름·배포 식별자](docs/tacto-branding.md)
 - [Python API](docs/api.md)
 - [새 파일 저장의 host receipt](docs/artifact-receipts.md)
 - [비교 실행 기록](docs/benchmark-records.md)
@@ -347,3 +363,5 @@ Developer preview · Proprietary license
 </details>
 
 [Preview 3 runtime update](docs/runtime-update-2026-10-19.md)
+
+[자동 접근 로그와 실행 기록](docs/access-logging.md)

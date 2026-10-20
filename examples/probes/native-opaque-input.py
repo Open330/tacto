@@ -10,8 +10,8 @@ import tempfile
 import time
 from contextlib import ExitStack
 
-TARGET = 'ai.callabo.nlc.opaque-input-fixture'
-TITLE = 'NLC Opaque Input Fixture '
+TARGET = 'ai.callabo.tacto.opaque-input-fixture'
+TITLE = 'TACTO Opaque Input Fixture '
 
 
 def main(output, *, public_driver=None, visual_flow=False, vision_provider="fixed", require_selection=False, journal_barrier=False, general_visual=False):
@@ -65,13 +65,13 @@ def _main(stream, *, public_driver, visual_flow, vision_provider, require_select
     try:
         assert WINDOW_INPUT_CAPABILITIES <= set(public_driver.capabilities),'opaque input capability absent'
         assert native._resolve(TARGET,launch=False) is None,'owned fixture already running'
-        with tempfile.TemporaryDirectory(prefix='nlc-opaque-input-') as directory, ExitStack() as resources:
+        with tempfile.TemporaryDirectory(prefix='tacto-opaque-input-') as directory, ExitStack() as resources:
             bundle=Path(directory)/'OpaqueInput.app';binaries=bundle/'Contents/MacOS';binaries.mkdir(parents=True)
             binary=binaries/'OpaqueInput'
             subprocess.run(['xcrun','swiftc','-parse-as-library','-warnings-as-errors',str(root/sources[0]),'-o',str(binary)],
                 check=True,capture_output=True,timeout=45)
             (bundle/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable':'OpaqueInput',
-                'CFBundleIdentifier':TARGET,'CFBundleName':'NLC Opaque Input Fixture','CFBundlePackageType':'APPL'}))
+                'CFBundleIdentifier':TARGET,'CFBundleName':'TACTO Opaque Input Fixture','CFBundlePackageType':'APPL'}))
             subprocess.run(['codesign','--force','--sign','-',str(bundle)],check=True,capture_output=True,timeout=15)
             with audit:
                 child=subprocess.Popen([str(binary)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

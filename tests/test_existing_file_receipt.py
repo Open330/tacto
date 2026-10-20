@@ -310,7 +310,7 @@ class FocusedDocumentSwiftTests(unittest.TestCase):
         tail = (root / 'tests/fixtures/focused_document_judge.swift.txt').read_text(encoding='utf-8')
         tail = tail.replace('DECOMPOSED', decomposed).replace('COMPOSED', composed)
         harness = 'import Foundation\nimport ApplicationServices\n' + code + tail
-        with tempfile.TemporaryDirectory(prefix='nlc-focused-doc-') as d:
+        with tempfile.TemporaryDirectory(prefix='tacto-focused-doc-') as d:
             src = Path(d) / 'main.swift'
             src.write_text(harness, encoding='utf-8')
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
@@ -341,7 +341,7 @@ class FocusedDocumentTimeoutTests(unittest.TestCase):
         pure = swift[start:swift.index('func focusedDocumentMismatch(pid: pid_t, want: String,')]
         harness = ('import Foundation\nimport ApplicationServices\n' + pure + tail_fn +
                    (root / 'tests/fixtures/focused_document_timeout.swift.txt').read_text())
-        with tempfile.TemporaryDirectory(prefix='nlc-focused-timeout-') as d:
+        with tempfile.TemporaryDirectory(prefix='tacto-focused-timeout-') as d:
             src = Path(d) / 'main.swift'; src.write_text(harness, encoding='utf-8')
             run = subprocess.run(['swift', str(src)], capture_output=True, text=True, timeout=120)
         self.assertEqual(run.returncode, 0, run.stderr)

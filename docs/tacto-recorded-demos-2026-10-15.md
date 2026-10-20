@@ -77,3 +77,16 @@ The overlay source is [annotate_recordings.py](../sites/tacto/annotate_recording
 and its target/time schedule is [pointer-guide.json](../sites/tacto/dist/assets/demos/pointer-guide.json).
 Only development-time `ffmpeg` and `rsvg-convert` are needed to regenerate them;
 the shipped players add no JavaScript or external dependency.
+
+
+## Source-backed Flow walkthrough (2026-10-20)
+
+The landing page visualizes the six steps in the recorded
+[calculator-reusable Flow](../sites/tacto/dist/assets/calculator-reusable.flow.json).
+The published JSON preserves the recording's original Flow structure and default
+parameters. The two selectable input sets are the recorded 7+8=15 and 3+9=12.
+Authoring and step highlighting are explanatory; the page does not operate Mac
+apps or call a model. The original execution video remains available in the case
+gallery. The activity screenshot loads 38 genuine saved access receipts into an
+offscreen native view, with the existing TextEdit run selected; no new receipts
+or edited outcomes were fabricated for the image.

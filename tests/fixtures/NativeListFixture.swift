@@ -59,7 +59,7 @@ import AppKit
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 220, y: 220, width: 420, height: 360),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC List Fixture"
+        window.title = "TACTO List Fixture"
         window.isReleasedWhenClosed = false
         let scroll = NSScrollView(frame: NSRect(x: 10, y: 170, width: 300, height: 180))
         table = RoomTable(frame: scroll.bounds)

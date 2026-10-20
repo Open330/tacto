@@ -20,9 +20,9 @@ with DurableDispatchDriver(underlying_driver, journal_directory) as guarded:
 CLI execution can opt in with the same absolute run directory:
 
 ```sh
-nlc run owned-flow.json --helper --journal-dir /absolute/private/run-directory
-nlc replay owned-recipe --helper --journal-dir /absolute/private/run-directory
-nlc do "owned task" --helper --journal-dir /absolute/private/run-directory
+tacto run owned-flow.json --helper --journal-dir /absolute/private/run-directory
+tacto replay owned-recipe --helper --journal-dir /absolute/private/run-directory
+tacto do "owned task" --helper --journal-dir /absolute/private/run-directory
 ```
 
 The option is supported by `do`, `run`, `replay`, and `web-upload`. It is removed before
@@ -91,7 +91,7 @@ Raw log (local evidence: `../reviews/2026-10-11/cli-dispatch-journal-regression-
 and explicit source subset report (local evidence: `../reviews/2026-10-11/cli-dispatch-journal-regression-20261011-a.json`)
 are preserved; declared CLI/journal/test sources were unchanged before/after.
 These CLI tests use owned in-memory app/evidence fixtures. Installed signed
-launcher `nlc run --help` also returned0 and displayed the new option; it did
+launcher `tacto run --help` also returned0 and displayed the new option; it did
 not launch a task or attest GUI recovery.
 
 ## Chromium + CLI worker termination
@@ -120,7 +120,7 @@ as this effect having occurred.
 
 ## Signed native producer reply loss
 
-`nlc eval signed_producer_file_reply_loss` is an isolated, model-free owned
+`tacto eval signed_producer_file_reply_loss` is an isolated, model-free owned
 AppKit save producer evaluation through the installed signed helper. It records
 a reservation before the guarded native Save click. After the helper returns
 `acted`, an owned wrapper injects a TimeoutError before journal reply logging.
@@ -148,7 +148,7 @@ attribution, true native worker restart, or safe automatic continuation.
 
 ## Actual signed native worker restart
 
-`nlc eval signed_producer_worker_restart` keeps the owned Save producer under
+`tacto eval signed_producer_worker_restart` keeps the owned Save producer under
 its parent evaluator. A separate signed launcher runs the internal
 `signed_native_journal_worker` with a parent-created mode0600 configuration.
 The worker uses its own authenticated helper channel, fresh observation and
@@ -169,7 +169,7 @@ only UNCHANGED_SAMPLED. Related48 unit/integration tests/0.899s/OK/no skips
 were confirmed in the terminal; no separate raw unit log is claimed.
 
 Worker configuration/proof handling is fixture-only. It accepts a private
-owned `nlc-save-writer-*` directory under Library/Caches, a fixed producer
+owned `tacto-save-writer-*` directory under Library/Caches, a fixed producer
 bundle, bounded private single-link records and the parent-bound callback
 inode/nonce/process identity. Configuration options apply only to the isolated
 internal worker scenario. The runtime launcher environment allowlist and

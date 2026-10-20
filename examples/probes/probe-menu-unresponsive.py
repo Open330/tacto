@@ -35,7 +35,7 @@ def await_file(path, *, child=None, seconds=15):
 def signed_client(driver, control):
     session=json.loads((control/'signed-session.json').read_text())
     target=session['target']
-    if target!='ai.callabo.nlc.menu-timeout-fixture':raise RuntimeError('wrong owned fixture target')
+    if target!='ai.callabo.tacto.menu-timeout-fixture':raise RuntimeError('wrong owned fixture target')
     before=driver.menu_state(target,['Probe','Responder Command'])
     if before.get('type')!='menu_state':raise RuntimeError('signed initial read failed')
     publish(control/'signed-ready.json',{'before':before})
@@ -56,7 +56,7 @@ def signed_client(driver, control):
 
 
 def signed_measure(output, proc, report):
-    publish(output/'signed-session.json',{'target':'ai.callabo.nlc.menu-timeout-fixture','pid':proc.pid})
+    publish(output/'signed-session.json',{'target':'ai.callabo.tacto.menu-timeout-fixture','pid':proc.pid})
     child=None
     timer=None
     try:
@@ -99,14 +99,14 @@ def main():
     audit=None
     timer=None
     try:
-        with tempfile.TemporaryDirectory(prefix='nlc-menu-timeout-') as tmp:
+        with tempfile.TemporaryDirectory(prefix='tacto-menu-timeout-') as tmp:
             app=Path(tmp)/'Timeout Fixture.app'
             exe=app/'Contents/MacOS/Fixture'
             exe.parent.mkdir(parents=True)
-            target='ai.callabo.nlc.menu-timeout-fixture'
+            target='ai.callabo.tacto.menu-timeout-fixture'
             (app/'Contents/Info.plist').write_bytes(plistlib.dumps({
                 'CFBundleIdentifier':target,'CFBundleExecutable':'Fixture',
-                'CFBundlePackageType':'APPL','CFBundleName':'NLC Timeout Fixture',
+                'CFBundlePackageType':'APPL','CFBundleName':'TACTO Timeout Fixture',
                 'CFBundleVersion':'1','LSUIElement':True}))
             src=Path(tmp)/'main.swift';src.write_bytes(source)
             subprocess.run(['xcrun','swiftc','-parse-as-library',str(src),'-o',str(exe)],check=True,timeout=30)

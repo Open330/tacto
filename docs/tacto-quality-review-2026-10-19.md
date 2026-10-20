@@ -60,3 +60,89 @@ with nvm/fnm remains to be checked in a new signed app. asdf/nodenv and installa
 where Node is outside both the CLI bin and inherited PATH are not added here.
 No initial-run wait, new approval screen or permission reset was introduced.
 Private screenshots and detailed logs are retained separately from tracked docs.
+
+## 2026-10-20 권한 도우미·창 수명 수정
+
+상태 확인 결과마다 주 창 높이를 다시 맞추던 동작을 제거했습니다. 최초 표시
+크기를 제한하고, 이후 확인·실패·복구·상세 표시 전환에서는 사용자의 창 크기와
+위치를 유지합니다. 넘치는 내용은 기존 스크롤 영역에서 다룹니다. 빈 스크롤
+영역에도 같은 배경을 그립니다.
+
+권한 도우미의 닫기 이벤트를 주 창과 함께 처리합니다. 닫으면 안내 세션과
+권한 확인·위치 추적 타이머를 해제하므로 이미 대기 중인 콜백이나 반복적인
+앱 다시 열기가 도우미를 되살리지 않습니다. ‘설정 열기’를 새로 누를 때만
+새 안내 세션을 시작합니다. 이전 세션의 완료 타이머도 새 세션을 닫지 못합니다.
+
+도우미는 키보드 입력을 받는 창이 아니므로 key/main window가 될 수 없게
+했습니다. 인증 앱이나 다른 앱이 전경에 오면 도우미를 숨깁니다. 암호 입력을
+자동화하거나 실제 인증 정보를 관찰하지 않습니다.
+
+검증: 실제 AppKit 컨트롤을 쓰는 오프스크린 회귀 검사에서 상태 전환 12회,
+닫은 뒤 다시 열기 20회, 타이머 해제, 인증 창 우선 처리, 별도 테스트용 보안
+입력란의 포커스를 확인했습니다. 관련 검사 14개 통과. 정상·미허용·확인 실패·
+작은 어두운 화면·대체 안내 등 5개 화면의 잘림 검사도 통과했습니다. 실제
+macOS 암호·Touch ID 입력을 대신 수행해 확인한 결과는 아닙니다.
+
+### 2026-10-20 permission completion and first-task window settling
+
+Basic app control and completion of both displayed permissions are separate
+states. The permission section now stays expanded with a 1/2 label until both
+app control and screen capture are granted; the badge cannot claim full
+completion while screen capture is unset. Basic app control can still connect
+an agent without requiring the optional capture capability. Watching a specific
+permission takes precedence over the general status message.
+
+The first task previously read native window identity only once after New.
+Its generic creation postcondition can already match an existing document, so
+that read can precede publication of the new AX window. It now takes at most
+eight read-only identity observations, 100 ms apart, without resending New or
+text input. A unique new window and preservation of existing document identities
+remain required. An exhausted/ambiguous result includes document counts and read
+count, without document content, so a future failure can distinguish delayed
+creation from disappearing or multiple documents. This addresses a code-level
+race; it does not establish the cause of the user's past failure without a trace.
+
+Regression coverage exercises all four permission combinations, stale/unknown
+receipts, delayed new-window publication, the bounded timeout, and single menu
+and text dispatch. These checks do not replay the user's interrupted task or
+prove an OS authentication interaction.
+
+### 2026-10-20 result presentation and automatic access receipts
+
+After the fixed first task verifies its text, it explicitly activates the same
+TextEdit process and reobserves the same native window with matching text and
+focus. Ordinary launch and Flow replay remain in the background. Presentation
+failure preserves `text_verified` with `foreground_verified=false` and a short
+presentation error; it never resends New, text or Save. The first-request guide
+now explains that distinction.
+
+Supported computer-use CLI invocations create private, bounded JSONL access
+receipts automatically. The transport wrapper records operations and outcomes
+without argument bodies, screen trees or provider messages; a missing end record
+is an unknown outcome. The GUI footer/menu and `tacto logs` expose the records.
+Full screen/action traces remain separate opt-in artifacts. Retention, limits,
+privacy scope and the distinction from outer-agent reasoning are documented in
+[access logging](access-logging.md). Tests cover forwarding the exact driver
+arguments/result once, exception handling, storage failure, restrictive file
+modes, symlink rejection, retention and terminal command records after truncation.
+
+### 2026-10-20 native history and settings workspace
+
+The app's record entry now opens a native workspace rather than Finder. A
+sidebar separates history from preferences; connected users reopen that
+workspace, while Mac permission/agent setup remains a dedicated surface.
+History supports app/task search, failure and incomplete-run filters, selection
+retention, operation timelines and explicit partial/capped-record notices.
+Private JSONL reads are bounded and reject symlinks/foreign or nonregular files;
+changed-file caching and a serial background reader avoid repeated parsing on
+the main thread. Refresh pauses when the window is closed/minimized, settings
+are selected, or another app is active.
+
+Shared GUI/runtime preferences control logging, 7/30/90-day retention and fixed
+first-task result presentation. Changes apply to the next CLI invocation.
+Disabling logging creates no new receipt; disabling presentation preserves
+verified text with `presentation_skipped=true`, without a presentation error or
+an input retry. Deleting recognized receipts requires explicit GUI confirmation
+and preserves workflows, preferences and unrelated files. Native tests exercise
+real filtering and controls, private atomic saves read back by Python, partial
+JSONL, boolean/malformed exit codes and restricted deletion in temporary data.

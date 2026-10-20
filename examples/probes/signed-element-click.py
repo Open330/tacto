@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 import time
 
-TARGET = 'ai.callabo.nlc.list-fixture'
+TARGET = 'ai.callabo.tacto.list-fixture'
 
 
 def main(driver, output):
@@ -27,7 +27,7 @@ def main(driver, output):
     from ApplicationServices import AXUIElementCreateApplication
     from tacto.input_audit_process import ProcessInputAudit
     root = Path(__file__).resolve().parents[2]
-    source_paths = list((root / 'tacto').glob('*.py')) + list((root / 'nlc').glob('*.py')) + [Path(__file__).resolve(),
+    source_paths = list((root / 'tacto').glob('*.py')) + [Path(__file__).resolve(),
         root / 'tests/fixtures/NativeListFixture.swift', root / 'helper/tacto-helper',
         root / 'helper/Tacto Helper.app/Contents/MacOS/TactoHelper']
     def source_subset():
@@ -44,8 +44,8 @@ def main(driver, output):
     try:
         assert local._resolve(TARGET, launch=False) is None, 'fixture already running'
         assert {'action.double_click', 'click.window_bound_element'} <= set(driver.capabilities)
-        with tempfile.TemporaryDirectory(prefix='nlc-signed-element-click-') as work:
-            app = Path(work) / 'NLC List Fixture.app'
+        with tempfile.TemporaryDirectory(prefix='tacto-signed-element-click-') as work:
+            app = Path(work) / 'TACTO List Fixture.app'
             binary = app / 'Contents/MacOS/NativeListFixture'
             binary.parent.mkdir(parents=True)
             (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
@@ -83,7 +83,7 @@ def main(driver, output):
                     assert report['initial']['active'] == 'false'
                     view = observe()
                     report['tree'] = view['tree']
-                    index, _ = Selector(role='Window', title='NLC List Fixture').resolve(view['tree'])
+                    index, _ = Selector(role='Window', title='TACTO List Fixture').resolve(view['tree'])
                     prepared = driver.act(view['obs_id'], TARGET, {'name': 'prepare_window', 'element_index': index})
                     report['preparation'] = prepared
                     assert prepared.get('type') == 'acted', prepared
@@ -195,19 +195,19 @@ def main(driver, output):
                         seen = local.observe(target, 'tree_full')
                         assert seen.get('type') == 'observation', seen
                         return seen['tree']
-                    receipt = TranscriptReceipt(reader, target=TARGET, recipient='NLC List Fixture',
-                        body='second', recipient_field=Selector(role='Window', title='NLC List Fixture'),
+                    receipt = TranscriptReceipt(reader, target=TARGET, recipient='TACTO List Fixture',
+                        body='second', recipient_field=Selector(role='Window', title='TACTO List Fixture'),
                         messages=Selector(role='StaticText', ancestor='transcript'), timeout_seconds=3)
                     flow = Flow('send_message', TARGET, [send], schema=2)
                     asked = replay(driver, flow, prepare_commit=receipt.prepare_commit,
                                    after_commit=receipt.after_commit, commit_expected=receipt.commit_expected)
                     gated = [e for e in asked.log if e.get('status') == 'gated']
                     assert not asked.ok and gated, asked.log
-                    assert '받는 사람: NLC List Fixture · 보낼 문장: second' in gated[0]['detail']['what'], gated
+                    assert '받는 사람: TACTO List Fixture · 보낼 문장: second' in gated[0]['detail']['what'], gated
                     assert host()['sent'] == '0', host()
                     # One receipt per run: the asking run already used its prepare.
-                    receipt = TranscriptReceipt(reader, target=TARGET, recipient='NLC List Fixture',
-                        body='second', recipient_field=Selector(role='Window', title='NLC List Fixture'),
+                    receipt = TranscriptReceipt(reader, target=TARGET, recipient='TACTO List Fixture',
+                        body='second', recipient_field=Selector(role='Window', title='TACTO List Fixture'),
                         messages=Selector(role='StaticText', ancestor='transcript'), timeout_seconds=3)
                     result = replay(driver, flow, {0: issue_approval(send.binding, send.safety)},
                                     prepare_commit=receipt.prepare_commit, after_commit=receipt.after_commit,
@@ -262,18 +262,18 @@ def main(driver, output):
                         signal.write('close-owned-main')
                     until_closed = time.monotonic() + 3
                     app_element = AXUIElementCreateApplication(process.pid)
-                    while any(_attr(window, 'AXTitle') == 'NLC List Fixture'
+                    while any(_attr(window, 'AXTitle') == 'TACTO List Fixture'
                               for window in (_attr(app_element, 'AXWindows') or [])):
                         assert time.monotonic() < until_closed, 'owned main window did not close'
                         time.sleep(.05)
                     view = driver.observe(TARGET, 'tree_full', require_window=False)
                     assert view.get('type') == 'observation', view
-                    assert not Selector(role='Window', title='NLC List Fixture').resolve_all(view['tree']), view['tree']
+                    assert not Selector(role='Window', title='TACTO List Fixture').resolve_all(view['tree']), view['tree']
                     reopened = driver.act(view['obs_id'], TARGET, {'name': 'reopen_window'})
                     time.sleep(.4)
                     after_reopen = observe()
                     report['reopen'] = {'response': reopened, 'tree_has_window': bool(
-                                        Selector(role='Window', title='NLC List Fixture').resolve_all(after_reopen['tree'])),
+                                        Selector(role='Window', title='TACTO List Fixture').resolve_all(after_reopen['tree'])),
                                         'after': host()}
                     assert reopened.get('type') == 'acted', reopened
                     assert reopened.get('activated_target') is not True, reopened
@@ -297,7 +297,7 @@ def main(driver, output):
                             # Room windows opened above hold the app's focus;
                             # a pointer click needs its own window prepared.
                             window = next(c for c in cands if c.get('role') == 'Window'
-                                          and c.get('label') == 'NLC List Fixture')
+                                          and c.get('label') == 'TACTO List Fixture')
                             return {'actions': [{'do': 'prepare_window', 'candidate': window}],
                                     'expect': None}
                         if len(seen) == 2:

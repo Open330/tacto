@@ -114,3 +114,44 @@ class AppLaunchTests(unittest.TestCase):
     def test_interruption_is_not_converted_to_an_ordinary_failure(self):
         b = Backend(); b.start = Mock(side_effect=KeyboardInterrupt)
         with self.assertRaises(KeyboardInterrupt): self.run_launch(b)
+
+class PresentationTests(unittest.TestCase):
+    class PresentationBackend(Backend):
+        def __init__(self):
+            super().__init__()
+            self.pump(0)
+            self.front = None
+            self.activations = 0
+            self.accept = True
+            self.show = True
+        def frontmost_pid(self): return self.front
+        def activate(self, pid):
+            self.activations += 1
+            if self.accept and self.show: self.front = pid
+            return self.accept
+
+    def test_explicit_presentation_activates_only_the_existing_process(self):
+        from tacto.app_launch import present_app
+        b = self.PresentationBackend()
+        r = present_app('com.example.App', 42, backend=b, clock=lambda:b.time)
+        self.assertTrue(r['foreground_verified'])
+        self.assertEqual(1, b.activations)
+        self.assertEqual(0, b.starts)
+
+    def test_already_front_does_not_activate_again_and_identity_changes_do_not_activate(self):
+        from tacto.app_launch import present_app
+        b = self.PresentationBackend(); b.front = 42
+        self.assertTrue(present_app('com.example.App', 42, backend=b)['foreground_verified'])
+        self.assertEqual(0, b.activations)
+        for pid in (False, 0, 99):
+            self.assertFalse(present_app('com.example.App', pid, backend=b)['foreground_verified'])
+        self.assertEqual(0, b.activations)
+
+    def test_activation_failure_or_timeout_never_relaunches(self):
+        from tacto.app_launch import present_app
+        for field in ('accept', 'show', 'ready'):
+            b = self.PresentationBackend(); setattr(b, field, False)
+            r = present_app('com.example.App', 42, backend=b, clock=lambda:b.time)
+            self.assertFalse(r['foreground_verified'])
+            self.assertLessEqual(b.activations, 1)
+            self.assertEqual(0, b.starts)

@@ -88,15 +88,14 @@ func firstRunCommand(agent: FirstRunAgent, prompt: String, directory: URL) -> St
 /// Inspect the command/skill links the installer owns; never run or change them.
 func agentConnectionLinks(root: URL, home: URL, environment: [String: String]) -> [(URL, URL)] {
     func value(_ key: String) -> String? { environment[key].flatMap { $0.isEmpty ? nil : $0 } }
-    let bin = value("TACTO_BIN_DIR") ?? value("NLC_BIN_DIR") ?? home.appendingPathComponent(".local/bin").path
+    let bin = value("TACTO_BIN_DIR") ?? home.appendingPathComponent(".local/bin").path
     var folders = [home.appendingPathComponent(".claude/skills"), home.appendingPathComponent(".codex/skills")]
     for key in ["CLAUDE_CONFIG_DIR", "CODEX_HOME"] {
         if let value = environment[key], !value.isEmpty {
             folders.append(URL(fileURLWithPath: value).appendingPathComponent("skills"))
         }
     }
-    var links = [(URL(fileURLWithPath: bin).appendingPathComponent("tacto"), root.appendingPathComponent("launcher/tacto")),
-                 (URL(fileURLWithPath: bin).appendingPathComponent("nlc"), root.appendingPathComponent("launcher/tacto"))]
+    var links = [(URL(fileURLWithPath: bin).appendingPathComponent("tacto"), root.appendingPathComponent("launcher/tacto"))]
     // URL equality includes the directory/trailing-slash flag. Installation
     // identity is the canonical filesystem path, including repeated profiles.
     links += Set(folders.map { $0.resolvingSymlinksInPath().path }).sorted().map {
@@ -113,7 +112,7 @@ func agentConnectionReport(root: URL, home: URL, environment: [String: String]) 
         guard let file = try? FileHandle(forReadingFrom: folder.appendingPathComponent("SKILL.md")) else { return false }
         defer { try? file.close() }
         guard let data = try? file.read(upToCount: 4096), let text = String(data: data, encoding: .utf8) else { return false }
-        return text.split(separator: "\n").contains { $0 == "name: tacto" || $0 == "name: nlc" }
+        return text.split(separator: "\n").contains { $0 == "name: tacto" }
     }
     for (link, expected) in links {
         let destination = try? fm.destinationOfSymbolicLink(atPath: link.path)
@@ -124,9 +123,9 @@ func agentConnectionReport(root: URL, home: URL, environment: [String: String]) 
         if expected.lastPathComponent == "tacto" {
             guard let destination else { report.append((link, .conflict)); continue }
             let written = URL(fileURLWithPath: destination, relativeTo: link.deletingLastPathComponent()).standardizedFileURL
-            if written.path.hasSuffix("/launcher/tacto") || written.path.hasSuffix("/launcher/nlc") {
+            if written.path.hasSuffix("/launcher/tacto") {
                 previous = written.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("skill")
-            } else if written.path.hasSuffix("/.venv/bin/nlc") || written.path.hasSuffix("/.venv/bin/tacto") {
+            } else if written.path.hasSuffix("/.venv/bin/tacto") {
                 previous = written.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("skill")
             } else { report.append((link, .conflict)); continue }
         }

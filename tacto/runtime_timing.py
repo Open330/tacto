@@ -33,7 +33,7 @@ class TimedDriver:
         return measured
 
     def snapshot(self):
-        return {"schema": "nlc-runtime-timing-v1", "clock": "monotonic",
+        return {"schema": "tacto-runtime-timing-v1", "clock": "monotonic",
                 "scope": "calls_through_driver_wrapper; wait_until_includes_internal_polling",
                 "calls": {name: {**stats, "seconds": round(stats["seconds"], 6)}
                           for name, stats in sorted(self._calls.items())},

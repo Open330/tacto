@@ -2,7 +2,7 @@
 
 Found 2026-09-20 while verifying browsers: the outline was wired at two CLI
 commands and two signed-helper messages, so every other way in — a script
-holding a Driver, `nlc observe`, the whole evaluation suite, this session's own
+holding a Driver, `tacto observe`, the whole evaluation suite, this session's own
 browser and Calculator probes — drove somebody's machine with nothing on screen
 to say so. Asking each caller to remember is how it went missing; the driver
 owns it now.
@@ -218,6 +218,25 @@ print(String(data:try! JSONSerialization.data(withJSONObject:["inside":screen.co
         self.assertEqual(0,result.returncode,result.stderr)
         self.assertEqual({'inside':True,'moved':True,'blocked':True,'other':True},json.loads(result.stdout))
 
+    def test_compact_control_fits_narrow_gutter_without_covering_target(self):
+        import json, shutil, subprocess, tempfile
+        if not shutil.which('swift'): self.skipTest('macOS Swift required')
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        code=text[text.index('func availableControlFrame('):text.index('func controlTargetFrames(')]
+        harness='import Foundation\nimport CoreGraphics\n'+code+r'''
+let screen=CGRect(x:0,y:62,width:1512,height:887)
+let targets=[CGRect(x:72,y:62,width:1324,height:887),CGRect(x:410,y:62,width:1015,height:754)]
+let compact=availableControlPanelFrame(screens:[screen],avoiding:targets)!
+let normal=availableControlPanelFrame(screens:[screen],avoiding:[])!
+let blocked=availableControlPanelFrame(screens:[screen],avoiding:[screen])
+print(String(data:try! JSONSerialization.data(withJSONObject:["compact":compact.width==96,"inside":screen.contains(compact),"outside":!targets.contains(where:{$0.intersects(compact)}),"normal":normal.width==292,"blocked":blocked==nil]),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/'main.swift';path.write_text(harness)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=60)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual(dict(compact=True,inside=True,outside=True,normal=True,blocked=True),json.loads(result.stdout))
+
     def test_the_indicator_still_gates_every_action(self):
         # The point of it is that a caller cannot act invisibly. Losing the
         # outline must not lose that.
@@ -287,7 +306,7 @@ let out: [String: Bool] = [
 ]
 print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), encoding: .utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix="nlc-windowless-") as directory:
+        with tempfile.TemporaryDirectory(prefix="tacto-windowless-") as directory:
             source = pathlib.Path(directory) / "main.swift"
             source.write_text(harness)
             result = subprocess.run(["swift", str(source)], capture_output=True, text=True, timeout=120)
@@ -311,7 +330,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
 
     def test_the_held_stream_sees_one_window_not_the_screen(self):
         # `SCContentFilter(display:)` stood here and captured everything, so an
-        # indicator meaning "NLC is looking" was looking at every other window
+        # indicator meaning "TACTO is looking" was looking at every other window
         # the person had open (user report, 2026-09-21). The indicator may not
         # cost more than what it announces.
         text = (ROOT / "helper/TactoHelper.swift").read_text()
@@ -372,7 +391,7 @@ print(String(data: try! JSONSerialization.data(withJSONObject: out, options: [.s
 class TheIndicatorCanBeActedOn(unittest.TestCase):
     """An indicator you cannot act on is half of what it promises.
 
-    It said "NLC is working on Calculator · Esc" and that was the whole of it:
+    It said "TACTO is working on Calculator · Esc" and that was the whole of it:
     someone who did not know about Esc was told something was happening and
     given nothing to do about it. Codex Computer Use's own status item carries
     a menu (`ComputerUseIPCCodexStatusItemMenuState`); macOS has no system

@@ -14,9 +14,9 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 PAGE = '''<label>Name<input aria-label="name"></label>
-<button onclick="if(document.querySelector('input').value==='NLC-2026'){
-document.body.innerHTML='<label>Result<input aria-label=result readonly value=NLC-2026-confirmed></label>'}">Next</button>'''
-GOAL = "Name 입력칸에 NLC-2026을 입력하고 Next를 누른 다음, 새 화면의 Result 값을 읽어서 알려주세요."
+<button onclick="if(document.querySelector('input').value==='TACTO-2026'){
+document.body.innerHTML='<label>Result<input aria-label=result readonly value=TACTO-2026-confirmed></label>'}">Next</button>'''
+GOAL = "Name 입력칸에 TACTO-2026을 입력하고 Next를 누른 다음, 새 화면의 Result 값을 읽어서 알려주세요."
 
 
 def main():
@@ -56,7 +56,7 @@ def main():
         result = run(driver, 'page', GOAL, plan, max_screens=4)
         field = driver._page.locator('[aria-label=result]')
         actual = field.input_value() if field.count() else None
-        passed = result.ok and actual == 'NLC-2026-confirmed' and actual in result.said
+        passed = result.ok and actual == 'TACTO-2026-confirmed' and actual in result.said
         emit('result', passed=passed, loop_ok=result.ok, why=result.why,
              said=result.said, dom_result=actual, model_calls=calls,
              seconds=round(time.monotonic() - started, 2), provider_calls=result.provider_calls,

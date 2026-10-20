@@ -1,8 +1,9 @@
-"""Tacto — reusable computer use. Legacy command: nlc.
+"""Tacto — reusable computer use.
 
 Usage:
   tacto doctor            # check/guide permissions
   tacto apps              # list running apps (GUI session check)
+  tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
   tacto capture <bundle-id> --helper --output window.png [--window TITLE]
   tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
@@ -69,7 +70,7 @@ from contextvars import ContextVar
 from .agent import Agent
 from .store import FlowStore
 
-_execution_journal = ContextVar('nlc_execution_journal', default=None)
+_execution_journal = ContextVar('tacto_execution_journal', default=None)
 
 
 class _JournalUnavailable(Exception):
@@ -126,6 +127,10 @@ def _make_driver(argv):
 
 
 def _with_journal(driver):
+    from .access_log import current, AccessLoggingDriver
+    log = current.get()
+    if log is not None and not isinstance(driver, AccessLoggingDriver):
+        driver = AccessLoggingDriver(driver, log)
     scope = _execution_journal.get()
     if scope is None:
         return driver
@@ -318,7 +323,7 @@ def document_window_view(tree: str, path: str) -> str | None:
 def focused_window_view(tree: str) -> str:
     """The window being worked on, and only the titles of the others.
 
-    An agent reads this on every step. Printing every window cost NLC twice
+    An agent reads this on every step. Printing every window cost Tacto twice
     Sky's tokens on the same TextEdit task — 182 lines across 4 windows per
     look, three of them unrelated documents (2026-10-07). Element indices are
     unchanged, so nothing that refers to them breaks; `--all-windows` prints
@@ -628,7 +633,7 @@ def _main(argv=None):
             print(SANDBOXED)
             return 3
         # Hold the display awake for as long as this command runs. Only `do`
-        # did, but an agent drives NLC one command at a time — observe, run,
+        # did, but an agent drives Tacto one command at a time — observe, run,
         # replay — and with this Mac's 3-minute screensaver lock the screen
         # locked in the middle of its work (2026-09-28). Release the assertion
         # when this invocation ends, even when main is called in a long-lived
@@ -669,6 +674,28 @@ def _dispatch_command(cmd, rest):
     if help_text is not None:
         print(help_text)
         return 0
+    if cmd == 'logs':
+        from .access_log import recent_logs, private_directory, log_directory
+        if rest not in ([], ['--json'], ['--open']):
+            print('usage: tacto logs [--json|--open]')
+            return 2
+        try:
+            if rest == ['--open']:
+                from AppKit import NSWorkspace
+                from Foundation import NSURL
+                folder = private_directory(log_directory())
+                return 0 if NSWorkspace.sharedWorkspace().openURL_(NSURL.fileURLWithPath_(str(folder))) else 1
+            report = recent_logs()
+        except (OSError, ImportError):
+            print('access_log_unavailable')
+            return 1
+        if rest == ['--json']:
+            print(json.dumps(report, ensure_ascii=False))
+        else:
+            print(report['directory'])
+            for row in report['files']:
+                print(row['name'])
+        return 0
 
     if cmd == 'launch':
         targets = [value for value in rest if value != '--helper']
@@ -677,6 +704,9 @@ def _dispatch_command(cmd, rest):
             return 2
         from .app_launch import launch_app
         result = launch_app(targets[0])
+        from .access_log import current
+        if current.get() is not None:
+            current.get().task_result(result)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get('type') == 'app_launch' else 1
 
@@ -689,15 +719,22 @@ def _dispatch_command(cmd, rest):
         try:
             driver = _make_driver(rest)
         except (HelperUnavailable, OSError, ValueError):
-            print(json.dumps(dict(type='first_run', status='failed', stage='connect',
-                                  error='helper_unavailable', effect='not_started',
-                                  model_calls=0, save_command_sent=False, repeat_write=False,
-                                  hint='tacto doctor --check')))
+            result = dict(type='first_run', status='failed', stage='connect',
+                          error='helper_unavailable', effect='not_started',
+                          model_calls=0, save_command_sent=False, repeat_write=False,
+                          hint='tacto doctor --check')
+            from .access_log import current
+            if current.get() is not None:
+                current.get().task_result(result)
+            print(json.dumps(result))
             return 1
         try:
             result = run_first_task(driver)
         finally:
             driver.close()
+        from .access_log import current
+        if current.get() is not None:
+            current.get().task_result(result)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get('status') == 'text_verified' else 1
 
@@ -1321,7 +1358,7 @@ def _dispatch_command(cmd, rest):
             if hit and _S().has(hit.name):
                 guess = _S().load(hit.name).target
             elif hit and hit.name in builders():
-                # A recipe that ships with NLC but has not been saved yet still
+                # A recipe that ships with Tacto but has not been saved yet still
                 # deserves the outline — otherwise the very first run of a task
                 # is the one run nobody can see or stop.
                 guess = builders()[hit.name]().target
@@ -1341,11 +1378,30 @@ def _dispatch_command(cmd, rest):
 
 
 def main(argv=None):
+    from .access_log import current, AccessLog, COMMANDS
+    arguments = sys.argv[1:] if argv is None else argv
+    command = arguments[0] if arguments else ''
+    log = AccessLog(command) if command in COMMANDS and current.get() is None else None
+    token = current.set(log) if log is not None else None
     try:
-        return _main(argv)
+        code = _main(argv)
+        if log is not None:
+            log.finish(code)
+        return code
     except FlowStore.MigrationRequired as exc:
         print(f"migration_required: {exc}", file=sys.stderr)
+        if log is not None:
+            log.finish(2)
         return 2
+    except BaseException:
+        if log is not None:
+            log.finish(1)
+        raise
+    finally:
+        if token is not None:
+            current.reset(token)
+        if log is not None:
+            log.close()
 
 
 if __name__ == "__main__":

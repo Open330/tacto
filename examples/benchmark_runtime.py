@@ -26,7 +26,7 @@ def runtime_evidence(launcher):
     python=runtime/'.venv/bin/python'
     paths=[entry,helper,skill,python,*sorted(package.rglob('*.py')),
            *sorted((runtime/'skill/references').glob('*.md'))]
-    compatibility=package.with_name('nlc')
+    compatibility=package.with_name('tacto')
     if compatibility.is_dir():paths += sorted(compatibility.rglob('*.py'))
     files={str(path.relative_to(runtime)):hashlib.sha256(path.read_bytes()).hexdigest()
            for path in paths}
@@ -46,9 +46,8 @@ def agent_evidence(executable):
 def runtime_aliases(runtime):
     """Alias alignment is environment evidence, not proof of agent execution."""
     expected=Path(runtime['resolved_launcher'])
-    aliases={'PATH/tacto':shutil.which('tacto'), 'PATH/nlc':shutil.which('nlc'),
-             'local/tacto':str(Path.home()/'.local/bin/tacto'),
-             'local/nlc':str(Path.home()/'.local/bin/nlc')}
+    aliases={'PATH/tacto':shutil.which('tacto'),
+             'local/tacto':str(Path.home()/'.local/bin/tacto')}
     paths={key:str(Path(path).resolve()) if path and Path(path).exists() else None
            for key,path in aliases.items()}
     skill=Path.home()/'.codex/skills/tacto/SKILL.md'

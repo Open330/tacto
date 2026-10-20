@@ -178,7 +178,7 @@ childGraph = [0:[1,6], 1:[2,3,4,5], 6:[7,8]]
 rows.append(observation([0, 400, 500]))
 print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-window-budget-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-window-budget-') as directory:
             path = Path(directory) / 'main.swift'
             path.write_text(script)
             run = subprocess.run(['swift', str(path)], capture_output=True, text=True, timeout=60)

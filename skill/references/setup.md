@@ -73,7 +73,7 @@ executors. See [dispatch journal](../docs/dispatch-journal.md) for the scope.
 ## Check the actual sandbox profile
 
 Tacto needs a real GUI session. An actual agent sandbox can block screen and
-accessibility APIs; Tacto then reports "NLC가 샌드박스 안에서 실행됐습니다"
+accessibility APIs; Tacto then reports "Tacto가 샌드박스 안에서 실행됐습니다"
 (exit code 3). This is separate from macOS app permissions.
 
 - With `danger-full-access` or unrestricted filesystem execution, run normally.
@@ -117,3 +117,11 @@ read back. That is expected — confirm with `tacto observe <app> --helper` and 
 
 The longer guides live beside this file: `docs/recipes.md` (recipes, decisions,
 branches) and `docs/api.md`.
+
+## Find access records
+
+The app’s **실행 기록 보기** opens its built-in history and settings.
+`tacto logs` lists the local automatic access receipts; `tacto logs --open`
+opens their folder on macOS. These record command, target app, operation, outcome
+and timing, without screen contents, input values, prompts or agent reasoning.
+For a detailed screen/action trace, explicitly use `--trace` on do/run/replay.

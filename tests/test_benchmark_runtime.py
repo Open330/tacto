@@ -26,10 +26,10 @@ class BenchmarkRuntimeTests(unittest.TestCase):
             source.write_text('changed runtime')
             self.assertNotEqual(before['files'],runtime_evidence(alias)['files'])
 
-    def test_missing_or_legacy_only_package_cannot_make_an_empty_success_manifest(self):
+    def test_missing_package_cannot_make_an_empty_success_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);entry=self.runtime(root)
-            package=root/'.venv/lib/python3.11/site-packages/tacto';package.rename(package.with_name('nlc'))
+            package=root/'.venv/lib/python3.11/site-packages/tacto';package.rename(package.with_name('unrelated'))
             with self.assertRaisesRegex(ValueError,'package'):runtime_evidence(entry)
 
     def test_missing_helper_is_a_preflight_failure(self):
@@ -95,10 +95,10 @@ class BenchmarkRuntimeTests(unittest.TestCase):
     def test_prompt_pins_the_selected_runtime_skill_and_launcher(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);entry=self.runtime(root)
-            text=prompt({'amount':'1','factor':'2','bonus':False,'result':'2'},'owned.app','nlc',launcher=entry)
+            text=prompt({'amount':'1','factor':'2','bonus':False,'result':'2'},'owned.app','tacto',launcher=entry)
             self.assertIn(str(entry),text);self.assertIn(str(root/'skill/SKILL.md'),text)
-            self.assertNotIn('~/.local/bin/nlc',text)
+            self.assertNotIn('~/.local/bin/tacto',text)
             override=root/'new-guide/SKILL.md'
-            text=prompt({'amount':'1','factor':'2','bonus':False,'result':'2'},'owned.app','nlc',launcher=entry,tacto_guide=override)
+            text=prompt({'amount':'1','factor':'2','bonus':False,'result':'2'},'owned.app','tacto',launcher=entry,tacto_guide=override)
             self.assertIn(str(override),text)
             self.assertNotIn(str(root/'skill/SKILL.md'),text)

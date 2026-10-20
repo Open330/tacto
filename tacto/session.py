@@ -8,7 +8,7 @@ learn.chatgpt.com/docs/computer-use#locked-use):
   authorization plug-in (/Library/Security/SecurityAgentPlugins/…) that briefly
   unlocks for a trusted turn, blanks displays, blocks local input, and re-locks
   on any local activity. That is a separate login/unlock product, not a flag a
-  normal app can set. So NLC models it as a capability that is off by default.
+  normal app can set. So Tacto models it as a capability that is off by default.
 
 Pragmatic path (option A): don't fight the lock — prevent an *idle* lock during a
 task with `caffeinate`, and when the screen is genuinely locked, surface it as a
@@ -150,7 +150,7 @@ def sandboxed() -> bool:
 
 
 SANDBOXED = (
-    "NLC가 샌드박스 안에서 실행됐습니다 — 화면(GUI) 세션과 접근성 API가 막혀 있어 앱을\n"
+    "Tacto가 샌드박스 안에서 실행됐습니다 — 화면(GUI) 세션과 접근성 API가 막혀 있어 앱을\n"
     "조작할 수 없습니다. 권한 문제가 아니니 권한 설정은 바꾸지 마세요.\n"
     "  · Codex: 이 명령을 샌드박스 밖에서 실행하도록 권한 상승을 요청하거나\n"
     "    (sandbox_permissions: require_escalated), 사용자에게 --sandbox danger-full-access 로\n"

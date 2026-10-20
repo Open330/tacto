@@ -38,7 +38,7 @@ for mode in ["valid","lost_after_down","unconfirmed","user_changed","double","ke
 }
 print("SWIFT_POPUP_TRANSITION_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-popup-transition-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-popup-transition-') as directory:
             source,binary=Path(directory)/'main.swift',Path(directory)/'check'
             source.write_text(harness)
             built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
@@ -95,7 +95,7 @@ for mode in ["fast", "slow_validation", "slow_routing", "slow_input", "slow_cont
 }
 print("SWIFT_WINDOW_HEADROOM_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-window-headroom-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-window-headroom-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(harness)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),
@@ -161,7 +161,7 @@ for mode in ["preflight", "target_before"] { run(mode, expected: 0) }
 for mode in ["target_after", "stop", "deadline", "post", "pointer", "binding"] { run(mode, expected: 1) }
 print("SWIFT_WINDOW_KEYS_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-window-keys-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-window-keys-') as directory:
             source, binary = Path(directory) / 'main.swift', Path(directory) / 'check'
             source.write_text(harness)
             built = subprocess.run(['xcrun', 'swiftc', '-warnings-as-errors', str(source),
@@ -264,7 +264,7 @@ catch NativeWindowInputError.refused { }
 precondition(calls == 1)
 print("SWIFT_WINDOW_DISPATCH_PASS")
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-window-dispatch-') as directory:
+        with tempfile.TemporaryDirectory(prefix='tacto-window-dispatch-') as directory:
             source = Path(directory) / 'main.swift'
             binary = Path(directory) / 'check'
             source.write_text(harness)

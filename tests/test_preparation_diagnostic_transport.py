@@ -100,7 +100,7 @@ class PreparationDiagnosticTransportTests(unittest.TestCase):
             def summary(self): return {'initial':'fixture', 'activations':[]}
 
         diagnostic = MARKER + json.dumps(self.detail())
-        item = {'type':'command_execution', 'command':'nlc run owned.json --helper',
+        item = {'type':'command_execution', 'command':'tacto run owned.json --helper',
                 'aggregated_output': diagnostic + '\nPRIVATE_SENTINEL'}
         events = [{'type':'item.started', 'item':item}, {'type':'item.completed', 'item':item}]
 
@@ -116,7 +116,7 @@ class PreparationDiagnosticTransportTests(unittest.TestCase):
              patch('tacto.helper.InheritedHelperDriver.available',return_value=True), \
              patch('tacto.codex_result.subprocess.Popen',side_effect=AssertionError('unit test must not spawn an external process')), \
              patch.object(comparison, '_run_agent', side_effect=run):
-            result = comparison.run_one(task, 'nlc')
+            result = comparison.run_one(task, 'tacto')
         self.assertEqual([self.detail()], result['reported_preparation_diagnostics'])
         self.assertEqual('failed', result['status'])
         self.assertFalse(result['oracle_passed'])

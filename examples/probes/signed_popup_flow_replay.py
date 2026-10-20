@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import stat
 
-TARGET='ai.callabo.nlc.select-fixture'
+TARGET='ai.callabo.tacto.select-fixture'
 ROOT=Path(__file__).resolve().parents[2]
 
 
@@ -20,8 +20,8 @@ def reserve_report(output):
 def owned_flow():
     from tacto.flow import Flow,Step,Selector,Postcondition
     from tacto.contract import SafetyContract,Resource
-    choice=Selector(role='PopUpButton',identifier='nlc-fixture-choice')
-    result=Selector(identifier='nlc-fixture-result')
+    choice=Selector(role='PopUpButton',identifier='tacto-fixture-choice')
+    result=Selector(identifier='tacto-fixture-result')
     def safety():
         return SafetyContract(effects=['write_ephemeral'],resource=Resource(scope='entry'),reversibility='reversible')
     steps=[]
@@ -81,8 +81,8 @@ def main(driver,output,expected_pid,*,journal_directory=None):
                     lines=[s for s in obs['tree'].splitlines() if s.strip().split(maxsplit=1)[0]==str(index)]
                     if len(lines)!=1:raise ValueError('owned_receiving_ambiguous')
                     return Selector._attr(lines[0],'Value')
-                choice,_=Selector(role='PopUpButton',identifier='nlc-fixture-choice').resolve(obs['tree'])
-                return {'value':value('nlc-fixture-result'),'count':value('nlc-fixture-count'),
+                choice,_=Selector(role='PopUpButton',identifier='tacto-fixture-choice').resolve(obs['tree'])
+                return {'value':value('tacto-fixture-result'),'count':value('tacto-fixture-count'),
                         'menu_state':obs.get('custom_selects',{}).get(str(choice),{}).get('state')}
             background();report['initial']=receiving(driver.observe(TARGET,'tree_full'))
             if report['initial']!={'value':'Alpha','count':'0','menu_state':'closed'}:

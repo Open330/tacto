@@ -798,7 +798,7 @@ class Agent:
             name, values = match.name, match.params
             builder = builders().get(name)
             if builder is not None:
-                # A recipe that ships with NLC comes from the code, always. The
+                # A recipe that ships with Tacto comes from the code, always. The
                 # store used to win once a name had been saved, which froze
                 # every built-in at whatever it looked like the first time it
                 # ran — five of them were already stale against fixes made

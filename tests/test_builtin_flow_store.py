@@ -15,7 +15,7 @@ class BuiltinFlowStoreTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.package = self.root / "installed/nlc"
+        self.package = self.root / "installed/tacto"
         self.builtins = self.package / "builtin_flows"
         self.builtins.mkdir(parents=True)
         self.original = Flow("sample", "builtin-target").to_json()
@@ -29,7 +29,7 @@ class BuiltinFlowStoreTests(unittest.TestCase):
         self.addCleanup(self.env_patch.stop)
 
     def test_relocated_assets_read_and_save_only_to_user_directory(self):
-        relocated = self.root / "moved/nlc"
+        relocated = self.root / "moved/tacto"
         shutil.move(self.package, relocated)
         with patch.object(store, "__file__", str(relocated / "store.py")):
             library = store.FlowStore()

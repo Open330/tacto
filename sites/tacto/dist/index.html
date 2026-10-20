@@ -8,7 +8,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
     />
-    <meta name="theme-color" content="#f8fafc" />
+    <meta name="theme-color" content="#fafaf9" />
     <meta
       name="description"
       content="Claude와 Codex가 사용자를 대신해 앱 화면을 읽고 버튼을 누르고 내용을 입력하도록. Tacto로 컴퓨터 조작(computer use)을 연결하고 작업 흐름을 재사용하세요."
@@ -34,11 +34,11 @@
           decoding="async"
         /><span class="brand-divider" aria-hidden="true">/</span
         ><span class="brand-note" aria-hidden="true"
-          >COMPUTER USE THAT STAYS WITH YOU.</span
+          >THE EXECUTION LAYER</span
         ></a
       >
       <nav aria-label="주요 메뉴">
-        <a href="#workflow-library">사용 사례</a><a href="#evidence">검증 결과</a
+        <a href="#app">실행 기록</a><a href="#evidence">성능 비교</a
         ><a href="#start"
           >시작하기
           <svg
@@ -68,29 +68,466 @@
     <main id="main" tabindex="-1">
       <section class="hero wrap">
         <div class="hero-copy">
-          <div class="eyebrow"><span class="signal"></span> YOUR APPS. YOUR AGENT. YOUR TIME BACK.</div>
-          <h1>앱을 오가며 하던 일,<br /><span>한 번 맡기고 반복하세요.</span></h1>
-          <p class="hero-description">찾고, 옮겨 적고, 다시 확인하는 일.<br />에이전트가 직접 앱을 조작하도록 연결하세요.</p>
-          <p class="hero-support">Tacto는 Claude·Codex가 브라우저와 Mac 앱에서 수행한 작업 순서를 저장합니다. 다음 작업에는 바뀐 값으로 다시 실행하고, 막힌 단계에는 에이전트가 개입합니다.</p>
+          <a class="release-pill" href="https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14"><span class="signal"></span> TACTO PREVIEW 14 <span>더 정돈된 앱 레이아웃</span><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a>
+          <h1>당신의 에이전트가<br /><span>앱까지 다루도록.</span></h1>
+          <p class="hero-description">클릭하고, 입력하고, 결과까지 확인합니다.<br />한 번 만든 작업은 다음에도 그대로 실행하세요.</p>
           <div class="hero-actions">
-            <a class="button primary" href="#workflow-library">어떤 일을 맡길 수 있나요 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-down"></use></svg></a>
-            <a class="button secondary" href="#start">Tacto 설치하기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a>
+            <a class="button primary" href="#start">Mac용 Tacto 시작하기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a>
+            <a class="button secondary" href="#how">작동 방식 보기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-down"></use></svg></a>
           </div>
-          <div class="compatibility"><span>WORKS WITH</span><b><img class="agent-icon" src="assets/claude-icon.png" width="24" height="24" alt="" />Claude</b><b><img class="agent-icon" src="assets/codex-icon.png" width="24" height="24" alt="" />Codex</b><span class="compatibility-note">macOS · 로컬 실행 · 서명·공증된 Preview 2</span></div>
+          <div class="compatibility"><span>WORKS WITH</span><b><img class="agent-icon" src="assets/claude-icon.png" width="24" height="24" alt="" />Claude</b><b><img class="agent-icon" src="assets/codex-icon.png" width="24" height="24" alt="" />Codex</b></div>
+          <p class="platform-note">macOS · Apple Silicon · 로컬 실행</p>
+          <a class="activity-promise" href="#app">에이전트가 한 일, 접근 기록으로 확인하세요 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-down"></use></svg></a>
         </div>
-        <aside class="hero-value" aria-label="Tacto의 작업 재사용 방식">
-          <span class="value-kicker">LESS REPETITION. MORE DONE.</span>
-          <h2>매번 새로 설명하지 않아도<br />같은 절차를 다시.</h2>
-          <div class="value-line"><span>01</span><div><strong>처음에는 에이전트와 함께</strong><p>내 앱에서 작업하고, 순서와 결과 조건을 저장합니다.</p></div></div>
-          <div class="value-line"><span>02</span><div><strong>다음에는 바뀐 값만</strong><p>조회 기간·대상·입력값을 바꿔 같은 Flow를 재사용합니다.</p></div></div>
-          <div class="value-line"><span>03</span><div><strong>막힌 곳에서만 다시 판단</strong><p>화면이나 조건이 달라지면 에이전트가 실패 단계를 검토합니다.</p></div></div>
-          <a href="#evidence">재사용 측정 결과 보기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a>
-        </aside>
+        <figure class="hero-film">
+          <div class="film-heading"><span class="film-dot"></span><span>TACTO IN ACTION</span><span>GitHub / Browser</span></div>
+          <video controls playsinline preload="none" poster="assets/demos/browser-github-poster.png" width="1280" height="800" aria-label="Tacto 실제 실행: GitHub 버그 검색과 정렬">
+            <source src="assets/demos/browser-github.mp4" type="video/mp4" />
+            <track kind="captions" src="assets/demos/browser-github.ko.vtt" srclang="ko" label="한국어" default />
+            <a href="assets/demos/browser-github.mp4">실행 영상 다운로드</a>
+          </video>
+          <figcaption><div><strong>“열린 버그를 댓글 많은 순으로 보여줘.”</strong><span>실제 GitHub에서 검색 · 필터 · 정렬</span></div><span class="film-evidence">실제 실행 녹화</span></figcaption>
+          <p class="film-note">별도 Chromium에서 촬영 · 설명용 안내 포인터 포함</p>
+        </figure>
       </section>
-
+      <section class="principles wrap" aria-label="Tacto의 작동 방식">
+        <div><span>01 / CONNECT</span><h2>지금 쓰는 에이전트와.</h2><p>Claude·Codex와 연결하고 같은 Flow를 재사용합니다.</p></div>
+        <div><span>02 / REPLAY</span><h2>다음에는 바뀐 값만.</h2><p>저장한 Flow의 정상적인 결정적 재생은 모델 호출 없이.</p></div>
+        <div><span>03 / REPAIR</span><h2>판단은 필요한 곳에만.</h2><p>지원되는 선택자 오류는 실패 단계부터 검토하고 수리합니다.</p></div>
+        <div><span>04 / VISIBILITY</span><h2>접근 내역을 한눈에.</h2><p>Tacto를 통해 접근한 앱·동작·결과를 실행 기록에서 확인하세요.</p></div>
+      </section>
+      <section class="app-showcase wrap" id="app">
+        <div class="app-showcase-copy"><div class="section-label">SEE WHAT YOUR AGENT DID</div><h2>에이전트가 한 일,<br />직접 확인하세요.</h2><p>어떤 앱에 접근하고, 어떤 동작을 했는지.<br />Tacto를 통한 접근 내역을 앱 안의 타임라인으로 확인하세요.</p><ul><li>접근한 앱과 단계별 동작·결과·시간</li><li>실패하거나 완료를 확인하지 못한 실행 찾기</li><li>기록 저장 여부와 7·30·90일 보관 설정</li></ul><span class="app-local-note">기록은 이 Mac에 저장됩니다. 화면 내용·입력값·프롬프트와 에이전트 내부 추론은 포함하지 않습니다.</span></div>
+        <figure><a class="app-image-link" href="assets/tacto-activity.png" target="_blank" rel="noopener" aria-label="접근 기록 앱 화면 크게 보기"><img src="assets/tacto-activity.png" width="2120" height="1400" loading="lazy" decoding="async" alt="실제 저장된 접근 기록 38개를 불러온 Tacto 앱 미리보기. 여러 실행 목록과 선택한 TextEdit 작업의 동작·결과·시간을 함께 보여줍니다." /></a><figcaption><a href="assets/tacto-activity.png" target="_blank" rel="noopener">크게 보기</a> · 실제 접근 기록 38개 · 앱 미리보기</figcaption></figure>
+      </section>
+      <section class="intro wrap" id="how">
+        <div class="section-label">REUSABLE FLOW</div>
+        <div class="intro-heading"><h2>한 번 만들고,<br />다음엔 입력만.</h2><p>반복은 저장된 Flow가 처리합니다.<br />에이전트는 판단이 필요한 단계에만 다시 개입합니다.</p></div>
+        <div class="flow-explorer graph-explorer" aria-labelledby="flow-explorer-title">
+          <div class="graph-toolbar"><div><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#workflow"></use></svg><strong id="flow-explorer-title">계산기 · 재사용 Flow</strong><span>실제 6단계</span></div><div class="graph-input-picker" role="group" aria-label="계산기 Flow 입력 선택"><span>입력</span><button type="button" disabled data-flow-case="first" aria-pressed="true">7 + 8</button><button type="button" disabled data-flow-case="second" aria-pressed="false">3 + 9</button></div><button type="button" disabled id="flow-walk"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#play"></use></svg>흐름 따라보기</button></div>
+          <div class="flow-canvas" id="flow-canvas" role="group" aria-label="최초 작성, 저장한 Flow 재생, 예외 처리의 연결 관계">
+            <svg class="flow-edges" aria-hidden="true" focusable="false"><defs><marker id="edge-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="context-stroke" stroke-width="1.5" /></marker></defs><g id="flow-edge-paths"></g></svg>
+            <div class="graph-node graph-agent" id="graph-agent"><span class="graph-kicker">처음 한 번 · 모델 사용</span><div class="graph-node-heading"><span class="flow-provider-icons"><img src="assets/claude-icon.png" width="21" height="21" alt="Claude" /><img src="assets/codex-icon.png" width="21" height="21" alt="Codex" /></span><strong>에이전트가 흐름 작성</strong></div><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-saved" id="graph-saved"><span class="graph-kicker">저장 · 다음에도 같은 절차</span><strong>calculator-reusable</strong><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-bottom" aria-hidden="true"></span></div>
+            <div class="graph-replay-label"><span class="graph-live-dot" aria-hidden="true"></span><strong>그다음부터는 Flow 재생</strong><span>정상 결정적 재생 · 모델 호출 0회</span></div>
+            <div class="graph-node graph-step" id="graph-step-0" data-flow-node><span class="graph-kicker">01 · 초기화</span><strong>기존 입력 지우기</strong><span class="graph-value">C / AC</span><span class="graph-port port-top" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-1" data-flow-node><span class="graph-kicker">02 · 상태 확인</span><strong>초기값 확인</strong><span class="graph-value">0</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-2" data-flow-node><span class="graph-kicker">03 · 입력</span><strong>첫 번째 수</strong><span class="graph-value" id="flow-left">7</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-3" data-flow-node><span class="graph-kicker">04 · 연산 선택</span><strong>더하기</strong><span class="graph-value">+</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span><span class="graph-port port-bottom" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-4" data-flow-node><span class="graph-kicker">05 · 입력</span><strong>두 번째 수</strong><span class="graph-value" id="flow-right">8</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step graph-result" id="graph-step-5" data-flow-node><span class="graph-kicker">06 · 결과 검증</span><strong>기대값과 일치</strong><span class="graph-value" id="flow-result">15</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-bottom" aria-hidden="true"></span></div>
+            <div class="graph-node graph-repair" id="graph-repair"><span class="graph-kicker">버튼이 달라지면 · 개발 버전</span><strong>해당 단계만 에이전트 수리</strong><span>검증 후 이어서 재생</span><span class="graph-port port-top" aria-hidden="true"></span></div>
+            <div class="graph-node graph-stop" id="graph-stop"><span class="graph-kicker">완료를 확인하지 못하면</span><strong>중단 · 재전송 없음</strong><span class="graph-port port-top" aria-hidden="true"></span></div>
+            <div class="graph-legend"><span><i></i> 최초 작성</span><span><i></i> 정상 재생</span><span><i></i> 예외 경로</span></div>
+          </div>
+          <div class="graph-inspector"><span id="flow-preview-status" role="status" aria-live="polite">녹화에서 확인한 결과: 7 + 8 = 15</span><div><a href="#example-calculator">실행 영상 보기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-down"></use></svg></a><a href="assets/calculator-reusable.flow.json" download>원본 Flow JSON <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a></div></div>
+          <p class="graph-disclosure">실제 계산기 Flow를 바탕으로 한 설명용 캔버스입니다. 작성·수리 경로와 단계 강조는 설명용이며, 이 페이지에서 Mac 앱이나 모델을 실행하지 않습니다. <a href="#faq">수리 지원 범위</a></p>
+        </div>
+      </section>
+      <section class="evidence-section" id="evidence">
+        <div class="wrap">
+          <div class="evidence-heading">
+            <div>
+              <div class="section-label">TACTO vs OAI/SKY</div>
+              <h2>같은 작업,<br />두 가지 실행 방식.</h2>
+            </div>
+            <p>
+              Codex의 computer use(OAI/Sky)와 비교했습니다.
+              같은 요청 모델·추론 강도·초기 앱 상태에서 독립 새 대화 3쌍을 실행했습니다.
+            </p>
+          </div>
+          <div class="metric-grid">
+            <div>
+              <span>LESS TOTAL INPUT</span><b>53.5<small>%</small></b>
+              <p>새 대화 3쌍의 전체 입력 감소</p>
+            </div>
+            <div>
+              <span>LESS NON-CACHED INPUT</span><b>56.3<small>%</small></b>
+              <p>캐시 읽기 제외 입력 감소</p>
+            </div>
+            <div>
+              <span>SHORTER OBSERVED TIME</span><b>8.8<small>%</small></b>
+              <p>3회 합계 시간 감소 · 단회 표본</p>
+            </div>
+          </div>
+          <div class="benchmark-comparison">
+            <div class="benchmark-chart" aria-labelledby="token-chart-title">
+              <div class="benchmark-chart-top"><h3 id="token-chart-title">전체 입력 토큰</h3><span>캐시 읽기 포함 · 3회 합계</span></div>
+              <div class="benchmark-bar-row"><div class="benchmark-bar-label"><span>OAI/Sky</span><strong>433,312</strong></div><div class="benchmark-track"><div class="benchmark-bar sky-bar"></div></div></div>
+              <div class="benchmark-bar-row"><div class="benchmark-bar-label"><span>Tacto</span><strong>201,447</strong></div><div class="benchmark-track"><div class="benchmark-bar tacto-bar"></div></div></div>
+              <p class="benchmark-chart-note">출력 토큰은 거의 같았습니다.<br />Tacto 1,605 · OAI/Sky 1,604</p>
+            </div>
+            <div class="benchmark-table">              <div class="table-scroll">
+                <table>
+                  <caption>
+                    최초 작성·실행·최종 응답 포함 · 3쌍 합계(시간은 평균)
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">항목</th>
+                      <th scope="col">Tacto</th>
+                      <th scope="col">OAI/Sky</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">성공</th>
+                      <td>3/3</td>
+                      <td>3/3</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">평균 시간</th>
+                      <td>42.10초</td>
+                      <td>46.17초</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">전체 입력</th>
+                      <td>201,447</td>
+                      <td>433,312</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">캐시 읽기 제외 입력</th>
+                      <td>22,119</td>
+                      <td>50,592</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">출력</th>
+                      <td>1,605</td>
+                      <td>1,604</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+</div>
+          </div>
+          <p class="benchmark-scope"><strong>측정 범위</strong> 2026-10-14 · 소유 AppKit 테스트 앱 · 보너스 켜기·끄기·버튼 변경 각 1쌍. 양쪽 모두 3/3 성공. 시간은 한 사례에서 OAI/Sky가 더 빨랐습니다. 작은 표본의 관측값이며 현재 배포 버전의 재측정이나 전체 앱 성능·청구비용의 비교는 아닙니다.</p>
+          <details class="methodology">
+            <summary>
+              측정 조건과 결과 전체 보기
+              <svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <div class="methodology-content">
+              <p>
+                2026-10-14 · Codex CLI 0.161.0 · 요청 모델 gpt-6.1-sol · medium
+                · 독립 새 대화 · 소유 AppKit 테스트 앱. 보너스 켜기·끄기·버튼
+                변경 각 1쌍, 모두 성공했습니다. 최초 작성·실행·최종 응답을
+                포함하고 테스트 준비 시간은 제외했습니다.
+              </p>
+              <p>
+                시간 합계는 Tacto가 8.8% 짧았지만 보너스 끄기에서는 Sky가 더
+                빨랐습니다. 실제 serving model·서버 캐시·청구비용은
+                미확인입니다. 이 결과는 10회 재사용 비교가 아닙니다.
+              </p>
+              <a href="assets/benchmark-summary.json" download
+                >측정 요약 JSON 다운로드
+                <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+            </div>
+          </details>
+          <div class="replay-distinction"><div><span>REPLAY IS A SEPARATE ADVANTAGE</span><h3>저장한 Flow의 정상 재생은 모델 호출 0회.</h3></div><p>위 수치는 처음 작업을 작성하고 실행한 비교입니다. OAI/Sky의 재사용 스크립트와 Tacto Flow를 10회씩 재생하는 동일 조건 비교는 아직 측정하지 않았습니다.</p></div>
+          <div class="complex-proof">
+            <svg
+              class="ui-icon proof-icon"
+              aria-hidden="true"
+              focusable="false"
+              viewBox="0 0 24 24"
+            >
+              <use href="assets/ui-icons.svg#workflow"></use>
+            </svg>
+            <div>
+              <strong>11단계 복잡한 Flow도 확인했습니다.</strong>
+              <p>
+                정상 작업 13/13 완료 · 기대 중단 5/5 · 한 작업에서 버튼 2개
+                수리. 소유 테스트 앱에서의 결과이며 여러 실제 업무 앱 전체의
+                성공률은 아닙니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="onboarding wrap" id="start">
+        <div class="section-label">GET STARTED</div>
+        <div class="onboarding-heading">
+          <h2>앱을 옮기고,<br />에이전트와 연결하세요.</h2>
+          <p>
+            Tacto 드래그 개선판은 Developer ID 서명과 Apple 공증을 통과한
+            Apple Silicon용 DMG입니다. 지금은 비공개 저장소라 접근 권한이 있는 사용자만 받을 수
+            있습니다. macOS 27.0.1 · Apple Silicon에서만 확인했습니다.
+          </p>
+          <div>
+            <a class="button primary" href="https://github.com/Open330/tacto/releases/download/v0.1.0-preview.14/Tacto-0.1.0-preview.14-arm64.dmg"
+              >Mac용 Tacto 다운로드
+              <svg
+                class="ui-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+            ></a>
+          </div>
+        </div>
+        <div
+          class="agent-picker"
+          role="group"
+          aria-label="사용할 에이전트 선택"
+        >
+          <button
+            type="button"
+            disabled
+            data-agent="Claude"
+            class="selected"
+            aria-pressed="true"
+          >
+            <img
+              class="agent-icon"
+              src="assets/claude-icon.png"
+              width="24"
+              height="24"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            Claude</button
+          ><button
+            type="button"
+            disabled
+            data-agent="Codex"
+            aria-pressed="false"
+          >
+            <img
+              class="agent-icon"
+              src="assets/codex-icon.png"
+              width="24"
+              height="24"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            Codex</button
+          ><span>실행하는 Tacto와 Flow 형식은 같습니다.</span>
+        </div>
+        <ol class="onboarding-steps">
+          <li>
+            <span class="step-number">01</span>
+            <div>
+              <h3>Tacto 앱 설치</h3>
+              <p>
+                DMG를 열고 Tacto를 Applications 폴더로 끌어다 놓은 뒤, Applications에서
+                Tacto를 엽니다. 읽기 전용 DMG 안에서 바로 열면 먼저 옮기라는 안내가
+                나옵니다.
+              </p>
+              <a href="https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.14" target="_blank" rel="noopener noreferrer"
+                >Tacto 미리보기 릴리스 노트 (저장소 접근 권한 필요)
+                <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+              <details>
+                <summary>개발자용: 소스에서 직접 빌드</summary>
+                <p>
+                  Python 3.11+, uv, Xcode Command Line Tools와 Apple 발급 코드 서명
+                  인증서가 필요합니다. 일반 사용에는 DMG를 권장합니다.
+                </p>
+                <div class="install-command">
+                  <button
+                    type="button"
+                    disabled
+                    class="icon-button"
+                    data-copy="install-command"
+                  >
+                    복사
+                  </button>
+                  <pre><code id="install-command">git clone https://github.com/Open330/tacto.git
+cd tacto
+uv sync
+./build.sh
+./skill/install.sh</code></pre>
+                </div>
+                <a
+                  href="https://github.com/Open330/tacto/blob/main/docs/installation.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >설치 요구 사항과 서명 설정
+                  <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+              </details>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <div>
+              <h3>macOS 권한 두 개 켜기</h3>
+              <p>
+                Tacto 창의 ‘1. Mac 권한’에서 각 항목의 ‘설정 열기’를 누르고, 옆에 뜨는
+                안내대로 앱 조작은 <strong>Tacto Helper</strong>, 화면 기록은
+                <strong>Tacto</strong>에 허용합니다. Preview 8 이하에서 전환하는 경우
+                새 Tacto 앱에 각 권한을 다시 허용하세요. 3단계에서
+                에이전트를 연결한 뒤에는 터미널에서 아래 명령으로도 확인할 수 있습니다.
+              </p>
+              <div class="inline-command">
+                <code id="doctor-command">~/.local/bin/tacto doctor</code
+                ><button
+                  type="button"
+                  disabled
+                  class="icon-button"
+                  data-copy="doctor-command"
+                  aria-label="권한 확인 명령 복사"
+                >
+                  복사
+                </button>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <div>
+              <h3><span id="agent-label">Claude</span>에 연결하고 시작하기</h3>
+              <p>
+                두 권한이 켜지면 Tacto 창의 ‘에이전트에 연결’을 눌러 Claude Code와
+                Codex에 명령과 스킬을 연결합니다. 그다음 새 대화에서 아래 요청을
+                전달하세요. 실제 요청에 맞는 앱·작업으로 바꿔도 됩니다.
+              </p>
+              <div class="prompt-card">
+                <p id="agent-prompt">
+                  Tacto 스킬로 계산기에서 12 × 34를 계산하고 결과를 확인해줘.
+                  같은 작업을 다시 쓸 수 있도록 매개변수가 있는 Flow로 저장해줘.
+                </p>
+                <button
+                  type="button"
+                  disabled
+                  class="icon-button"
+                  data-copy="agent-prompt"
+                >
+                  요청 복사
+                  <svg
+                    class="ui-icon"
+                    aria-hidden="true"
+                    focusable="false"
+                    viewBox="0 0 24 24"
+                  >
+                    <use href="assets/ui-icons.svg#arrow-up-right"></use>
+                  </svg>
+                </button>
+              </div>
+              <p class="small-note">
+                에이전트가 스킬을 찾지 못하면 대화 세션을 다시 열고, Tacto 창의
+                ‘2. 에이전트 연결’ 상태를 확인하세요.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+      <section class="faq wrap" id="faq">
+        <div>
+          <div class="section-label">GOOD TO KNOW</div>
+          <h2>자주 묻는 질문.</h2>
+        </div>
+        <div class="faq-items">
+          <details>
+            <summary>
+              Claude와 Codex 모두 사용할 수 있나요?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              네. 설치 스크립트는 두 에이전트의 스킬과 Tacto 명령을 연결합니다.
+              저장 Flow는 모델에 종속되지 않습니다. 개발 버전의 자동 선택자 수리
+              CLI 옵션은 <code>--auto-repair codex</code>이며, 자동 수리
+              provider는 Codex입니다.
+            </p>
+          </details>
+          <details>
+            <summary>
+              정말 모델 비용이 없나요?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              정상적인 결정적 재생은 모델을 호출하지 않습니다. 최초 작성, 계획에
+              포함된 판단, 자동 수리를 활성화한 뒤의 지원되는 실패에는 모델
+              사용량이 발생합니다. 앱·실행 환경의 비용까지 0이라는 의미는
+              아닙니다.
+            </p>
+          </details>
+          <details>
+            <summary>
+              화면이 바뀌면 어떻게 되나요?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              대상을 새 관찰에서 다시 찾습니다. 지원되는 정적 선택자 실패는 짧은
+              후보 패킷으로 수리하고 확인된 checkpoint 뒤부터 재개할 수
+              있습니다. 값·상태·대상이 바뀌었거나 결과가 불확실하면 멈춥니다.
+              이전 capture가 필요한 자동 재개, 모든 UI 변화와 crash 복구를
+              지원하지는 않습니다.
+            </p>
+          </details>
+          <details>
+            <summary>
+              설치는 다운로드 한 번으로 끝나나요?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              거의 그렇습니다. Developer ID로 서명한 미리보기 DMG를 Applications로
+              옮겨 열고, macOS 권한 두 개를 켠 뒤 앱에서 에이전트를 연결하면
+              됩니다. 다만 지금은 저장소 접근 권한이 있는 사용자에게만 제공하는
+              미리보기이며, macOS 27.0.1 · Apple Silicon에서만 확인했습니다. 권한이
+              없는 새 Mac에서의 첫 설치와 Intel Mac·Windows는 아직 확인하지
+              않았습니다. Python wheel만 설치해서 서명된 macOS helper를 사용할
+              수는 없습니다. 현재 상태는 working prototype입니다.
+            </p>
+          </details>
+        </div>
+      </section>
       <section class="workflow-library wrap" id="workflow-library" aria-labelledby="workflow-heading">
-        <div class="section-label">WORK YOU WOULD ACTUALLY DELEGATE</div>
-        <div class="workflow-heading"><h2 id="workflow-heading">여러 앱의 반복 작업을,<br />하나의 흐름으로.</h2><p>여러 화면을 오가며 반복하는 일을 골랐습니다.<br />업무 설계와 실제 조작 검증을 구분해 살펴보세요.</p></div>
+        <div class="section-label">BUILT FOR YOUR WORK</div>
+        <div class="workflow-heading"><h2 id="workflow-heading">반복되는 일에,<br />다시 쓸 수 있는 흐름을.</h2><p>맡기고 싶은 업무에서 시작하세요.<br />시나리오별 설계와 실제 실행 장면을 함께 볼 수 있습니다.</p></div>
         <div class="workflow-studio" id="task-carousel" aria-label="반복 업무 시나리오" aria-roledescription="캐러셀">
           <div class="workflow-rail" role="group" aria-label="업무 시나리오 선택">
             <button type="button" disabled data-workflow="triage" aria-pressed="true"><span class="workflow-number">01 / ENGINEERING</span><strong>주간 이슈 점검</strong><span>흩어진 이슈를 검토 대기 목록으로</span></button>
@@ -100,6 +537,7 @@
           </div>
           <div class="workflow-content">
             <div class="carousel-toolbar" hidden><span class="carousel-position">업무 설계 <span id="carousel-count">1 / 4</span></span><button type="button" id="carousel-rotation">자동 넘김 멈추기</button></div>
+            <div class="workflow-narrative">
             <div class="scenario-status">시나리오 설계 · 전체 실행 미검증</div>
             <h3 id="workflow-title">다음 회의 전에, 검토할 이슈만 모아두세요.</h3>
             <p class="workflow-request" id="workflow-request">“이번 주 열린 버그를 찾아 이전 목록과 비교하고, 새로 확인할 이슈를 정리해줘.”</p>
@@ -110,6 +548,7 @@
             </ol>
             <div class="workflow-result"><span>기대 결과</span><p id="workflow-result">다음 회의에서 바로 열어볼 이슈 목록. 우선순위와 담당자는 사람이 결정합니다.</p></div>
             <div class="workflow-repeat"><span>다음 실행</span><p id="workflow-repeat">저장소와 조회 조건을 바꿔 같은 점검 절차를 재사용하는 설계입니다.</p></div>
+            </div>
             <div class="workflow-recording">
               <figure class="hero-real-media">
                 <video controls playsinline preload="none" poster="assets/demos/browser-github-poster.png" width="1280" height="800" aria-label="GitHub 실제 실행: 열린 버그 필터 · 댓글순 정렬">
@@ -125,20 +564,18 @@
         </div>
         <p class="scenario-note">위 업무는 활용 방향을 설명하는 설계 예시입니다. 녹화는 표시된 일부 조작만 검증하며, 계정 연결·여러 앱 간 연계·전체 업무 완료를 증명하지 않습니다.</p>
       </section>
-
       <section
         class="use-cases wrap"
         id="use-cases"
         aria-labelledby="use-cases-title"
       >
-        <div class="section-label">THE EVIDENCE BEHIND THE ACTIONS</div>
+        <div class="section-label">REAL APPS. REAL ACTIONS.</div>
         <div class="cases-heading">
           <h2 id="use-cases-title">
-            실제로 검증한 조작은<br />여기까지입니다.
+            말보다,<br />실제 작동하는 장면.
           </h2>
           <p>
-            아래는 완성된 업무 템플릿이 아니라, 각 앱에서 수행한 조작과 결과의 기록입니다.
-            단순 문서 생성보다 앱 간 작업 연결을 다음 검증 과제로 삼고 있습니다.
+            Mac 앱부터 브라우저까지. 각 영상에서 실제 조작과 확인한 결과를 살펴보세요.
           </p>
         </div>
         <div class="browser-examples" id="browser-examples">
@@ -147,7 +584,7 @@
               >실행 영상 10개 · 실제 앱·사이트 8개 + 공개 테스트 2개</span
             >
             <h3>
-              실제 앱·사이트에서 촬영한<br />조작 단위 검증 기록.
+              익숙한 앱에서 시작하세요.
             </h3>
             <p>
               자체 테스트 앱 밖에서 수행한 작업들입니다. 요청 문장은 설명용이며,
@@ -222,12 +659,14 @@
               <p class="recording-caption">
                 약 10초 · Mac 창 캡처 · 안내 포인터 포함
               </p>
+<p class="case-result">문서와 디스크 내용 일치</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>“워크숍 준비 메모를 작성하고 저장해줘.”</blockquote>
               <p>
                 전용 문서에 메모를 입력한 뒤, 별도 Save 재생으로 문서와 디스크
                 내용의 일치를 확인했습니다.
               </p>
-              <p class="case-result">문서와 디스크 내용 일치</p>
+
               <p class="recording-caption">
                 입력 후 저장 확인을 위해 별도 단계가 필요했고 저장 상태 검증이
                 통과했습니다. 자동으로 끝까지 완료한 사례는 아닙니다.
@@ -245,6 +684,7 @@
                 rel="noopener"
                 >포인터 없는 영상</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -279,6 +719,8 @@
               <p class="recording-caption">
                 약 8초 · Mac 창 캡처 · 안내 포인터 포함
               </p>
+<p class="case-result">종류 정렬 → 이름 정렬 · 5개 파일</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “이 폴더를 종류별로 보고, 마지막에는 이름순으로 정렬해줘.”
               </blockquote>
@@ -286,7 +728,7 @@
                 실제 Finder에서 종류·이름 헤더를 조작하고 이름 오름차순 및 파일
                 5개를 확인했습니다.
               </p>
-              <p class="case-result">종류 정렬 → 이름 정렬 · 5개 파일</p>
+
               <p class="recording-caption">
                 촬영용 파일만 담은 폴더입니다. 이동·삭제는 하지 않았고 개인
                 사이드바·경로는 영상에서 제외했습니다.
@@ -304,6 +746,7 @@
                 rel="noopener"
                 >포인터 없는 영상</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -343,12 +786,14 @@
               <p class="recording-caption">
                 약 7초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">영어 입력 · 한국어 결과 표시</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>“Hello. Thank you.를 한국어로 번역해줘.”</blockquote>
               <p>
                 Google 번역의 실제 입력란에 문장을 넣고 “안녕하세요.
                 감사합니다.”라는 한국어 결과를 확인했습니다.
               </p>
-              <p class="case-result">영어 입력 · 한국어 결과 표시</p>
+
               <p class="recording-caption">
                 합성 예문을 Google에 전송합니다. 전송 단계의 완료 증명은
                 미확정이며 한국어 출력은 별도로 확인했습니다. 번역 품질 전반을
@@ -367,6 +812,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -404,6 +850,8 @@
               <p class="recording-caption">
                 약 9초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">열린 버그 필터 · 댓글순 정렬</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “VS Code에서 열린 버그를 댓글 많은 순서로 보여줘.”
               </blockquote>
@@ -411,7 +859,7 @@
                 microsoft/vscode 이슈 목록에서 열린 버그·댓글 내림차순 쿼리를
                 적용하고 URL·검색값·결과 25개를 확인했습니다.
               </p>
-              <p class="case-result">열린 버그 필터 · 댓글순 정렬</p>
+
               <p class="recording-caption">
                 공개 저장소를 읽기만 했습니다. 이슈 작성·댓글·로그인은 하지
                 않았으며 목록은 촬영 시점의 상태입니다.
@@ -429,6 +877,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -465,12 +914,14 @@
               <p class="recording-caption">
                 약 9초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">3.5 m → 11.482939633 ft</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>“3.5미터를 피트로 바꿔줘.”</blockquote>
               <p>
                 입력값과 출력 단위를 선택해 11.482939633피트를 얻고, 별도 계산식
                 3.5 ÷ 0.3048과 대조했습니다.
               </p>
-              <p class="case-result">3.5 m → 11.482939633 ft</p>
+
               <p class="recording-caption">
                 실제 변환 사이트에서 실행했습니다. 입력 후 출력 단위를 선택해
                 사이트의 계산 갱신을 확인합니다.
@@ -488,6 +939,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -527,6 +979,8 @@
               <p class="recording-caption">
                 약 18초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">제목·목록·굵은 글씨 렌더링</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “기존 예제 앞부분을 주말 계획으로 바꾸고 서식을 확인해줘.”
               </blockquote>
@@ -534,7 +988,7 @@
                 실제 편집기의 예제 앞부분을 수정하고 계획의 제목, 소제목, 목록
                 2개와 굵은 글씨가 렌더링됐는지 확인했습니다.
               </p>
-              <p class="case-result">제목·목록·굵은 글씨 렌더링</p>
+
               <p class="recording-caption">
                 나머지 기본 예제 내용이 남는 부분 수정입니다. 새 문서 전체를
                 대체·저장하거나 PDF로 내보내지 않았습니다.
@@ -552,6 +1006,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -589,6 +1044,8 @@
               <p class="recording-caption">
                 약 14초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">서울 문서 검색 · History 이동</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “위키피디아에서 서울을 검색하고 역사 항목을 열어줘.”
               </blockquote>
@@ -596,7 +1053,7 @@
                 Seoul을 검색하고 History 항목으로 이동해 최종 URL과 화면에
                 보이는 제목을 확인했습니다.
               </p>
-              <p class="case-result">서울 문서 검색 · History 이동</p>
+
               <p class="recording-caption">로그인 없는 실제 공개 문서입니다.</p>
               <a
                 class="case-source"
@@ -611,6 +1068,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -648,6 +1106,8 @@
               <p class="recording-caption">
                 약 14초 · Mac 창 캡처 · 안내 포인터 포함
               </p>
+<p class="case-result">7 + 8 = 15 · 재사용 3 + 9 = 12</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “7 더하기 8을 계산해줘. 다음에는 같은 Flow로 3 더하기 9.”
               </blockquote>
@@ -655,7 +1115,7 @@
                 실제 macOS 계산기의 버튼을 조작하고 15와 12를 확인했습니다. 두
                 번째 작업은 같은 Flow의 입력값만 바꿨습니다.
               </p>
-              <p class="case-result">7 + 8 = 15 · 재사용 3 + 9 = 12</p>
+
               <p class="recording-caption">
                 두 작업 사이 대기만 편집한 기존 실제 촬영 영상입니다.
               </p>
@@ -666,6 +1126,7 @@
                 rel="noopener"
                 >포인터 없는 실제 캡처</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -705,6 +1166,8 @@
               <p class="recording-caption">
                 약 9초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">도서 상세 · 가상 가격·재고</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “여행 도서 분류에서 이 책의 가격과 재고를 확인해줘.”
               </blockquote>
@@ -712,7 +1175,7 @@
                 Travel 분류의 지정 도서를 열고 £49.43과 재고 15개 표시를
                 확인했습니다.
               </p>
-              <p class="case-result">도서 상세 · 가상 가격·재고</p>
+
               <p class="recording-caption">
                 공개 쇼핑 테스트 사이트의 가상 상품입니다. 실제 가격·구매 사례가
                 아닙니다.
@@ -730,6 +1193,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
             <article
               class="recorded-case browser-case everyday-case"
@@ -764,6 +1228,8 @@
               <p class="recording-caption">
                 약 13초 · 별도 Chromium · 안내 포인터 포함
               </p>
+<p class="case-result">텍스트·날짜·옵션 4개 확인</p>
+              <details class="case-details"><summary>동작과 검증 범위</summary>
               <blockquote>
                 “문의 내용과 날짜·옵션을 채우고 제출 전에 보여줘.”
               </blockquote>
@@ -771,7 +1237,7 @@
                 텍스트·문의·2026-10-20 날짜·옵션 Two의 네 값을 입력하고 결과를
                 각각 확인했습니다.
               </p>
-              <p class="case-result">텍스트·날짜·옵션 4개 확인</p>
+
               <p class="recording-caption">
                 공개 테스트 폼입니다. Submit을 누르거나 등록을 완료하지
                 않았습니다.
@@ -789,6 +1255,7 @@
                 rel="noopener"
                 >촬영한 사이트 열기</a
               >
+              </details>
             </article>
           </div>
           <p class="browser-path-note">
@@ -892,81 +1359,10 @@
           <a href="#start">내 앱에서 첫 작업 준비하기</a>
         </div>
       </section>
-      <section class="intro wrap" id="how">
-        <div class="section-label">01 — A BETTER LOOP</div>
-        <div class="intro-heading">
-          <h2>한 번 만든 작업 방법을,<br />다음에도 그대로.</h2>
-          <p>
-            사용자를 대신해 컴퓨터를 조작하는 computer use. Tacto는 그 작업
-            방법을 Flow로 남깁니다. 다음에는 입력값을 바꾸고 같은 흐름을
-            실행하세요. 새 관찰에서 대상을 찾고, 결과가 맞는지 확인하는 일은
-            런타임이 맡습니다.
-          </p>
-        </div>
-        <div class="workflow-grid">
-          <article class="workflow muted">
-            <div class="workflow-label">처음 수행하는 작업</div>
-            <div class="workflow-steps">
-              <span>에이전트</span
-              ><svg
-                class="ui-icon workflow-arrow"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-right"></use></svg
-              ><span>관찰·작성</span><b>→</b><span>Flow 저장</span>
-            </div>
-            <p>목표와 앱의 상태를 보고 실행할 흐름을 작성합니다.</p>
-            <span class="workflow-tag">AUTHORING · 모델 사용</span>
-          </article>
-          <article class="workflow active">
-            <div class="workflow-label">이미 익힌 반복 작업</div>
-            <div class="workflow-steps">
-              <span>Flow</span
-              ><svg
-                class="ui-icon workflow-arrow"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-right"></use></svg
-              ><span>실행·검증</span><b>→</b><span>완료</span>
-            </div>
-            <p>매개변수만 바꿉니다. 결정적 재생은 모델을 호출하지 않습니다.</p>
-            <span class="workflow-tag">REPLAY · 모델 호출 0회</span>
-          </article>
-        </div>
-        <div class="repair-note">
-          <svg
-            class="ui-icon"
-            aria-hidden="true"
-            focusable="false"
-            viewBox="0 0 24 24"
-          >
-            <use href="assets/ui-icons.svg#corner-down-right"></use>
-          </svg>
-          <p>
-            개발 버전에서는 지원되는 버튼 변경을 에이전트가 필요한 부분만
-            수리합니다.
-            <strong>완료 여부가 불확실하면 재전송하지 않고 멈춥니다.</strong>
-          </p>
-          <a href="#faq"
-            >복구 범위 보기
-            <svg
-              class="ui-icon"
-              aria-hidden="true"
-              focusable="false"
-              viewBox="0 0 24 24"
-            >
-              <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-          ></a>
-        </div>
-      </section>
       <section class="demo-section" id="demo">
         <div class="wrap demo-layout">
           <div>
-            <div class="section-label">02 — MAKE REPETITION BORING</div>
+            <div class="section-label">EXPLORE THE EXECUTION MODEL</div>
             <h2>같은 작업.<br />다른 입력.<br /><em>하나의 Flow.</em></h2>
             <p>
               아래는 테스트 앱에서 확인한 정상 재생·버튼 변경·결과 불확실 상황을
@@ -1081,451 +1477,9 @@
           </div>
         </div>
       </section>
-      <section class="advantages wrap">
-        <div class="section-label">03 — DESIGNED TO REUSE</div>
-        <div class="advantage-row">
-          <span class="advantage-number">01</span>
-          <h3>에이전트가 바뀌어도,<br />Flow는 그대로.</h3>
-          <p>
-            Claude와 Codex에서 같은 Tacto 스킬과 실행 형식을 사용합니다. 저장한
-            Flow는 작성한 모델에 종속되지 않습니다.
-          </p>
-          <svg
-            class="ui-icon advantage-symbol advantage-icon"
-            aria-hidden="true"
-            focusable="false"
-            viewBox="0 0 24 24"
-          >
-            <use href="assets/ui-icons.svg#swap"></use>
-          </svg>
-        </div>
-        <div class="advantage-row">
-          <span class="advantage-number">02</span>
-          <h3>토큰은 필요한<br />판단에만.</h3>
-          <p>
-            정상적인 결정적 재생에는 모델 호출이 없습니다. 처음 작성하거나
-            명시적으로 판단·수리를 요청할 때만 모델 비용이 발생합니다.
-          </p>
-          <svg
-            class="ui-icon advantage-symbol advantage-icon"
-            aria-hidden="true"
-            focusable="false"
-            viewBox="0 0 24 24"
-          >
-            <use href="assets/ui-icons.svg#zero"></use>
-          </svg>
-        </div>
-        <div class="advantage-row">
-          <span class="advantage-number">03</span>
-          <h3>클릭 성공보다,<br />작업의 결과.</h3>
-          <p>
-            새 관찰로 대상을 다시 찾고 단계의 결과 조건을 검사합니다.
-            저장·전송처럼 중요한 작업은 해당 경로의 승인·완료 증거를 따릅니다.
-          </p>
-          <svg
-            class="ui-icon advantage-symbol advantage-icon"
-            aria-hidden="true"
-            focusable="false"
-            viewBox="0 0 24 24"
-          >
-            <use href="assets/ui-icons.svg#check"></use>
-          </svg>
-        </div>
-      </section>
-      <section class="evidence-section" id="evidence">
-        <div class="wrap">
-          <div class="evidence-heading">
-            <div>
-              <div class="section-label">04 — MEASURED, NOT JUST PROMISED</div>
-              <h2>숫자로 확인한<br />작은 시작.</h2>
-            </div>
-            <p>
-              요청 모델과 추론 강도, 초기 상태를 맞춘 개발 버전 Tacto·Sky
-              비교입니다. 작은 표본의 관측 결과이며 모든 작업에서의 우위를
-              의미하지 않습니다.
-            </p>
-          </div>
-          <div class="metric-grid">
-            <div>
-              <span>LESS TOTAL INPUT</span><b>53.5<small>%</small></b>
-              <p>새 대화 3쌍의 전체 입력 감소</p>
-            </div>
-            <div>
-              <span>LESS NON-CACHED INPUT</span><b>56.3<small>%</small></b>
-              <p>캐시 읽기 제외 입력 감소</p>
-            </div>
-            <div>
-              <span>ZERO-MODEL REPLAY</span><b>0<small>calls</small></b>
-              <p>정상적인 결정적 Flow 재생</p>
-            </div>
-          </div>
-          <details class="methodology">
-            <summary>
-              측정 조건과 결과 전체 보기
-              <svg
-                class="ui-icon disclosure-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#plus"></use>
-              </svg>
-            </summary>
-            <div class="methodology-content">
-              <p>
-                2026-10-14 · Codex CLI 0.161.0 · 요청 모델 gpt-6.1-sol · medium
-                · 독립 새 대화 · 소유 AppKit 테스트 앱. 보너스 켜기·끄기·버튼
-                변경 각 1쌍, 모두 성공했습니다. 최초 작성·실행·최종 응답을
-                포함하고 테스트 준비 시간은 제외했습니다.
-              </p>
-              <div class="table-scroll">
-                <table>
-                  <caption>
-                    Tacto와 Sky의 3회 합계 비교
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">항목</th>
-                      <th scope="col">Tacto</th>
-                      <th scope="col">Sky</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <th scope="row">성공</th>
-                      <td>3/3</td>
-                      <td>3/3</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">평균 시간</th>
-                      <td>42.10초</td>
-                      <td>46.17초</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">전체 입력</th>
-                      <td>201,447</td>
-                      <td>433,312</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">캐시 읽기 제외 입력</th>
-                      <td>22,119</td>
-                      <td>50,592</td>
-                    </tr>
-                    <tr>
-                      <th scope="row">출력</th>
-                      <td>1,605</td>
-                      <td>1,604</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p>
-                시간 합계는 Tacto가 8.8% 짧았지만 보너스 끄기에서는 Sky가 더
-                빨랐습니다. 실제 serving model·서버 캐시·청구비용은
-                미확인입니다. 이 결과는 10회 재사용 비교가 아닙니다.
-              </p>
-              <a href="assets/benchmark-summary.json" download
-                >측정 요약 JSON 다운로드
-                <svg
-                  class="ui-icon"
-                  aria-hidden="true"
-                  focusable="false"
-                  viewBox="0 0 24 24"
-                >
-                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-              ></a>
-            </div>
-          </details>
-          <div class="complex-proof">
-            <svg
-              class="ui-icon proof-icon"
-              aria-hidden="true"
-              focusable="false"
-              viewBox="0 0 24 24"
-            >
-              <use href="assets/ui-icons.svg#workflow"></use>
-            </svg>
-            <div>
-              <strong>11단계 복잡한 Flow도 확인했습니다.</strong>
-              <p>
-                정상 작업 13/13 완료 · 기대 중단 5/5 · 한 작업에서 버튼 2개
-                수리. 소유 테스트 앱에서의 결과이며 여러 실제 업무 앱 전체의
-                성공률은 아닙니다.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section class="onboarding wrap" id="start">
-        <div class="section-label">05 — YOUR FIRST REUSABLE FLOW</div>
-        <div class="onboarding-heading">
-          <h2>시작은 한 번.<br />다음은 반복.</h2>
-          <p>
-            Tacto 드래그 개선판은 Developer ID 서명과 Apple 공증을 통과한
-            Apple Silicon용 DMG입니다. 지금은 비공개 저장소라 접근 권한이 있는 사용자만 받을 수
-            있습니다. macOS 27.0.1 · Apple Silicon에서만 확인했습니다.
-          </p>
-          <div>
-            <a class="button primary" href="https://github.com/Open330/tacto/releases/download/v0.1.0-preview.8/Tacto-0.1.0-preview.8-arm64.dmg"
-              >Mac용 Tacto 다운로드
-              <svg
-                class="ui-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-            ></a>
-          </div>
-        </div>
-        <div
-          class="agent-picker"
-          role="group"
-          aria-label="사용할 에이전트 선택"
-        >
-          <button
-            type="button"
-            disabled
-            data-agent="Claude"
-            class="selected"
-            aria-pressed="true"
-          >
-            <img
-              class="agent-icon"
-              src="assets/claude-icon.png"
-              width="24"
-              height="24"
-              alt=""
-              aria-hidden="true"
-              decoding="async"
-            />
-            Claude</button
-          ><button
-            type="button"
-            disabled
-            data-agent="Codex"
-            aria-pressed="false"
-          >
-            <img
-              class="agent-icon"
-              src="assets/codex-icon.png"
-              width="24"
-              height="24"
-              alt=""
-              aria-hidden="true"
-              decoding="async"
-            />
-            Codex</button
-          ><span>실행하는 Tacto와 Flow 형식은 같습니다.</span>
-        </div>
-        <ol class="onboarding-steps">
-          <li>
-            <span class="step-number">01</span>
-            <div>
-              <h3>Tacto 앱 설치</h3>
-              <p>
-                DMG를 열고 Tacto를 Applications 폴더로 끌어다 놓은 뒤, Applications에서
-                Tacto를 엽니다. 읽기 전용 DMG 안에서 바로 열면 먼저 옮기라는 안내가
-                나옵니다.
-              </p>
-              <a href="https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.8" target="_blank" rel="noopener noreferrer"
-                >드래그 개선판 릴리스 노트 (저장소 접근 권한 필요)
-                <svg
-                  class="ui-icon"
-                  aria-hidden="true"
-                  focusable="false"
-                  viewBox="0 0 24 24"
-                >
-                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-              ></a>
-              <details>
-                <summary>개발자용: 소스에서 직접 빌드</summary>
-                <p>
-                  Python 3.11+, uv, Xcode Command Line Tools와 Apple 발급 코드 서명
-                  인증서가 필요합니다. 일반 사용에는 DMG를 권장합니다.
-                </p>
-                <div class="install-command">
-                  <button
-                    type="button"
-                    disabled
-                    class="icon-button"
-                    data-copy="install-command"
-                  >
-                    복사
-                  </button>
-                  <pre><code id="install-command">git clone https://github.com/Open330/tacto.git
-cd tacto
-uv sync
-./build.sh
-./skill/install.sh</code></pre>
-                </div>
-                <a
-                  href="https://github.com/Open330/tacto/blob/main/docs/installation.md"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  >설치 요구 사항과 서명 설정
-                  <svg
-                  class="ui-icon"
-                  aria-hidden="true"
-                  focusable="false"
-                  viewBox="0 0 24 24"
-                >
-                  <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-              ></a>
-              </details>
-            </div>
-          </li>
-          <li>
-            <span class="step-number">02</span>
-            <div>
-              <h3>macOS 권한 두 개 켜기</h3>
-              <p>
-                Tacto 창의 ‘1. Mac 권한’에서 각 항목의 ‘설정 열기’를 누르고, 옆에 뜨는
-                안내대로 앱 조작은 <strong>Tacto Helper</strong>, 화면 기록은
-                <strong>Tacto</strong>에 허용합니다. 이전 미리보기(Preview 1의 NLC
-                Helper)를 쓰던 Mac이라면 새 앱의 권한 상태를 다시 확인하세요. 3단계에서
-                에이전트를 연결한 뒤에는 터미널에서 아래 명령으로도 확인할 수 있습니다.
-              </p>
-              <div class="inline-command">
-                <code id="doctor-command">~/.local/bin/tacto doctor</code
-                ><button
-                  type="button"
-                  disabled
-                  class="icon-button"
-                  data-copy="doctor-command"
-                  aria-label="권한 확인 명령 복사"
-                >
-                  복사
-                </button>
-              </div>
-            </div>
-          </li>
-          <li>
-            <span class="step-number">03</span>
-            <div>
-              <h3><span id="agent-label">Claude</span>에 연결하고 시작하기</h3>
-              <p>
-                두 권한이 켜지면 Tacto 창의 ‘에이전트에 연결’을 눌러 Claude Code와
-                Codex에 명령과 스킬을 연결합니다. 그다음 새 대화에서 아래 요청을
-                전달하세요. 실제 요청에 맞는 앱·작업으로 바꿔도 됩니다.
-              </p>
-              <div class="prompt-card">
-                <p id="agent-prompt">
-                  Tacto 스킬로 계산기에서 12 × 34를 계산하고 결과를 확인해줘.
-                  같은 작업을 다시 쓸 수 있도록 매개변수가 있는 Flow로 저장해줘.
-                </p>
-                <button
-                  type="button"
-                  disabled
-                  class="icon-button"
-                  data-copy="agent-prompt"
-                >
-                  요청 복사
-                  <svg
-                    class="ui-icon"
-                    aria-hidden="true"
-                    focusable="false"
-                    viewBox="0 0 24 24"
-                  >
-                    <use href="assets/ui-icons.svg#arrow-up-right"></use>
-                  </svg>
-                </button>
-              </div>
-              <p class="small-note">
-                에이전트가 스킬을 찾지 못하면 대화 세션을 다시 열고, Tacto 창의
-                ‘2. 에이전트 연결’ 상태를 확인하세요.
-              </p>
-            </div>
-          </li>
-        </ol>
-      </section>
-      <section class="faq wrap" id="faq">
-        <div>
-          <div class="section-label">06 — GOOD TO KNOW</div>
-          <h2>시작 전에<br />궁금한 것.</h2>
-        </div>
-        <div class="faq-items">
-          <details>
-            <summary>
-              Claude와 Codex 모두 사용할 수 있나요?<svg
-                class="ui-icon disclosure-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#plus"></use>
-              </svg>
-            </summary>
-            <p>
-              네. 설치 스크립트는 두 에이전트의 스킬과 Tacto 명령을 연결합니다.
-              저장 Flow는 모델에 종속되지 않습니다. 개발 버전의 자동 선택자 수리
-              CLI 옵션은 <code>--auto-repair codex</code>이며, 자동 수리
-              provider는 Codex입니다.
-            </p>
-          </details>
-          <details>
-            <summary>
-              정말 모델 비용이 없나요?<svg
-                class="ui-icon disclosure-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#plus"></use>
-              </svg>
-            </summary>
-            <p>
-              정상적인 결정적 재생은 모델을 호출하지 않습니다. 최초 작성, 계획에
-              포함된 판단, 자동 수리를 활성화한 뒤의 지원되는 실패에는 모델
-              사용량이 발생합니다. 앱·실행 환경의 비용까지 0이라는 의미는
-              아닙니다.
-            </p>
-          </details>
-          <details>
-            <summary>
-              화면이 바뀌면 어떻게 되나요?<svg
-                class="ui-icon disclosure-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#plus"></use>
-              </svg>
-            </summary>
-            <p>
-              대상을 새 관찰에서 다시 찾습니다. 지원되는 정적 선택자 실패는 짧은
-              후보 패킷으로 수리하고 확인된 checkpoint 뒤부터 재개할 수
-              있습니다. 값·상태·대상이 바뀌었거나 결과가 불확실하면 멈춥니다.
-              이전 capture가 필요한 자동 재개, 모든 UI 변화와 crash 복구를
-              지원하지는 않습니다.
-            </p>
-          </details>
-          <details>
-            <summary>
-              설치는 다운로드 한 번으로 끝나나요?<svg
-                class="ui-icon disclosure-icon"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#plus"></use>
-              </svg>
-            </summary>
-            <p>
-              거의 그렇습니다. Developer ID로 서명한 미리보기 DMG를 Applications로
-              옮겨 열고, macOS 권한 두 개를 켠 뒤 앱에서 에이전트를 연결하면
-              됩니다. 다만 지금은 저장소 접근 권한이 있는 사용자에게만 제공하는
-              미리보기이며, macOS 27.0.1 · Apple Silicon에서만 확인했습니다. 권한이
-              없는 새 Mac에서의 첫 설치와 Intel Mac·Windows는 아직 확인하지
-              않았습니다. Python wheel만 설치해서 서명된 macOS helper를 사용할
-              수는 없습니다. 현재 상태는 working prototype입니다.
-            </p>
-          </details>
-        </div>
-      </section>
       <section class="final-cta wrap">
         <div class="section-label">TEACH ONCE. KEEP GOING.</div>
-        <h2>잘해낸 작업을,<br /><span>다시 잘해내도록.</span></h2>
+        <h2>반복 작업은 맡기고.<br /><span>다음 일로 넘어가세요.</span></h2>
         <a class="button primary" href="#start"
           >Tacto 시작하기
           <svg
@@ -1572,7 +1526,7 @@ uv sync
         ></a
       >
       <div>
-        <span>Developer preview · macOS native · Formerly NLC</span
+        <span>Developer preview · macOS native · Reusable flows</span
         ><a
           href="https://github.com/Open330/tacto"
           target="_blank"

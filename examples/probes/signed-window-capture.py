@@ -1,6 +1,6 @@
 """Signed transport: a picture of one owned window, taken by the grant holder.
 
-The screen-recording permission belongs to `ai.callabo.nlc.helper` rather than
+The screen-recording permission belongs to `ai.callabo.tacto.helper` rather than
 to whatever Python happens to be running, for the same reason the
 accessibility one does — on a shared interpreter it would be a permission
 every script on that interpreter holds, and a screenshot reaches further than
@@ -19,7 +19,7 @@ import tempfile
 import time
 from pathlib import Path
 
-TARGET = 'ai.callabo.nlc.menu-fixture'
+TARGET = 'ai.callabo.tacto.menu-fixture'
 
 
 def main(driver, output: Path) -> dict:
@@ -48,18 +48,18 @@ def _capture_owned_window(driver, output: Path) -> dict:
     assert local._resolve(TARGET, launch=False) is None, 'fixture already running'
 
     report: dict = {'transport': type(driver).__name__, 'target': TARGET,
-                    'grant_holder': 'ai.callabo.nlc.helper',
+                    'grant_holder': 'ai.callabo.tacto.helper',
                     'scope': 'one owned window; never the desktop or a region',
                     'steps': []}
     process = None
     try:
         with tempfile.TemporaryDirectory() as work:
-            app = Path(work) / 'NLC Menu Fixture.app'
+            app = Path(work) / 'TACTO Menu Fixture.app'
             binary = app / 'Contents/MacOS/NativeMenuFixture'
             binary.parent.mkdir(parents=True)
             (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
                 'CFBundleIdentifier': TARGET, 'CFBundleExecutable': binary.name,
-                'CFBundleName': 'NLC Menu Fixture', 'CFBundlePackageType': 'APPL',
+                'CFBundleName': 'TACTO Menu Fixture', 'CFBundlePackageType': 'APPL',
                 'CFBundleVersion': '1', 'LSUIElement': True}))
             captured = Path(work) / 'NativeMenuFixture.swift'
             captured.write_bytes(source)

@@ -231,7 +231,7 @@ class BrowserDriver:
         if backend is None:
             raise ValueError("observed AX node has no DOM identity")
         obj = self._cdp.send("DOM.resolveNode", {"backendNodeId": backend})["object"]["objectId"]
-        reference = "__nlc_node_" + uuid.uuid4().hex
+        reference = "__tacto_node_" + uuid.uuid4().hex
         handle = None
         try:
             result = self._cdp.send("Runtime.callFunctionOn", {

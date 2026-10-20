@@ -32,7 +32,7 @@ def private_json(path, data):
 
 def source_hashes():
     root = Path(__file__).resolve().parents[2]
-    paths = list((root / 'tacto').glob('*.py')) + list((root / 'nlc').glob('*.py')) + [Path(__file__).resolve()]
+    paths = list((root / 'tacto').glob('*.py')) + [Path(__file__).resolve()]
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(paths)}
 

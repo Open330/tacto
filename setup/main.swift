@@ -223,6 +223,8 @@ final class AccessoryPanel: NSPanel {
         title = "Tacto 권한 도우미"
         backgroundColor = canvas
         level = .floating; hidesOnDeactivate = false; isReleasedWhenClosed = false
+        becomesKeyOnlyIfNeeded = true
+        standardWindowButton(.closeButton)?.setAccessibilityIdentifier("tacto.permission-guide.close")
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         icon.helperURL = helper
         icon.image = NSWorkspace.shared.icon(forFile: helper.path)
@@ -274,7 +276,7 @@ final class AccessoryPanel: NSPanel {
         scroll = NSScrollView()
         scroll.contentView = CenteredClipView()
         scroll.drawsBackground = true; scroll.backgroundColor = canvas
-        scroll.contentView.drawsBackground = false
+        scroll.contentView.drawsBackground = true; scroll.contentView.backgroundColor = canvas
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
         scroll.scrollerStyle = .legacy; scroll.documentView = stack
         contentView = scroll
@@ -311,7 +313,10 @@ final class AccessoryPanel: NSPanel {
         state.stringValue = "위치를 복사했어요. + 버튼의 파일 선택 창에서 사용하세요."
         fitContent()
     }
-    override var canBecomeKey: Bool { true }
+    // This panel contains drag targets and buttons, never keyboard input.
+    // Keep password/Touch ID sheets and System Settings as the key window.
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
     func pointTowardSettings(_ frame: CGRect) {
         let direction = frame.midX < self.frame.midX ? "arrow.left" : "arrow.right"
         dropArrow.image = symbol(direction, coral, size: 24)
@@ -378,18 +383,17 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         Tacto의 첫 작업을 실행해주세요. 목표는 새 TextEdit 문서에 Hello, World!와 다음 줄 Tacto로 작성했습니다.를 입력하고 확인하는 것입니다.
         실행할 명령은 하나입니다:
         \(firstRunShellQuote(launcher)) first-run --helper --yes
-        이 명령이 꺼진 TextEdit 실행, 새 문서 생성, 두 줄 입력, 새 관찰로 확인까지 처리합니다. 기존 문서를 수정하거나 저장 명령을 실행하지 않습니다. --yes는 이 고정된 첫 작업의 새 문서 입력을 승인합니다.
+        이 명령이 꺼진 TextEdit 실행, 새 문서 생성, 두 줄 입력, 새 관찰로 확인하고 TextEdit 결과를 앞으로 표시하는 것까지 처리합니다. 기존 문서를 수정하거나 저장 명령을 실행하지 않습니다. --yes는 이 고정된 첫 작업의 새 문서 입력을 승인합니다.
         빠른 실행 지침:
         1. 별도 스킬·문서·예제 탐색이나 Flow JSON 작성 없이 위 명령을 바로 실행하세요. compile/do, osascript, AppleScript, JXA, open -a 등 다른 경로는 사용하지 마세요.
         2. 도구가 실행 세션 ID를 반환하면 같은 세션에서 완료를 기다리세요. 명령을 다시 보내면 문서가 중복될 수 있으니 재실행하지 마세요.
-        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
+        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. presentation_skipped=true는 사용자 설정에 따라 백그라운드로 완료한 것입니다. foreground_verified=true이면 결과 문서가 앞으로 표시된 것도 확인된 것입니다. presentation_skipped가 true가 아닌데 foreground_verified=false이면 입력은 완료됐으나 표시를 확인하지 못했다고 알리고 입력을 반복하지 마세요. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
         4. 실패하면 stage와 error를 보고하고 멈추세요. 문서나 입력이 일부 만들어졌을 수 있으므로 다른 도구로 우회하거나 반복하지 마세요. 로그인·OS 권한 등 사용자 확인이 필요하면 그 요청만 알려주세요.
         """
     }
     var permissionDetails = false
     var permissionDetailsButton: NSButton!
     let permissionTitle = label("1. Mac 권한", size: 15, weight: .semibold)
-    var lastPermissionLayout: Bool?
     let firstRunHint = label("", size: 12, color: mutedText, width: contentWidth - 32)
     var detectedAgents: [FirstRunAgent] = []
     var agentPicker: NSPopUpButton!
@@ -412,15 +416,26 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var watch: PermissionWatch?
     var watchTimer: Timer?
     var placeTimer: Timer?
+    var permissionGuideID: UUID?
     var settingsAnchorID: CGWindowID?
     var settingsWindowSeen = false
     let settingsWaitHint = "시스템 설정 창을 찾지 못했어요. Dock에서 시스템 설정을 열어 주세요."
     var checkInFlight = false
     var pollTimer: Timer?
     var reportDirectory: URL?
+    var activityCenter: ActivityCenter?
     var snapshot: (URL, SetupState, Permission?)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of:"--activity-snapshot"), i + 1 < args.count,
+           let f = args.firstIndex(of:"--activity-fixture"), f + 1 < args.count {
+            let center = ActivityCenter(store:ActivityStore(root:URL(fileURLWithPath:args[f+1])),refreshAutomatically:false)
+            if args.contains("--dark") { NSApp.appearance = NSAppearance(named:.darkAqua) }
+            do { try center.snapshot(to:URL(fileURLWithPath:args[i+1]),settingsPage:args.contains("--settings-page"),size:args.contains("--compact") ? NSSize(width:900,height:600) : NSSize(width:1060,height:700)) }
+            catch { FileHandle.standardError.write(Data("Activity snapshot failed\n".utf8)); exit(1) }
+            NSApp.terminate(nil); return
+        }
         if let request = snapshotRequest() { renderSnapshot(request); return }
         // A link into a mounted installer disappears when that image is ejected.
         // Require a writable installed copy before permission or skill setup.
@@ -456,8 +471,8 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Background launches keep the settings surface out of the user's way.
         // The menu bar remains available; a normal open or menu click shows it.
         if !CommandLine.arguments.contains("--background") {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            if connection == .current { showAccessLogs() }
+            else { showSetup() }
         }
         // Reading the helper's receipt requests nothing and changes nothing;
         // it is what lets every row start out true. Settings, permission
@@ -480,6 +495,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = canvas
         panel = AccessoryPanel(helper: helper)
+        panel.delegate = self
         panel.reposition = { [weak self] in if self?.panel.isVisible == true { self?.placeAccessory() } }
         let stack = DocumentStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 18, left: 32, bottom: 18, right: 32)
@@ -493,7 +509,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true; scroll.scrollerStyle = .legacy
         scroll.documentView = stack
-        scroll.contentView.drawsBackground = false
+        scroll.contentView.drawsBackground = true; scroll.contentView.backgroundColor = canvas
         stack.widthAnchor.constraint(equalToConstant: contentWidth + 64).isActive = true
         window.contentView = scroll
         scrollView = scroll
@@ -579,14 +595,20 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         firstRun.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         stack.addArrangedSubview(example)
         stack.addArrangedSubview(firstRun)
-        stack.addArrangedSubview(label("창을 닫아도 메뉴 막대에서 Tacto 설정을 다시 열 수 있어요.", size: 11, color: mutedText, width: contentWidth))
+        let logs = NSButton(title: "실행 기록 보기", target: self, action: #selector(showAccessLogs))
+        logs.bezelStyle = .rounded
+        logs.setAccessibilityIdentifier("tacto.access-logs")
+        let footer = NSStackView(views: [label("창을 닫아도 메뉴 막대에서 다시 열 수 있어요.", size: 11, color: mutedText), NSView(), logs])
+        footer.orientation = .horizontal; footer.alignment = .centerY
+        footer.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        stack.addArrangedSubview(footer)
         refreshFirstRunAgents()
         render()
         stack.layoutSubtreeIfNeeded()
         let size = stack.fittingSize
         stack.setFrameSize(size)
         let available = (NSScreen.main?.visibleFrame.height ?? 840) - 80
-        window.setContentSize(NSSize(width: mainWidth, height: min(size.height, available)))
+        window.setContentSize(NSSize(width: mainWidth, height: min(size.height, min(520, available))))
         scroll.contentView.scroll(to: .zero)
     }
 
@@ -605,9 +627,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         startFirstRunButton?.isEnabled = firstRunReady && !detectedAgents.isEmpty && !startingFirstRun && launch == .idle
-        let compactPermissions = known && state.ready && !permissionDetails && watch == nil && notice == nil
-        permissionTitle.stringValue = known && state.ready ? "1. Mac 권한 · 준비 완료" : "1. Mac 권한"
-        permissionDetailsButton?.isHidden = !(known && state.ready)
+        // App control enables basic work; only BOTH grants complete this section.
+        let permissionsComplete = known && state.captureReady
+        let compactPermissions = permissionsComplete && !permissionDetails && watch == nil && notice == nil
+        let grantedCount = Permission.allCases.filter { state.granted($0) }.count
+        permissionTitle.stringValue = permissionsComplete ? "1. Mac 권한 · 준비 완료"
+            : known && grantedCount > 0 ? "1. Mac 권한 · \(grantedCount)/2 허용" : "1. Mac 권한"
+        permissionDetailsButton?.isHidden = !permissionsComplete
         permissionDetailsButton?.title = permissionDetails ? "접기" : "상세 보기"
         status.isHidden = compactPermissions
         for row in rows {
@@ -624,9 +650,10 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         connectButton.isEnabled = !checkInFlight && !installing && (connection == .conflict || (known && state.ready && connection != .current))
         refreshButton.isEnabled = !checkInFlight && !installing
         badge.stringValue = checkInFlight || (!known && notice == nil) ? "권한 확인 중"
-            : !known ? "권한 확인 실패" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
-        badgeIcon.image = symbol(known && state.ready ? "checkmark.circle.fill" : "circle", known && state.ready ? .systemGreen : mutedText, size: 13)
-        badge.textColor = known && state.ready ? successText : mutedText
+            : !known ? "권한 확인 실패" : permissionsComplete ? "권한 준비 완료"
+            : state.ready ? "앱 조작 가능 · 화면 캡처 미설정" : "권한 설정 필요"
+        badgeIcon.image = symbol(permissionsComplete ? "checkmark.circle.fill" : "circle", permissionsComplete ? .systemGreen : mutedText, size: 13)
+        badge.textColor = permissionsComplete ? successText : mutedText
         if !installing {
             switch connection {
             case .current:
@@ -647,15 +674,17 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             connectionInfo.stringValue = known ? "앱 조작 권한을 켜면 Claude Code · Codex에 연결할 수 있어요. 화면 캡처는 선택 사항입니다." : "먼저 ‘상태 새로고침’으로 권한을 확인해 주세요."
         }
         let scope = ProcessInfo.processInfo.environment
-        let custom = ["TACTO_BIN_DIR", "NLC_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
+        let custom = ["TACTO_BIN_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME"].contains { !(scope[$0] ?? "").isEmpty }
         scopeInfo.isHidden = !(custom && (connection == .missing || connection == .other))
         connectButton.isHidden = connection == .current && !installing
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
+        activityCenter?.updateStatus(badge.stringValue)
         if let notice { status.stringValue = notice }
-        else if state.ready { status.stringValue = "앱 조작을 시작할 수 있습니다. 이미지 캡처가 필요할 때 화면 기록 권한을 추가하세요." }
-        else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 넘어갑니다." }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
+        else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 확인합니다." }
+        else if permissionsComplete { status.stringValue = "앱 조작과 화면 캡처 권한이 모두 허용됐어요." }
+        else if state.ready { status.stringValue = "앱 조작은 허용됐어요. 화면 캡처는 아직 미설정입니다. 이미지 확인이 필요하면 아래에서 추가하세요." }
         else if connection == .other && !state.accessibility { status.stringValue = "이전 설치에서 허용했더라도 이 버전의 권한을 다시 확인하세요. ‘설정 열기’에서 표시된 앱을 추가하거나 켜 주세요." }
         else { status.stringValue = "‘설정 열기’를 누르면 설정이 열리고, 옆에 작은 도우미 창이 함께 뜹니다." }
         // State changes can wrap labels or hide actions. Keep the document size
@@ -666,16 +695,6 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             stack.setFrameSize(stack.fittingSize)
             scroll.contentView.scroll(to: NSPoint(x: 0, y: min(offset, max(0, stack.frame.height - scroll.contentSize.height))))
             scroll.reflectScrolledClipView(scroll.contentView)
-            // Resize only when permission details fold/unfold, never on each
-            // polling tick. Keep the top edge and the user's scroll position.
-            if lastPermissionLayout != compactPermissions {
-                lastPermissionLayout = compactPermissions
-                let old = window.frame
-                let available = window.screen?.visibleFrame.height ?? 840
-                let height = max(420, min(stack.fittingSize.height, available - 80))
-                let frameHeight = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: mainWidth, height: height)).height
-                window.setFrame(NSRect(x: old.minX, y: old.maxY - frameHeight, width: old.width, height: frameHeight), display: true)
-            }
         }
     }
 
@@ -783,6 +802,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsWindowSeen = false
         if !NSWorkspace.shared.open(permission.settingsURL) { notice = settingsWaitHint }
         panel.show(for: permission, app: appFor(permission))
+        permissionGuideID = UUID()
         watch = PermissionWatch(permission: permission, started: Date())
         render()
         placeTimer?.invalidate()
@@ -797,6 +817,12 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func placeAccessory() {
+        guard permissionGuideID != nil else { return }
+        // Authentication agents and other apps take precedence over our guide.
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences" else {
+            panel.orderOut(nil)
+            return
+        }
         guard let settings = settingsWindowFrame() else {
             panel.orderOut(nil)
             if !settingsWindowSeen, let watch, Date().timeIntervalSince(watch.started) >= 3, notice == nil {
@@ -834,23 +860,32 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return cocoaRect(fromWindowList: selected.bounds, primaryHeight: primary)
     }
 
+    /// Closing either setup surface cancels the guide's intent to appear.
+    /// A pending read-only receipt may finish, but it cannot reopen this panel.
+    func dismissPermissionGuide() {
+        permissionGuideID = nil
+        watchTimer?.invalidate(); watchTimer = nil; watch = nil
+        placeTimer?.invalidate(); placeTimer = nil
+        settingsAnchorID = nil; settingsWindowSeen = false
+        panel.orderOut(nil)
+    }
+
     func endWatch(granted: Bool) {
         watchTimer?.invalidate(); watchTimer = nil
         let finished = watch; watch = nil
-        if granted {
+        if granted, finished != nil, let guideID = permissionGuideID {
             panel.granted()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
-                guard let self, self.watch == nil else { return }
-                self.placeTimer?.invalidate(); self.panel.orderOut(nil)
+                guard let self, self.permissionGuideID == guideID else { return }
+                self.dismissPermissionGuide()
             }
-        } else if let finished {
-            placeTimer?.invalidate(); panel.orderOut(nil)
-            notice = "\(finished.permission.title) 권한 확인 시간이 지났어요. ‘설정 열기’를 눌러 다시 진행하세요."
+        } else {
+            dismissPermissionGuide()
+            if let finished {
+                notice = "\(finished.permission.title) 권한 확인 시간이 지났어요. ‘설정 열기’를 눌러 다시 진행하세요."
+            }
         }
         render()
-        if granted, finished != nil, state.ready {
-            status.stringValue = "앱 조작 준비가 됐어요. 이제 에이전트에 연결하세요."
-        }
     }
 
     // MARK: reading the helper's receipt
@@ -860,7 +895,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func check() {
         guard !checkInFlight else { return }
         guard FileManager.default.fileExists(atPath: helper.path) else {
-            known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            known = state.refresh(nil, expected: "ai.callabo.tacto.helper")
             notice = "권한용 앱을 찾지 못했어요. Tacto.app 전체를 Applications 폴더로 다시 옮긴 뒤 열어 주세요."
             render(); return
         }
@@ -870,7 +905,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                      attributes: [.posixPermissions: 0o700]) }
         catch {
-            checkInFlight = false; known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            checkInFlight = false; known = state.refresh(nil, expected: "ai.callabo.tacto.helper")
             notice = "권한을 확인할 임시 파일을 만들지 못했어요. Mac의 저장 공간을 확인하고 Tacto를 다시 열어 주세요."
             render(); return
         }
@@ -895,7 +930,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         pollTimer?.invalidate(); pollTimer = nil
         try? FileManager.default.removeItem(at: directory); reportDirectory = nil
         checkInFlight = false
-        known = state.refresh(data, expected: "ai.callabo.nlc.helper")
+        known = state.refresh(data, expected: "ai.callabo.tacto.helper")
         notice = known ? nil : "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요. 계속 실패하면 Tacto를 닫고 다시 열어 주세요."
         if let watching = watch, state.granted(watching.permission) { endWatch(granted: true); return }
         render()
@@ -941,14 +976,18 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "Tacto 정보", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
         let open = appMenu.addItem(withTitle: "Tacto 열기", action: #selector(reopen), keyEquivalent: "0")
         open.target = self
         appMenu.addItem(.separator())
+        let preferences = appMenu.addItem(withTitle: "설정…", action: #selector(showPreferences), keyEquivalent: ",")
+        preferences.target = self
         appMenu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let windowItem = NSMenuItem(); main.addItem(windowItem)
         let windowMenu = NSMenu(title: "윈도우"); windowItem.submenu = windowMenu
         let close = windowMenu.addItem(withTitle: "창 닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        close.target = window
+        close.target = nil
         NSApp.mainMenu = main
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let template = Bundle.main.url(forResource: "tacto-menu-template", withExtension: "svg")
@@ -964,27 +1003,49 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         show.target = self
         let refresh = menu.addItem(withTitle: "권한 다시 확인", action: #selector(refreshPermissions), keyEquivalent: "")
         refresh.target = self
+        let logs = menu.addItem(withTitle: "실행 기록 보기", action: #selector(showAccessLogs), keyEquivalent: "")
+        logs.target = self
+        let menuPreferences = menu.addItem(withTitle: "설정…", action: #selector(showPreferences), keyEquivalent: "")
+        menuPreferences.target = self
+        let setup = menu.addItem(withTitle: "Mac 권한·에이전트", action: #selector(showSetup), keyEquivalent: "")
+        setup.target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         item.menu = menu; statusItem = item
         render()
     }
     @objc func reopen() {
+        if connection == .current { workspace().presentCurrent() }
+        else { showSetup() }
+    }
+    @objc func showSetup() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         refreshAll()
     }
     @objc func refreshPermissions() { refreshAll() }
+    @objc func showAccessLogs() {
+        workspace().present()
+    }
+    @objc func showPreferences() { workspace().present(settings: true) }
+    func workspace() -> ActivityCenter {
+        if let activityCenter { return activityCenter }
+        let center = ActivityCenter()
+        center.onSetup = { [weak self] in self?.showSetup() }
+        center.updateStatus(badge.stringValue)
+        activityCenter = center
+        return center
+    }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         reopen(); return true
     }
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === window else { return }
-        watchTimer?.invalidate(); watchTimer = nil; watch = nil
-        placeTimer?.invalidate(); placeTimer = nil
-        panel.orderOut(nil)
+        guard let closing = notification.object as? NSWindow,
+              closing === window || closing === panel else { return }
+        dismissPermissionGuide()
         render()
     }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
         if let directory = reportDirectory { try? FileManager.default.removeItem(at: directory) }
@@ -1033,7 +1094,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let waiting { watch = PermissionWatch(permission: waiting, started: Date()) }
         if CommandLine.arguments.contains("--show-help") { panel.toggleHelp() }
         if CommandLine.arguments.contains("--check-failed") {
-            known = state.refresh(nil, expected: "ai.callabo.nlc.helper")
+            known = state.refresh(nil, expected: "ai.callabo.tacto.helper")
             notice = "권한 상태를 확인하지 못했어요. ‘상태 새로고침’을 눌러 다시 확인하세요."
         }
         render()

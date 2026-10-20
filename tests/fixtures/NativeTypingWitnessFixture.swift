@@ -25,7 +25,7 @@ final class TypingWitnessDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let window = TypingWitnessWindow(contentRect: NSRect(x: 160, y: 180, width: 620, height: 330),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "NLC User Typing Witness — test text only"
+        window.title = "TACTO User Typing Witness — test text only"
         window.isReleasedWhenClosed = false
         let help = NSTextField(wrappingLabelWithString:
             "사용자가 이 창을 선택하고 시험용 텍스트만 입력하세요. 다른 앱이나 문서는 읽지 않습니다. "

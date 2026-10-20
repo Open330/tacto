@@ -1,7 +1,7 @@
 import unittest
 import re
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from tacto.first_run import run_first_task, TEXT
 
 
@@ -18,16 +18,57 @@ def observation(tree, **kw):
 
 
 class FirstRunTests(unittest.TestCase):
+    def setUp(self):
+        preferences = patch("tacto.first_run.load_preferences", return_value={"present_first_result":True})
+        preferences.start(); self.addCleanup(preferences.stop)
+        presenter = patch('tacto.first_run.present_app', return_value=dict(foreground_verified=False, error='test_not_presented'))
+        self.presenter = presenter.start()
+        self.addCleanup(presenter.stop)
+
+    def test_verified_result_is_presented_and_same_window_is_observed_again(self):
+        self.presenter.return_value = dict(foreground_verified=True)
+        r, driver, execute = self.run_case()
+        self.assertTrue(r['foreground_verified'])
+        self.presenter.assert_called_once_with('com.apple.TextEdit', 123)
+        self.assertEqual(2, execute.call_count)
+        self.assertEqual(4, driver.observe.call_count)
+
+    def test_user_setting_can_finish_without_foreground_activation(self):
+        with patch('tacto.first_run.load_preferences', return_value={'present_first_result':False}):
+            r, _, execute = self.run_case()
+        self.assertEqual('text_verified', r['status'])
+        self.assertTrue(r['presentation_skipped'])
+        self.assertFalse(r['foreground_verified'])
+        self.assertNotIn('presentation_error', r)
+        self.presenter.assert_not_called()
+        self.assertEqual(2, execute.call_count)
+
+    def test_failure_does_not_present_and_presentation_failure_does_not_repeat_input(self):
+        r, _, execute = self.run_case(after=OLD)
+        self.presenter.assert_not_called()
+        self.assertEqual(1, execute.call_count)
+        self.presenter.side_effect = OSError('PRIVATE native failure')
+        r, _, execute = self.run_case()
+        self.assertEqual('text_verified', r['status'])
+        self.assertFalse(r['foreground_verified'])
+        self.assertEqual('presentation_unavailable', r['presentation_error'])
+        self.assertNotIn('PRIVATE', str(r))
+        self.assertEqual(2, execute.call_count)
+
     def run_case(self, *, after=OLD+NEW, final=OLD+DONE, write_error=None, create_ok=True, before=None):
         driver = Mock()
-        driver.observe.side_effect = [observation(OLD) if before is None else before,
-                                      observation(after) if isinstance(after, str) else after,
-                                      observation(final) if isinstance(final, str) else final]
+        def observe(*args, **kwargs):
+            if execute.call_count == 0:
+                return observation(OLD) if before is None else before
+            value = after if execute.call_count == 1 else final
+            return observation(value) if isinstance(value, str) else value
+        driver.observe.side_effect = observe
         write = SimpleNamespace(ok=False, log=[dict(status='unverified', error=write_error or 'commit_unverified',
                                   detail='missing_typed_host_commit_evidence')])
         execute = Mock(side_effect=[SimpleNamespace(ok=create_ok, log=[]), write])
         launch = Mock(return_value={'type': 'app_launch', 'status': 'launched'})
-        result = run_first_task(driver, launch=launch, execute=execute)
+        with patch("tacto.first_run.time.sleep"):
+            result = run_first_task(driver, launch=launch, execute=execute)
         return result, driver, execute
 
     def test_visible_text_success_is_separate_from_unverified_persistence(self):
@@ -41,6 +82,30 @@ class FirstRunTests(unittest.TestCase):
         self.assertEqual('set_value', flow.steps[0].action)
         self.assertEqual('Untitled', flow.steps[0].selector.ancestor)
         self.assertEqual(TEXT, flow.steps[0].params['value'])
+
+    def test_delayed_new_window_is_observed_without_resending_new_or_writing_twice(self):
+        driver = Mock()
+        driver.observe.side_effect = [observation(OLD), observation(OLD), observation(OLD),
+                                      observation(OLD+NEW), observation(OLD+DONE)]
+        execute = Mock(return_value=SimpleNamespace(ok=True, log=[]))
+        with patch("tacto.first_run.time.sleep") as sleep:
+            result = run_first_task(driver, launch=lambda _: dict(type='app_launch'), execute=execute)
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(2, execute.call_count)
+        self.assertEqual(['menu', 'set_value'], [c.args[1].steps[0].action for c in execute.call_args_list])
+        self.assertEqual(2, sleep.call_count)
+        self.assertFalse(result['save_command_sent'])
+
+    def test_window_identity_timeout_is_bounded_and_diagnostic_without_input_retry(self):
+        result, driver, execute = self.run_case(after=OLD)
+        self.assertEqual('new_window_not_unique', result['error'])
+        self.assertEqual(8, result['identity_reads'])
+        self.assertEqual((1, 1, 0, 0), tuple(result[k] for k in
+                         ('before_document_count', 'after_document_count', 'new_document_count',
+                          'missing_existing_document_count')))
+        self.assertEqual(9, driver.observe.call_count)
+        self.assertEqual(1, execute.call_count)
+        self.assertFalse(result['repeat_write'])
 
     def test_file_picker_can_disappear_but_existing_documents_are_preserved(self):
         before = observation(OLD+'2 Window  Title: "Open" [focused]\n  3 Button  Title: New Document\n')

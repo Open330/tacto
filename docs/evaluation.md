@@ -6,8 +6,8 @@
 
 ```bash
 .venv/bin/python examples/eval.py --offline --preview
-.venv/bin/python examples/eval.py --offline --report /tmp/nlc-offline.json
-./launcher/tacto eval background_menu_refusal --report /tmp/nlc-menu.json
+.venv/bin/python examples/eval.py --offline --report /tmp/tacto-offline.json
+./launcher/tacto eval background_menu_refusal --report /tmp/tacto-menu.json
 ```
 
 마지막 명령은 소유한 배경 테스트 앱에서 메뉴 동작과 거절을 확인한다.
@@ -86,7 +86,7 @@ Tacto의 현재 suite는 안전한 거절·계약·재생 회귀도 PASS로 센�
 ## 실제 소유 커밋 이후 클라이언트 응답 유실
 
 ```sh
-./launcher/tacto eval signed_commit_disconnect --report /tmp/nlc-commit-disconnect.json
+./launcher/tacto eval signed_commit_disconnect --report /tmp/tacto-commit-disconnect.json
 ```
 
 이 시나리오는 GUI/native가 필요한 isolated 검사이고 모델을 호출하지 않는다.
@@ -119,7 +119,7 @@ audit는 UNCHANGED_SAMPLED928표본/최대간격0.134197초였다. source subset
 ## 에이전트 수용 검사 — 스킬만 가진 에이전트로
 
 단위 테스트와 평가 스위트는 이 저장소 안에서 Tacto를 돌립니다. 그래서 에이전트가 실제로 겪은
-문제 — `nlc` 명령이 설치되지 않음, 샌드박스를 권한 문제로 오진, 잠긴 화면에서 원인을 추측 —
+문제 — `tacto` 명령이 설치되지 않음, 샌드박스를 권한 문제로 오진, 잠긴 화면에서 원인을 추측 —
 는 어느 쪽에서도 드러나지 않았습니다. `examples/agent_acceptance.py`는 기억도 저장소도 없는
 **새 에이전트 세션**을 `/tmp`에서 띄워 과제를 주고, 에이전트의 **최종 답**으로 판정합니다.
 
@@ -131,7 +131,7 @@ python examples/agent_acceptance.py --list           # 지금 상태에서 무�
 
 | 사례 | 확인하는 것 |
 |---|---|
-| `finds_nlc` | 스킬을 읽고 `nlc` 를 찾는다 |
+| `finds_tacto` | 현재 `tacto` 스킬·명령을 찾는다 |
 | `names_the_sandbox` (Codex) | 샌드박스를 샌드박스라고 말하고, 권한을 켜라고 하지 않는다 |
 | `names_the_lock` (잠긴 화면에서만) | 잠긴 화면을 잠긴 화면이라고 말한다 |
 | `does_a_task` (풀린 화면에서만) | 스스로 흐름을 써서 계산기로 12×12=144 를 확인한다 |
@@ -164,7 +164,7 @@ concurrent typing, IME behavior, model autonomy or public-SDK parity.
 
 ### User-operated typing trial through the signed evaluator
 
-`nlc eval signed_concurrent_typing` defaults to SKIP with
+`tacto eval signed_concurrent_typing` defaults to SKIP with
 `human_participation_required`; it never generates foreground typing. The bare
 `examples/probes/concurrent-typing.py run` script cannot supply the signed channel
 and refuses an unsigned driver. Prepare the owned navigation fixture with its
@@ -176,7 +176,7 @@ Only after the person agrees to participate and manually opens/focuses the fresh
 witness, use the installed signed launcher in one isolated process:
 
 ```sh
-nlc eval signed_concurrent_typing --typing-directory /absolute/checkout/reviews/background-trial \
+tacto eval signed_concurrent_typing --typing-directory /absolute/checkout/reviews/background-trial \
   --typing-witness-report /absolute/checkout/reviews/witness-trial/build-report.json \
   --participant-confirmed
 ```
@@ -222,7 +222,7 @@ must not be interpreted as version-2 manifests.
 
 ### Signed helper lifecycle after client reply loss (2026-10-11)
 
-`nlc eval signed_commit_disconnect --report PATH` now checks optional helper
+`tacto eval signed_commit_disconnect --report PATH` now checks optional helper
 identity in the signed handshake. The launcher supplies audit PID/version on
 its authenticated helper connection; helper PID/start must agree. The probe
 independently checks exact bundle/executable and the same libproc start before
@@ -273,7 +273,7 @@ request was made in this suite.
 
 ### Actual signed native twelve-stage modal recovery (2026-10-11)
 
-Run explicitly with `nlc eval signed_native_recovery --report PATH`. It is
+Run explicitly with `tacto eval signed_native_recovery --report PATH`. It is
 isolated/gui/native and skipped offline or in ordinary evaluator defaults.
 The owned AppKit fixture exposes a custom AXValue receiving view. Stage five
 opens an actual sheet; stage six ignores its first input while the sheet is
@@ -361,7 +361,7 @@ from the preceding source, not this update.
 설치된 signed launcher로 한 번에 한 isolated 시나리오를 실행한다.
 
 ```sh
-nlc eval native_select_combo_many_model_fixture --model-provider codex \
+tacto eval native_select_combo_many_model_fixture --model-provider codex \
   --report /absolute/private/new-report.json
 ```
 
@@ -379,7 +379,7 @@ claude도 --model-provider로 선택할 수 있고 접근 제한은0 scored SKIP
 ## scroll 수신 실패 뒤 중단 검증
 
 ```sh
-nlc eval native_select_scroll_receiving_failure_fixture \
+tacto eval native_select_scroll_receiving_failure_fixture \
   --report /absolute/private/new-report.json
 ```
 
@@ -395,7 +395,7 @@ probe.passed=false를 유지한다. 정상 작업 성공이나 model/backbone �
 
 ### Two-app signed recovery and saved-state checks
 
-`nlc eval signed_native_recovery_multi_app --report NEW.json` is an isolated
+`tacto eval signed_native_recovery_multi_app --report NEW.json` is an isolated
 GUI/native scenario. It runs the owned 24-stage AppKit workflow with three real
 sheet recoveries and interleaves three separately owned TextEdit saved-state
 checks after stages 8, 14, and 20. After each child, the host re-reads receiving
@@ -405,7 +405,7 @@ Offline mode skips this case. It uses no model and grants no durable resume
 or causal writer attribution. See the dated verification record for the actual
 run, independent counters, source subset, input audit, and remaining gaps.
 
-`nlc eval signed_native_recovery_multi_app_disconnect --report NEW.json` checks
+`tacto eval signed_native_recovery_multi_app_disconnect --report NEW.json` checks
 an expected stop after the first verified TextEdit Save and cleanup. The host
 shuts down only its own inherited socket; the next parent read fails and poisons
 that channel. Independent counters must stay at stage 8, with one child Save
@@ -414,7 +414,7 @@ replay and task oracle remain false. It does not reconnect, repeat the Save,
 restart a service, or certify automatic resume.
 
 
-`nlc eval signed_producer_worker_reconcile --report NEW.json` is an isolated
+`tacto eval signed_producer_worker_reconcile --report NEW.json` is an isolated
 native causal continuation case: a Save worker exits17 after host receipt,
 then a different signed worker uses the public reconciliation API and performs
 one new owned button operation. Existing restart refusal remains available as

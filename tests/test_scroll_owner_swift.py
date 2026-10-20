@@ -49,7 +49,7 @@ for value in ["valid","foreign_bar","foreign_parent","foreign_target","owner_err
 }
 print(String(data:try! JSONSerialization.data(withJSONObject:result),encoding:.utf8)!)
 '''
-        with tempfile.TemporaryDirectory(prefix='nlc-scroll-owner-') as folder:
+        with tempfile.TemporaryDirectory(prefix='tacto-scroll-owner-') as folder:
             path=Path(folder)/'main.swift';path.write_text(support+function+body)
             result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
         self.assertEqual(0,result.returncode,result.stderr)
