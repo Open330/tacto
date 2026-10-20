@@ -61,7 +61,7 @@ made through Tacto: the target app, operation, outcome and elapsed time. Search
 runs, filter failures or unconfirmed completion, and follow each operation in a
 timeline without opening a log directory.
 
-![Actual Tacto app showing an agent's TextEdit operations, results and timings](sites/tacto/dist/assets/tacto-activity.png)
+![Tacto preview with multiple actual access records and the selected TextEdit timeline](sites/tacto/dist/assets/tacto-activity.png)
 
 Records stay on this Mac. Settings control automatic logging and 7/30/90-day
 retention. Screen content, input values, prompts and internal agent reasoning

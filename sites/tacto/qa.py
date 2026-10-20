@@ -67,6 +67,20 @@ def audit(url, output, axe_source=None, browser_executable=None):
         checks['skip_link_first'] = page.locator('.skip').evaluate('(e)=>e===document.activeElement')
         page.keyboard.press('Enter')
         checks['skip_focuses_main'] = page.evaluate('document.activeElement.id==="main"')
+        checks['source_backed_six_step_flow'] = page.locator('[data-flow-node]').count() == 6
+        flow_response = page.request.get(url.rstrip('/')+'/assets/calculator-reusable.flow.json')
+        flow_source = flow_response.json()
+        checks['downloadable_actual_flow'] = (flow_response.status == 200 and flow_source['name']=='calculator-reusable'
+            and len(flow_source['steps'])==6 and flow_source['steps'][-1]['postcondition']['equals']=='{{result}}')
+        for case, left, right, result in [('second','3','9','12'), ('first','7','8','15')]:
+            page.locator('[data-flow-case="'+case+'"]').click()
+            checks['flow_inputs_'+case] = (page.locator('#flow-left').inner_text()==left
+                and page.locator('#flow-right').inner_text()==right and page.locator('#flow-result').inner_text()==result)
+        page.locator('#flow-walk').click()
+        page.wait_for_function('() => document.querySelectorAll("[data-flow-node][data-state=done]").length===6')
+        checks['flow_walkthrough_completes'] = ('7 + 8 = 15' in page.locator('#flow-preview-status').inner_text()
+            and not page.locator('#flow-walk').is_disabled())
+
 
         checks['four_workflow_choices'] = page.locator('#task-carousel [data-workflow]').count() == 4
         for task, evidence in [('triage', 'github'), ('expenses', 'finder'),
@@ -177,6 +191,9 @@ def audit(url, output, axe_source=None, browser_executable=None):
         page.screenshot(path=str(output/'desktop-hero.png'))
         page.emulate_media(reduced_motion='reduce')
         checks['reduced_motion'] = page.evaluate('getComputedStyle(document.documentElement).scrollBehavior==="auto"')
+        page.locator('#flow-walk').click()
+        checks['flow_reduced_motion_completes'] = page.locator('[data-flow-node][data-state="done"]').count()==6
+
         checks['no_external_requests'] = all(urlsplit(item).netloc == origin.netloc for item in requests)
         checks['no_script_or_console_errors'] = not errors
         checks['no_browser_storage'] = page.evaluate('localStorage.length===0&&sessionStorage.length===0&&document.cookie===""')
@@ -186,6 +203,9 @@ def audit(url, output, axe_source=None, browser_executable=None):
         fallback = nojs.new_page()
         fallback.goto(url, wait_until='networkidle')
         checks['nojs_all_ten_cases'] = fallback.locator('.everyday-case:visible').count()==10
+        checks['nojs_flow_visible'] = fallback.locator('[data-flow-node]').count()==6
+        checks['nojs_flow_controls_disabled'] = fallback.locator('#flow-walk').is_disabled()
+
         checks['nojs_native_video_controls'] = fallback.locator('video').evaluate_all('(items)=>items.length===13&&items.every(e=>e.controls)')
         checks['nojs_example_complete'] = fallback.locator('#demo-lines').inner_text().endswith('결과 조건 검증 완료')
         checks['nojs_install_present'] = fallback.locator('#start a[href*="/releases/download/"][href$=".dmg"]').is_visible()

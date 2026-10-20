@@ -98,77 +98,35 @@
       </section>
       <section class="app-showcase wrap" id="app">
         <div class="app-showcase-copy"><div class="section-label">SEE WHAT YOUR AGENT DID</div><h2>에이전트가 한 일,<br />직접 확인하세요.</h2><p>어떤 앱에 접근하고, 어떤 동작을 했는지.<br />Tacto를 통한 접근 내역을 앱 안의 타임라인으로 확인하세요.</p><ul><li>접근한 앱과 단계별 동작·결과·시간</li><li>실패하거나 완료를 확인하지 못한 실행 찾기</li><li>기록 저장 여부와 7·30·90일 보관 설정</li></ul><span class="app-local-note">기록은 이 Mac에 저장됩니다. 화면 내용·입력값·프롬프트와 에이전트 내부 추론은 포함하지 않습니다.</span></div>
-        <figure><img src="assets/tacto-activity.png" width="2120" height="1464" loading="lazy" decoding="async" alt="Tacto 앱의 실제 실행 기록 화면. TextEdit 첫 작업의 동작 순서와 결과, 시간을 표시합니다." /><figcaption>Preview 14 · 실제 앱 화면</figcaption></figure>
+        <figure><img src="assets/tacto-activity.png" width="2120" height="1400" loading="lazy" decoding="async" alt="실제 저장된 접근 기록 38개를 불러온 Tacto 앱 미리보기. 여러 실행 목록과 선택한 TextEdit 작업의 동작·결과·시간을 함께 보여줍니다." /><figcaption>실제 접근 기록 38개 · 앱 미리보기</figcaption></figure>
       </section>
       <section class="intro wrap" id="how">
         <div class="section-label">AUTHOR ONCE. REPLAY WITH NEW INPUTS.</div>
-        <div class="intro-heading">
-          <h2>한 번 만든 작업 방법을,<br />다음에도 그대로.</h2>
-          <p>
-            사용자를 대신해 컴퓨터를 조작하는 computer use. Tacto는 그 작업
-            방법을 Flow로 남깁니다. 다음에는 입력값을 바꾸고 같은 흐름을
-            실행하세요. 새 관찰에서 대상을 찾고, 결과가 맞는지 확인하는 일은
-            런타임이 맡습니다.
-          </p>
+        <div class="intro-heading"><h2>한 번 만든 흐름,<br />입력만 바꿔 다시.</h2><p>실제 계산기 녹화에 사용한 Flow입니다.<br />같은 여섯 단계를 다른 입력으로 따라가 보세요.</p></div>
+        <div class="flow-explorer" aria-labelledby="flow-explorer-title">
+          <div class="flow-authoring" aria-label="처음 작업을 저장하는 과정">
+            <div><span class="flow-phase">처음 한 번</span><strong>“계산하고, 다음에도 쓰게 저장해줘.”</strong></div>
+            <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-right"></use></svg>
+            <div class="flow-author"><span class="flow-provider-icons"><img src="assets/claude-icon.png" width="20" height="20" alt="Claude" /><img src="assets/codex-icon.png" width="20" height="20" alt="Codex" /></span><strong>에이전트가 관찰·작성</strong><span>이때 모델 사용</span></div>
+            <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-right"></use></svg>
+            <div class="flow-file-card"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#workflow"></use></svg><div><span>저장된 Flow</span><strong id="flow-explorer-title">calculator-reusable</strong></div></div>
+          </div>
+          <div class="flow-replay-heading"><div><span class="flow-phase">그다음부터</span><h3>같은 Flow. 달라지는 입력과 결과.</h3></div><span class="flow-zero">정상 결정적 재생 · 모델 호출 0회</span></div>
+          <div class="flow-inputs"><span>녹화에서 확인한 입력</span><div role="group" aria-label="계산기 Flow 입력 선택"><button type="button" disabled data-flow-case="first" aria-pressed="true">7 + 8</button><button type="button" disabled data-flow-case="second" aria-pressed="false">3 + 9</button></div><button type="button" disabled id="flow-walk"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#play"></use></svg>단계 따라보기</button></div>
+          <ol class="flow-path" aria-label="실제 저장된 계산기 Flow의 여섯 단계">
+            <li data-flow-node><span class="flow-node-index">01</span><strong>기존 입력 지우기</strong><span class="flow-node-value">C / AC</span><small>이미 0이면 건너뜀</small></li>
+            <li data-flow-node><span class="flow-node-index">02</span><strong>초기 상태 확인</strong><span class="flow-node-value">0</span><small>화면의 값 검증</small></li>
+            <li data-flow-node><span class="flow-node-index">03</span><strong>첫 번째 수 입력</strong><span class="flow-node-value" id="flow-left">7</span><small>입력 매개변수</small></li>
+            <li data-flow-node><span class="flow-node-index">04</span><strong>더하기 선택</strong><span class="flow-node-value">+</span><small>같은 연산 버튼</small></li>
+            <li data-flow-node><span class="flow-node-index">05</span><strong>두 번째 수 입력</strong><span class="flow-node-value" id="flow-right">8</span><small>입력 매개변수</small></li>
+            <li data-flow-node><span class="flow-node-index">06</span><strong>계산·결과 검증</strong><span class="flow-node-value" id="flow-result">15</span><small>기대값과 대조</small></li>
+          </ol>
+          <div class="flow-receipt"><span id="flow-preview-status" role="status" aria-live="polite">녹화에서 확인한 결과: 7 + 8 = 15</span><div><a href="#example-calculator">실제 실행 영상 보기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-down"></use></svg></a><a href="assets/calculator-reusable.flow.json" download>이 Flow JSON 보기 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-up-right"></use></svg></a></div></div>
+          <p class="flow-disclosure">실제 재생에 사용한 Flow와 확인 결과입니다. 작성 과정과 단계 강조는 설명용이며, 이 페이지에서 Mac 앱이나 모델을 실행하지 않습니다.</p>
         </div>
-        <div class="workflow-grid">
-          <article class="workflow muted">
-            <div class="workflow-label">처음 수행하는 작업</div>
-            <div class="workflow-steps">
-              <span>에이전트</span
-              ><svg
-                class="ui-icon workflow-arrow"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-right"></use></svg
-              ><span>관찰·작성</span><b>→</b><span>Flow 저장</span>
-            </div>
-            <p>목표와 앱의 상태를 보고 실행할 흐름을 작성합니다.</p>
-            <span class="workflow-tag">AUTHORING · 모델 사용</span>
-          </article>
-          <article class="workflow active">
-            <div class="workflow-label">이미 익힌 반복 작업</div>
-            <div class="workflow-steps">
-              <span>Flow</span
-              ><svg
-                class="ui-icon workflow-arrow"
-                aria-hidden="true"
-                focusable="false"
-                viewBox="0 0 24 24"
-              >
-                <use href="assets/ui-icons.svg#arrow-right"></use></svg
-              ><span>실행·검증</span><b>→</b><span>완료</span>
-            </div>
-            <p>매개변수만 바꿉니다. 결정적 재생은 모델을 호출하지 않습니다.</p>
-            <span class="workflow-tag">REPLAY · 모델 호출 0회</span>
-          </article>
-        </div>
-        <div class="repair-note">
-          <svg
-            class="ui-icon"
-            aria-hidden="true"
-            focusable="false"
-            viewBox="0 0 24 24"
-          >
-            <use href="assets/ui-icons.svg#corner-down-right"></use>
-          </svg>
-          <p>
-            개발 버전에서는 지원되는 버튼 변경을 에이전트가 필요한 부분만
-            수리합니다.
-            <strong>완료 여부가 불확실하면 재전송하지 않고 멈춥니다.</strong>
-          </p>
-          <a href="#faq"
-            >복구 범위 보기
-            <svg
-              class="ui-icon"
-              aria-hidden="true"
-              focusable="false"
-              viewBox="0 0 24 24"
-            >
-              <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-          ></a>
+        <div class="flow-exceptions" aria-label="재생 중 문제가 생기면">
+          <div><span>개발 버전 · 지원되는 선택자 오류</span><p>달라진 버튼 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-right"></use></svg> 해당 단계만 에이전트 검토 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-right"></use></svg> 검증 후 이어서</p></div>
+          <div><span>완료 여부가 불확실</span><p>결과 확인 실패 <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#arrow-right"></use></svg> 중단 · 같은 입력 재전송 없음</p><a href="#faq">복구 범위 보기</a></div>
         </div>
       </section>
       <section class="evidence-section" id="evidence">

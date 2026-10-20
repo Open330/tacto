@@ -337,6 +337,54 @@
     });
   }
 
+  const flowCases = {
+    first: {left: "7", right: "8", result: "15"},
+    second: {left: "3", right: "9", result: "12"},
+  };
+  const flowWalk = document.getElementById("flow-walk");
+  if (flowWalk) {
+    const choices = [...document.querySelectorAll("[data-flow-case]")];
+    const nodes = [...document.querySelectorAll("[data-flow-node]")];
+    const status = document.getElementById("flow-preview-status");
+    let selected = "first", timer;
+    const stop = () => { clearTimeout(timer); flowWalk.disabled = false; };
+    function renderFlow(name) {
+      stop(); selected = name;
+      const item = flowCases[name];
+      document.getElementById("flow-left").textContent = item.left;
+      document.getElementById("flow-right").textContent = item.right;
+      document.getElementById("flow-result").textContent = item.result;
+      nodes.forEach(node => node.removeAttribute("data-state"));
+      status.textContent = `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`;
+      choices.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.flowCase === name)));
+    }
+    choices.forEach(button => {
+      button.disabled = false;
+      button.addEventListener("click", () => renderFlow(button.dataset.flowCase));
+    });
+    flowWalk.disabled = false;
+    flowWalk.addEventListener("click", () => {
+      renderFlow(selected); flowWalk.disabled = true;
+      function step(index) {
+        nodes.forEach((node, i) => {
+          if (i < index) node.dataset.state = "done";
+          else if (i === index) node.dataset.state = "active";
+          else node.removeAttribute("data-state");
+        });
+        if (index === nodes.length) {
+          const item = flowCases[selected];
+          status.textContent = `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`;
+          flowWalk.disabled = false; return;
+        }
+        status.textContent = `단계 ${index + 1} / ${nodes.length} · ${nodes[index].querySelector("strong").textContent}`;
+        timer = setTimeout(() => step(index + 1), 550);
+      }
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) step(nodes.length);
+      else step(0);
+    });
+    document.addEventListener("visibilitychange", () => { if (document.hidden) renderFlow(selected); });
+  }
+
   renderDemo("replay");
   document
     .querySelectorAll(

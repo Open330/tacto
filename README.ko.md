@@ -79,7 +79,7 @@ Markdown은 나머지 예제가 남는 부분 수정입니다. 모든 사례가 
 실패하거나 완료를 확인하지 못한 실행을 골라 단계별 타임라인을 확인하세요.
 로그 폴더를 찾아갈 필요가 없습니다.
 
-![실제 Tacto 앱에서 TextEdit 접근과 단계별 동작·결과·시간을 보여주는 화면](sites/tacto/dist/assets/tacto-activity.png)
+![실제 접근 기록 여러 개와 선택한 TextEdit 작업의 동작·결과·시간을 함께 보여주는 앱 미리보기](sites/tacto/dist/assets/tacto-activity.png)
 
 기록은 이 Mac에 저장됩니다. 설정에서 자동 저장과 보관 기간(7·30·90일)을
 선택할 수 있습니다. 화면 내용·입력값·프롬프트와 에이전트의 내부 추론은
