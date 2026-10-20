@@ -638,3 +638,31 @@ preserved. Temporary previous-app backups were removed after successful
 installation. Stable qualification remains separate from this developer preview.
 
 [Preview 12 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.12).
+
+## 2026-10-20 Preview 13 native activity and preferences
+
+Preview 13 is built from `2c0a981`. The app now opens a native activity workspace
+instead of a Finder folder. Runs can be searched and filtered, with operation
+timelines, durations, outcomes and incomplete-record indicators. Settings control
+automatic local receipts, 7/30/90-day retention and first-task result presentation.
+Deleting receipts requires confirmation and preserves preferences, saved flows
+and unrelated files. The reader caches changed files and pauses polling when
+the history view is inactive. The Dock remains hidden.
+
+Targeted tests passed 67/67. Native AppKit fixture tests exercised filters,
+malformed/incomplete records, atomic preference persistence shared with Python,
+disabled logging and scoped receipt deletion. Seven bundled light/dark,
+compact and empty-state renders passed visual inspection. On one designated
+Mac, signed Tacto navigation verified history-to-settings and back, searched
+TextEdit and displayed the existing first-task timeline. Live screenshots were
+reviewed; real preferences and receipts were left intact. The welcome task was
+not repeated. This is scoped GUI validation, not a full-suite or broad reliability
+claim. Receipts exclude input/screen/prompt content and internal agent reasoning.
+
+App and DMG notarization, stapled tickets, Gatekeeper and all twelve automated
+artifact checks passed. All three designated Macs received identical Preview 13
+bundles and passed post-launch audits. Existing user data and enabled permissions
+were preserved; only one Mac had both permissions enabled before the upgrade.
+Stable human qualification remains separate from this developer preview.
+
+[Preview 13 release and validation assets](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.13).
