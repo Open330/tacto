@@ -82,3 +82,27 @@ Private screenshots and detailed logs are retained separately from tracked docs.
 입력란의 포커스를 확인했습니다. 관련 검사 14개 통과. 정상·미허용·확인 실패·
 작은 어두운 화면·대체 안내 등 5개 화면의 잘림 검사도 통과했습니다. 실제
 macOS 암호·Touch ID 입력을 대신 수행해 확인한 결과는 아닙니다.
+
+### 2026-10-20 permission completion and first-task window settling
+
+Basic app control and completion of both displayed permissions are separate
+states. The permission section now stays expanded with a 1/2 label until both
+app control and screen capture are granted; the badge cannot claim full
+completion while screen capture is unset. Basic app control can still connect
+an agent without requiring the optional capture capability. Watching a specific
+permission takes precedence over the general status message.
+
+The first task previously read native window identity only once after New.
+Its generic creation postcondition can already match an existing document, so
+that read can precede publication of the new AX window. It now takes at most
+eight read-only identity observations, 100 ms apart, without resending New or
+text input. A unique new window and preservation of existing document identities
+remain required. An exhausted/ambiguous result includes document counts and read
+count, without document content, so a future failure can distinguish delayed
+creation from disappearing or multiple documents. This addresses a code-level
+race; it does not establish the cause of the user's past failure without a trace.
+
+Regression coverage exercises all four permission combinations, stale/unknown
+receipts, delayed new-window publication, the bounded timeout, and single menu
+and text dispatch. These checks do not replay the user's interrupted task or
+prove an OS authentication interaction.

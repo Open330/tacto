@@ -80,19 +80,30 @@ def run_first_task(driver, *, launch=launch_app, execute=replay):
     created = execute(driver, textedit_new_document())
     if not created.ok:
         return result('failed', 'new_document', error='new_document_not_verified')
-    after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
-    if after.get('type') != 'observation' or after.get('truncated'):
-        return result('failed', 'new_document_identity',
-                      error=after.get('error', 'incomplete_observation'), repeat_write=False)
-    try:
-        after_owner, windows, _ = _windows(after)
-    except ValueError as exc:
-        return result('failed', 'new_document_identity', error=str(exc))
-    new_ids = set(windows) - set(old)
-    if after_owner != owner:
-        return result('failed', 'new_document_identity', error='application_identity_changed')
-    if len(new_ids) != 1 or not set(old).issubset(windows):
-        return result('failed', 'new_document_identity', error='new_window_not_unique')
+    # The New menu's generic postcondition can see an EXISTING text area
+    # before TextEdit publishes its new window. Settle by reading only; never
+    # resend New or a write in response to delayed AX window creation.
+    for identity_read in range(8):
+        after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
+        if after.get('type') != 'observation' or after.get('truncated'):
+            return result('failed', 'new_document_identity',
+                          error=after.get('error', 'incomplete_observation'), repeat_write=False)
+        try:
+            after_owner, windows, _ = _windows(after)
+        except ValueError as exc:
+            return result('failed', 'new_document_identity', error=str(exc))
+        new_ids = set(windows) - set(old)
+        if after_owner != owner:
+            return result('failed', 'new_document_identity', error='application_identity_changed')
+        if len(new_ids) == 1 and set(old).issubset(windows):
+            break
+        if len(new_ids) > 1 or identity_read == 7:
+            return result('failed', 'new_document_identity', error='new_window_not_unique',
+                          identity_reads=identity_read + 1,
+                          before_document_count=len(old), after_document_count=len(windows),
+                          new_document_count=len(new_ids),
+                          missing_existing_document_count=len(set(old) - set(windows)))
+        time.sleep(0.1)
     new_id = next(iter(new_ids))
     if new_id in old_ids:
         return result('failed', 'new_document_identity', error='new_window_not_unique')

@@ -611,9 +611,13 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         startFirstRunButton?.isEnabled = firstRunReady && !detectedAgents.isEmpty && !startingFirstRun && launch == .idle
-        let compactPermissions = known && state.ready && !permissionDetails && watch == nil && notice == nil
-        permissionTitle.stringValue = known && state.ready ? "1. Mac 권한 · 준비 완료" : "1. Mac 권한"
-        permissionDetailsButton?.isHidden = !(known && state.ready)
+        // App control enables basic work; only BOTH grants complete this section.
+        let permissionsComplete = known && state.captureReady
+        let compactPermissions = permissionsComplete && !permissionDetails && watch == nil && notice == nil
+        let grantedCount = Permission.allCases.filter { state.granted($0) }.count
+        permissionTitle.stringValue = permissionsComplete ? "1. Mac 권한 · 준비 완료"
+            : known && grantedCount > 0 ? "1. Mac 권한 · \(grantedCount)/2 허용" : "1. Mac 권한"
+        permissionDetailsButton?.isHidden = !permissionsComplete
         permissionDetailsButton?.title = permissionDetails ? "접기" : "상세 보기"
         status.isHidden = compactPermissions
         for row in rows {
@@ -630,9 +634,10 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         connectButton.isEnabled = !checkInFlight && !installing && (connection == .conflict || (known && state.ready && connection != .current))
         refreshButton.isEnabled = !checkInFlight && !installing
         badge.stringValue = checkInFlight || (!known && notice == nil) ? "권한 확인 중"
-            : !known ? "권한 확인 실패" : state.ready ? "권한 준비 완료" : "권한 설정 필요"
-        badgeIcon.image = symbol(known && state.ready ? "checkmark.circle.fill" : "circle", known && state.ready ? .systemGreen : mutedText, size: 13)
-        badge.textColor = known && state.ready ? successText : mutedText
+            : !known ? "권한 확인 실패" : permissionsComplete ? "권한 준비 완료"
+            : state.ready ? "앱 조작 가능 · 화면 캡처 미설정" : "권한 설정 필요"
+        badgeIcon.image = symbol(permissionsComplete ? "checkmark.circle.fill" : "circle", permissionsComplete ? .systemGreen : mutedText, size: 13)
+        badge.textColor = permissionsComplete ? successText : mutedText
         if !installing {
             switch connection {
             case .current:
@@ -659,9 +664,10 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
         if let notice { status.stringValue = notice }
-        else if state.ready { status.stringValue = "앱 조작을 시작할 수 있습니다. 이미지 캡처가 필요할 때 화면 기록 권한을 추가하세요." }
-        else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 넘어갑니다." }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
+        else if let watching = watch { status.stringValue = "\(watching.permission.title) 권한이 켜지기를 기다리는 중… 켜면 자동으로 확인합니다." }
+        else if permissionsComplete { status.stringValue = "앱 조작과 화면 캡처 권한이 모두 허용됐어요." }
+        else if state.ready { status.stringValue = "앱 조작은 허용됐어요. 화면 캡처는 아직 미설정입니다. 이미지 확인이 필요하면 아래에서 추가하세요." }
         else if connection == .other && !state.accessibility { status.stringValue = "이전 설치에서 허용했더라도 이 버전의 권한을 다시 확인하세요. ‘설정 열기’에서 표시된 앱을 추가하거나 켜 주세요." }
         else { status.stringValue = "‘설정 열기’를 누르면 설정이 열리고, 옆에 작은 도우미 창이 함께 뜹니다." }
         // State changes can wrap labels or hide actions. Keep the document size
@@ -863,9 +869,6 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         render()
-        if granted, finished != nil, state.ready {
-            status.stringValue = "앱 조작 준비가 됐어요. 이제 에이전트에 연결하세요."
-        }
     }
 
     // MARK: reading the helper's receipt

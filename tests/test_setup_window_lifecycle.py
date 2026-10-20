@@ -31,6 +31,28 @@ class SetupWindowLifecycleTests(unittest.TestCase):
             render()
             assert(window.frame == original, "Permission refresh moved/resized the user's window")
         }
+        // Basic app control is usable before screen capture is granted, but
+        // the permission section must stay expanded and cannot claim completion.
+        notice = nil; permissionDetails = false; watch = nil; checkInFlight = false
+        for control in [false, true] {
+            for screen in [false, true] {
+                known = true; state.accessibility = control; state.screen = screen
+                render()
+                let complete = control && screen
+                assert(rows.allSatisfy { $0.isHidden == complete })
+                assert(permissionDetailsButton.isHidden == !complete)
+                assert(permissionTitle.stringValue.contains("준비 완료") == complete)
+                assert((badge.stringValue == "권한 준비 완료") == complete)
+                if control && !screen {
+                    assert(permissionTitle.stringValue.contains("1/2"))
+                    assert(badge.stringValue.contains("화면 캡처 미설정"))
+                    assert(startFirstRunButton.isEnabled == (connection == .current && !detectedAgents.isEmpty))
+                }
+                known = false; render()
+                assert(rows.allSatisfy { !$0.isHidden })
+                assert(!permissionTitle.stringValue.contains("준비 완료"))
+            }
+        }
         // The actual panel must be unable to steal keyboard focus from an
         // authentication window, including when the drag icon is clicked.
         assert(!panel.canBecomeKey && !panel.canBecomeMain)
