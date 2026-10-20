@@ -223,6 +223,8 @@ final class AccessoryPanel: NSPanel {
         title = "Tacto 권한 도우미"
         backgroundColor = canvas
         level = .floating; hidesOnDeactivate = false; isReleasedWhenClosed = false
+        becomesKeyOnlyIfNeeded = true
+        standardWindowButton(.closeButton)?.setAccessibilityIdentifier("tacto.permission-guide.close")
         collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         icon.helperURL = helper
         icon.image = NSWorkspace.shared.icon(forFile: helper.path)
@@ -274,7 +276,7 @@ final class AccessoryPanel: NSPanel {
         scroll = NSScrollView()
         scroll.contentView = CenteredClipView()
         scroll.drawsBackground = true; scroll.backgroundColor = canvas
-        scroll.contentView.drawsBackground = false
+        scroll.contentView.drawsBackground = true; scroll.contentView.backgroundColor = canvas
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
         scroll.scrollerStyle = .legacy; scroll.documentView = stack
         contentView = scroll
@@ -311,7 +313,10 @@ final class AccessoryPanel: NSPanel {
         state.stringValue = "위치를 복사했어요. + 버튼의 파일 선택 창에서 사용하세요."
         fitContent()
     }
-    override var canBecomeKey: Bool { true }
+    // This panel contains drag targets and buttons, never keyboard input.
+    // Keep password/Touch ID sheets and System Settings as the key window.
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
     func pointTowardSettings(_ frame: CGRect) {
         let direction = frame.midX < self.frame.midX ? "arrow.left" : "arrow.right"
         dropArrow.image = symbol(direction, coral, size: 24)
@@ -389,7 +394,6 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var permissionDetails = false
     var permissionDetailsButton: NSButton!
     let permissionTitle = label("1. Mac 권한", size: 15, weight: .semibold)
-    var lastPermissionLayout: Bool?
     let firstRunHint = label("", size: 12, color: mutedText, width: contentWidth - 32)
     var detectedAgents: [FirstRunAgent] = []
     var agentPicker: NSPopUpButton!
@@ -412,6 +416,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var watch: PermissionWatch?
     var watchTimer: Timer?
     var placeTimer: Timer?
+    var permissionGuideID: UUID?
     var settingsAnchorID: CGWindowID?
     var settingsWindowSeen = false
     let settingsWaitHint = "시스템 설정 창을 찾지 못했어요. Dock에서 시스템 설정을 열어 주세요."
@@ -480,6 +485,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = canvas
         panel = AccessoryPanel(helper: helper)
+        panel.delegate = self
         panel.reposition = { [weak self] in if self?.panel.isVisible == true { self?.placeAccessory() } }
         let stack = DocumentStack(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 18, left: 32, bottom: 18, right: 32)
@@ -493,7 +499,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true; scroll.scrollerStyle = .legacy
         scroll.documentView = stack
-        scroll.contentView.drawsBackground = false
+        scroll.contentView.drawsBackground = true; scroll.contentView.backgroundColor = canvas
         stack.widthAnchor.constraint(equalToConstant: contentWidth + 64).isActive = true
         window.contentView = scroll
         scrollView = scroll
@@ -586,7 +592,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let size = stack.fittingSize
         stack.setFrameSize(size)
         let available = (NSScreen.main?.visibleFrame.height ?? 840) - 80
-        window.setContentSize(NSSize(width: mainWidth, height: min(size.height, available)))
+        window.setContentSize(NSSize(width: mainWidth, height: min(size.height, min(520, available))))
         scroll.contentView.scroll(to: .zero)
     }
 
@@ -666,16 +672,6 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
             stack.setFrameSize(stack.fittingSize)
             scroll.contentView.scroll(to: NSPoint(x: 0, y: min(offset, max(0, stack.frame.height - scroll.contentSize.height))))
             scroll.reflectScrolledClipView(scroll.contentView)
-            // Resize only when permission details fold/unfold, never on each
-            // polling tick. Keep the top edge and the user's scroll position.
-            if lastPermissionLayout != compactPermissions {
-                lastPermissionLayout = compactPermissions
-                let old = window.frame
-                let available = window.screen?.visibleFrame.height ?? 840
-                let height = max(420, min(stack.fittingSize.height, available - 80))
-                let frameHeight = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: mainWidth, height: height)).height
-                window.setFrame(NSRect(x: old.minX, y: old.maxY - frameHeight, width: old.width, height: frameHeight), display: true)
-            }
         }
     }
 
@@ -783,6 +779,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsWindowSeen = false
         if !NSWorkspace.shared.open(permission.settingsURL) { notice = settingsWaitHint }
         panel.show(for: permission, app: appFor(permission))
+        permissionGuideID = UUID()
         watch = PermissionWatch(permission: permission, started: Date())
         render()
         placeTimer?.invalidate()
@@ -797,6 +794,12 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func placeAccessory() {
+        guard permissionGuideID != nil else { return }
+        // Authentication agents and other apps take precedence over our guide.
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.systempreferences" else {
+            panel.orderOut(nil)
+            return
+        }
         guard let settings = settingsWindowFrame() else {
             panel.orderOut(nil)
             if !settingsWindowSeen, let watch, Date().timeIntervalSince(watch.started) >= 3, notice == nil {
@@ -834,18 +837,30 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return cocoaRect(fromWindowList: selected.bounds, primaryHeight: primary)
     }
 
+    /// Closing either setup surface cancels the guide's intent to appear.
+    /// A pending read-only receipt may finish, but it cannot reopen this panel.
+    func dismissPermissionGuide() {
+        permissionGuideID = nil
+        watchTimer?.invalidate(); watchTimer = nil; watch = nil
+        placeTimer?.invalidate(); placeTimer = nil
+        settingsAnchorID = nil; settingsWindowSeen = false
+        panel.orderOut(nil)
+    }
+
     func endWatch(granted: Bool) {
         watchTimer?.invalidate(); watchTimer = nil
         let finished = watch; watch = nil
-        if granted {
+        if granted, finished != nil, let guideID = permissionGuideID {
             panel.granted()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
-                guard let self, self.watch == nil else { return }
-                self.placeTimer?.invalidate(); self.panel.orderOut(nil)
+                guard let self, self.permissionGuideID == guideID else { return }
+                self.dismissPermissionGuide()
             }
-        } else if let finished {
-            placeTimer?.invalidate(); panel.orderOut(nil)
-            notice = "\(finished.permission.title) 권한 확인 시간이 지났어요. ‘설정 열기’를 눌러 다시 진행하세요."
+        } else {
+            dismissPermissionGuide()
+            if let finished {
+                notice = "\(finished.permission.title) 권한 확인 시간이 지났어요. ‘설정 열기’를 눌러 다시 진행하세요."
+            }
         }
         render()
         if granted, finished != nil, state.ready {
@@ -948,7 +963,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let windowItem = NSMenuItem(); main.addItem(windowItem)
         let windowMenu = NSMenu(title: "윈도우"); windowItem.submenu = windowMenu
         let close = windowMenu.addItem(withTitle: "창 닫기", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        close.target = window
+        close.target = nil
         NSApp.mainMenu = main
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         let template = Bundle.main.url(forResource: "tacto-menu-template", withExtension: "svg")
@@ -979,12 +994,12 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         reopen(); return true
     }
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === window else { return }
-        watchTimer?.invalidate(); watchTimer = nil; watch = nil
-        placeTimer?.invalidate(); placeTimer = nil
-        panel.orderOut(nil)
+        guard let closing = notification.object as? NSWindow,
+              closing === window || closing === panel else { return }
+        dismissPermissionGuide()
         render()
     }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationWillTerminate(_ notification: Notification) {
         if let directory = reportDirectory { try? FileManager.default.removeItem(at: directory) }

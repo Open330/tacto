@@ -60,3 +60,25 @@ with nvm/fnm remains to be checked in a new signed app. asdf/nodenv and installa
 where Node is outside both the CLI bin and inherited PATH are not added here.
 No initial-run wait, new approval screen or permission reset was introduced.
 Private screenshots and detailed logs are retained separately from tracked docs.
+
+## 2026-10-20 권한 도우미·창 수명 수정
+
+상태 확인 결과마다 주 창 높이를 다시 맞추던 동작을 제거했습니다. 최초 표시
+크기를 제한하고, 이후 확인·실패·복구·상세 표시 전환에서는 사용자의 창 크기와
+위치를 유지합니다. 넘치는 내용은 기존 스크롤 영역에서 다룹니다. 빈 스크롤
+영역에도 같은 배경을 그립니다.
+
+권한 도우미의 닫기 이벤트를 주 창과 함께 처리합니다. 닫으면 안내 세션과
+권한 확인·위치 추적 타이머를 해제하므로 이미 대기 중인 콜백이나 반복적인
+앱 다시 열기가 도우미를 되살리지 않습니다. ‘설정 열기’를 새로 누를 때만
+새 안내 세션을 시작합니다. 이전 세션의 완료 타이머도 새 세션을 닫지 못합니다.
+
+도우미는 키보드 입력을 받는 창이 아니므로 key/main window가 될 수 없게
+했습니다. 인증 앱이나 다른 앱이 전경에 오면 도우미를 숨깁니다. 암호 입력을
+자동화하거나 실제 인증 정보를 관찰하지 않습니다.
+
+검증: 실제 AppKit 컨트롤을 쓰는 오프스크린 회귀 검사에서 상태 전환 12회,
+닫은 뒤 다시 열기 20회, 타이머 해제, 인증 창 우선 처리, 별도 테스트용 보안
+입력란의 포커스를 확인했습니다. 관련 검사 14개 통과. 정상·미허용·확인 실패·
+작은 어두운 화면·대체 안내 등 5개 화면의 잘림 검사도 통과했습니다. 실제
+macOS 암호·Touch ID 입력을 대신 수행해 확인한 결과는 아닙니다.
