@@ -7,6 +7,8 @@ Prepare .venv with `uv sync --frozen --all-extras`. Its locked dependencies are
 checked without modifying it. The previous installed app is the default
 baseline; --baseline also accepts a prior SOURCE-MANIFEST.json containing the
 embedded distribution_inventory. Old releases can be compared via their .app.
+The installed baseline's identity is reported, not verified as published;
+use --baseline with the published manifest for a publication-controlled build.
 Only a first distribution should use --initial-distribution. Intentional removals
 need --removal-allowlist JSON: {"distributions":{"name":"reason"},
 "native_paths":{"Contents/relative/path":"reason"}}; stale entries fail too.
@@ -120,6 +122,17 @@ def app_inventory(app):
     return validate_inventory(inventory)
 
 
+def baseline_identity(metadata):
+    """Identify the selected baseline, without claiming its publication status."""
+    tag=metadata.get('TactoReleaseTag',metadata.get('release_tag'))
+    commit=metadata.get('TactoSourceCommit',metadata.get('workspace_commit'))
+    if not isinstance(tag,str) or not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-preview\.[0-9]+)?',tag):
+        tag=None
+    if not isinstance(commit,str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',commit):
+        commit=None
+    return {'release_tag':tag,'source_commit':commit,'publication_verified':False}
+
+
 def read_baseline(path=None,*,initial_distribution=False):
     if initial_distribution:
         if path is not None:
@@ -130,10 +143,17 @@ def read_baseline(path=None,*,initial_distribution=False):
         raise RuntimeError('previous release baseline required: pass --baseline <previous.app or SOURCE-MANIFEST.json>; '
                            'only the first distribution may use --initial-distribution')
     if path.is_dir():
-        return app_inventory(path)
+        inventory=app_inventory(path)
+        info=path/'Contents/Info.plist'
+        if info.is_file():
+            inventory['_baseline_identity']=baseline_identity(plistlib.loads(info.read_bytes()))
+        return inventory
     raw=json.loads(path.read_text())
     inventory=raw.get('distribution_inventory') if isinstance(raw,dict) and 'distribution_inventory' in raw else raw
-    return validate_inventory(inventory)
+    inventory=validate_inventory(inventory)
+    if isinstance(raw,dict) and ('release_tag' in raw or 'workspace_commit' in raw):
+        inventory['_baseline_identity']=baseline_identity(raw)
+    return inventory
 
 
 def read_removal_allowlist(path=None):
@@ -158,6 +178,7 @@ def require_inventory_compatibility(current,baseline,allowlist):
             raise ValueError('initial distribution cannot declare removals')
         return {'baseline':'initial_distribution','removed_distributions':[], 'removed_native_paths':[],
                 'intentional_removals':allowlist,'passed':True}
+    identity=baseline.get('_baseline_identity',baseline_identity({}))
     baseline=validate_inventory(baseline)
     removed={'distributions':sorted(set(baseline['distributions'])-set(current['distributions'])),
              'native_paths':sorted(set(baseline['native_paths'])-set(current['native_paths']))}
@@ -167,7 +188,7 @@ def require_inventory_compatibility(current,baseline,allowlist):
             raise RuntimeError('unapproved removed '+kind+': '+', '.join(sorted(unapproved)))
         if unused:
             raise ValueError('stale removal allowlist '+kind+': '+', '.join(sorted(unused)))
-    return {'baseline':'previous_release',
+    return {'baseline':'previous_release','baseline_identity':identity,
             'baseline_inventory_sha256':hashlib.sha256(json.dumps(baseline,sort_keys=True).encode()).hexdigest(),
             'previous_distribution_count':len(baseline['distributions']),
             'previous_native_count':len(baseline['native_paths']),
@@ -209,7 +230,7 @@ def build(output,identity,tag,*,baseline=None,initial_distribution=False,removal
     for name in ('README.md','README.ko.md'):
         (runtime/name).write_bytes((ROOT/name).read_bytes())
     provenance=output/'Contents/Resources/first-run-source.json'
-    provenance.write_text(json.dumps({**before,'distribution_inventory':inventory,'inventory_compatibility':compatibility},indent=2)+'\n')
+    provenance.write_text(json.dumps({**before,'release_tag':tag,'distribution_inventory':inventory,'inventory_compatibility':compatibility},indent=2)+'\n')
     info_path=output/'Contents/Info.plist'
     info=plistlib.loads(info_path.read_bytes())
     info.update(CFBundleShortVersionString=version,

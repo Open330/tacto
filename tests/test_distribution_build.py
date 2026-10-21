@@ -260,3 +260,17 @@ class DistributionInventoryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'lockfile'):
                 distribution.require_release_environment(root)
             self.assertEqual(original_lock,(root/'uv.lock').read_bytes())
+
+
+    def test_selected_baseline_identity_is_auditable_but_not_publication_proof(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'SOURCE-MANIFEST.json'
+            path.write_text(json.dumps({'distribution_inventory':self.inventory(),
+                                        'release_tag':'v0.1.0-preview.18','workspace_commit':'a'*40}))
+            previous=distribution.read_baseline(path)
+            report=distribution.require_inventory_compatibility(self.inventory(),previous,
+                                                                {'distributions':{},'native_paths':{}})
+            self.assertEqual({'release_tag':'v0.1.0-preview.18','source_commit':'a'*40,
+                              'publication_verified':False},report['baseline_identity'])
+        self.assertEqual({'release_tag':None,'source_commit':None,'publication_verified':False},
+                         distribution.baseline_identity({'TactoReleaseTag':'private path','TactoSourceCommit':'invalid'}))
