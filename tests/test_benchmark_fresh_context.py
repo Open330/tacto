@@ -14,12 +14,12 @@ def usage(total=10):
             'cache_read_tokens':total-2,'cache_creation_tokens':None,'output_tokens':1}
 
 
-def batch(percent=0,context='fresh',rep=1,passed=True,seconds=2,total=10):
+def batch(percent=0,context='fresh',rep=1,passed=True,seconds=2,total=10,provider='codex'):
     rows=[{'seconds':seconds,'exit':0,'mode':'agent','context':context,'job':{'job':f'T{i:02d}'},
            'trace_directory':f'/t/{i}','usage':usage(total),
            'oracle':{'passed':True,'single_commit':True,'active':False}} for i in range(1,11)]
-    return {'arm':f'codex-tacto-{context}{percent}','kind':'mixed-reuse','reuse_percent':percent,'context':context,'rep':rep,'passed':passed,
-            'rows':rows,'agent_runs':rows,'usage':sum_usage(rows),'setup':None}
+    return {'arm':f'{provider}-tacto-{context}{percent}','kind':'mixed-reuse','reuse_percent':percent,'context':context,'rep':rep,'passed':passed,
+            'rows':rows,'agent_runs':rows,'usage':sum_usage(rows),'setup':None,'provider':provider}
 
 
 class FakeFixture:
@@ -36,8 +36,8 @@ class ParseArmTests(unittest.TestCase):
         self.assertEqual(('codex','sky','workflow',None,False),parse_arm('codex-sky-workflow'))
 
     def test_bad_arms_are_refused(self):
-        for arm in ('codex-tacto-fresh50','codex-sky-fresh30','gpt-tacto-ratio0',
-                    'codex-tacto-freshx','codex-tacto','codex-tacto-other'):
+        for arm in ('codex-tacto-fresh50','codex-sky-fresh30','gpt-tacto-ratio0','codex-tacto-ratio030',
+                    'codex-tacto-freshx','codex-tacto','codex-tacto-other','codex-tacto-fresh-30'):
             with self.subTest(arm=arm),self.assertRaises(ValueError):parse_arm(arm)
 
 
@@ -97,6 +97,55 @@ class GroupSummaryTests(unittest.TestCase):
         self.assertEqual({('fresh',0),('resumed',0)},{(g['context'],g['reuse_percent']) for g in groups})
         self.assertTrue(all('median_change_vs_zero' not in g for g in groups))
 
+    def test_providers_are_never_pooled_or_compared_across(self):
+        from examples.summarize_reuse_ratios import complete,legacy_savings
+        runs=[batch(0,'resumed',provider='codex',total=10),batch(0,'resumed',provider='claude',total=40)]
+        groups=summarize_groups(runs,keep_batches=True)
+        self.assertEqual({('codex',100),('claude',400)},
+                         {(g['provider'],g['median']['total_input_tokens']) for g in groups})
+        self.assertTrue(all('median_change_vs_zero' not in g for g in groups))
+        self.assertIsNone(legacy_savings(groups))
+        self.assertEqual({},legacy_savings(groups[:1]))
+        self.assertFalse(complete(groups))
+
+    def test_an_empty_or_failed_only_report_is_not_complete(self):
+        from examples.summarize_reuse_ratios import complete
+        self.assertEqual([],summarize_groups([]));self.assertFalse(complete([]))
+        failed=[{'kind':'mixed-reuse','reuse_percent':p,'context':'fresh','provider':'codex','passed':False,'error':'X'}
+                for p in (0,30,70,100)]
+        groups=summarize_groups(failed)
+        self.assertTrue(all(g['failure_rate']==1.0 for g in groups));self.assertFalse(complete(groups))
+
+    def test_the_summary_cli_writes_an_incomplete_report_for_no_results(self):
+        import json,subprocess,sys
+        with tempfile.TemporaryDirectory() as folder:
+            report=Path(folder)/'report.json';report.write_text(json.dumps({'results':[]}))
+            out=Path(folder)/'summary.json'
+            done=subprocess.run([sys.executable,'-m','examples.summarize_reuse_ratios',str(report),'--output',str(out)],
+                                capture_output=True,text=True,cwd=Path(__file__).resolve().parents[1])
+            self.assertEqual(0,done.returncode,done.stderr)
+            summary=json.loads(out.read_text())
+            self.assertFalse(summary['complete']);self.assertEqual([],summary['groups'])
+            self.assertIsNone(summary['savings_against_zero'])
+
+
+class CommandLineTests(unittest.TestCase):
+    def test_a_missing_agent_cli_is_refused_before_any_build(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(Path,'home',lambda:Path(home)), \
+             mock.patch.object(repeat_benchmark,'build',side_effect=AssertionError('built')), \
+             mock.patch('sys.argv',['repeat_benchmark','--output',str(Path(folder)/'out'),'--arms','claude-tacto-fresh0']), \
+             mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as stop:repeat_benchmark.main()
+            self.assertEqual(2,stop.exception.code)
+            self.assertFalse((Path(folder)/'out').exists())
+
+    def test_an_unknown_arm_is_a_usage_error(self):
+        with mock.patch('sys.argv',['repeat_benchmark','--output','/nonexistent/x','--arms','codex-tacto-fresh5']), \
+             mock.patch('sys.stderr'):
+            with self.assertRaises(SystemExit) as stop:repeat_benchmark.main()
+            self.assertEqual(2,stop.exception.code)
+
 
 class MatchedRepetitionTests(unittest.TestCase):
     def test_failure_rate_and_medians_use_passed_runs(self):
@@ -111,6 +160,11 @@ class MatchedRepetitionTests(unittest.TestCase):
         rows[3]['usage']={}
         sky=aggregate(rows)['sky']
         self.assertEqual(0.0,sky['failure_rate']);self.assertIsNone(sky['median_total_input_tokens_passed'])
+    def test_an_arm_with_no_rows_is_unknown_not_an_error(self):
+        from examples.benchmark_matched_conditions import aggregate
+        sky=aggregate([])['sky']
+        self.assertEqual(0,sky['runs']);self.assertIsNone(sky['failure_rate'])
+        self.assertIsNone(sky['mean_seconds']);self.assertIsNone(sky['total_input_tokens'])
 
 
 if __name__=='__main__':unittest.main()

@@ -34,7 +34,8 @@ def aggregate(rows):
         ok=[r for r in selected if r['exit']==0 and r['oracle']['passed']]
         entry={'runs':len(selected),'passed':len(ok),
                'failure_rate':round(1-len(ok)/len(selected),4) if selected else None,
-               'seconds':sum(r['seconds'] for r in selected),'mean_seconds':statistics.mean(r['seconds'] for r in selected),
+               'seconds':sum(r['seconds'] for r in selected),
+               'mean_seconds':statistics.mean(r['seconds'] for r in selected) if selected else None,
                'median_seconds_passed':statistics.median(r['seconds'] for r in ok) if ok else None}
         # Per passed run; unknown in any run keeps the median unknown, not zero.
         for key in ('total_input_tokens','new_input_tokens','output_tokens'):
@@ -42,7 +43,7 @@ def aggregate(rows):
             entry['median_'+key+'_passed']=statistics.median(vals) if ok and all(type(v) is int for v in vals) else None
         for key in ('total_input_tokens','new_input_tokens','cache_read_tokens','output_tokens'):
             vals=[r['usage'].get(key) for r in selected]
-            entry[key]=sum(vals) if complete and all(type(v) is int for v in vals) else None
+            entry[key]=sum(vals) if selected and complete and all(type(v) is int for v in vals) else None
         # Failed tasks still incurred observed usage. Keep completed-task totals
         # separate from all-attempt spend; null never means zero cost.
         observed={}

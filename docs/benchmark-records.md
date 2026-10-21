@@ -602,9 +602,15 @@ Related publication regressions: 92 tests passed; independent review approved.
     session을 쓰고 resume하지 않으며 workspace도 공유하지 않는다.
   - 기존 `ratioN`은 이전처럼 CLI-resumed 대화 하나를 이어 쓴다.
   - `--reps N`(1..10)으로 모든 arm을 반복한다. 결과는 `rep-NN/<arm>/`에 둔다.
+  - 알 수 없는 arm과 실행할 수 없는 agent CLI(`~/.local/bin/<provider>`)는
+    fixture 앱을 빌드하기 전에 사용법 오류로 거절한다.
 - `examples/summarize_reuse_ratios.py`
-  - 출력은 (context, reuse%) 그룹별 runs, passed_runs, failure_rate, 실패 사유,
-    run별 값, 통과 run의 중앙값, 같은 context의 0% 대비 변화율이다.
+  - 출력은 (provider, context, reuse%) 그룹별 runs, passed_runs, failure_rate,
+    실패 사유, run별 값, 통과 run의 중앙값, 같은 provider·context의 0% 대비
+    변화율이다. provider끼리는 합치거나 비교하지 않는다.
+  - 결과가 비었거나 실패한 run만 있으면 `complete`는 false다. 예전 방식의
+    `savings_against_zero`는 provider·context가 하나이고 비율마다 통과 run이
+    정확히 1개일 때만 계산하고, 그 밖에는 `null`이다.
   - 통과했지만 토큰 수를 모르는 run이 하나라도 있으면 그 중앙값은 `null`로
     둔다. 0으로 채우지 않는다.
   - fresh arm 안에 resumed job이 섞이면 실패로 센다.

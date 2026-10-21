@@ -265,11 +265,13 @@ def reused_flow(base,app,target,provider,percent=None,fresh=False):
 def parse_arm(arm):
     """`provider-layer-kind`: kind is workflow, reuse, ratioN (resumed agent
     jobs) or freshN (an independent session per agent job), N in 0/30/70/100."""
-    provider,layer,kind=arm.split('-')
+    parts=arm.split('-')
+    if len(parts)!=3:raise ValueError(f'unknown arm {arm}')
+    provider,layer,kind=parts
     if provider not in ('codex','claude') or layer not in ('tacto','sky'):raise ValueError(f'unknown arm {arm}')
     if kind in ('workflow','reuse'):return provider,layer,kind,None,False
     for prefix,fresh in (('ratio',False),('fresh',True)):
-        if kind.startswith(prefix) and kind[len(prefix):].isdigit():
+        if kind.startswith(prefix) and kind[len(prefix):] in ('0','30','70','100'):
             percent=int(kind[len(prefix):]);reuse_schedule(percent)
             if layer!='tacto':raise ValueError('reuse ratios need the tacto layer')
             return provider,layer,'mixed',percent,fresh
@@ -282,7 +284,11 @@ def main():
     parser.add_argument('--reps',type=int,default=1,help='independent repetitions of every arm (1..10)')
     args=parser.parse_args()
     if not 1<=args.reps<=10:parser.error('--reps must be 1..10')
-    for arm in args.arms:parse_arm(arm)   # refuse a typo before building anything
+    try:parsed=[parse_arm(arm) for arm in args.arms]   # refuse a typo before building anything
+    except ValueError as exc:parser.error(str(exc))
+    # An agent CLI that is not installed fails here, not after the app build.
+    missing=sorted({p for p,*_ in parsed if not os.access(Path.home()/'.local/bin'/p,os.X_OK)})
+    if missing:parser.error('agent CLI not executable: '+', '.join(f'~/.local/bin/{p}' for p in missing))
     base=Path(args.output).resolve();base.mkdir(mode=0o700)
     target='ai.callabo.tacto.repeatbench.'+uuid.uuid4().hex[:8]
     app=build(base,target);results=[]
@@ -295,7 +301,7 @@ def main():
             result=(workflow(arm_base,app,target,provider,layer) if kind=='workflow'
                     else reused_flow(arm_base,app,target,provider,percent,fresh=fresh))
         except Exception as exc:result={'passed':False,'error':type(exc).__name__,'detail':str(exc)[:240],
-                                        'kind':'mixed-reuse' if kind=='mixed' else kind,'reuse_percent':percent,
+                                        'kind':'mixed-reuse' if kind=='mixed' else kind,'reuse_percent':percent,'provider':provider,
                                         'context':'fresh' if fresh else 'resumed'}
         result['arm']=arm;result['rep']=rep;result['source_before']=before;result['source_after']=source_manifest()
         result['source_stable']=result['source_before']==result['source_after'];results.append(result)

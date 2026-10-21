@@ -47,8 +47,8 @@ def _median(values):
     return statistics.median(values) if values and all(type(v) in (int, float) for v in values) else None
 
 
-def summarize_groups(results):
-    """Every run of each (context, percent), failed runs included.
+def summarize_groups(results,*,keep_batches=False):
+    """Every run of each (provider, context, percent), failed runs included.
 
     `failure_rate` counts runs that did not finish all ten jobs or whose
     routing, seed or replay could not be verified; medians use passed runs,
@@ -57,8 +57,9 @@ def summarize_groups(results):
     groups={}
     for result in results:
         if result.get('kind')!='mixed-reuse':continue
-        key=(result.get('context','resumed'),result.get('reuse_percent'))
-        group=groups.setdefault(key,{'context':key[0],'reuse_percent':key[1],'runs':0,'passed':[],'failures':[]})
+        provider=result.get('provider') or str(result.get('arm','')).split('-')[0] or None
+        key=(provider,result.get('context','resumed'),result.get('reuse_percent'))
+        group=groups.setdefault(key,{'provider':key[0],'context':key[1],'reuse_percent':key[2],'runs':0,'passed':[],'failures':[]})
         group['runs']+=1
         try:
             if not result.get('passed'):raise ValueError(result.get('error') or 'batch did not pass')
@@ -66,33 +67,50 @@ def summarize_groups(results):
         except (ValueError,KeyError,TypeError) as exc:
             group['failures'].append({'rep':result.get('rep'),'reason':str(exc)[:200]})
     out=[]
-    for (context,percent),group in sorted(groups.items(),key=lambda kv:(kv[0][0],kv[0][1] if kv[0][1] is not None else -1)):
+    for (provider,context,percent),group in sorted(groups.items(),key=lambda kv:(str(kv[0][0]),kv[0][1],kv[0][2] if kv[0][2] is not None else -1)):
         passed=group['passed']
-        out.append({'context':context,'reuse_percent':percent,'runs':group['runs'],'passed_runs':len(passed),
+        out.append({'provider':provider,'context':context,'reuse_percent':percent,'runs':group['runs'],'passed_runs':len(passed),
                     'failure_rate':round(1-len(passed)/group['runs'],4),'failures':group['failures'],
                     'median':{m:_median([b.get(m) for b in passed]) for m in METRICS},
-                    'per_run':[{m:b.get(m) for m in METRICS} for b in passed]})
-    for context in {g['context'] for g in out}:
-        zero=next((g for g in out if g['context']==context and g['reuse_percent']==0),None)
+                    'per_run':[{m:b.get(m) for m in METRICS} for b in passed],
+                    **({'passed':passed} if keep_batches else {})})
+    # Only against the same provider's and context's own 0% arm.
+    for arm in {(g['provider'],g['context']) for g in out}:
+        zero=next((g for g in out if (g['provider'],g['context'])==arm and g['reuse_percent']==0),None)
         for g in out:
-            if g['context']!=context or zero is None or g is zero:continue
+            if (g['provider'],g['context'])!=arm or zero is None or g is zero:continue
             g['median_change_vs_zero']={m:(None if g['median'][m] is None or not zero['median'][m]
                                           else round(g['median'][m]/zero['median'][m]-1,4)) for m in METRICS}
     return out
 
 
+def complete(groups):
+    """Every (provider, context) present has a passed run at 0, 30, 70 and 100%.
+    An empty report is not complete."""
+    arms={(g['provider'],g['context']) for g in groups}
+    have={(g['provider'],g['context'],g['reuse_percent']) for g in groups if g['passed_runs']}
+    return bool(arms) and all((*arm,p) in have for arm in arms for p in (0,30,70,100))
+
+
+def legacy_savings(groups):
+    """The old one-batch-per-ratio comparison, only where it still means one
+    thing: a single provider and context with exactly one passed run each."""
+    arms={(g['provider'],g['context']) for g in groups}
+    if len(arms)!=1 or any(g['passed_runs']!=1 for g in groups):return None
+    by={g['reuse_percent']:g['passed'][0] for g in groups}
+    if 0 not in by:return None
+    return {p:savings(by[0],b) for p,b in by.items() if p}
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('report');p.add_argument('--output',required=True)
     args=p.parse_args();raw=json.loads(Path(args.report).read_text())
-    batches=[summarize(r) for r in raw['results'] if r.get('passed') and r.get('kind')=='mixed-reuse']
-    groups=summarize_groups(raw['results'])
-    resumed=[b for b in batches if b.get('context','resumed')=='resumed']
-    baseline=next((b for b in resumed if b['reuse_percent']==0),None)
-    out={'groups':groups,'batches':batches,
-         'savings_against_zero':({b['reuse_percent']:savings(baseline,b) for b in resumed if b['reuse_percent']}
-                                 if baseline else None),
-         'complete':{(g['context'],g['reuse_percent']) for g in groups if g['passed_runs']}>=
-                    {(c,p) for c in {g['context'] for g in groups} for p in (0,30,70,100)},'raw_report':args.report,
+    results=raw.get('results') if isinstance(raw,dict) else None
+    if not isinstance(results,list):raise SystemExit('report has no results list')
+    detailed=summarize_groups(results,keep_batches=True)
+    groups=[{k:v for k,v in g.items() if k!='passed'} for g in detailed]
+    out={'groups':groups,'batches':[b for g in detailed for b in g['passed']],
+         'savings_against_zero':legacy_savings(detailed),'complete':complete(groups),'raw_report':args.report,
          'definition':'ten runtime jobs; fresh authoring seed and repair charged separately and included in total',
          'comparison_eligible':False,'limits':['fixed execution order within a repetition','owned fixture, not general application coverage',
          "resumed: agent jobs share one CLI-resumed conversation; fresh: one ephemeral session per agent job",'unknown serving model and billing parity',
