@@ -79,9 +79,17 @@ def require_release_environment(root=ROOT,run=subprocess.run):
     root=Path(root)
     if not (root/'.venv/bin/python').is_file():
         raise RuntimeError('missing release environment; run uv sync --frozen --all-extras')
-    result=run(['uv','sync','--frozen','--all-extras','--check','--inexact','--offline'],
-               cwd=root,env=dict(os.environ,UV_PROJECT_ENVIRONMENT=str((root/'.venv').resolve())),
+    environment=dict(os.environ,UV_PROJECT_ENVIRONMENT=str((root/'.venv').resolve()))
+    environment.pop('UV_FROZEN',None)
+    # --frozen alone ignores a newly declared extra missing from uv.lock.
+    # First verify the lock against pyproject without updating either file.
+    locked=run(['uv','lock','--check','--offline'],cwd=root,env=environment,
                capture_output=True,text=True,timeout=120)
+    if locked.returncode:
+        raise RuntimeError('release lockfile is stale or cannot be checked offline; '
+                           'update uv.lock intentionally and commit it before building')
+    result=run(['uv','sync','--frozen','--all-extras','--check','--inexact','--offline'],
+               cwd=root,env=environment,capture_output=True,text=True,timeout=120)
     if result.returncode:
         raise RuntimeError('release environment is missing or mismatches locked dependencies/extras; '
                            'run uv sync --frozen --all-extras before building')

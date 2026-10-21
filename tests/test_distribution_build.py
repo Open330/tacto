@@ -1,6 +1,7 @@
 """A distribution must name a version and one unmodified committed source."""
 import importlib.util
 import json
+import shutil
 from unittest import mock
 from pathlib import Path
 import subprocess
@@ -92,6 +93,8 @@ class DistributionInventoryTests(unittest.TestCase):
                 self.assertIn(flag,args[0])
             self.assertEqual(str((root/'.venv').resolve()),kwargs['env']['UV_PROJECT_ENVIRONMENT'])
             self.assertEqual(root,kwargs['cwd'])
+            self.assertEqual(['uv','lock','--check','--offline'],run.call_args_list[0].args[0])
+            self.assertNotIn('UV_FROZEN',kwargs['env'])
 
     def test_missing_extras_fail_before_any_copy_or_signing(self):
         with mock.patch.object(distribution,'committed_sources',return_value={}), \
@@ -103,7 +106,7 @@ class DistributionInventoryTests(unittest.TestCase):
             builder.assert_not_called();run.assert_not_called()
         with tempfile.TemporaryDirectory() as folder:
             python=Path(folder)/'.venv/bin/python';python.parent.mkdir(parents=True);python.touch()
-            run=mock.Mock(return_value=subprocess.CompletedProcess([],1,'','missing playwright'))
+            run=mock.Mock(side_effect=[subprocess.CompletedProcess([],0,'',''),subprocess.CompletedProcess([],1,'','missing playwright')])
             with self.assertRaisesRegex(RuntimeError,'uv sync --frozen --all-extras'):
                 distribution.require_release_environment(Path(folder),run)
 
@@ -235,3 +238,22 @@ class DistributionInventoryTests(unittest.TestCase):
             self.assertEqual(4,len(sealed['distribution_inventory']['native_paths']))
             self.assertTrue(report['all_extras_verified'])
             self.assertEqual('initial_distribution',sealed['inventory_compatibility']['baseline'])
+
+
+    @unittest.skipUnless(shutil.which('uv'),'uv required for real lock freshness regression')
+    def test_new_pyproject_extra_cannot_hide_behind_a_frozen_stale_lock(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);project=root/'pyproject.toml'
+            project.write_text('[project]\nname="inventory-lock-fixture"\nversion="0.0.0"\nrequires-python=">=3.11"\n[tool.uv]\npackage=false\n')
+            for args in (['uv','lock','--offline'],['uv','sync','--frozen','--all-extras','--offline']):
+                subprocess.run(args,cwd=root,check=True,capture_output=True,text=True,timeout=30)
+            original_lock=(root/'uv.lock').read_bytes()
+            project.write_text(project.read_text()+'[project.optional-dependencies]\nweb=["requests==2.34.2"]\n')
+            # The former frozen-only check says nothing is missing: it has not
+            # read the newly declared extra into the locked dependency graph.
+            frozen=subprocess.run(['uv','sync','--frozen','--all-extras','--check','--inexact','--offline'],
+                                  cwd=root,capture_output=True,text=True,timeout=30)
+            self.assertEqual(0,frozen.returncode,frozen.stderr)
+            with self.assertRaisesRegex(RuntimeError,'lockfile'):
+                distribution.require_release_environment(root)
+            self.assertEqual(original_lock,(root/'uv.lock').read_bytes())
