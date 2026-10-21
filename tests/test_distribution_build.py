@@ -286,3 +286,21 @@ class DistributionInventoryTests(unittest.TestCase):
                               'publication_verified':False},report['baseline_identity'])
         self.assertEqual({'release_tag':None,'source_commit':None,'publication_verified':False},
                          distribution.baseline_identity({'TactoReleaseTag':'private path','TactoSourceCommit':'invalid'}))
+
+    def test_base_prefix_package_missing_from_final_app_still_fails(self):
+        previous=self.inventory();previous['distributions'].update(pip='26.2.1',setuptools='84.0.0')
+        for missing in ('pip','setuptools'):
+            current={'schema':1,'distributions':dict(previous['distributions']),
+                     'native_paths':list(previous['native_paths'])}
+            del current['distributions'][missing]
+            with self.subTest(missing=missing), \
+                 mock.patch.object(distribution,'committed_sources',return_value={}), \
+                 mock.patch.object(distribution,'require_release_environment',return_value=self.inventory()['distributions']), \
+                 mock.patch.object(distribution,'read_baseline',return_value=previous), \
+                 mock.patch.object(distribution.preview,'build',return_value={}), \
+                 mock.patch.object(distribution,'app_inventory',return_value=current), \
+                 mock.patch.object(distribution.subprocess,'run') as run:
+                with self.assertRaisesRegex(RuntimeError,missing):
+                    distribution.build('unused.app','fixture','v0.1.0-preview.19')
+                self.assertEqual(2,run.call_count)
+                self.assertTrue(all(call.args[0][0]=='bash' for call in run.call_args_list))
