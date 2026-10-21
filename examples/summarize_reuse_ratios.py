@@ -42,6 +42,47 @@ def summarize(result,*,unknown_usage=False):
 METRICS=('seconds','total_input_tokens','new_input_tokens','output_tokens')
 
 
+def compose_paired(result,percent):
+    """One `percent` batch from a paired-jobs repetition (repeat_benchmark).
+
+    Jobs in the reuse schedule take their replay row, the others their fresh
+    agent row. A ratio above 0 is charged the one seed authoring; a schedule
+    reaching the changed control (job 7 on) is charged the one repair, and its
+    first such job takes job 7's measured failed attempt plus remaining
+    segment, since only that replay met the change. For 30% that job is 9, so
+    its replay time is job 7's: marked as an approximation.
+    """
+    pairs=result.get('pairs') or []
+    if len(pairs)!=10:raise ValueError('ten paired jobs required')
+    schedule=reuse_schedule(percent);seconds=0;used=[]
+    changed=sorted(n for n in schedule if n>=7)
+    for n,pair in enumerate(pairs,1):
+        mode='flow' if n in schedule else 'agent';row=pair[mode]
+        if mode=='flow' and changed and n==changed[0]:row=pairs[6]['flow']
+        oracle=row.get('oracle') or {}
+        if not oracle.get('passed') or not oracle.get('single_commit',True):raise ValueError(f'job {n} {mode} not verified')
+        if row.get('recovery',row).get('exit')!=0:raise ValueError(f'job {n} {mode} exit failure')
+        seconds+=row['seconds']+row.get('recovery',{}).get('seconds',0)
+        if mode=='agent':used.append(row)
+    setup=result.get('setup')
+    repairs=[r for r in result.get('agent_runs',[]) if not r.get('job') and r is not setup
+             and r.get('trace_directory')!=(setup or {}).get('trace_directory')]
+    charged=list(used)
+    if percent:
+        if not setup or setup.get('exit')!=0:raise ValueError('verified authoring seed required')
+        charged.append(setup);seconds+=setup['seconds']
+    if changed:
+        if len(repairs)!=1:raise ValueError('one repair required for the changed control')
+        charged+=repairs;seconds+=repairs[0]['seconds']
+    usage=sum_usage(charged) if charged else {'total_input_tokens':0,'cache_read_tokens':0,'output_tokens':0,'unknown_usage_records':0}
+    known=not usage.get('unknown_usage_records') and all(type(usage.get(k)) is int for k in ('total_input_tokens','cache_read_tokens','output_tokens'))
+    return {'reuse_percent':percent,'seconds':seconds,'agent_jobs':len(used),'flow_jobs':len(schedule),
+            'total_input_tokens':usage['total_input_tokens'] if known else None,
+            'new_input_tokens':usage['total_input_tokens']-usage['cache_read_tokens'] if known else None,
+            'output_tokens':usage['output_tokens'] if known else None,
+            'approximated_first_changed_replay':bool(changed) and changed[0]!=7}
+
+
 def _median(values):
     """None when any run's value is unknown: a missing count is not zero."""
     return statistics.median(values) if values and all(type(v) in (int, float) for v in values) else None
@@ -56,6 +97,18 @@ def summarize_groups(results,*,keep_batches=False):
     """
     groups={}
     for result in results:
+        if result.get('kind')=='paired-jobs':
+            provider=result.get('provider') or str(result.get('arm','')).split('-')[0] or None
+            for percent in (0,30,70,100):
+                group=groups.setdefault((provider,'paired',percent),{'provider':provider,'context':'paired',
+                    'reuse_percent':percent,'runs':0,'passed':[],'failures':[]})
+                group['runs']+=1
+                try:
+                    if not result.get('pairs'):raise ValueError(result.get('error') or 'no paired jobs')
+                    group['passed'].append(compose_paired(result,percent))
+                except (ValueError,KeyError,TypeError) as exc:
+                    group['failures'].append({'rep':result.get('rep'),'reason':str(exc)[:200]})
+            continue
         if result.get('kind')!='mixed-reuse':continue
         provider=result.get('provider') or str(result.get('arm','')).split('-')[0] or None
         key=(provider,result.get('context','resumed'),result.get('reuse_percent'))
@@ -113,7 +166,8 @@ def main():
          'savings_against_zero':legacy_savings(detailed),'complete':complete(groups),'raw_report':args.report,
          'definition':'ten runtime jobs; fresh authoring seed and repair charged separately and included in total',
          'comparison_eligible':False,'limits':['fixed execution order within a repetition','owned fixture, not general application coverage',
-         "resumed: agent jobs share one CLI-resumed conversation; fresh: one ephemeral session per agent job",'unknown serving model and billing parity',
+         "resumed: agent jobs share one CLI-resumed conversation; fresh: one ephemeral session per agent job",
+         'paired: every ratio composed from one run of each job per mode, one seed and one repair; not four separate executions','unknown serving model and billing parity',
          'single logical commit is not proof of one physical input','host-verified remaining segment, not automatic journal resume']}
     path=Path(args.output);path.write_text(json.dumps(out,indent=2));path.chmod(0o600)
     print(json.dumps(out,indent=2))

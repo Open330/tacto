@@ -183,4 +183,81 @@ class MatchedRepetitionTests(unittest.TestCase):
         self.assertIsNone(sky['mean_seconds']);self.assertIsNone(sky['total_input_tokens'])
 
 
+def paired(agent_seconds=20, flow_seconds=2, repair=True, agent_fail=None):
+    rows=[]
+    ok={'passed':True,'single_commit':True,'active':False}
+    for n in range(1,11):
+        agent={'seconds':agent_seconds,'exit':0,'mode':'agent','job':{'job':f'T{n:02d}'},'trace_directory':f'/a/{n}',
+               'usage':usage(10),'oracle':dict(ok,passed=n!=agent_fail)}
+        flow={'seconds':flow_seconds,'exit':0,'mode':'flow','job':{'job':f'T{n:02d}'},'oracle':dict(ok)}
+        if n==7 and repair:flow['recovery']={'seconds':5,'exit':0}
+        rows.append({'agent':agent,'flow':flow})
+    setup={'seconds':60,'exit':0,'trace_directory':'/seed','usage':usage(100)}
+    fix={'seconds':25,'exit':0,'trace_directory':'/repair','usage':usage(40)}
+    agents=[p['agent'] for p in rows]+[setup]+([fix] if repair else [])
+    return {'arm':'codex-tacto-paired','kind':'paired-jobs','context':'fresh','provider':'codex','rep':1,
+            'passed':True,'pairs':rows,'setup':setup,'agent_runs':agents}
+
+
+class PairedJobsTests(unittest.TestCase):
+    def test_parse_arm(self):
+        self.assertEqual(('codex','tacto','paired',None,True),parse_arm('codex-tacto-paired'))
+        with self.assertRaises(ValueError):parse_arm('codex-sky-paired')
+
+    def test_every_ratio_is_composed_from_one_run_per_mode(self):
+        from examples.summarize_reuse_ratios import compose_paired
+        r=paired()
+        zero,thirty,seventy,hundred=(compose_paired(r,p) for p in (0,30,70,100))
+        self.assertEqual((200,10,0),(zero['seconds'],zero['agent_jobs'],zero['flow_jobs']))
+        self.assertEqual(100,zero['total_input_tokens'])
+        # 70%: three agents, seven replays (job 7 with its recovery), seed and repair once.
+        self.assertEqual(3*20+7*2+5+60+25,seventy['seconds'])
+        self.assertEqual(3*10+100+40,seventy['total_input_tokens'])
+        self.assertEqual(10*2+5+60+25,hundred['seconds'])
+        # 30%: jobs 3,6,9 replay; 9 is the first after the change and takes job 7's attempt.
+        self.assertEqual(7*20+2+2+(2+5)+60+25,thirty['seconds'])
+        self.assertTrue(thirty['approximated_first_changed_replay'])
+        self.assertFalse(seventy['approximated_first_changed_replay'])
+
+    def test_a_failed_row_fails_only_the_ratios_that_use_it(self):
+        from examples.summarize_reuse_ratios import summarize_groups
+        groups={g['reuse_percent']:g for g in summarize_groups([paired(agent_fail=2)])}
+        self.assertEqual(1.0,groups[0]['failure_rate'])     # job 2 runs as agent at 0%
+        self.assertEqual(1.0,groups[30]['failure_rate'])    # and at 30% (2 is not replayed)
+        self.assertEqual(0.0,groups[70]['failure_rate'])    # 2 is replayed at 70%
+        self.assertEqual(0.0,groups[100]['failure_rate'])
+        self.assertEqual('paired',groups[70]['context'])
+        self.assertIn('median_change_vs_zero',groups[70])
+
+    def test_a_missing_repair_or_seed_is_not_free(self):
+        from examples.summarize_reuse_ratios import compose_paired
+        with self.assertRaises(ValueError):compose_paired(paired(repair=False),70)
+        r=paired();r['setup']=None
+        with self.assertRaises(ValueError):compose_paired(r,30)
+        self.assertEqual(200,compose_paired(r,0)['seconds'])   # 0% needs no seed
+
+    def test_paired_run_measures_each_job_both_ways_with_one_seed(self):
+        calls=[]
+        def agent(provider,text,trace,**kwargs):
+            calls.append(('agent',str(trace).rsplit('/',1)[-1],kwargs))
+            return {'exit':0,'seconds':1,'session_id':'s','usage':usage(),'trace_directory':str(trace)}
+        def flow_job(base,fixture,job,n,recipe,template,provider,agents):
+            calls.append(('flow',n,{}))
+            return {'seconds':1,'exit':0,'mode':'flow','job':job,'oracle':{'passed':True}},recipe
+        def author(base,fixture,target,provider,template,agents):
+            calls.append(('seed',None,{}));return {'seconds':1,'exit':0},object()
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(repeat_benchmark,'Fixture',FakeFixture), \
+             mock.patch.object(repeat_benchmark,'run_agent',agent), \
+             mock.patch.object(repeat_benchmark,'_flow_job',flow_job), \
+             mock.patch.object(repeat_benchmark,'_author_seed',author), mock.patch('builtins.print'):
+            result=repeat_benchmark.paired_jobs(Path(folder),None,'t','codex')
+        self.assertEqual(1,sum(c[0]=='seed' for c in calls))
+        self.assertEqual(10,sum(c[0]=='agent' for c in calls));self.assertEqual(10,sum(c[0]=='flow' for c in calls))
+        self.assertTrue(all(c[2]=={} for c in calls if c[0]=='agent'))   # fresh: never resumed
+        order=[c[0] for c in calls if c[0]!='seed']
+        self.assertEqual(['agent','flow','flow','agent'],order[:4])     # alternates per job
+        self.assertEqual(('paired-jobs',10),(result['kind'],len(result['pairs'])))
+
+
 if __name__=='__main__':unittest.main()
