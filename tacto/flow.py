@@ -1107,7 +1107,7 @@ class Flow:
                         "unverified_ok", "answers"):
                 if key in s and type(s[key]) is not bool:
                     raise ValueError(f"{key} must be boolean")
-            sel = Selector(**s["selector"]) if s.get("selector") else None
+            sel = _selector_from(s["selector"]) if s.get("selector") else None
 
             def _post(pc, where, depth=0):
                 if pc is None or pc == {}:
@@ -1139,7 +1139,7 @@ class Flow:
                     raise FlowFieldError('check requires a predicate', path+'.'+where,
                         'Use equals:"text" (not value), contains, absent, absent_role or nonempty all_of. '
                         'For a field value use field:{"identifier":"observed-id"}, equals:"text", attribute:"Value".')
-                pf = Selector(**pc["field"]) if pc.get("field") else None
+                pf = _selector_from(pc["field"], f"{where}.field") if pc.get("field") else None
                 if pc.get('absent_role') is not None and not pc['absent_role'].strip():
                     raise ValueError(f'{where}.absent_role must name a role')
                 return Postcondition(field=pf, equals=pc.get("equals"),
@@ -1380,7 +1380,7 @@ def _captures_from(step: dict) -> list["Capture"]:
     for c in raw:
         out.append(Capture(
             name=c.get("name", "value"),
-            field=Selector(**c["field"]) if c.get("field") else None,
+            field=_selector_from(c["field"], "captures.field") if c.get("field") else None,
             attribute=c.get("attribute", "Value"),
             sensitive=bool(c.get("sensitive")),
             many=bool(c.get("many")),
@@ -2087,23 +2087,29 @@ def _ready_hint(raw):
             or not isinstance(raw["attribute"], str) or not raw["attribute"]
             or not isinstance(raw["equals"], str)):
         raise ValueError("ready_when needs a field selector, an attribute and the exact value to wait for")
-    return ReadyHint(_hint_selector(raw["field"]), raw["attribute"], raw["equals"])
+    return ReadyHint(_selector_from(raw["field"], "ready_when.field"), raw["attribute"], raw["equals"])
 
 
 _TEXT_FIELDS = ("identifier", "title", "desc", "value", "ancestor", "click_ancestor")
 
 
-def _hint_selector(raw):
-    """A hint's field, checked before any input is sent: a malformed one would
-    otherwise fail only while waiting, after the step had already acted."""
+def _selector_from(raw, where="selector"):
+    """A selector from a recipe, checked when the recipe is read.
+
+    Unchecked, a wrong type surfaced only when the selector was matched — for
+    a postcondition or hint, after the step had already acted (`identifier: 42`
+    raised mid-run). Every stored and built-in recipe already conforms.
+    """
     def text(value, many):
         if isinstance(value, str):
             return bool(value.strip())
         return many and isinstance(value, list) and bool(value) and all(
             isinstance(v, str) and v.strip() for v in value)
     known = {f.name for f in fields(Selector)}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where} must be an object")
     if set(raw) - known or not any(raw.get(k) is not None for k in ("role", *_TEXT_FIELDS)):
-        raise ValueError("ready_when.field needs known selector fields that name an element")
+        raise ValueError(f"{where} needs known selector fields that name an element")
     for key, value in raw.items():
         ok = (value is None or (key == "role" and text(value, False))
               or (key in _TEXT_FIELDS and text(value, True))
@@ -2111,7 +2117,7 @@ def _hint_selector(raw):
               or (key == "in_focused_window" and type(value) is bool)
               or (key == "subrole" and isinstance(value, str)))
         if not ok:
-            raise ValueError(f"ready_when.field.{key} has the wrong type")
+            raise ValueError(f"{where}.{key} has the wrong type")
     return Selector(**raw)
 
 
