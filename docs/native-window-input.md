@@ -711,7 +711,10 @@ replay witnesses the navigation with `NavigationReceipt`
 `AXURL` the helper reports as `URL:` on a fully quoted WebArea line, so a page
 title cannot spell that field. The window is the one holding the pressed
 address field, found again by its `Identifier` (the window in front may be
-another one, such as a start page with no WebArea). Only its shallowest WebArea
+another one, such as a start page with no WebArea). Safari's identifier is
+`SafariWindow?IsSecure=<bool>&UUID=<uuid>` and IsSecure flips when a page goes
+from http to https, so for Safari only the UUID is compared; any other shape of
+that name is refused. Only its shallowest WebArea
 counts, and it must be unique; frames are deeper. Before the press, from the
 observation the press is addressed to, that page must be another URL (or none);
 after it, fresh observations must show the pinned destination (scheme and host

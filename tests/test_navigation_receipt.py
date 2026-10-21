@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from tacto.commit_evidence import CommitEvidence, NavigationEvidence, evidence_error, make_event
-from tacto.navigation_receipt import NavigationReceipt, normalized_url, page_url, window_of
+from tacto.navigation_receipt import NavigationReceipt, normalized_url, page_url, window_identity, window_of
 
 URL = 'https://example.com/expected'
 FIELD = 'WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD'
@@ -63,6 +63,30 @@ class UrlTests(unittest.TestCase):
         self.assertEqual('w1', window_of(both, 1))
         self.assertIsNone(window_of(both, 99))
         self.assertIsNone(window_of(tree(URL).replace(', Identifier: "w1"', ''), 1))
+
+    def test_a_safari_window_is_its_uuid_whatever_its_security_flag(self):
+        uuid = 'F94CC087-2879-417A-9D6D-2A317F3981BE'
+        insecure, secure = f'SafariWindow?IsSecure=false&UUID={uuid}', f'SafariWindow?IsSecure=true&UUID={uuid}'
+        self.assertEqual(window_identity(insecure), window_identity(secure))
+        self.assertEqual(window_identity(secure), window_identity(secure.replace(uuid, uuid.lower())))
+        self.assertNotEqual(window_identity(secure), window_identity(secure.replace('F94C', 'A94C')))
+        for bad in ('SafariWindow', 'SafariWindow?', f'SafariWindow?UUID={uuid}&UUID={uuid}',
+                    'SafariWindow?IsSecure=true&UUID=nope', f'SafariWindow?IsSecure=maybe&UUID={uuid}',
+                    f'SafariWindow?IsSecure=true&UUID={uuid}&Tab=1', f'SafariWindow?IsSecure=true',
+                    f'SafariWindowX?UUID={uuid}', '', None):
+            with self.subTest(bad=bad):
+                self.assertIsNone(window_identity(bad))
+        self.assertEqual('w1', window_identity('w1'))   # other apps: as written
+
+    def test_an_http_page_that_becomes_https_is_the_same_window(self):
+        uuid = 'F94CC087-2879-417A-9D6D-2A317F3981BE'
+        before = tree('http://old.example/', window=f'SafariWindow?IsSecure=false&UUID={uuid}')
+        after = tree(URL, window=f'SafariWindow?IsSecure=true&UUID={uuid}')
+        window = window_of(before, 1)
+        self.assertEqual(URL, page_url(after, window))
+        twin = after + '\n' + after.replace('0 Window', '9 Window')   # same UUID twice: no guess
+        self.assertIsNone(page_url(twin, window))
+        self.assertIsNone(window_of(tree(URL, window='SafariWindow?IsSecure=true'), 1))
 
     def test_a_page_title_cannot_spell_the_url_field(self):
         head = '0 Window  Title: "Page", Identifier: "w1" [focused]\n'

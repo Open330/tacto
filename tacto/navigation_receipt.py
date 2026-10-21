@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import re
 import time
 import uuid
 from urllib.parse import urlsplit, urlunsplit
@@ -95,23 +96,56 @@ def _page_url(block):
     return normalized_url(fields.get('URL')) if fields else None
 
 
+_UUID = re.compile(r'[0-9A-Fa-f]{8}-(?:[0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}')
+
+
+def window_identity(identifier):
+    """What stays the same for one window across a navigation, or None.
+
+    Safari names a window `SafariWindow?IsSecure=<bool>&UUID=<uuid>`, and
+    IsSecure flips when the page goes from http to https (measured
+    2026-10-21), so only its UUID identifies the window. Such a name must be
+    exactly that shape, one UUID, nothing else. Any other app's identifier is
+    used as written.
+    """
+    if not isinstance(identifier, str) or not identifier:
+        return None
+    if not identifier.startswith('SafariWindow'):
+        return identifier
+    match = re.fullmatch(r'SafariWindow\?(.*)', identifier)
+    if match is None:
+        return None
+    fields = {}
+    for part in match.group(1).split('&'):
+        key, sep, value = part.partition('=')
+        if not sep or key in fields or key not in ('IsSecure', 'UUID'):
+            return None
+        fields[key] = value
+    uuid_text = fields.get('UUID')
+    if uuid_text is None or _UUID.fullmatch(uuid_text) is None:
+        return None
+    if fields.get('IsSecure', 'false') not in ('true', 'false'):
+        return None
+    return 'SafariWindow:' + uuid_text.upper()
+
+
 def window_of(tree, element_index):
-    """The Identifier of the one window whose lines hold `element_index`."""
-    import re
+    """The identity of the one window whose lines hold `element_index`."""
     from .document_label import window_attributes
     found = [line for line, block in _windows(tree)
              if any(re.match(rf'^\s*{element_index}\s', item) for item in block)]
     if len(found) != 1:
         return None
-    identifier = (window_attributes(found[0]) or {}).get('Identifier')
-    return identifier if isinstance(identifier, str) and identifier else None
+    return window_identity((window_attributes(found[0]) or {}).get('Identifier'))
 
 
 def page_url(tree, window):
-    """The page URL of the window with Identifier `window`; '' for none, None unknown."""
+    """The page URL of the window with identity `window`; '' for none, None unknown."""
     from .document_label import window_attributes
+    if window is None:
+        return None
     blocks = [block for line, block in _windows(tree)
-              if (window_attributes(line) or {}).get('Identifier') == window]
+              if window_identity((window_attributes(line) or {}).get('Identifier')) == window]
     return _page_url(blocks[0]) if len(blocks) == 1 else None
 
 
