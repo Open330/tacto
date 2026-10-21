@@ -8,13 +8,21 @@ read `statusBarText` with `"in_focused_window": true` for the item count.
 Prefer this over Go > Go to Folder…: that menu brings Finder to the front
 (Tacto reports the app observed in front and stops sending after that step).
 
-`Return` is allowed in one place only, with `--helper`: the Go to Folder
-sheet's path field (`"identifier": "PathTextField"` inside the `GoToWindow`
-sheet), to confirm a path you put there with `set_value`. The step must say
+For Finder, use `Return` with `--helper` in the Go to Folder sheet's path field
+(`"identifier": "PathTextField"` inside the `GoToWindow` sheet), to confirm a
+path you put there with `set_value`. The step must say
 `"is_submit": true`, carry the same binding, and verify with an exact
 `equals` (e.g. the Finder window's `Title` is the folder's name) — a
-postcondition already true before the press is refused. Return anywhere else
-is refused by the helper.
+postcondition already true before the press is refused. Other bound submits
+require their advertised capability, declared meaning and observed result.
+
+For Safari URL navigation, first verify the intended window is main, then use
+File > Open Location… to start address editing, `set_value` on that window's
+`WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD`, and a bound submit `Return` with an
+explicit attribute postcondition. The helper uses `AXConfirm`, with no keyboard
+events. Replay verifies the loaded WebArea URL; address text alone is not proof.
+An accepted confirmation can leave the page unchanged without address editing.
+Do not resend an unverified confirmation. See [Safari URL confirmation](../docs/native-window-input.md#safari-url-confirmation).
 
 **Use `menu` for commands that live in the menu bar** — save, copy, open a
 folder, new window. It takes a title path and **no selector at all** — a menu

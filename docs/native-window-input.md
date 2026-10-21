@@ -703,6 +703,15 @@ falls back to a key press; uncertain outcomes still require a fresh observation.
 `acted` with `unverified: observe_effect` proves neither navigation nor server
 receipt. Verify the destination page before reporting a successful navigation.
 
+In an owned Safari window (2026-10-21), `set_value` followed by `AXConfirm`
+accepted the confirmation but left an already loaded page unchanged. Bringing
+that window forward alone did not fix it. Starting address editing with
+File > Open Location… before setting the URL and confirming did load the new
+destination. Use that menu only after verifying that the intended window is
+Safari's main window; bind subsequent fields to that window, not an unrelated
+window that happens to be in front. The native confirmation's success response
+is not a substitute for the receiving page check.
+
 Safari address confirmation performs the bound navigation; it does not supply a
 remote-service commit receipt. When the host supplies no receipt of its own,
 replay witnesses the navigation with `NavigationReceipt`
@@ -726,5 +735,9 @@ then `browser_navigation` evidence. The address-bar value is never used. A
 redirect to another URL, or no load within the receipt's deadline, ends as
 `commit_unverified` with `destination_not_shown`; inspect the page without
 repeating the confirmation. The evidence says this window loaded the URL, not
-what the site did with the request. That typing alone leaves `AXURL` unchanged
-is pending a live check in an owned Safari window.
+what the site did with the request. Owned-window live checks (2026-10-21)
+confirmed that editing the address alone preserves the previous page's `AXURL`,
+that Open Location… > set URL > confirm completes for an exact destination,
+and that an HTTP 302 to another URL stays unverified without resending the
+confirmation. The original window Identifier changed its IsSecure flag during
+an HTTPS load while its UUID stayed the same.
