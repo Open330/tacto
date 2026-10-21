@@ -2378,18 +2378,11 @@ func confirmSafariAddress(_ obsID:String, _ target:String, _ el:AXUIElement, _ p
             if let want = expect, mismatch(want,element:el,pid:p) != nil {
                 throw NativeWindowInputError.refused("Safari navigation binding changed")
             }
-            let status = try scope.withTimeout(el) {
+            let status = try scope.withTimeout(el, maximumSeconds:2) {
                 attempted = true
                 return AXUIElementPerformAction(el,"AXConfirm" as CFString)
             }
-            guard status == .success else {
-                return ["type":"error","error":"action_failed","effect":axActionFailureEffect(status),
-                        "ax_confirmation_attempted":true,"posted_or_attempted_events":0,
-                        "detail":"Safari address confirmation did not return success"]
-            }
-            return ["type":"acted","action":"press_key","obs_id":obsID,
-                    "input_route":"safari_address_confirm","mechanism":"ax_confirm",
-                    "posted_events":0,"reobserve_required":true,"unverified":"observe_effect"]
+            return nativeSafariAddressConfirmReceipt(status,obsID:obsID)
         }
     } catch {
         return ["type":"error","error":abortState.isStopped ? "aborted_by_user" : "action_failed",

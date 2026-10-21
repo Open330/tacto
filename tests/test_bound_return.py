@@ -105,10 +105,14 @@ class BoundReturnReplayTests(unittest.TestCase):
         self.assertEqual(app.calls, [])
 
     def test_transmit_is_gated_for_approval_before_any_key(self):
-        app = App(); result = self.run_step(app, step(effects={'transmit'}))
-        self.assertFalse(result.ok, result.log)
-        self.assertEqual(app.calls, [])
-        self.assertTrue(any(entry.get('status') == 'gated' for entry in result.log), result.log)
+        for caps in (CAPS, CAPS | {'press_key.return_in_go_to_folder'}):
+            with self.subTest(capabilities=caps):
+                app = App(); app.capabilities = caps
+                result = self.run_step(app, step(effects={'transmit'}))
+                self.assertFalse(result.ok, result.log)
+                self.assertEqual(app.calls, [])
+                self.assertTrue(any(entry.get('status') == 'gated' for entry in result.log), result.log)
+                self.assertNotIn('navigation_contract_required', str(result.log))
 
     def test_no_effect_or_malformed_receipt_never_retries(self):
         cases = [App(opens=False)]

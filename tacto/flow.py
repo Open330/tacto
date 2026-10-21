@@ -2369,9 +2369,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                             and RETURN_BOUND_CAPABILITY in getattr(driver, "capabilities", ())
                             and step.is_submit and step.safety is not None
                             and "credential" not in step.safety.effects)
+            # A narrower Go-to-Folder capability must not disable the general
+            # bound-submit contract when both capabilities are advertised.
             effects_ok = step.safety is not None and (
                 set(step.safety.effects) == {"write_ephemeral"}
-                or (bound_submit and not submit_ok))
+                or bound_submit)
             if ("action.press_key" not in getattr(driver, "capabilities", ())
                     or type(key) is not str
                     or (key not in NAVIGATION_KEYS - {'Escape'} and not (submit_ok or bound_submit))

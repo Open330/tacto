@@ -11,14 +11,23 @@ ROOT=Path(__file__).resolve().parents[1]
 class SafariAddressConfirmTests(unittest.TestCase):
     def test_native_field_eligibility_and_changed_or_unreadable_context(self):
         text=(ROOT/'helper/WindowInput.swift').read_text()
-        function=text.split('func nativeSafariAddressConfirmEligible(',1)[1].split('// MARK: - Return into the Go to Folder',1)[0]
-        function='func nativeSafariAddressConfirmEligible('+function
+        function=text.split('func nativeSafariAddressConfirmReceipt(',1)[1].split('// MARK: - Return into the Go to Folder',1)[0]
+        function='func nativeSafariAddressConfirmReceipt('+function
         harness=r'''
 import Foundation
 import ApplicationServices
 enum NativeWindowInputError:Error { case refused(String) }
 typealias AXRead = (AXUIElement,String) throws -> (AXError,CFTypeRef?)
+func axActionFailureEffect(_ status:AXError) -> String { "unknown" }
 FUNCTION
+for status:AXError in [.success,.cannotComplete] {
+    let receipt=nativeSafariAddressConfirmReceipt(status,obsID:"test")
+    assert(receipt["type"] as? String == "acted")
+    assert(receipt["effect"] as? String == "unknown")
+    assert(receipt["reobserve_required"] as? Bool == true)
+    assert(receipt["posted_events"] as? Int == 0)
+}
+assert(nativeSafariAddressConfirmReceipt(.actionUnsupported,obsID:"test")["type"] as? String == "error")
 let field=AXUIElementCreateApplication(100), group=AXUIElementCreateApplication(101), window=AXUIElementCreateApplication(102)
 func check(_ changes:[String:Any]=[:], actions:[String]=["AXConfirm"], fault:String?=nil) -> Bool {
     let values:[String:Any] = ["AXRole":"AXTextField","AXIdentifier":"WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",
@@ -64,7 +73,7 @@ class SafariValuePinTests(unittest.TestCase):
                 return {"type":"observation","obs_id":"o","tree":
                         "0 Window Title: Browser\n  1 TextField Identifier: WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD, Value: "+url+"\n  2 StaticText Identifier: navigation-status, Value: pending"}
         for extra in (set(),{"press_key.safari_address_confirm"}):
-            app=Browser();app.capabilities=CAPS|extra
+            app=Browser();app.capabilities=CAPS|extra|{"press_key.return_in_go_to_folder"}
             st=step(effects={"transmit"},selector=Selector(identifier="WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"),
                     binding=ContextBinding(bundle_id="com.apple.Safari",identifier="WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",
                                            operation="press_key",params_digest=pin_params({"key":"Return"}),

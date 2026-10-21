@@ -397,10 +397,10 @@ final class NativeWindowReadScope {
             throw NativeWindowInputError.refused("window observation deadline expired")
         }
     }
-    func withTimeout<T>(_ element: AXUIElement, _ operation: () -> T) throws -> T {
+    func withTimeout<T>(_ element: AXUIElement, maximumSeconds: Double = 0.5, _ operation: () -> T) throws -> T {
         try ready()
         let remaining = effectiveReadDeadline - ProcessInfo.processInfo.systemUptime
-        guard remaining > 0, AXUIElementSetMessagingTimeout(element, Float(min(0.5, remaining))) == .success else {
+        guard remaining > 0, AXUIElementSetMessagingTimeout(element, Float(min(maximumSeconds, remaining))) == .success else {
             throw NativeWindowInputError.unavailable("window AX timeout unavailable")
         }
         operationCount += 1
@@ -1254,6 +1254,20 @@ func buildNativeWindowText(_ windowID: CGWindowID, text: String) throws -> Nativ
 /// key window (which can be the address suggestion popup).
 /// Missing/changed action support returns false before input; malformed reads
 /// throw. A performed confirmation is never followed by a keyboard fallback.
+func nativeSafariAddressConfirmReceipt(_ status:AXError, obsID:String) -> [String:Any] {
+    guard status == .success || status == .cannotComplete else {
+        return ["type":"error","error":"action_failed","effect":axActionFailureEffect(status),
+                "ax_confirmation_attempted":true,"posted_or_attempted_events":0,
+                "detail":"Safari address confirmation did not return success"]
+    }
+    // cannotComplete can mean the browser navigated before AX replied. Observe
+    // once; never send another confirmation or fall back to keyboard input.
+    return ["type":"acted","action":"press_key","obs_id":obsID,
+            "input_route":"safari_address_confirm","mechanism":"ax_confirm",
+            "posted_events":0,"reobserve_required":true,"unverified":"observe_effect",
+            "effect":"unknown","ax_confirmation_status":status == .success ? "success" : "cannot_complete"]
+}
+
 func nativeSafariAddressConfirmEligible(_ element: AXUIElement,
                                        read: AXRead,
                                        actions: (AXUIElement) throws -> [String]) throws -> Bool {
