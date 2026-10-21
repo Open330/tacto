@@ -16,6 +16,7 @@ Inspect the verified/unverified result before requesting another compile.
 | `precondition_failed` | the target is `[disabled]` |
 | `postcondition_timeout` | reports the value actually read — usually the wrong field or format. The action itself was delivered, so this never means "nothing happened" |
 | `postcondition_already_true` | a `Return` step whose `equals` was already true before the press — nothing was pressed. Return commits, so a result that proves nothing is not taken; check the step's postcondition names what Return should change |
+| `commit_unverified` with `destination_not_shown` | the loaded Safari page did not match the pinned URL. Observe without resending; for a newly authorized navigation, use the address-editing preparation in [Safari](safari.md) |
 | `target_seen_in_front` | an earlier step's app was observed in front afterwards (e.g. Finder after Go > Go to Folder…), so nothing more was sent to it — the person may be using it now. What the earlier step did stays done; use a path that keeps the app behind (for Finder folders, `open_folder`) |
 | `focused_document_guard_unavailable` | a File > Save bound to one file (`focused_document`, e.g. `textedit_save`) on a backend that cannot check the focused file at the press — nothing was sent. Use `--helper` with a helper that announces `action.menu.focused_document` |
 | `expect_not_met` | the step's `expect` text never appeared |

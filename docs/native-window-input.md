@@ -710,7 +710,10 @@ File > Open Location… before setting the URL and confirming did load the new
 destination. Use that menu only after verifying that the intended window is
 Safari's main window; bind subsequent fields to that window, not an unrelated
 window that happens to be in front. The native confirmation's success response
-is not a substitute for the receiving page check.
+is not a substitute for the receiving page check. If the menu reports
+`needs_foreground`, use `tacto activate com.apple.Safari --window "<unique title>"
+--helper` only when the person requested activation or already consented, then
+verify the intended window before continuing.
 
 Safari address confirmation performs the bound navigation; it does not supply a
 remote-service commit receipt. When the host supplies no receipt of its own,

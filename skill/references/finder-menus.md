@@ -16,13 +16,7 @@ path you put there with `set_value`. The step must say
 postcondition already true before the press is refused. Other bound submits
 require their advertised capability, declared meaning and observed result.
 
-For Safari URL navigation, first verify the intended window is main, then use
-File > Open Location… to start address editing, `set_value` on that window's
-`WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD`, and a bound submit `Return` with an
-explicit attribute postcondition. The helper uses `AXConfirm`, with no keyboard
-events. Replay verifies the loaded WebArea URL; address text alone is not proof.
-An accepted confirmation can leave the page unchanged without address editing.
-Do not resend an unverified confirmation. See [Safari URL confirmation](../docs/native-window-input.md#safari-url-confirmation).
+For Safari address editing and loaded-page evidence, read [Safari](safari.md).
 
 **Use `menu` for commands that live in the menu bar** — save, copy, open a
 folder, new window. It takes a title path and **no selector at all** — a menu
