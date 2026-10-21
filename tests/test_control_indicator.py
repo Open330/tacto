@@ -239,6 +239,34 @@ print(String(data:try! JSONSerialization.data(withJSONObject:["compact":compact.
         self.assertEqual(0,result.returncode,result.stderr)
         self.assertEqual(dict(compact=True,inside=True,outside=True,normal=True,blocked=True),json.loads(result.stdout))
 
+    def test_only_a_panel_with_no_room_falls_back_to_the_menu(self):
+        """A maximized target leaves no corner for the panel; the panel is
+        optional, so the menu and Esc carry on. A panel that exists but cannot
+        be seen still refuses."""
+        import json, shutil, subprocess, tempfile
+        if not shutil.which('swift'): self.skipTest('macOS Swift required')
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        code=text[text.index('func controlPanelHasNoRoom('):text.index('/// How the last accepted action was shown')]
+        harness='import Foundation\n'+code+r'''
+let cases:[[String:Bool]]=[["frame_available":false],["target_frames_available":false],
+    ["created":true,"visible":false,"active_space":true],[:]]
+print(String(data:try! JSONSerialization.data(withJSONObject:cases.map{controlPanelHasNoRoom($0)}),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/'main.swift';path.write_text(harness)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=60)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual([True,False,False,False],json.loads(result.stdout))
+        body=text[text.index('func ensureVisibleControl('):]
+        body=body[:body.index('\n}\n')]
+        fallback=body[body.index('func proceedWithoutPanel()'):]
+        fallback=fallback[:fallback.index('\n    }\n')]
+        # Hiding the panel never skips the session, Esc or menu checks.
+        self.assertIn('controlPanel?.orderOut(nil)',fallback)
+        self.assertIn('!abortState.isStopped && sessionVisible()',fallback)
+        self.assertNotIn('activate',fallback)
+        self.assertEqual(2,body.count('controlPanelHasNoRoom(controlPanelDiagnostic)'))
+
     def test_the_indicator_still_gates_every_action(self):
         # The point of it is that a caller cannot act invisibly. Losing the
         # outline must not lose that.

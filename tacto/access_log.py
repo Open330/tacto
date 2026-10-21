@@ -12,7 +12,7 @@ import time
 import uuid
 
 current = ContextVar('tacto_access_log', default=None)
-COMMANDS = frozenset(('doctor', 'apps', 'launch', 'first-run', 'observe', 'session', 'batch',
+COMMANDS = frozenset(('doctor', 'apps', 'launch', 'activate', 'first-run', 'observe', 'session', 'batch',
                       'document-attachments', 'capture', 'drag', 'vroid-drag', 'vroid-focus',
                       'run', 'replay', 'do', 'web-upload'))
 _NAMES = re.compile(r'^tacto-\d{8}T\d{12}Z-[0-9a-f]{32}\.jsonl$')
@@ -142,7 +142,7 @@ class AccessLog:
             value = result.get(key)
             if type(value) is int and 0 <= value < 1000000:
                 fields[key] = value
-        for key in ('foreground_verified', 'presentation_skipped', 'save_command_sent', 'repeat_write'):
+        for key in ('foreground_verified', 'window_verified', 'presentation_skipped', 'save_command_sent', 'repeat_write'):
             if type(result.get(key)) is bool:
                 fields[key] = result[key]
         self.event('task_result', **fields)

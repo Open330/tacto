@@ -64,6 +64,21 @@ class NativePresentationBackend(NativeLaunchBackend):
         app = self.workspace.frontmostApplication()
         return int(app.processIdentifier()) if app is not None else None
 
+    def open_activating(self, path):
+        """Activate an already running app the way a Dock click does.
+
+        Since macOS 14 a request from a process that is not itself in front
+        may be declined; LaunchServices still honours an explicit open.
+        """
+        from AppKit import NSWorkspaceOpenConfiguration
+        from Foundation import NSURL
+        config = NSWorkspaceOpenConfiguration.configuration()
+        config.setActivates_(True)
+        config.setAddsToRecentItems_(False)
+        config.setCreatesNewApplicationInstance_(False)
+        self.workspace.openApplicationAtURL_configuration_completionHandler_(
+            NSURL.fileURLWithPath_(path), config, None)
+
 
 def present_app(target, pid, *, backend=None, clock=time.monotonic):
     """Bring an already verified result forward; never launch or write text."""
@@ -137,3 +152,109 @@ def launch_app(target, *, backend=None, timeout=10, clock=time.monotonic):
         # dispatch may already have happened. Interrupts still propagate.
         return error('launch_failed' if started else 'native_launch_unavailable',
                      'unknown' if started else 'not_started')
+
+
+def _open_activating(backend, target, path, pid, clock):
+    """One LaunchServices activation of the same verified instance."""
+    try:
+        apps = backend.running(target)
+        if len(apps) != 1 or apps[0]['pid'] != pid or apps[0]['path'] != path:
+            return {'foreground_verified': False, 'error': 'presentation_identity_changed'}
+        backend.open_activating(path)
+        deadline = clock() + 2
+        while backend.frontmost_pid() != pid:
+            if clock() >= deadline:
+                return {'foreground_verified': False, 'error': 'activation_not_observed'}
+            backend.pump(min(.05, max(0, deadline - clock())))
+        return {'foreground_verified': True, 'route': 'launch_services'}
+    except Exception:
+        return {'foreground_verified': False, 'error': 'activation_not_observed'}
+
+
+def _windows_in(tree):
+    """(element index, title, focused) for each top-level window line."""
+    from .document_label import window_attributes, window_flag
+    out = []
+    for line in tree.splitlines():
+        match = re.match(r'^(\d+)\s+(?:AX)?Window\b', line)
+        if match is None:
+            continue
+        fields = window_attributes(line) or {}
+        out.append((int(match.group(1)), fields.get('Title'), window_flag(line, 'focused')))
+    return out
+
+
+def activate_app(target, *, window=None, driver=None, backend=None,
+                 clock=time.monotonic, sleep=time.sleep):
+    """Bring a running app, and optionally one of its windows, to the front.
+
+    Taking the foreground is never a side effect of another step: this exists
+    for a person who asked for it. The app is activated only if exactly one
+    verified instance runs; `window` must name exactly one of its windows by
+    a part of its title, which the existing `prepare_window` then makes main.
+    Nothing is launched, typed or clicked.
+    """
+    def error(code, effect='not_started', **extra):
+        return {'type': 'error', 'error': code, 'target': target, 'effect': effect, **extra}
+    if (not isinstance(target, str) or len(target) > 255
+            or re.fullmatch(r'[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+', target) is None):
+        return error('invalid_bundle_id')
+    if window is not None and (not isinstance(window, str) or not window.strip() or len(window) > 200
+                               or any(ord(c) < 32 or ord(c) == 127 for c in window)):
+        return error('invalid_window_text')
+    if window is not None and driver is None:
+        return error('window_needs_helper')
+    try:
+        backend = backend if backend is not None else NativePresentationBackend()
+        if not backend.session_ready():
+            return error('gui_session_unavailable')
+        path = backend.resolve(target)
+        if path is None:
+            return error('application_not_installed')
+        apps = [app for app in backend.running(target) if app['path'] == path]
+        if not apps:
+            return error('application_not_running', hint=f'tacto launch {target} --helper')
+        if len(apps) > 1:
+            return error('application_identity_ambiguous')
+        pid = apps[0]['pid']
+    except Exception:
+        return error('native_activation_unavailable')
+    presented = present_app(target, pid, backend=backend, clock=clock)
+    if presented.get('error') in ('activation_refused', 'activation_not_observed'):
+        presented = _open_activating(backend, target, path, pid, clock)
+    if not presented.get('foreground_verified'):
+        # An activation request may still land after the deadline.
+        return error(presented.get('error', 'activation_refused'),
+                     'unknown' if presented.get('error') == 'activation_not_observed' else 'not_started')
+    result = {'type': 'app_activation', 'target': target, 'pid': pid, 'foreground_verified': True,
+              'route': presented.get('route', 'running_application')}
+    if window is None:
+        return result
+
+    def windows():
+        obs = driver.observe(target)
+        if obs.get('type') != 'observation':
+            return None, None
+        return obs, _windows_in(obs.get('tree', ''))
+    obs, listed = windows()
+    if obs is None:
+        return dict(result, type='error', error='window_observation_unavailable', effect='not_started')
+    titles = [title for _, title, _ in listed]
+    matches = [w for w in listed if isinstance(w[1], str) and window in w[1]]
+    if len(matches) != 1:
+        return dict(result, type='error', effect='not_started', windows=titles[:20],
+                    error='window_not_found' if not matches else 'window_ambiguous')
+    index, title, focused = matches[0]
+    if not focused:
+        acted = driver.act(obs['obs_id'], target, {'name': 'prepare_window', 'element_index': index})
+        if acted.get('type') != 'acted':
+            return dict(result, type='error', error='window_not_prepared', window=title,
+                        effect=acted.get('effect', 'unknown'), detail=acted.get('error'))
+        deadline = clock() + 1
+        while True:
+            obs, listed = windows()
+            focused = obs is not None and any(t == title and f for _, t, f in listed)
+            if focused or clock() >= deadline:
+                break
+            sleep(0.1)
+    return dict(result, window=title, window_verified=bool(focused))

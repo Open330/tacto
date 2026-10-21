@@ -4181,6 +4181,18 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
         return session[kCGSessionOnConsoleKey as String] as? Bool == true
             && session["CGSSessionScreenIsLocked"] as? Bool != true
     }
+
+    // The target's windows fill every screen (a maximized browser), so there
+    // is no corner outside them for the panel. The panel is optional — a
+    // person can switch it off in Settings — so continue as that setting
+    // does: the menu status, Esc and the session checks still apply.
+    // Covering the target instead could put the panel under a click.
+    func proceedWithoutPanel() -> Bool {
+        DispatchQueue.main.sync { controlPanel?.orderOut(nil) }
+        lastIndicatorMode = "menu_only_no_room"
+        return !abortState.isStopped && sessionVisible()
+    }
+
     guard sessionVisible() else {
         lastIndicatorRefusal="session_not_visible";return false
     }
@@ -4190,7 +4202,7 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
         _ = showControlIndicator(forPID:pid)
         return RuntimePublisher.shared.showBanner
     }
-    if !banner { return !abortState.isStopped && sessionVisible() }
+    if !banner { lastIndicatorMode = "menu_only"; return !abortState.isStopped && sessionVisible() }
     func targetFrames() -> [CGRect]? {
         guard let top = DispatchQueue.main.sync(execute:{ NSScreen.screens.first?.frame.maxY }) else { return nil }
         // AX reads must stay off the main loop so the Stop control responds.
@@ -4208,7 +4220,8 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     let ready = DispatchQueue.main.sync {
         showControlPanel(forPID: pid, targets:targets)
     }
-    if ready { return true }
+    if ready { lastIndicatorMode = "panel"; return true }
+    if controlPanelHasNoRoom(controlPanelDiagnostic) { return proceedWithoutPanel() }
     // WindowServer visibility arrives on a later main-loop turn. Poll only
     // this panel's readiness; never activate it or send target input here.
     let created = DispatchQueue.main.sync { controlPanel != nil }
@@ -4221,9 +4234,22 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
         shown = DispatchQueue.main.sync { showControlPanel(forPID: pid, targets:currentTargets) }
         if shown { break }
     }
+    if !shown && controlPanelHasNoRoom(controlPanelDiagnostic) { return proceedWithoutPanel() }
     guard shown else { lastIndicatorRefusal = "control_panel_not_visible"; return false }
+    lastIndicatorMode = "panel"
     return true
 }
+
+/// Only "no free place outside the target windows" falls back to the menu.
+/// A panel that exists but is hidden, minimized or on another Space still
+/// refuses: that is a panel someone cannot see, not one with nowhere to go.
+func controlPanelHasNoRoom(_ diagnostic: [String: Bool]) -> Bool {
+    diagnostic == ["frame_available": false]
+}
+
+/// How the last accepted action was shown: "panel", "menu_only" (the person
+/// switched the panel off) or "menu_only_no_room".
+var lastIndicatorMode = ""
 
 /// Why the last ensureVisibleControl refused. One message told everyone to
 /// grant Screen Recording; on june-mba (granted) the real reason was another

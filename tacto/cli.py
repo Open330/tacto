@@ -5,6 +5,7 @@ Usage:
   tacto apps              # list running apps (GUI session check)
   tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
+  tacto activate <bundle-id> [--window TEXT] [--helper]  # on a person's request: bring the app (and that window) forward
   tacto capture <bundle-id> --helper --output window.png [--window TITLE]
   tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
   tacto first-run --helper --yes      # new TextEdit document, fixed text, fresh verification
@@ -615,9 +616,9 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "launch", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+    if cmd in ("doctor", "apps", "launch", "activate", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         if sys.platform == "win32":
-            if cmd in ("doctor", "launch", "first-run", "document-attachments", "capture", "drag",
+            if cmd in ("doctor", "launch", "activate", "first-run", "document-attachments", "capture", "drag",
                        "vroid-drag", "vroid-focus"):
                 print(f"{cmd} is macOS-only; see docs/windows.md")
                 return 2
@@ -710,6 +711,36 @@ def _dispatch_command(cmd, rest):
             current.get().task_result(result)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get('type') == 'app_launch' else 1
+
+    if cmd == 'activate':
+        # Only on a person's request: an agent never takes the foreground on
+        # its own (skill/SKILL.md). --window needs the signed helper's AX access.
+        args = [value for value in rest if value != '--helper']
+        window = None
+        if '--window' in args:
+            at = args.index('--window')
+            window = args[at + 1] if at + 1 < len(args) else None
+            args = args[:at] + args[at + 2:]
+        if len(args) != 1 or rest.count('--helper') > 1 or (window is not None and '--helper' not in rest) \
+                or ('--window' in rest and window is None):
+            print('usage: activate <bundle-id> [--window <part of its title>] [--helper]  (--window needs --helper)')
+            return 2
+        from .app_launch import activate_app
+        driver = None
+        if window is not None:
+            from .helper import HelperUnavailable
+            try:
+                driver = _make_driver(rest)
+            except (HelperUnavailable, OSError, ValueError):
+                print(json.dumps({'type': 'error', 'error': 'helper_unavailable', 'target': args[0],
+                                  'effect': 'not_started', 'hint': 'tacto doctor --check'}))
+                return 1
+        result = activate_app(args[0], window=window, driver=driver)
+        from .access_log import current
+        if current.get() is not None:
+            current.get().task_result(result)
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get('type') == 'app_activation' and result.get('window_verified', True) else 1
 
     if cmd == 'first-run':
         if sorted(rest) != ['--helper', '--yes']:

@@ -10,6 +10,10 @@ window is active; closing/minimizing it or switching apps pauses refresh work.
 days), and **작업 중 배너 표시**. The fixed first task always brings its
 verified result document forward; it has no presentation setting. Disabling the banner hides only the upper-right panel; the existing
 Tacto menu shows active tasks and **현재 작업 중단**, and Esc still stops input.
+When the banner is on but the target's windows leave no free corner on any
+screen (a maximized browser), the task continues the same way without the
+panel instead of being refused; a panel that exists but cannot be seen still
+stops the task.
 Helpers do not create a second menu bar icon. Status is transient metadata
 (app name and stop state), never screen contents or input values. Changes
 are saved immediately and apply to the next invocation; disabling logging does

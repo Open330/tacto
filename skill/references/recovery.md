@@ -37,8 +37,10 @@ Inspect the verified/unverified result before requesting another compile.
 ### When a menu needs the app in front
 
 `needs_foreground` means the app disabled that menu in the background. Ask the
-person to bring that app forward; after they act, re-observe the exact document
-and resume the bound operation. Do not activate it automatically. A TextEdit
+person whether to bring that app forward. Do not activate it on your own; if
+they agree, `tacto activate <bundle-id> [--window "<title part>"] --helper`
+(or they bring it forward themselves). Then re-observe the exact document and
+resume the bound operation. A TextEdit
 edit returning `commit_unverified` still needs the bound `textedit_save` receipt
 and matching file bytes before reporting that it was saved.
 
