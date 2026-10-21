@@ -193,6 +193,17 @@ class BuiltinHintTests(unittest.TestCase):
         # Quadratic prefix building took about 1.1 s here; linear binding is far below.
         self.assertLess(time.monotonic() - started, 0.5)
 
+    def test_items_so_far_never_reaches_the_target_or_input(self):
+        # A param of that name keeps its meaning everywhere but the hint value.
+        step = Step("set_value", Selector(identifier="{{items_so_far}}"), safety=SAFETY,
+                    params={"value": "{{items_so_far}}"}, for_each="{{n}}",
+                    ready_when=ReadyHint(Selector(identifier="{{items_so_far}}"), "Value", "{{items_so_far}}"))
+        bound = Flow("p", "pad", [step], params={"n": "12", "items_so_far": "original"}, schema=2).bind()
+        self.assertEqual(["original", "original"], [st.selector.identifier for st in bound.steps])
+        self.assertEqual(["original", "original"], [st.params["value"] for st in bound.steps])
+        self.assertEqual(["original", "original"], [st.ready_when.field.identifier for st in bound.steps])
+        self.assertEqual(["1", "12"], [st.ready_when.equals for st in bound.steps])
+
     def test_items_so_far_is_what_the_loop_has_entered(self):
         step = Step("click", Selector(identifier="{{item}}"), safety=SAFETY, for_each="{{n}}",
                     ready_when=ReadyHint(DISPLAY, "Value", "{{items_so_far}}"))

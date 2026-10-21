@@ -1308,14 +1308,19 @@ def _bind_steps(steps, ctx) -> list:
         # cumulatively, so other loops pay nothing for it.
         so_far = "" if st.ready_when is not None and "items_so_far" in (st.ready_when.equals or "") else None
         for it in items:
-            if it is None:
-                c = dict(ctx)
-            elif so_far is None:
-                c = {**ctx, "item": it}
+            c = dict(ctx) if it is None else {**ctx, "item": it}
+            if so_far is None:
+                bound = _render_step(st, c)
             else:
+                # The prefix reaches the hint's expected value and nothing
+                # else: the step's target, input and the hint's own field are
+                # rendered exactly as without it.
                 so_far += str(it)
-                c = {**ctx, "item": it, "items_so_far": so_far}
-            bound = _render_step(st, c)
+                bound = _render_step(replace(st, ready_when=None), c)
+                field = _render_step(Step(st.action, st.ready_when.field), c).selector
+                bound = replace(bound, ready_when=ReadyHint(
+                    field, st.ready_when.attribute,
+                    _render(st.ready_when.equals, {**c, "items_so_far": so_far})))
             if bound.action == "decide" and "branches" in bound.params:
                 bound = replace(bound, params={**bound.params, "branches": {
                     k: _bind_steps(v, ctx) for k, v in bound.params["branches"].items()}})
