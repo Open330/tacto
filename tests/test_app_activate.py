@@ -77,8 +77,24 @@ class ActivateTests(unittest.TestCase):
                 self.assertEqual(1, b.activations)   # not re-activated
                 self.assertEqual(99, b.front)
 
-    def test_a_replaced_instance_after_the_window_step_is_not_verified(self):
+    def test_the_final_check_reads_after_the_run_loop_turns(self):
+        """NSWorkspace updates frontmost only as notifications are delivered."""
         b = self.backend()
+        delivered = []
+        class Pending(Browser):
+            def act(self, *args, **kwargs):
+                delivered.append(99)   # another app came forward; not yet seen
+                return super().act(*args, **kwargs)
+        pump = b.pump
+        def pump_and_deliver(seconds):
+            if delivered: b.front = delivered.pop()
+            pump(seconds)
+        b.pump = pump_and_deliver
+        r = self.run_activate(b, window='Gmail', driver=Pending())
+        self.assertEqual('foreground_changed', r['error'])
+
+    def test_a_replaced_instance_after_the_window_step_is_not_verified(self):
+        b = self.backend(); b.finish = False   # the fake pump must not restore pid 42
         class Restarted(Browser):
             def act(self, *args, **kwargs):
                 b.apps = [dict(pid=43, path=b.path, ready=True)]

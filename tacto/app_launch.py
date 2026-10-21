@@ -259,7 +259,11 @@ def activate_app(target, *, window=None, driver=None, backend=None,
             sleep(0.1)
     # The app was in front before the window step; say so only if it still is.
     # Something else taking the foreground meanwhile is reported, never fought.
+    # NSWorkspace's frontmost and running lists change only as this thread's
+    # run loop delivers notifications, and the window step ran none: turn it
+    # first, or the answer can be the one from before the step.
     try:
+        backend.pump(0.05)
         still = (backend.session_ready() and backend.frontmost_pid() == pid
                  and [(a['pid'], a['path']) for a in backend.running(target)] == [(pid, path)])
     except Exception:
