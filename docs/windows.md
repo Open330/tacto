@@ -108,7 +108,7 @@ uv sync
 uv run tacto observe notepad
 ```
 
-`comtypes` is installed only on Windows. `tacto session` reads its one flow
-line through a background reader, since `select()` on Windows accepts only
-sockets. The skill installer is a bash script; on Windows copy `skill/` to the
+`comtypes` is installed only on Windows. `tacto session` and `tacto batch`
+run without `--helper` there and read their input lines through a background
+reader, since `select()` on Windows accepts only sockets. The skill installer is a bash script; on Windows copy `skill/` to the
 agent's skills folder (for Claude Code, `%USERPROFILE%\.claude\skills\tacto`).

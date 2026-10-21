@@ -4,12 +4,16 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
 from tacto.command_help import calculator_example
 from tacto.flow_batch import run_batch, RequestLines, BatchDriver
 from tests.test_flow_safety_defaults import Calculator
+
+# The signed helper is macOS-only; Windows batches run without --helper.
+HELPER = [] if sys.platform == 'win32' else ['--helper']
 
 
 class SignedCalculator(Calculator):
@@ -29,7 +33,7 @@ class BatchTests(unittest.TestCase):
                 with os.fdopen(read) as stream,contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()), \
                      patch('tacto.cli._indicator_for',return_value=contextlib.nullcontext()), \
                      patch('tacto.cli._make_driver',side_effect=AssertionError('extra connection')):
-                    result=run_batch([str(src),'--helper']+(args or []),make_driver=make,
+                    result=run_batch([str(src),*HELPER]+(args or []),make_driver=make,
                                      run_flow=runner or _run_flow,stdin=stream,emit=messages.append)
             finally:
                 if write is not None:os.close(write)
@@ -43,6 +47,23 @@ class BatchTests(unittest.TestCase):
         self.assertGreater(app.observations,3)
         self.assertNotIn('tree','\n'.join(messages))
         self.assertEqual(0,json.loads(messages[-1][len('TACTO_BATCH_DONE '):])['completed']-3)
+    def test_the_helper_flag_follows_the_platform(self):
+        # Required on macOS, refused on Windows, before any connection.
+        make=Mock();messages=[]
+        for platform,args,code in (('darwin',[],2),('win32',['--helper'],2)):
+            with patch('tacto.flow_batch.sys.platform',platform):
+                self.assertEqual(code,run_batch(['calc_example',*args],make_driver=make,run_flow=Mock(),
+                                                stdin=io.StringIO(),emit=messages.append,load_recipe=Mock()))
+        make.assert_not_called()
+
+    def test_windows_reads_requests_without_select(self):
+        read,write=os.pipe()
+        os.write(write,b'{"params":{}}\n');os.close(write)
+        with patch('tacto.flow_batch.select.select',side_effect=OSError('sockets only')):
+            reader=RequestLines(read,platform='win32')
+            self.assertEqual('{"params":{}}',reader.read(2));self.assertIsNone(reader.read(2))
+        os.close(read)
+
     def test_a_saved_name_repeats_the_recipe_replay_would_run(self):
         from tacto.cli import _run_flow
         from tacto.flow import Flow
@@ -53,19 +74,19 @@ class BatchTests(unittest.TestCase):
         read,write=os.pipe();os.write(write,b'{"params":{}}\n'*2);os.close(write)
         with os.fdopen(read) as stream,contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()), \
              patch('tacto.cli._indicator_for',return_value=contextlib.nullcontext()):
-            code=run_batch(['calc_example','--helper','--max-jobs','2'],make_driver=make,run_flow=_run_flow,
+            code=run_batch(['calc_example',*HELPER,'--max-jobs','2'],make_driver=make,run_flow=_run_flow,
                            stdin=stream,emit=messages.append,load_recipe=load)
         self.assertEqual((0,['calc_example'],1),(code,loaded,make.call_count))
         self.assertEqual(2,sum(m.startswith('TACTO_BATCH_RESULT ') for m in messages))
         # A path (or a .json name) is still read as a file, never as a recipe name.
         for path in ('/missing/flow.json','flow.json'):
             messages.clear()
-            self.assertEqual(2,run_batch([path,'--helper'],make_driver=make,run_flow=_run_flow,
+            self.assertEqual(2,run_batch([path,*HELPER],make_driver=make,run_flow=_run_flow,
                                          stdin=io.StringIO(),emit=messages.append,load_recipe=load))
             self.assertTrue(messages[0].startswith('invalid_flow'));self.assertEqual(['calc_example'],loaded)
         # An unknown name is refused before any connection.
         missing=Mock(side_effect=FileNotFoundError('no such recipe'))
-        self.assertEqual(2,run_batch(['nope','--helper'],make_driver=make,run_flow=_run_flow,
+        self.assertEqual(2,run_batch(['nope',*HELPER],make_driver=make,run_flow=_run_flow,
                                      stdin=io.StringIO(),emit=messages.append,load_recipe=missing))
         self.assertEqual(1,make.call_count)
 
@@ -121,7 +142,7 @@ class BatchTests(unittest.TestCase):
             self.assertEqual([],app.calls)
             saved=json.loads(packet.read_text())
             self.assertEqual('not_started',saved['effect'])
-            self.assertEqual(0o600,packet.stat().st_mode&0o777)
+            sys.platform=='win32' or self.assertEqual(0o600,packet.stat().st_mode&0o777)  # Windows: profile ACLs
             results=[json.loads(m.removeprefix('TACTO_BATCH_RESULT ')) for m in messages if m.startswith('TACTO_BATCH_RESULT ')]
             self.assertEqual(1,len(results));self.assertEqual(str(packet),results[0]['repair_packet'])
             self.assertEqual(0,json.loads(messages[-1].removeprefix('TACTO_BATCH_DONE '))['completed'])
@@ -185,6 +206,9 @@ class FramingTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):reader.read(.001)
             os.write(write,b'12345\n')
             with patch('tacto.flow_batch.MAX_REQUEST_BYTES',4),self.assertRaises(ValueError):reader.read(1)
-        finally:os.close(read);os.close(write)
+        finally:
+            # Writer first: on Windows a thread may still be reading `read`,
+            # and closing an fd under a pending read blocks until it returns.
+            os.close(write);os.close(read)
 
 if __name__=='__main__':unittest.main()

@@ -2,6 +2,7 @@
 import json
 import os
 import select
+import sys
 import time
 from pathlib import Path
 
@@ -13,9 +14,15 @@ MAX_REQUEST_BYTES = 65536
 
 
 class RequestLines:
-    def __init__(self, fd):
+    def __init__(self, fd, *, platform=None):
         self.fd = fd
         self.buffer = bytearray()
+        # select() takes only sockets on Windows; a thread reads the pipe there,
+        # as for `session`.
+        self._windows = None
+        if (platform or sys.platform) == "win32":
+            from .flow_session import _windows_reader
+            self._windows = _windows_reader(fd)
 
     def read(self, timeout):
         deadline = time.monotonic() + timeout
@@ -29,9 +36,17 @@ class RequestLines:
             if len(self.buffer) > MAX_REQUEST_BYTES:
                 raise ValueError('request_over_budget')
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.fd], [], [], remaining)[0]:
+            if remaining <= 0:
                 raise TimeoutError('idle_timeout')
-            chunk = os.read(self.fd, 65536)
+            if self._windows is not None:
+                try:
+                    chunk = self._windows(remaining)
+                except TimeoutError:
+                    raise TimeoutError('idle_timeout') from None
+            elif not select.select([self.fd], [], [], remaining)[0]:
+                raise TimeoutError('idle_timeout')
+            else:
+                chunk = os.read(self.fd, 65536)
             if not chunk:
                 if self.buffer:
                     raise ValueError('request_requires_newline')
@@ -107,9 +122,15 @@ def run_batch(args, *, make_driver, run_flow, stdin, emit, load_recipe=None):
             value=int(args[i+1]);del args[i:i+2]
             if flag=='--idle-timeout':timeout=value
             else:maximum=value
+    # Windows has no signed helper: there UI Automation runs in this process,
+    # so --helper is refused, as for `session`; on macOS it is required.
+    helper = [] if sys.platform == "win32" else ['--helper']
     files=[v for v in args if v not in ('--helper','--timings')]
-    if len(files)!=1 or files[0].startswith('-') or args.count('--helper')!=1 or args.count('--timings')>1:
-        emit('usage: batch <flow.json | saved name> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings] [--repair-packet /absolute/new.json]');return 2
+    if len(files)!=1 or files[0].startswith('-') or args.count('--helper')!=len(helper) or args.count('--timings')>1:
+        usage = ('usage: batch <flow.json | saved name> [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings] [--repair-packet /absolute/new.json]'
+                 if not helper else
+                 'usage: batch <flow.json | saved name> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings] [--repair-packet /absolute/new.json]')
+        emit(usage);return 2
     try:
         # A saved name repeats the recipe `tacto replay <name>` runs, so going
         # from one replay to many needs no exported file. A path stays a path.
@@ -121,7 +142,7 @@ def run_batch(args, *, make_driver, run_flow, stdin, emit, load_recipe=None):
         emit('batch_requires_fixed_target_deterministic_flow; use run');return 2
     driver=None;completed=0;started=time.monotonic()
     try:
-        driver=BatchDriver(make_driver(['--helper']))
+        driver=BatchDriver(make_driver(list(helper)))
         with flow_input_mode(stdin.fileno()):
             reader=RequestLines(stdin.fileno())
             emit('TACTO_BATCH_READY '+json.dumps({'target':recipe.target,'max_jobs':maximum},separators=(',',':')))
@@ -140,7 +161,7 @@ def run_batch(args, *, make_driver, run_flow, stdin, emit, load_recipe=None):
                     return 2
                 if bound.target!=recipe.target:
                     emit('TACTO_BATCH_STOP target_mismatch');return 2
-                flags=['--helper','--think','0','--no-indicator']
+                flags=[*helper,'--think','0','--no-indicator']
                 if '--timings' in args:flags.append('--timings')
                 if repair_path is not None:
                     flags.extend(['--repair-packet', repair_path])
