@@ -1010,6 +1010,8 @@ SIGNED_HELPER_ONLY = frozenset({
     "click.window_bound_element",
     # Return into a bound text input or selected row (host-vouched submit).
     "press_key.return_bound",
+    # Safari native address-field confirmation is a signed-helper-only route.
+    "press_key.safari_address_confirm",
     # LaunchServices reopen without activation; AXCancel on an open menu.
     "action.reopen_window", "action.close_menu",
     # Token-bound Save and document attachments/lifecycle proofs are native-helper APIs.
