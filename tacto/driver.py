@@ -95,6 +95,14 @@ MAX_TREE_NODES = 2500
 # would spend everything inside the first big list and never reach the rest.
 MAX_CHILDREN_PER_NODE = 60
 TRUNCATION_MARK = "… (트리가 커서 여기서 잘렸습니다 — 더 좁은 창/앱을 대상으로 하세요)"
+# `reveal` looks past the per-container cap for named elements only: the 200th
+# row of a mailbox is found by its name without walking the other 199. Each
+# capped-off child and a shallow part of it are read for an exact label match;
+# the scan is bounded in nodes and time like the walk itself.
+REVEAL_SCAN_NODES = 5000
+REVEAL_SCAN_SECONDS = 3.0
+REVEAL_CHILD_DEPTH = 3
+REVEAL_CHILD_NODES = 24
 # kAXErrorCannotComplete. Apple documents it as possible when an action's
 # callback times out during modal processing, WITHOUT meaning the action failed.
 AX_CANNOT_COMPLETE = -25204
@@ -284,6 +292,24 @@ _LABEL_ATTRS = ("AXTitle", "AXDescription", "AXValue", "AXHelp",
                 "AXIdentifier", "AXPlaceholderValue", "AXSubrole")
 
 
+def _arm_reveal(obs, reveal):
+    if reveal:
+        obs.reveal = tuple(reveal)
+        obs.reveal_deadline = time.monotonic() + REVEAL_SCAN_SECONDS
+
+
+def _label_values(el):
+    """The raw label attribute values of one element, read in one round trip."""
+    try:
+        from ApplicationServices import AXUIElementCopyMultipleAttributeValues
+        err, values = AXUIElementCopyMultipleAttributeValues(el, _LABEL_ATTRS, 0, None)
+        if err == 0 and values is not None:
+            return list(values)
+    except Exception:
+        pass
+    return [_attr(el, name) for name in _LABEL_ATTRS]
+
+
 def _elem_label(el,quote_values=False):
     """Compact one-line description of an AX element.
 
@@ -451,6 +477,31 @@ class Observation:
             pass  # AX actions remain available; coordinate fallback will refuse.
         self.visited = 0           # nodes touched, emitted or not
         self.truncated = False
+        self.reveal = ()           # exact label texts to look for past the cap
+        self.reveal_scanned = 0
+        self.reveal_deadline = None
+        self.reveal_complete = True
+        self.revealed = 0
+
+    def _reveals(self, el):
+        """Whether `el` or a shallow part of it carries a reveal text exactly."""
+        todo = [(el, 0)]
+        seen = 0
+        while todo:
+            if (self.reveal_scanned >= REVEAL_SCAN_NODES
+                    or time.monotonic() >= self.reveal_deadline):
+                self.reveal_complete = False
+                return False
+            node, depth = todo.pop()
+            self.reveal_scanned += 1
+            seen += 1
+            values = _label_values(node)
+            if any(isinstance(v, str) and v in self.reveal for v in values):
+                return True
+            if depth < REVEAL_CHILD_DEPTH and seen < REVEAL_CHILD_NODES:
+                kids = _attr(node, "AXChildren") or []
+                todo.extend((kid, depth + 1) for kid in reversed(kids[:REVEAL_CHILD_NODES - seen]))
+        return False
 
     def walk(self, el, depth=0, *, node_limit=None, deferred=None):
         if depth > MAX_TREE_DEPTH:
@@ -495,8 +546,18 @@ class Observation:
             self.walk(child, depth + 1, node_limit=node_limit, deferred=deferred)
         if len(children) > MAX_CHILDREN_PER_NODE:
             self.truncated = True
+            shown = 0
+            if self.reveal:
+                for child in children[MAX_CHILDREN_PER_NODE:]:
+                    if self._reveals(child):
+                        self.walk(child, depth + 1, node_limit=node_limit, deferred=deferred)
+                        shown += 1
+                    elif not self.reveal_complete:
+                        break
+                self.revealed += shown
             self.lines.append("  " * (depth + 1)
-                              + f"… ({len(children) - MAX_CHILDREN_PER_NODE}개 더 있음)")
+                              + f"… ({len(children) - MAX_CHILDREN_PER_NODE}개 더 있음"
+                              + (f"; 찾는 항목 {shown}개 표시" if shown else "") + ")")
 
 
 # What `secondary_action` will actually carry. An AX action name goes straight
@@ -570,6 +631,7 @@ class Driver:
         "action.window_input", "window_input.window_bound", "window_input.host_authorization",
         "action.press_key", "press_key.no_escape",
         "press_key.element_bound",
+        "observe.reveal",
     })
 
     def __init__(self):
@@ -1245,7 +1307,11 @@ class Driver:
             pass
 
     def observe(self, target: str, mode: str = "tree_diff",
-                require_window: bool = True, *, document_token=None, _settle_after_action=True):
+                require_window: bool = True, *, document_token=None, reveal=None, _settle_after_action=True):
+        from .protocol import reveal_problem
+        problem = reveal_problem(reveal)
+        if problem:
+            return {'type':'error','error':'invalid_reveal','effect':'not_started','detail':problem}
         selected_window = None
         if document_token is not None:
             from .native_document import DocumentSnapshotError
@@ -1288,7 +1354,7 @@ class Driver:
                               + ", ".join(sorted(a.bundleIdentifier() or a.localizedName()
                                                  for a in gui)[:12])}
 
-        obs = Observation(target, pid)
+        obs = Observation(target, pid); _arm_reveal(obs, reveal)
         if document_token is not None:
             try:
                 refreshed = self._document_reader.window_for_token(target, document_token)
@@ -1303,7 +1369,7 @@ class Driver:
             # the Dock" — where Sky simply went on (2026-10-07 comparison).
             # Unhiding puts its windows back WITHOUT making it frontmost, so
             # the person keeps the app they are using; then look again.
-            obs = Observation(target, pid)
+            obs = Observation(target, pid); _arm_reveal(obs, reveal)
             has_windows = self._walk_windows(obs)
         if document_token is not None:
             try:
@@ -1370,6 +1436,11 @@ class Driver:
                   "mode": mode, "tree": tree, "element_count": len(obs.elements),
                   "custom_selects": self._custom_selects(obs),
                   "truncated": obs.truncated, "waited_ms": waited_ms}
+        if getattr(obs, "reveal", ()):
+            # Whether every capped-off child was checked: a miss means "not there"
+            # only when the scan was complete.
+            answer["revealed"] = obs.revealed
+            answer["reveal_scan_complete"] = obs.reveal_complete
         if document_token is not None:
             answer['document_token'] = document_token
         if obs.truncated:

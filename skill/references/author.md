@@ -241,8 +241,13 @@ off the same screen:
 screen, so presence-only checks have nothing to assert.
 
 **Big apps are read partially.** At most 60 children per container and 2500
-elements in total; the tree says where it stopped (`… (N개 더 있음)`). A recipe
-that needs the 200th row of a mailbox cannot have it.
+elements in total; the tree says where it stopped (`… (N개 더 있음)`). A step whose selector names its target exactly (identifier, title, description
+or value) is still found past the cap: when it is missing and the tree shows
+`… (N개 더 있음)`, replay asks once more for exactly those names (`observe.reveal`)
+and the matching rows appear under the same container, marked
+`; 찾는 항목 K개 표시`. A role-only or substring selector cannot be looked up
+this way. If the miss says the capped list was not checked to the end, the
+target may still exist; narrow the window or folder instead of retrying.
 
 ### Safety: state meaning, never a risk level
 

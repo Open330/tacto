@@ -490,7 +490,14 @@ class HelperDriver:
         return self._send({"type": "list_targets"})
 
     def observe(self, target: str, mode: str = "tree_full",
-                require_window: bool = True, *, document_token=None, window_identity=False, _settle_after_action=True):
+                require_window: bool = True, *, document_token=None, window_identity=False, reveal=None,
+                _settle_after_action=True):
+        from .protocol import REVEAL_CAPABILITY, reveal_problem
+        if reveal_problem(reveal):
+            return {'type':'error', 'error':'invalid_reveal', 'effect':'not_started', 'detail':reveal_problem(reveal)}
+        if reveal is not None and REVEAL_CAPABILITY not in getattr(self, 'capabilities', ()):
+            return {'type':'error', 'error':'reveal_unavailable', 'effect':'not_started',
+                    'detail':'helper does not look past the per-container cap'}
         if type(window_identity) is not bool:
             return {'type':'error', 'error':'invalid_window_identity_request', 'effect':'not_started'}
         if window_identity and 'observe.window_identity' not in getattr(self, 'capabilities', ()):
@@ -514,6 +521,8 @@ class HelperDriver:
             message['window_identity'] = True
         if document_token is not None:
             message['document_token'] = document_token
+        if reveal is not None:
+            message['reveal'] = list(reveal)
         out = self._send(message)
         if out.get("error") == "no_window_content" and "reason" not in out:
             # The helper says only that there is no window. Which of the

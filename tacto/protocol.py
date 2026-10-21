@@ -191,3 +191,18 @@ def drag_reobservation(action, response, capabilities):
             and response.get('unverified') == 'observe_effect' and response.get('reobserve_required') is True
             and type(response.get('posted_events')) is int
             and response['posted_events'] == drag_event_count(action))
+
+
+REVEAL_CAPABILITY = 'observe.reveal'
+
+
+def reveal_problem(reveal):
+    """None when `reveal` is absent or 1-8 exact label texts of 1-256 characters."""
+    if reveal is None:
+        return None
+    if (not isinstance(reveal, (list, tuple)) or not 1 <= len(reveal) <= 8
+            or any(not isinstance(text, str) or not 1 <= len(text) <= 256
+                   or any(ord(c) < 32 or ord(c) == 127 for c in text) for text in reveal)):
+        return 'reveal must be 1-8 label texts of 1-256 characters without control characters'
+    return None
+

@@ -83,5 +83,10 @@ trees without rereading nodes. Window blocks retain their order; indices can
 be non-monotonic within the output and remain valid only for that observation.
 `… (창별 관측이 잘렸습니다)` marks an incomplete window, including one whose
 controls were only partly read. A visible window title is not proof of complete
-window content. A recipe
-that needs the 200th row of a mailbox cannot have it.
+window content. A step whose selector names its target exactly (identifier, title, description
+or value) is still found past the cap: when it is missing and the tree shows
+`… (N개 더 있음)`, replay asks once more for exactly those names (`observe.reveal`)
+and the matching rows appear under the same container, marked
+`; 찾는 항목 K개 표시`. A role-only or substring selector cannot be looked up
+this way. If the miss says the capped list was not checked to the end, the
+target may still exist; narrow the window or folder instead of retrying.

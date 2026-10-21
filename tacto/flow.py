@@ -26,7 +26,7 @@ from .flow_errors import FlowFieldError, step_error
 from . import safety
 from .contract import (SafetyContract, ContextBinding, policy,
                        validate, describe, ApprovalToken, issue_approval)
-from .protocol import Driver, ACTION_PARAMS
+from .protocol import Driver, ACTION_PARAMS, REVEAL_CAPABILITY
 
 # Steps the engine runs itself, with nothing sent to the app. Kept apart from
 # ACTION_PARAMS, which is what a driver may be asked to do.
@@ -2167,6 +2167,18 @@ def _block_value(block, attribute):
     return None
 
 
+def _reveal_texts(selector):
+    """The exact names a selector asks for, which `reveal` may look for."""
+    from .protocol import reveal_problem
+    texts = []
+    for value in (selector.identifier, selector.title, selector.desc, selector.value):
+        for text in (value if isinstance(value, list) else [value]):
+            if isinstance(text, str) and text and text not in texts:
+                texts.append(text)
+    texts = texts[:8]
+    return texts if texts and reveal_problem(texts) is None else []
+
+
 def _replay_observation(method, *args, **kwargs):
     """Keep transport read failures inside the run's existing evidence record.
 
@@ -2560,6 +2572,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             target_line = "menu: " + " > ".join(
                 p if isinstance(p, str) else "|".join(p)
                 for p in step.params.get("path", []))
+        revealed = False
         while step.selector is not None:
             try:
                 action["element_index"], trace = step.selector.resolve(obs["tree"])
@@ -2567,6 +2580,19 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             except (TargetAmbiguous, TargetMissing) as e:
                 kind = ("target_ambiguous" if isinstance(e, TargetAmbiguous)
                         else "target_missing")
+                # A capped container may hold the named element past its first
+                # rows. Ask once for exactly that name before calling it missing.
+                texts = _reveal_texts(step.selector)
+                if (kind == "target_missing" and not revealed and texts
+                        and "개 더 있음)" in obs["tree"]
+                        and REVEAL_CAPABILITY in getattr(driver, "capabilities", ())):
+                    revealed = True
+                    again = _replay_observation(driver.observe, flow.target, "tree_full", reveal=texts)
+                    if again.get("type") == "observation":
+                        obs = again
+                        continue
+                if revealed and obs.get("reveal_scan_complete") is False:
+                    e = TargetMissing(f"{e} (잘린 목록을 끝까지 확인하지 못했습니다)")
                 nearby = _nearby(step.selector, obs["tree"])
                 fix = _escalate(escalate, spend, step, Uncertainty(
                     kind=kind, step=i, intent=step.intent_text,
