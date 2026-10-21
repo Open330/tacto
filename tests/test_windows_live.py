@@ -227,8 +227,11 @@ class WindowsLiveTests(unittest.TestCase):
             self.assertEqual("acted", result["type"], result)
         pid = int(self.target[4:])
         self.assertIs(False, self.driver._backend.modal_present(pid))
-        step(r"^\s*(\d+) MenuItem\s+Title: [^,]*, Identifier: File$")
-        step(r"^\s*(\d+) MenuItem\s+Title: (?:Save as|다른 이름으로 저장)$")
+        # Windows 11 Notepad names its menu items (Identifier: File, "Save as");
+        # the classic Win32 Notepad on Windows Server images does not ("File",
+        # "Save As...").
+        step(r"^\s*(\d+) MenuItem\s+Title: (?:File|파일)(?:, Identifier: File)?$")
+        step(r"^\s*(\d+) MenuItem\s+Title: (?:Save [Aa]s(?:\.\.\.)?|다른 이름으로 저장(?:\.\.\.)?)\b")
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline and not self.driver._backend.modal_present(pid):
             time.sleep(0.2)
@@ -257,6 +260,10 @@ class WindowsPackagedAppLiveTests(unittest.TestCase):
             time.sleep(0.25)
         obs = driver.observe(target)
         self.assertEqual("observation", obs["type"], obs)
+        if "num1Button" not in obs["tree"]:
+            # Another Calculator build (a server image's first launch, say)
+            # exposes no keypad here; say what it showed instead.
+            self.skipTest("Calculator keypad not exposed: " + " | ".join(obs["tree"].splitlines()[:8]))
         from tacto.flow import Selector
         index = Selector(identifier="num1Button").resolve(obs["tree"])[0]
         result = driver.act(obs["obs_id"], target, {"name": "click", "element_index": index})
