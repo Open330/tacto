@@ -668,11 +668,32 @@ Sky는 11회 모두 통과했다. 대신 tacto arm의 전체 입력은 대부분
 - 실제 과금, serving model 동일성, 서버 cache 상태.
 
 새 live 측정에는 다른 사용자가 조작하지 않는 macOS 화면이 필요하다. 이번에는
-사용 중인 foreground를 보존하기 위해 실행하지 않았다. 실행 명령은 다음과 같다.
+사용 중인 foreground를 보존하기 위해 실행하지 않았다.
+
+**측정 시간 줄이기: paired 모드** (`codex-tacto-paired`)
+- fresh context에서는 agent job끼리 대화를 공유하지 않고, job마다 fixture를 새로
+  준비한다. 그래서 0/30/70/100% 배치를 네 번 돌리지 않고, 한 반복 안에서
+  job마다 fresh agent 실행 1회와 Flow replay 1회를 측정한 뒤 비율별로 합성한다
+  (`summarize_reuse_ratios.compose_paired`).
+- seed 작성 1회와 repair 1회를 모든 비율이 나눠 쓴다. 비율 >0에는 seed를,
+  바뀐 컨트롤(job 7 이후)을 쓰는 비율에는 repair를 한 번씩 청구한다.
+- 한 job 안에서 두 실행의 순서는 job마다 번갈아 바뀐다.
+- 한계: 30%의 첫 변경 후 replay(job 9)는 job 7에서 측정한 실패 시도와 남은 구간
+  시간으로 대신한다(`approximated_first_changed_replay`). 네 비율을 따로 실행한
+  것이 아니라는 점을 limits에 기록한다. resumed 모드는 job이 대화를 이어 써서
+  합성할 수 없다.
+- 예상 시간(2026-10-13 원자료 기준: agent job 20–27 s, seed 61–107 s, repair
+  23–30 s, replay 1–4 s):
+
+| 방식 | 반복당 | 3회 |
+|---|---:|---:|
+| freshN 네 arm 따로 (agent 20, seed 3, repair 3) | 약 15분 | 약 45분 |
+| paired (agent 10, seed 1, repair 1) | 약 6–7분 | 약 20분 |
+
+fresh 세션은 매번 지침을 새로 읽으므로 agent job이 위 값보다 길 수 있다.
 
 ```
-uv run python -m examples.repeat_benchmark --output <새 디렉터리> --reps 3 \
-  --arms codex-tacto-fresh0 codex-tacto-fresh30 codex-tacto-fresh70 codex-tacto-fresh100
+uv run python -m examples.repeat_benchmark --output <새 디렉터리> --reps 3 --arms codex-tacto-paired
 uv run python -m examples.summarize_reuse_ratios <디렉터리>/report.json --output <요약.json>
 uv run python -m examples.benchmark_matched_conditions --output <새 디렉터리> --reps 3
 ```
