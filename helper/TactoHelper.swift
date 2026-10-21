@@ -64,6 +64,9 @@ let interactableRoles: Set<String> = [
     "AXStaticText", "AXCell", "AXRow", "AXScrollArea", "AXGroup", "AXImage",
     // Preserve unlabelled modal boundaries for recovery and scoped selectors.
     "AXSheet",
+    // Keep an unlabelled outer page visible, so an iframe cannot become the
+    // shallowest observed WebArea merely because its parent has no URL yet.
+    "AXWebArea",
 ]
 
 @Sendable func attr(_ el: AXUIElement, _ name: String) -> CFTypeRef? {
@@ -226,8 +229,9 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     if snapshot == nil { metrics?.packetFallbacks += 1 }
     let role = snapshot.map { $0.string(kAXRoleAttribute as String) ?? "?" }
         ?? str(el, kAXRoleAttribute as String) ?? "?"
-    var text = snapshot?.label(role:role,quoteValues:role == kAXWindowRole as String)
-        ?? label(el,quoteValues:role == kAXWindowRole as String)
+    let quoteValues = role == kAXWindowRole as String || role == "AXWebArea"
+    var text = snapshot?.label(role:role,quoteValues:quoteValues)
+        ?? label(el,quoteValues:quoteValues)
     // A window says which file it shows, so an agent can name that file
     // (textedit_save needs the absolute path; the title is only a name).
     // file:// only, decoded and composed; anything else is not shown.
@@ -237,6 +241,21 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
        let path = documentURLSyntaxPath(doc), !path.hasPrefix("/.file/") {
         if let encoded=quotedLabelValue(path.precomposedStringWithCanonicalMapping) {
             text += (text.isEmpty ? "" : ", ") + "Document: \(encoded)"
+        }
+    }
+    if role == "AXWebArea", let url = attr(el, "AXURL") as? URL {
+        let doc = url.absoluteString
+        if doc.count <= 2048,
+              doc.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil,
+              let parts = URLComponents(string: doc),
+              let scheme = parts.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              doc.lowercased().hasPrefix(scheme + "://"),
+              let host = parts.host, !host.isEmpty,
+              parts.user == nil, parts.password == nil,
+              let encoded = quotedLabelValue(doc) {
+            // Safari exposes the page URL as NSURL on WebArea, independently
+            // of the editable address bar. Preserve identity without truncation.
+            text += (text.isEmpty ? "" : ", ") + "URL: \(encoded)"
         }
     }
     if interactableRoles.contains(role) || !text.isEmpty {
