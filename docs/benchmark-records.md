@@ -677,7 +677,12 @@ Sky는 11회 모두 통과했다. 대신 tacto arm의 전체 입력은 대부분
   (`summarize_reuse_ratios.compose_paired`).
 - seed 작성 1회와 repair 1회를 모든 비율이 나눠 쓴다. 비율 >0에는 seed를,
   바뀐 컨트롤(job 7 이후)을 쓰는 비율에는 repair를 한 번씩 청구한다.
-- 한 job 안에서 두 실행의 순서는 job마다 번갈아 바뀐다.
+- 한 job 안에서 두 실행의 순서는 job마다 번갈아 바뀐다. fixture는 실행 내내 commit을
+  지우지 않으므로, 두 모드는 같은 입력에 서로 다른 물리 job id(T01-A, T01-F)를 쓴다.
+- 비율별 결과는 같은 행과 seed·repair를 나눠 쓰므로 서로 상관돼 있다. 한 반복은
+  표본 1개이지 4개가 아니며, `savings_against_zero`는 paired에서 계산하지 않는다
+  (`null`). 생성되는 요약 JSON의 limits에도 이 점과 서버 cache 미측정을 적는다.
+- 30% 근사는 시간만 빌린다. job 9 자신의 replay가 실패하면 그 비율은 실패다.
 - 한계: 30%의 첫 변경 후 replay(job 9)는 job 7에서 측정한 실패 시도와 남은 구간
   시간으로 대신한다(`approximated_first_changed_replay`). 네 비율을 따로 실행한
   것이 아니라는 점을 limits에 기록한다. resumed 모드는 job이 대화를 이어 써서
@@ -690,7 +695,10 @@ Sky는 11회 모두 통과했다. 대신 tacto arm의 전체 입력은 대부분
 | freshN 네 arm 따로 (agent 20, seed 3, repair 3) | 약 15분 | 약 45분 |
 | paired (agent 10, seed 1, repair 1) | 약 6–7분 | 약 20분 |
 
-fresh 세션은 매번 지침을 새로 읽으므로 agent job이 위 값보다 길 수 있다.
+fresh 세션은 매번 지침을 새로 읽으므로 agent job이 위 값보다 길 수 있다. 이 표는
+벤치마크를 돌리는 데 드는 예상 시간이지, 제품이 빨라졌다는 측정이 아니다.
+30%를 실제 시나리오 그대로 엄격히 공개하려면 그 비율의 첫 변경 후 복구를 따로
+측정하거나, 근사값을 분리해 표기한다.
 
 ```
 uv run python -m examples.repeat_benchmark --output <새 디렉터리> --reps 3 --arms codex-tacto-paired

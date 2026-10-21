@@ -182,26 +182,34 @@ def paired_jobs(base,app,target,provider):
     authoring and one repair serve every ratio. Within a job the order of the
     two runs alternates; a job's replay is never skipped because its agent
     run failed, so failures are counted per mode.
+
+    The fixture keeps every commit for the whole run, so each mode works on its
+    own physical job id (T01-A, T01-F) with the same inputs: a second run of
+    T01 would otherwise find the first one's commit and fail single_commit.
     """
     fixture=Fixture(base/'fixture',app);agents=[];template=base/'template.json';pairs=[]
     try:
         setup,recipe=_author_seed(base,fixture,target,provider,template,agents)
-        for n,job in enumerate(jobs(),1):
+        for n,logical in enumerate(jobs(),1):
             pair={}
             for mode in (('agent','flow') if n%2 else ('flow','agent')):
+                job=dict(logical,job=f"{logical['job']}-{'A' if mode=='agent' else 'F'}")
                 fixture.setup(job,changed=n>=7)
                 if mode=='agent':
                     row=run_agent(provider,prompt(job,target,'tacto'),base/f'agent-{n:02d}')
                     row.update(job=job,mode='agent',context='fresh',oracle=fixture.oracle(job));agents.append(row)
                 else:
                     row,recipe=_flow_job(base,fixture,job,n,recipe,template,provider,agents)
-                pair[mode]=row
+                row['logical_job']=logical['job'];pair[mode]=row
             pairs.append(pair)
             write(base/'progress.json',{'kind':'paired-jobs','pairs':pairs,'agent_runs':agents,'usage':sum_usage(agents)})
             print(json.dumps({'arm':f'{provider}-tacto-paired','job':n,
                               'agent':pair['agent']['oracle']['passed'],'flow':pair['flow']['oracle']['passed']}),flush=True)
+        verified=[r for p in pairs for r in p.values()
+                  if r['oracle']['passed'] and r['oracle'].get('single_commit') and r.get('recovery',r)['exit']==0]
         return {'kind':'paired-jobs','context':'fresh','setup':setup,'provider':provider,'pairs':pairs,
-                'agent_runs':agents,'usage':sum_usage(agents),'passed':len(pairs)==10}
+                'agent_runs':agents,'usage':sum_usage(agents),'verified_rows':len(verified),
+                'passed':len(pairs)==10 and len(verified)==20}
     finally:fixture.close()
 
 

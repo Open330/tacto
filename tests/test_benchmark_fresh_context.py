@@ -1,4 +1,5 @@
 """Fresh-context reuse arms, repetitions and their summary."""
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -258,6 +259,74 @@ class PairedJobsTests(unittest.TestCase):
         order=[c[0] for c in calls if c[0]!='seed']
         self.assertEqual(['agent','flow','flow','agent'],order[:4])     # alternates per job
         self.assertEqual(('paired-jobs',10),(result['kind'],len(result['pairs'])))
+
+
+class StatefulFixture(repeat_benchmark.Fixture):
+    """The real oracle over a commit list that lives as long as the run."""
+    def __init__(self,base,app):
+        self.seq=0;self.current={'sequence':0,'job':'','phase':'entry','commits':[],'active':False}
+        StatefulFixture.last=self
+    def state(self):
+        return json.loads(json.dumps(self.current))
+    def setup(self,job,changed=False):
+        self.seq+=1;self.current.update(sequence=self.seq,job=job['job'],phase='entry')
+        return self.state()
+    def commit(self,job):
+        self.current['commits'].append({'job':self.current['job'],'amount':job['amount'],'factor':job['factor'],
+                                        'bonus':job['bonus'],'result':int(job['result'])})
+        self.current['phase']='done'
+    def close(self):pass
+
+
+class PairedStatefulTests(unittest.TestCase):
+    def test_both_modes_of_a_job_each_hold_exactly_one_commit(self):
+        import json as _json
+        def agent(provider,text,trace,**kwargs):
+            fixture=StatefulFixture.last
+            job=next(j for j in repeat_benchmark.jobs() if j['job']==fixture.current['job'].split('-')[0])
+            fixture.commit(job)
+            return {'exit':0,'seconds':1,'session_id':'s','usage':usage(),'trace_directory':str(trace)}
+        def flow_job(base,fixture,job,n,recipe,template,provider,agents):
+            fixture.commit(job)
+            return {'seconds':1,'exit':0,'mode':'flow','job':job,'oracle':fixture.oracle(job)},recipe
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(repeat_benchmark,'Fixture',StatefulFixture), \
+             mock.patch.object(repeat_benchmark,'run_agent',agent), \
+             mock.patch.object(repeat_benchmark,'_flow_job',flow_job), \
+             mock.patch.object(repeat_benchmark,'_author_seed',lambda *a:({'seconds':1,'exit':0},object())), \
+             mock.patch('builtins.print'):
+            result=repeat_benchmark.paired_jobs(Path(folder),None,'t','codex')
+        rows=[r for p in result['pairs'] for r in p.values()]
+        self.assertTrue(all(r['oracle']['single_commit'] and r['oracle']['passed'] for r in rows))
+        self.assertEqual((20,True),(result['verified_rows'],result['passed']))
+        self.assertEqual({'T01'},{r['logical_job'] for r in result['pairs'][0].values()})
+        self.assertEqual({'T01-A','T01-F'},{r['job']['job'] for r in result['pairs'][0].values()})
+        self.assertEqual(20,len(StatefulFixture.last.current['commits']))   # evidence never cleared
+
+    def test_the_selected_rows_own_failure_is_not_hidden_by_borrowed_timing(self):
+        from examples.summarize_reuse_ratios import compose_paired
+        for change in ({'passed':False},{'single_commit':False}):
+            with self.subTest(change=change):
+                r=paired();r['pairs'][8]['flow']['oracle'].update(change)
+                with self.assertRaises(ValueError):compose_paired(r,30)
+        r=paired();r['pairs'][8]['flow']['exit']=1
+        with self.assertRaises(ValueError):compose_paired(r,30)
+
+    def test_one_passing_paired_repetition_summarizes_from_the_command_line(self):
+        import json as _json,subprocess,sys
+        with tempfile.TemporaryDirectory() as folder:
+            report=Path(folder)/'report.json';report.write_text(_json.dumps({'results':[paired()]}))
+            out=Path(folder)/'summary.json'
+            done=subprocess.run([sys.executable,'-m','examples.summarize_reuse_ratios',str(report),'--output',str(out)],
+                                capture_output=True,text=True,cwd=Path(__file__).resolve().parents[1])
+            self.assertEqual(0,done.returncode,done.stderr)
+            summary=_json.loads(out.read_text())
+        self.assertIsNone(summary['savings_against_zero'])        # composed rows are not separate runs
+        self.assertTrue(summary['complete'])
+        self.assertTrue(any('correlated' in limit for limit in summary['limits']))
+        seventy=next(g for g in summary['groups'] if g['reuse_percent']==70)
+        self.assertEqual('paired',seventy['context'])
+        self.assertIsNotNone(seventy['median']['total_input_tokens'])
 
 
 if __name__=='__main__':unittest.main()

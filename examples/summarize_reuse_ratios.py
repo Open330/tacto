@@ -56,12 +56,18 @@ def compose_paired(result,percent):
     if len(pairs)!=10:raise ValueError('ten paired jobs required')
     schedule=reuse_schedule(percent);seconds=0;used=[]
     changed=sorted(n for n in schedule if n>=7)
-    for n,pair in enumerate(pairs,1):
-        mode='flow' if n in schedule else 'agent';row=pair[mode]
-        if mode=='flow' and changed and n==changed[0]:row=pairs[6]['flow']
+
+    def verified(row,n,mode):
         oracle=row.get('oracle') or {}
-        if not oracle.get('passed') or not oracle.get('single_commit',True):raise ValueError(f'job {n} {mode} not verified')
+        if not oracle.get('passed') or oracle.get('single_commit') is not True:raise ValueError(f'job {n} {mode} not verified')
         if row.get('recovery',row).get('exit')!=0:raise ValueError(f'job {n} {mode} exit failure')
+        return row
+    for n,pair in enumerate(pairs,1):
+        mode='flow' if n in schedule else 'agent'
+        row=verified(pair[mode],n,mode)   # the job's own row must hold, whatever its timing
+        if mode=='flow' and changed and n==changed[0]:
+            # Only the timing is borrowed: job 7's replay is the one that met the change.
+            row=verified(pairs[6]['flow'],7,'flow')
         seconds+=row['seconds']+row.get('recovery',{}).get('seconds',0)
         if mode=='agent':used.append(row)
     setup=result.get('setup')
@@ -77,7 +83,9 @@ def compose_paired(result,percent):
     usage=sum_usage(charged) if charged else {'total_input_tokens':0,'cache_read_tokens':0,'output_tokens':0,'unknown_usage_records':0}
     known=not usage.get('unknown_usage_records') and all(type(usage.get(k)) is int for k in ('total_input_tokens','cache_read_tokens','output_tokens'))
     return {'reuse_percent':percent,'seconds':seconds,'agent_jobs':len(used),'flow_jobs':len(schedule),
+            'composed':True,'shared_components':['seed_authoring','repair'] if percent else [],
             'total_input_tokens':usage['total_input_tokens'] if known else None,
+            'cache_read_tokens':usage['cache_read_tokens'] if known else None,
             'new_input_tokens':usage['total_input_tokens']-usage['cache_read_tokens'] if known else None,
             'output_tokens':usage['output_tokens'] if known else None,
             'approximated_first_changed_replay':bool(changed) and changed[0]!=7}
@@ -149,7 +157,9 @@ def legacy_savings(groups):
     """The old one-batch-per-ratio comparison, only where it still means one
     thing: a single provider and context with exactly one passed run each."""
     arms={(g['provider'],g['context']) for g in groups}
-    if len(arms)!=1 or any(g['passed_runs']!=1 for g in groups):return None
+    # Composed ratios share their rows; their differences are not separate runs.
+    if len(arms)!=1 or any(g['context']=='paired' for g in groups):return None
+    if any(g['passed_runs']!=1 for g in groups):return None
     by={g['reuse_percent']:g['passed'][0] for g in groups}
     if 0 not in by:return None
     return {p:savings(by[0],b) for p,b in by.items() if p}
@@ -167,7 +177,10 @@ def main():
          'definition':'ten runtime jobs; fresh authoring seed and repair charged separately and included in total',
          'comparison_eligible':False,'limits':['fixed execution order within a repetition','owned fixture, not general application coverage',
          "resumed: agent jobs share one CLI-resumed conversation; fresh: one ephemeral session per agent job",
-         'paired: every ratio composed from one run of each job per mode, one seed and one repair; not four separate executions','unknown serving model and billing parity',
+         'paired: every ratio composed from one run of each job per mode, one seed and one repair; not four separate executions',
+         'paired: ratios share their seed and repair and are correlated; a repetition is one sample, not four',
+         'paired: the 30% first changed-control replay takes job 7 timing (approximated_first_changed_replay)',
+         'server-side prompt cache carry-over between runs is not measured','unknown serving model and billing parity',
          'single logical commit is not proof of one physical input','host-verified remaining segment, not automatic journal resume']}
     path=Path(args.output);path.write_text(json.dumps(out,indent=2));path.chmod(0o600)
     print(json.dumps(out,indent=2))
