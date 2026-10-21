@@ -42,28 +42,29 @@ class BoundedReaderTests(unittest.TestCase):
     def test_the_reader_does_not_run_ahead_of_its_consumer(self):
         from tacto.flow_session import _windows_reader
         read_fd, write_fd = os.pipe()
+        total = 32 * 65536
         written = []
 
         def produce():
             try:
                 for _ in range(32):
                     os.write(write_fd, b"x" * 65536); written.append(1)
-            except OSError:
-                pass
+            finally:
+                os.close(write_fd)   # EOF once everything is written
         writer = threading.Thread(target=produce, daemon=True); writer.start()
         read = _windows_reader(read_fd)
         time.sleep(0.3)
         # At most two chunks wait; the rest of the 2 MiB stays unread.
         self.assertLessEqual(read.queue.qsize(), 2)
-        self.assertTrue(writer.is_alive())
         self.assertLess(len(written), 32)
-        while writer.is_alive() or read.queue.qsize():
-            try:
-                read(0.5)
-            except TimeoutError:
+        received = 0
+        while True:   # drain to the real EOF and count every byte
+            chunk = read(5)
+            if not chunk:
                 break
-        os.close(write_fd)
-        self.assertEqual(b"", read(2))   # EOF still arrives after the backlog
+            received += len(chunk)
+        writer.join(5)
+        self.assertEqual(total, received)
         os.close(read_fd)
 
 
