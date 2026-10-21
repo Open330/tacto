@@ -702,3 +702,9 @@ keyboard readiness check is unchanged. A confirmation failure or timeout never
 falls back to a key press; uncertain outcomes still require a fresh observation.
 `acted` with `unverified: observe_effect` proves neither navigation nor server
 receipt. Verify the destination page before reporting a successful navigation.
+
+Safari address confirmation performs the bound navigation; it does not supply a
+remote-service commit receipt. A Flow declaring `transmit` can therefore finish
+as `commit_unverified` even after navigation. Inspect the requested destination
+without repeating the confirmation; do not treat an address-bar value alone as
+proof that a remote service accepted a request.
