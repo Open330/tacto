@@ -38,5 +38,34 @@ class WindowsSessionInputTests(unittest.TestCase):
             read_flow_line(self.pipe(b"{}\n{}\n"), 2, platform="win32")
 
 
+class BoundedReaderTests(unittest.TestCase):
+    def test_the_reader_does_not_run_ahead_of_its_consumer(self):
+        from tacto.flow_session import _windows_reader
+        read_fd, write_fd = os.pipe()
+        written = []
+
+        def produce():
+            try:
+                for _ in range(32):
+                    os.write(write_fd, b"x" * 65536); written.append(1)
+            except OSError:
+                pass
+        writer = threading.Thread(target=produce, daemon=True); writer.start()
+        read = _windows_reader(read_fd)
+        time.sleep(0.3)
+        # At most two chunks wait; the rest of the 2 MiB stays unread.
+        self.assertLessEqual(read.queue.qsize(), 2)
+        self.assertTrue(writer.is_alive())
+        self.assertLess(len(written), 32)
+        while writer.is_alive() or read.queue.qsize():
+            try:
+                read(0.5)
+            except TimeoutError:
+                break
+        os.close(write_fd)
+        self.assertEqual(b"", read(2))   # EOF still arrives after the backlog
+        os.close(read_fd)
+
+
 if __name__ == "__main__":
     unittest.main()

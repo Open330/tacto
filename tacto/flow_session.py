@@ -33,11 +33,15 @@ def flow_input_mode(fd):
             termios.tcsetattr(fd, termios.TCSANOW, original)
 
 
-def _windows_reader(fd):
-    """select() takes only sockets on Windows, so one thread reads the pipe."""
+def _windows_reader(fd, *, depth=2):
+    """select() takes only sockets on Windows, so one thread reads the pipe.
+
+    The queue holds at most `depth` chunks: while a long batch job runs, the
+    thread waits instead of reading the rest of stdin into memory.
+    """
     import queue
     import threading
-    chunks = queue.Queue()
+    chunks = queue.Queue(maxsize=depth)
 
     def pump():
         while True:
@@ -55,6 +59,7 @@ def _windows_reader(fd):
             return chunks.get(timeout=remaining)
         except queue.Empty:
             raise TimeoutError('session_idle_timeout') from None
+    read.queue = chunks   # for tests: bounded backlog
     return read
 
 
