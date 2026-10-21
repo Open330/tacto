@@ -40,6 +40,29 @@ is signed as the installed helper's identity (`ai.callabo.tacto.helper`, team
 5. launchd owns the lifetime: no launcher terminates a helper another
    connection uses, and the agent leaves when idle.
 
+## Before adoption (review, 2026-10-21)
+
+The numbers above are ping round trips, not an end-to-end task speedup. A
+production change must first settle:
+
+1. One driving lease, enforced by a serial executor. A dropped connection
+   discards its pending input, callbacks and tokens.
+2. No automatic replay of a write after an agent restart, interruption or
+   invalidation; an uncertain effect stays `unknown`. Falling back to the
+   LaunchServices helper is allowed only when the connection was refused
+   before the first request.
+3. Atomic app update and rollback: after unregistering or replacing the app,
+   measure that no old launchd process or plist path survives and that the
+   grants still apply.
+4. A protocol, version and capability handshake, since another version of a
+   client with the same identity can connect; per-session size and deadline
+   limits.
+5. Every piece of global state (observation, documents, menus, abort, banner)
+   moved into the connection's session, with regression tests for concurrent
+   connections, reconnection and Esc.
+
+This is follow-up work. It is not part of the current preview release.
+
 Open items: registration posts a one-time "background item added" notice and
 lists the agent under Login Items, where a person can turn it off (the
 fallback covers that); an Esc in one connection must stop only that run.
