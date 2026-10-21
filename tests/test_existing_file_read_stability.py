@@ -108,7 +108,9 @@ class ReadbackStabilityTests(unittest.TestCase):
 
         with self.at_eof(replace), self.assertRaises(ArtifactReceiptError) as failure:
             receipt.after_commit(event, {'type': 'acted'}, context)
-        self.assertEqual('file_does_not_hold_text', failure.exception.public_code)
+        # Which refusal depends on when the 20 ms poll sees the replacement
+        # (macOS CI saw it mid-read); either way no receipt is issued.
+        self.assertIn(failure.exception.public_code, {'file_does_not_hold_text', 'file_changed_during_read'})
         with self.assertRaises(ArtifactReceiptError) as second:
             receipt.after_commit(event, {'type': 'acted'}, context)
         self.assertEqual('already_used', second.exception.public_code)
