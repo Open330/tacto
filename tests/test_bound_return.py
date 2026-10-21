@@ -114,6 +114,25 @@ class BoundReturnReplayTests(unittest.TestCase):
                 self.assertTrue(any(entry.get('status') == 'gated' for entry in result.log), result.log)
                 self.assertNotIn('navigation_contract_required', str(result.log))
 
+    def test_trace_preserves_bound_submit_and_replays_the_same_contract(self):
+        from tacto.trace import TracingDriver, TraceDriver
+        class NamedArgumentsApp(App):
+            def act(self, obs_id, target, action, **kwargs):
+                return super().act(obs_id, target, action, **kwargs)
+            def wait_until(self, target, predicate, timeout_ms=4000, poll_ms=250):
+                return super().wait_until(target, predicate, timeout_ms=timeout_ms, poll_ms=poll_ms)
+        app = NamedArgumentsApp()
+        traced = TracingDriver(app)
+        first = self.run_step(traced, step())
+        self.assertTrue(first.ok, first.log)
+        self.assertEqual(1, len(app.calls))
+        self.assertIs(app.calls[0][1].get('submit_authorized'), True)
+        requests = [e['request'] for e in traced.trace.events if e['kind'] == 'act']
+        self.assertIs(requests[0]['submit_authorized'], True)
+        second = self.run_step(TraceDriver(traced.trace), step())
+        self.assertTrue(second.ok, second.log)
+        self.assertEqual(1, len(app.calls))
+
     def test_no_effect_or_malformed_receipt_never_retries(self):
         cases = [App(opens=False)]
         for key, value in [('posted_events', 2), ('input_route', 'window_key'),

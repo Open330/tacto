@@ -211,9 +211,11 @@ class TracingDriver:
                                        "require_window": require_window}, result)
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False, *, save_panel_token=None):
+            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
         request = dict(obs_id=obs_id, target=target, action=action, expect=expect,
                        risk_class=risk_class, intent_text=intent_text, approved=approved)
+        if submit_authorized is not False:
+            request["submit_authorized"] = submit_authorized
         if save_panel_token is not None:
             # Connection-owned live evidence is not a replayable action proof.
             return self._inner.act(**request, save_panel_token=save_panel_token)
@@ -310,14 +312,17 @@ class TraceDriver:
                                       "require_window": require_window})
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False, *, save_panel_token=None):
+            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
         if action.get('name') == 'window_input':
             return {'type':'error', 'error':'window_input_unavailable', 'effect':'not_started'}
         if save_panel_token is not None:
             return {'type':'error', 'error':'save_panel_guard_unavailable', 'effect':'not_started'}
-        return self._take("act", dict(obs_id=obs_id, target=target, action=action,
-                                     expect=expect, risk_class=risk_class,
-                                     intent_text=intent_text, approved=approved))
+        request = dict(obs_id=obs_id, target=target, action=action,
+                       expect=expect, risk_class=risk_class,
+                       intent_text=intent_text, approved=approved)
+        if submit_authorized is not False:
+            request["submit_authorized"] = submit_authorized
+        return self._take("act", request)
 
     def save_panel(self, obs_id, target, window_element_index, *, panel_token=None,
                    document_token=None, require_format=False):
