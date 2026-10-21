@@ -41,6 +41,15 @@ def committed_sources(root=ROOT):
             'all_inputs_match_commit':True}
 
 
+def require_timestamps(paths,run=subprocess.run):
+    """Every packaged Mach-O, wherever it sits in the bundle, carries a secure timestamp."""
+    for path in paths:
+        metadata=run(['codesign','-dv','--verbose=4',str(path)],check=True,capture_output=True,text=True)
+        if 'Timestamp=' not in metadata.stderr:
+            raise RuntimeError(f'packaged Mach-O has no secure signing timestamp: {Path(path).name}')
+    return len(paths)
+
+
 def build(output,identity,tag):
     version,preview_number=release_version(tag)
     before=committed_sources()
@@ -90,10 +99,7 @@ def build(output,identity,tag):
         if path.read_bytes() != (site/'tacto'/path.relative_to(ROOT/'tacto')).read_bytes():
             raise RuntimeError('packaged Python source differs')
     all_native=list(preview.native_files(output))
-    for path in all_native:
-        metadata=subprocess.run(['codesign','-dv','--verbose=4',str(path)],check=True,capture_output=True,text=True)
-        if 'Timestamp=' not in metadata.stderr:
-            raise RuntimeError('packaged Mach-O has no secure signing timestamp')
+    require_timestamps(all_native)
     scanned=preview.require_private_paths_absent(output,(Path.home(),ROOT))
     return {**report,'version':tag,'source_commit':before['workspace_commit'],
             'source_digest':before['digest'],'all_inputs_match_commit':True,

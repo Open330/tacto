@@ -8,7 +8,8 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'setup'))
-from build_distribution import release_version,committed_sources
+from build_distribution import release_version,committed_sources,require_timestamps
+import build_standalone_preview as preview
 
 class DistributionBuildTests(unittest.TestCase):
     def test_release_tags_are_closed(self):
@@ -31,3 +32,22 @@ class DistributionBuildTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):committed_sources(root)
             (root/'untracked').unlink()
             self.assertEqual(before,committed_sources(root))
+
+    def test_every_packaged_macho_needs_a_timestamp_not_only_the_venv(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            for name in ('Contents/MacOS/TactoSetup','Contents/Resources/runtime/.venv/bin/python3',
+                         'Contents/Resources/runtime/extra/tool'):
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_bytes(next(iter(preview.MAGICS))+b'\0'*16)
+            (root/'Contents/Info.plist').write_text('<plist/>')
+            found=list(preview.native_files(root))
+            self.assertEqual(3,len(found))
+            class Signed:
+                def __init__(self,stderr):self.stderr=stderr
+            def run(arguments,**_):
+                return Signed('Authority=x\n' if arguments[-1].endswith('extra/tool') else 'Timestamp=Oct 21, 2026\n')
+            with self.assertRaisesRegex(RuntimeError,'tool'):require_timestamps(found,run=run)
+            signed=[p for p in found if p.name!='tool']
+            self.assertEqual(2,require_timestamps(signed,run=lambda a,**_:Signed('Timestamp=now\n')))
+

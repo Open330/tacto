@@ -691,6 +691,9 @@ owner, enabled state and native chrome ancestry. Only full HTTP(S) URLs and an
 advertised `AXConfirm` action qualify; web content, sheets/dialogs and other
 apps keep their existing routes. URLs without a scheme use the existing key
 path and may still be refused if its readiness cannot be established.
+The comparison is exact: a URL the observation renders differently (surrounding
+spaces, another Unicode normalization, or text that looks like a tree attribute
+such as `, Title:`) is refused before any input rather than confirmed.
 
 The qualifying route invokes the field's semantic `AXConfirm` once and sends
 zero keyboard events. It therefore does not need to route a Return through

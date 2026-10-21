@@ -77,3 +77,30 @@ class SafariValuePinTests(unittest.TestCase):
             self.assertEqual("WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",claim["label"])
             if extra:self.assertEqual(url,claim["value"])
             else:self.assertNotIn("value",claim)
+
+    def test_a_drifted_observed_url_is_refused_before_any_input(self):
+        """Safari may show another URL by the time Return is pressed. The bound
+        destination is compared on the host first: nothing is sent at all."""
+        from unittest.mock import patch
+        from tests.test_bound_return import App,CAPS,step
+        from tacto.flow import Flow,Selector,Postcondition,replay,pin_params
+        from tacto.contract import ContextBinding
+        def run(bound,shown):
+            class Browser(App):
+                def observe(self,*args,**kwargs):
+                    return {"type":"observation","obs_id":"o","tree":
+                            "0 Window Title: Browser\n  1 TextField Identifier: WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD, Value: "+shown+"\n  2 StaticText Identifier: navigation-status, Value: pending"}
+            app=Browser();app.capabilities=CAPS|{"press_key.safari_address_confirm"}
+            st=step(effects={"transmit"},selector=Selector(identifier="WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"),
+                    binding=ContextBinding(bundle_id="com.apple.Safari",identifier="WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",
+                                           operation="press_key",params_digest=pin_params({"key":"Return"}),
+                                           destination_identity=bound,destination_identity_from={"identifier":"WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD","attribute":"Value"}),
+                    postcondition=Postcondition(field=Selector(identifier="navigation-status"),attribute="Value",equals="done"))
+            with patch("tacto.flow._approved",return_value=True):
+                replay(app,Flow("navigate","com.apple.Safari",[st],schema=2))
+            return [c[1].get("expect",{}) for c in app.calls]
+        url="https://example.com/expected"
+        self.assertEqual([],run(url,url+"-login"))
+        self.assertEqual([url],[c.get("value") for c in run(url,url)])
+        # Not a full HTTP(S) destination: no pin, so the semantic route is not chosen.
+        self.assertTrue(all("value" not in c for c in run("example.com","example.com")))
