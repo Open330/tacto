@@ -211,10 +211,9 @@ def build(output,identity,tag,*,baseline=None,initial_distribution=False,removal
     source_packages=require_release_environment()
     previous=read_baseline(baseline,initial_distribution=initial_distribution)
     removals=read_removal_allowlist(removal_allowlist)
-    if previous is not None:
-        missing=set(previous['distributions'])-set(source_packages)-set(removals['distributions'])
-        if missing:
-            raise RuntimeError('unapproved removed distributions before build: '+', '.join(sorted(missing)))
+    # preview.build also copies the base Python installation, which can
+    # contribute pip/setuptools not present in the venv. Compare prior-release
+    # removals only against the complete packaged inventory below.
     environment=dict(os.environ,TACTO_SIGN_IDENTITY=identity)
     for script in ('helper/build.sh','helper/bundle.sh'):
         subprocess.run(['bash',str(ROOT/script)],cwd=ROOT,env=environment,check=True,capture_output=True)

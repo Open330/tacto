@@ -111,14 +111,19 @@ class DistributionInventoryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,'uv sync --frozen --all-extras'):
                 distribution.require_release_environment(Path(folder),run)
 
-    def test_package_deletion_fails_before_native_build(self):
+    def test_package_deletion_still_fails_before_final_timestamp_signing(self):
+        packaged=self.inventory();del packaged['distributions']['playwright']
         with mock.patch.object(distribution,'committed_sources',return_value={}), \
              mock.patch.object(distribution,'require_release_environment',return_value={'tacto-runtime':'0.1.0'}), \
              mock.patch.object(distribution,'read_baseline',return_value=self.inventory()), \
+             mock.patch.object(distribution.preview,'build',return_value={}) as builder, \
+             mock.patch.object(distribution,'app_inventory',return_value=packaged), \
              mock.patch.object(distribution.subprocess,'run') as run:
             with self.assertRaisesRegex(RuntimeError,'playwright'):
                 distribution.build('unused.app','unused','v0.1.0-preview.19')
-            run.assert_not_called()
+            builder.assert_called_once()
+            self.assertEqual(2,run.call_count)
+            self.assertTrue(all(call.args[0][0]=='bash' for call in run.call_args_list))
 
     def test_removed_package_and_native_path_each_require_explicit_reason(self):
         previous=self.inventory();current=self.inventory()
@@ -200,7 +205,7 @@ class DistributionInventoryTests(unittest.TestCase):
                 self.assertEqual(2,run.call_count)
                 self.assertTrue(all(call.args[0][0]=='bash' for call in run.call_args_list))
 
-    def test_successful_build_embeds_inventory_before_final_signing(self):
+    def test_base_python_packages_preserved_outside_venv_do_not_look_removed(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);output=root/'result.app'
             (root/'tacto').mkdir();(root/'tacto/__init__.py').write_text('x = 1\n')
@@ -209,6 +214,8 @@ class DistributionInventoryTests(unittest.TestCase):
             def fake_build(app,identity):
                 runtime=app/'Contents/Resources/runtime'
                 self.package(runtime/'.venv')
+                self.package(runtime/'.venv','pip','26.2.1')
+                self.package(runtime/'.venv','setuptools','84.0.0')
                 site=runtime/'.venv/lib/python3.11/site-packages/tacto';site.mkdir()
                 (site/'__init__.py').write_text('x = 1\n')
                 for name in ('Contents/MacOS/TactoSetup','Contents/Resources/runtime/.venv/bin/python3',
@@ -225,20 +232,25 @@ class DistributionInventoryTests(unittest.TestCase):
                     self.assertTrue(sealed['inventory_compatibility']['passed'])
                 return subprocess.CompletedProcess(args,0,'','Timestamp=fixture\n')
             timestamps=distribution.require_timestamps
-            with mock.patch.object(distribution,'ROOT',root), \
+            prior={'schema':1,'distributions':{'playwright':'1.63.0','pip':'26.2.1','setuptools':'84.0.0'},
+                   'native_paths':['Contents/MacOS/TactoSetup','Contents/Resources/runtime/.venv/bin/python3',
+                                   'Contents/Resources/runtime/launcher/tacto',
+                                   'Contents/Resources/runtime/helper/Tacto Helper.app/Contents/MacOS/TactoHelper']}
+            with mock.patch.object(distribution,'read_baseline',return_value=prior), \
+                 mock.patch.object(distribution,'ROOT',root), \
                  mock.patch.object(distribution,'committed_sources',return_value=before), \
                  mock.patch.object(distribution,'require_release_environment',return_value={'playwright':'1.63.0'}), \
                  mock.patch.object(distribution.preview,'build',side_effect=fake_build), \
                  mock.patch.object(distribution.preview,'requirement',return_value='fixture'), \
                  mock.patch.object(distribution.subprocess,'run',side_effect=fake_run), \
                  mock.patch.object(distribution,'require_timestamps',side_effect=lambda paths:timestamps(paths,run=fake_run)):
-                report=distribution.build(output,'fixture','v0.1.0-preview.19',initial_distribution=True)
+                report=distribution.build(output,'fixture','v0.1.0-preview.19')
             sealed=json.loads((output/'Contents/Resources/first-run-source.json').read_text())
             self.assertEqual(report['distribution_inventory'],sealed['distribution_inventory'])
-            self.assertEqual({'playwright':'1.63.0'},sealed['distribution_inventory']['distributions'])
+            self.assertEqual(prior['distributions'],sealed['distribution_inventory']['distributions'])
             self.assertEqual(4,len(sealed['distribution_inventory']['native_paths']))
             self.assertTrue(report['all_extras_verified'])
-            self.assertEqual('initial_distribution',sealed['inventory_compatibility']['baseline'])
+            self.assertEqual('previous_release',sealed['inventory_compatibility']['baseline'])
 
 
     @unittest.skipUnless(shutil.which('uv'),'uv required for real lock freshness regression')
