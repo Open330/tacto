@@ -1,4 +1,5 @@
 """WindowsDriver logic against a fake UI Automation tree (runs on any OS)."""
+import sys
 import unittest
 
 from tacto.general import candidates
@@ -484,6 +485,37 @@ class WindowsDriverTests(unittest.TestCase):
         self.backend.windows = []
         self.backend.apps.append({"pid": 12, "exe": "tray.exe", "name": "tray"})
         self.assertEqual([], self.driver.list_targets()["apps"])
+
+
+@unittest.skipUnless(sys.platform == "win32", "Win32 window ownership is read only on Windows")
+class OwnerDisabledModalTests(unittest.TestCase):
+    """A top window is modal when the same-process window owning it is disabled."""
+
+    def evidence(self, *, owner=7, owner_pid=10, enabled=False, alive=(True, True), reowned=7):
+        from tacto.uia_backend import _disables_its_owner
+        alive = iter(alive)
+        owners = iter([owner, reowned])
+        return _disables_its_owner(
+            3, 10, owner_of=lambda hwnd: next(owners), pid_of=lambda hwnd: owner_pid,
+            is_window=lambda hwnd: next(alive), enabled=lambda hwnd: enabled)
+
+    def test_a_dialog_that_disables_its_owner_is_modal(self):
+        self.assertIs(True, self.evidence())
+
+    def test_a_modeless_owned_window_is_not(self):
+        self.assertIs(False, self.evidence(enabled=True))
+
+    def test_no_owner_or_another_process_or_itself_is_no_evidence(self):
+        self.assertIs(False, self.evidence(owner=None))
+        self.assertIs(False, self.evidence(owner=0))
+        self.assertIs(False, self.evidence(owner_pid=11))
+        self.assertIs(False, self.evidence(owner=3))
+
+    def test_an_owner_that_closes_or_changes_while_read_is_no_evidence(self):
+        # A destroyed window reads as disabled; it must not read as modal.
+        self.assertIs(False, self.evidence(alive=(False, False)))
+        self.assertIs(False, self.evidence(alive=(True, False)))
+        self.assertIs(False, self.evidence(reowned=8))
 
 
 if __name__ == "__main__":

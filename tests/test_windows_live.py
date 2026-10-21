@@ -314,6 +314,64 @@ class WindowsModalAndNoticeLiveTests(unittest.TestCase):
         self.assertIn('Window  Title: "tacto modal" [focused]', tree)
         self.assertIn('Window  Title: "tacto modal owner" [disabled]', tree)
 
+    def _fixture(self, code):
+        """An owned Tk process running `code`; returns (driver, pid)."""
+        from tacto.windows_driver import WindowsDriver
+        driver = WindowsDriver()
+        child = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (child.kill(), child.wait(), child.stdout.close()))
+        pid = int(child.stdout.readline())
+        self.addCleanup(subprocess.run, ["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and driver._resolve(f"pid:{pid}") is None:
+            time.sleep(0.2)
+        return driver, pid, child
+
+    def _windows(self, driver, pid):
+        from tacto.uia_backend import _class, _disables_its_owner
+        return [(_class(h), _disables_its_owner(h, pid)) for h in driver._backend._windows_by_pid().get(pid, [])]
+
+    def test_a_common_save_dialog_is_modal_by_the_owner_it_disables(self):
+        """The CI 39564444225 shape: the file dialog is listed at the top level."""
+        from unittest import mock
+        from tacto import uia_backend
+        driver, pid, _ = self._fixture(
+            "import os,tkinter as t\nfrom tkinter import filedialog\nprint(os.getpid(),flush=True)\n"
+            "r=t.Tk();r.title('tacto save owner')\n"
+            "r.after(1500,lambda:filedialog.asksaveasfilename(parent=r,title='tacto save'));r.mainloop()")
+        self.assertIs(False, driver._backend.modal_present(pid))
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not any(e for _, e in self._windows(driver, pid)):
+            time.sleep(0.2)
+        windows = self._windows(driver, pid)
+        self.assertIn(("#32770", True), windows, windows)
+        self.assertIs(True, driver._backend.modal_present(pid))
+        # Diagnostic only: what UI Automation alone said at this moment.
+        with mock.patch.object(uia_backend, "_disables_its_owner", lambda *a, **k: False):
+            uia_only = driver._backend.modal_present(pid)
+        print(f"\n  save dialog: windows={windows} uia_only={uia_only}", file=sys.stderr)
+
+    def test_a_modeless_owned_find_dialog_is_not_modal(self):
+        driver, pid, child = self._fixture(
+            "import os,ctypes,tkinter as t\nfrom ctypes import wintypes as w\nprint(os.getpid(),flush=True)\n"
+            "class FR(ctypes.Structure):_fields_=[('size',w.DWORD),('owner',w.HWND),('inst',w.HINSTANCE),"
+            "('flags',w.DWORD),('find',w.LPWSTR),('repl',w.LPWSTR),('findlen',w.WORD),('repllen',w.WORD),"
+            "('data',w.LPARAM),('hook',ctypes.c_void_p),('templ',w.LPCWSTR)]\n"
+            "buf=ctypes.create_unicode_buffer(80);r=t.Tk();r.title('tacto modeless owner')\n"
+            "u=ctypes.WinDLL('user32');u.GetParent.restype=w.HWND;u.GetParent.argtypes=(w.HWND,)\n"
+            "c=ctypes.WinDLL('comdlg32');c.FindTextW.restype=w.HWND;c.FindTextW.argtypes=(ctypes.POINTER(FR),)\n"
+            "def show():\n global fr\n fr=FR(ctypes.sizeof(FR),u.GetParent(r.winfo_id()),None,0,"
+            "ctypes.cast(buf,w.LPWSTR),None,80,0,0,None,None)\n print('find',int(c.FindTextW(ctypes.byref(fr)) or 0),flush=True)\n"
+            "r.after(1500,show);r.mainloop()")
+        self.assertNotEqual("find 0", child.stdout.readline().strip(), "FindTextW did not open")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and [c for c, _ in self._windows(driver, pid)].count("#32770") < 1:
+            time.sleep(0.2)
+        windows = self._windows(driver, pid)
+        self.assertIn("#32770", [c for c, _ in windows], windows)
+        self.assertEqual([], [w for w in windows if w[1]], windows)
+        self.assertIs(False, driver._backend.modal_present(pid), windows)
+
     def test_notice_never_takes_the_foreground(self):
         import ctypes
         from ctypes import wintypes

@@ -91,6 +91,13 @@ _user32.GetClassNameW.argtypes = (wintypes.HWND, wintypes.LPWSTR, ctypes.c_int)
 _user32.GetClassNameW.restype = ctypes.c_int
 _user32.FindWindowExW.argtypes = (wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR)
 _user32.FindWindowExW.restype = wintypes.HWND
+_user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+_user32.GetWindow.restype = wintypes.HWND
+_user32.IsWindow.argtypes = (wintypes.HWND,)
+_user32.IsWindow.restype = wintypes.BOOL
+_user32.IsWindowEnabled.argtypes = (wintypes.HWND,)
+_user32.IsWindowEnabled.restype = wintypes.BOOL
+GW_OWNER = 4
 _dwmapi = ctypes.WinDLL("dwmapi")
 _dwmapi.DwmGetWindowAttribute.argtypes = (wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD)
 _dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
@@ -115,6 +122,31 @@ def _shown(hwnd):
     cloaked = wintypes.DWORD()
     failed = _dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, ctypes.byref(cloaked), ctypes.sizeof(cloaked))
     return bool(failed) or not cloaked.value
+
+
+def _owner_window(hwnd):
+    return _user32.GetWindow(hwnd, GW_OWNER)
+
+
+def _disables_its_owner(hwnd, pid, *, owner_of=_owner_window, pid_of=_owner,
+                        is_window=_user32.IsWindow, enabled=_user32.IsWindowEnabled):
+    """Win32 evidence that a top window is modal for its process.
+
+    DialogBox, MessageBox and the common file dialogs disable the window that
+    owns them until they close; a modeless owned window (Find, a palette, a
+    notice) leaves its owner enabled. UI Automation can list such a dialog at
+    the top level with IsModal false and the owner not yet marked blocked
+    (Windows CI run 39564444225), so the owner's state is read directly.
+
+    Only an owner in the same process counts. No owner, an owner that cannot be
+    read, or one that disappears while being read is no evidence: False.
+    """
+    owner = owner_of(hwnd)
+    if not owner or owner == hwnd or not is_window(owner) or pid_of(owner) != pid:
+        return False
+    disabled = not enabled(owner)
+    # Re-read: a closed owner reads as disabled, and its handle may be reused.
+    return disabled and bool(is_window(owner)) and pid_of(owner) == pid and owner_of(hwnd) == owner
 
 
 def _executable(pid):
@@ -284,8 +316,14 @@ class UIABackend:
 
         Owned dialogs (Save As, "save changes?") sit under their owner window,
         not at the desktop root, so each top window is asked whether it is
-        blocked and its subtree is searched for a modal window.
+        blocked and its subtree is searched for a modal window. A dialog that
+        is listed at the top level itself is found by the owner it disables.
         """
+        try:
+            if any(_disables_its_owner(hwnd, pid) for hwnd in self._windows_by_pid().get(pid, [])):
+                return True
+        except (OSError, ValueError):
+            pass  # no Win32 evidence; UI Automation still answers below
         modal = self._uia.CreateAndCondition(
             self._uia.CreatePropertyCondition(CONTROL_TYPE, WINDOW_CONTROL),
             self._uia.CreatePropertyCondition(WINDOW_IS_MODAL, True))
