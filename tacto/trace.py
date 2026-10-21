@@ -198,17 +198,19 @@ class TracingDriver:
     def list_targets(self):
         return self._record("list_targets", {}, self._inner.list_targets())
 
-    def observe(self, target, mode="tree_full", require_window=True, *, document_token=None):
+    def observe(self, target, mode="tree_full", require_window=True, *, document_token=None, reveal=None):
         if document_token is not None:
             # A live document token and its scoped body cannot be made into
             # reusable recorded evidence. Never fall back to an app-wide read.
             return self._inner.observe(target, mode, require_window=require_window,
                                        document_token=document_token)
-        # Preserve compatibility with drivers whose default is implicit.
-        result = (self._inner.observe(target, mode) if require_window else
-                  self._inner.observe(target, mode, require_window=False))
+        # Preserve compatibility with drivers whose default is implicit; a
+        # reveal is part of what was asked, so it is part of the recording.
+        extra = {} if reveal is None else {"reveal": list(reveal)}
+        result = (self._inner.observe(target, mode, **extra) if require_window else
+                  self._inner.observe(target, mode, require_window=False, **extra))
         return self._record("observe", {"target": target, "mode": mode,
-                                       "require_window": require_window}, result)
+                                       "require_window": require_window, **extra}, result)
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
             intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
@@ -305,11 +307,11 @@ class TraceDriver:
     def list_targets(self):
         return self._take("list_targets", {})
 
-    def observe(self, target, mode="tree_full", require_window=True, *, document_token=None):
+    def observe(self, target, mode="tree_full", require_window=True, *, document_token=None, reveal=None):
         if document_token is not None:
             return {'type':'error', 'error':'document_snapshot_unavailable', 'effect':'not_started'}
-        return self._take("observe", {"target": target, "mode": mode,
-                                      "require_window": require_window})
+        return self._take("observe", {"target": target, "mode": mode, "require_window": require_window,
+                                      **({} if reveal is None else {"reveal": list(reveal)})})
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
             intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):

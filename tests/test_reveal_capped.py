@@ -182,5 +182,81 @@ class CommandTests(unittest.TestCase):
         self.assertEqual([('com.apple.finder', ['file90', 'file91'])], seen)
 
 
+class TracedAndGuardedTests(unittest.TestCase):
+    """The --trace path (TracingDriver) and its replay (TraceDriver), not a bypass."""
+    CAPPED = ReplayTests.CAPPED
+    FOUND = CAPPED.replace('    … (40개 더 있음)', '    7 TextField  Value: file90\n    … (40개 더 있음; 찾는 항목 1개 표시)')
+
+    def app(self, complete=True):
+        test = self
+
+        class App:
+            capabilities = frozenset({'observe', 'act', 'observe.reveal'})
+            def __init__(self):self.reveals = [];self.acts = []
+            def observe(self, target, mode='tree_full', require_window=True, **kwargs):
+                self.reveals.append(kwargs.get('reveal'))
+                if kwargs.get('reveal'):
+                    return {'type': 'observation', 'obs_id': 'r', 'tree': test.FOUND,
+                            'revealed': 1, 'reveal_scan_complete': complete, 'reveal_scanned_nodes': 10}
+                return {'type': 'observation', 'obs_id': 'o', 'tree': test.CAPPED}
+            def act(self, obs_id, target, action, **kwargs):
+                self.acts.append((obs_id, action));return {'type': 'acted'}
+            def wait_until(self, target, predicate, **kwargs):
+                return self.observe(target)
+        return App()
+
+    def flow(self, effects=('read',), action='read'):
+        from tacto.flow import Flow, Step, Selector
+        from tacto.contract import SafetyContract, Resource
+        safety = SafetyContract(effects=list(effects), reversibility='reversible',
+                                resource=Resource(object_type='파일', scope='item'))
+        return Flow('open', 'com.apple.finder', [Step(action, Selector(role='TextField', value='file90'), safety=safety)])
+
+    def test_the_traced_run_reveals_records_and_replays_the_same_request(self):
+        from tacto.flow import replay
+        from tacto.trace import Trace, TraceDriver, TracingDriver
+        inner = self.app()
+        tracer = TracingDriver(inner, Trace(flow='open', target='com.apple.finder'))
+        result = replay(tracer, self.flow())
+        self.assertTrue(result.ok, result.log)
+        self.assertIn(['file90'], inner.reveals)
+        recorded = [e['request'] for e in tracer.trace.events if e['kind'] == 'observe']
+        self.assertIn({'target': 'com.apple.finder', 'mode': 'tree_full', 'require_window': True,
+                       'reveal': ['file90']}, recorded)
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, 'trace.json')
+            tracer.trace.save(path, redact=False)
+            again = replay(TraceDriver(Trace.load(path)), self.flow())
+        self.assertTrue(again.ok, again.log)
+
+    def test_a_reveal_that_cannot_run_is_named_not_hidden(self):
+        from tacto.flow import replay
+        inner = self.app()
+        inner.observe_plain = inner.observe
+        def observe(target, mode='tree_full', require_window=True, **kwargs):
+            if kwargs.get('reveal'):raise TypeError('unexpected keyword argument reveal')
+            return inner.observe_plain(target, mode, require_window)
+        inner.observe = observe
+        result = replay(inner, self.flow())
+        self.assertFalse(result.ok)
+        self.assertIn('재확인 실패', str(result.log))
+
+    def test_an_incomplete_scan_blocks_consequential_steps_only(self):
+        from tacto.flow import replay
+        read = self.app(complete=False)
+        self.assertTrue(replay(read, self.flow()).ok)
+        self.assertEqual(1, len(read.acts))
+        delete = self.app(complete=False)
+        result = replay(delete, self.flow(effects=('delete',), action='click'), approvals={0: True})
+        self.assertFalse(result.ok)
+        self.assertEqual('target_uniqueness_unverified', result.log[-1].get('error'))
+        self.assertEqual([], delete.acts)
+
+    def test_a_document_scoped_read_refuses_reveal(self):
+        from tacto.document_scope import _refuse
+        self.assertEqual('reveal_unavailable', _refuse('reveal_unavailable')['reason_code'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -137,7 +137,10 @@ class DocumentScopedDriver:
         if target != self.target:raise DocumentScopeUnavailable('target_mismatch')
         return self._inner.identity(target)
 
-    def observe(self, target, mode='tree_full', require_window=True, *, document_token=None):
+    def observe(self, target, mode='tree_full', require_window=True, *, document_token=None, reveal=None):
+        if reveal is not None:
+            # One pinned document window; looking past caps elsewhere is not its read.
+            return _refuse('reveal_unavailable')
         self._obs_id = None
         self._window_index = None
         self._indices=frozenset()

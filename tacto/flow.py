@@ -2576,6 +2576,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         while step.selector is not None:
             try:
                 action["element_index"], trace = step.selector.resolve(obs["tree"])
+                # Found past the cap, but the scan stopped before the list's end:
+                # another element of that name may be further down. Reading is
+                # fine; a step with consequences must not land on a guess.
+                if (revealed and obs.get("reveal_scan_complete") is False and step.safety is not None
+                        and set(step.safety.effects) - {"read", "write_ephemeral"}):
+                    res.record(status="error", step=i, action=step.action,
+                               error="target_uniqueness_unverified", effect="not_started",
+                               detail="잘린 목록에서 찾았지만 끝까지 확인하지 못해 같은 이름이 더 있는지 모릅니다")
+                    return res
                 break
             except (TargetAmbiguous, TargetMissing) as e:
                 kind = ("target_ambiguous" if isinstance(e, TargetAmbiguous)
@@ -2591,7 +2600,9 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     if again.get("type") == "observation":
                         obs = again
                         continue
-                if revealed and obs.get("reveal_scan_complete") is False:
+                    # Said, not swallowed: a reveal that could not run is not "not there".
+                    e = TargetMissing(f"{e} (잘린 목록 재확인 실패: {again.get('error') or again.get('type')})")
+                elif revealed and obs.get("reveal_scan_complete") is False:
                     e = TargetMissing(f"{e} (잘린 목록을 끝까지 확인하지 못했습니다)")
                 nearby = _nearby(step.selector, obs["tree"])
                 fix = _escalate(escalate, spend, step, Uncertainty(
