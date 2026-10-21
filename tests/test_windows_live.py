@@ -246,34 +246,47 @@ class WindowsLiveTests(unittest.TestCase):
 
 @unittest.skipUnless(LIVE, "real UI Automation runs only with TACTO_WINDOWS_LIVE=1 on Windows")
 class WindowsPackagedAppLiveTests(unittest.TestCase):
-    """Calculator: a packaged app whose frame belongs to ApplicationFrameHost."""
+    """Calculator, through whichever build the machine has.
 
-    def test_content_is_observed_and_invoked_through_the_frame_host(self):
+    Windows 11 ships the packaged app, whose frame belongs to
+    ApplicationFrameHost; Windows Server images (CI) start the classic Win32
+    calculator instead, whose controls carry numeric identifiers. Both are
+    driven the same way: invoke the "1" key, then read the result back.
+    """
+    # (key line, result line) per build. The result is matched by identifier,
+    # not by its words: "Display is 1" in English, "표시는 1" in Korean.
+    BUILDS = {
+        "packaged": (r"^\s*(\d+) Button\s+Title: [^,\n]*, Identifier: num1Button\b",
+                     r"Title: [^,\n]*\b1, Identifier: CalculatorResults\b"),
+        "classic": (r"^\s*(\d+) Button\s+Title: 1(?:, Identifier: \d+)?$",
+                    r"Title: Result, Value: 1, Identifier: 150\b"),
+    }
+
+    def build(self, tree):
+        return next((name for name, (key, _) in self.BUILDS.items() if re.search(key, tree, re.M)), None)
+
+    def test_content_is_observed_and_invoked(self):
         from tacto.windows_driver import WindowsDriver
         driver = WindowsDriver()
         target = _owned(self, driver, "calculatorapp.exe", app_id=CALCULATOR_APP, command="calc.exe")
         if target is None:
-            # Windows Server images (CI) ship no packaged Calculator.
-            self.skipTest("packaged Calculator did not appear")
+            self.skipTest("no Calculator appeared")
         deadline = time.monotonic() + 15
-        while time.monotonic() < deadline and "num1Button" not in driver.observe(target).get("tree", ""):
+        while time.monotonic() < deadline and self.build(driver.observe(target).get("tree", "")) is None:
             time.sleep(0.25)
         obs = driver.observe(target)
         self.assertEqual("observation", obs["type"], obs)
-        if "num1Button" not in obs["tree"]:
-            # Another Calculator build (a server image's first launch, say)
-            # exposes no keypad here; say what it showed instead.
-            self.skipTest("Calculator keypad not exposed: " + " | ".join(obs["tree"].splitlines()[:8]))
-        from tacto.flow import Selector
-        index = Selector(identifier="num1Button").resolve(obs["tree"])[0]
+        build = self.build(obs["tree"])
+        if build is None:
+            self.skipTest("Calculator keypad not exposed: " + " | ".join(obs["tree"].splitlines()[:40]))
+        key, shown = self.BUILDS[build]
+        index = int(re.search(key, obs["tree"], re.M).group(1))
         result = driver.act(obs["obs_id"], target, {"name": "click", "element_index": index})
-        self.assertEqual("acted", result["type"], result)
-        # "Display is 1" in English, "표시는 1" in Korean: match the result
-        # element by its identifier, whatever the display language.
-        after = driver.wait_until(target, lambda tree: re.search(
-            r"Title: [^,\n]*\b1, Identifier: CalculatorResults\b", tree), timeout_ms=5000)
-        self.assertEqual("observation", after["type"], after)
-
+        self.assertEqual("acted", result["type"], (build, result))
+        after = driver.wait_until(target, lambda tree: re.search(shown, tree), timeout_ms=5000)
+        self.assertEqual("observation", after["type"],
+                         (build, "\n".join(after.get("last_obs", after).get("tree", "").splitlines()[:40])))
+        print(f"\n  calculator build: {build}", file=sys.stderr)
 
 
 @unittest.skipUnless(LIVE, "real UI Automation runs only with TACTO_WINDOWS_LIVE=1 on Windows")
