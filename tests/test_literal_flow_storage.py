@@ -10,6 +10,10 @@ from tacto.promote import Candidate, to_flow, _basis_read, _menu_check, with_dec
 from tacto.contract import Envelope
 from tacto.repair_packet import patch_selector
 from tests.test_runtime_contract import App, contract
+try:
+    from tests._artifacts import requires_playwright
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_playwright
 
 
 class LiteralStorageTests(unittest.TestCase):
@@ -184,6 +188,8 @@ class LiteralStorageTests(unittest.TestCase):
         self.assertEqual('New field',by_label.bind(field_name='New field').steps[0].selector.title)
         with self.assertRaisesRegex(ValueError,'already used'):
             parameterize(flow,{'25':'_tacto_data_1'})
+
+    @requires_playwright
 
     def test_headless_browser_reads_a_promoted_literal_label_after_store_roundtrip(self):
         from tacto.browser import BrowserDriver

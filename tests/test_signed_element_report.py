@@ -7,9 +7,14 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 
 class SignedElementReportTests(unittest.TestCase):
+    @requires_signed_build
     def test_interrupt_before_fixture_is_reported_and_existing_record_is_preserved(self):
         root = Path(__file__).resolve().parents[1]
         driver = SimpleNamespace(capabilities=[])

@@ -11,6 +11,10 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock,patch
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -22,6 +26,7 @@ def load(path,name):
 
 
 class FinderStageTests(unittest.TestCase):
+    @requires_signed_build
     def test_hard_worker_exit_before_or_during_request_keeps_directory_identity(self):
         script=r'''
 import importlib.util,os,sys
@@ -70,6 +75,8 @@ with patch.object(module,'background_precondition',return_value={'ready':True,'r
             alias=Path(directory)/'alias';alias.symlink_to(folder,target_is_directory=True)
             with self.assertRaises(RuntimeError):module.persist_owned_directory(alias,Path(directory)/'alias-report.json')
             self.assertFalse((Path(directory)/'alias-report.ownership.json').exists())
+
+    @requires_signed_build
 
     def test_displayed_directory_is_not_deleted_without_window_close_proof(self):
         module=load('examples/probes/signed_finder_preparation.py','finder_cleanup')
@@ -163,6 +170,8 @@ with patch.object(module,'background_precondition',return_value={'ready':True,'r
             if listing==valid:self.assertEqual(end['window_listing_diagnostic'],valid)
             else:self.assertNotIn('window_listing_diagnostic',end)
             self.assertNotIn('PRIVATE',journal.getvalue())
+
+    @requires_signed_build
 
     def test_interruption_keeps_report_and_journal_and_does_not_replace_them(self):
         module=load('examples/probes/signed_finder_preparation.py','finder_interrupt')

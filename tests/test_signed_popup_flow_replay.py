@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 from examples.probes.signed_popup_flow_replay import main,reserve_report,owned_flow
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 class SignedPopupFlowReplayTests(unittest.TestCase):
     def test_existing_or_nonprivate_report_refuses_before_driver(self):
@@ -18,6 +22,8 @@ class SignedPopupFlowReplayTests(unittest.TestCase):
             public=base/'public';public.mkdir(mode=0o755)
             with self.assertRaises(ValueError):main(driver,public/'report.json',42)
             driver.observe.assert_not_called();driver.act.assert_not_called()
+
+    @requires_signed_build
 
     def test_invalid_pid_and_missing_capability_are_recorded_without_input(self):
         for pid in (True,0,42):

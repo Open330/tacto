@@ -7,6 +7,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,6 +48,8 @@ class ConcurrentTypingTests(unittest.TestCase):
             self.assertEqual([], value['actions'])
             return value
 
+    @requires_signed_build
+
     def test_participation_is_explicit_true_before_helper_or_manifest(self):
         for value in (False, None, 1, 'true'):
             with self.subTest(value=value), patch('tacto.helper.InheritedHelperDriver.available') as available, \
@@ -52,6 +58,8 @@ class ConcurrentTypingTests(unittest.TestCase):
                 self.assertEqual('human_participation_required', report['refusal'])
                 available.assert_not_called()
                 prepared.assert_not_called()
+
+    @requires_signed_build
 
     def test_unsigned_driver_cannot_lookup_or_launch(self):
         with patch('tacto.helper.InheritedHelperDriver.available') as available, \
@@ -79,6 +87,8 @@ class ConcurrentTypingTests(unittest.TestCase):
         self.assertEqual('OSError', value['error_class'])
         self.assertEqual('OSError', value['finalization_error_class'])
         self.assertNotIn('PRIVATE_SECRET', json.dumps(value))
+
+    @requires_signed_build
 
     def test_interrupt_is_preserved_and_report_finalized(self):
         from tacto.helper import InheritedHelperDriver

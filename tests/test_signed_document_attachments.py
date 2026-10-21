@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock,patch
 from examples.probes.signed_document_attachments import main,write_owned_package,package_manifest
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 class SignedAttachmentProbeTests(unittest.TestCase):
     def test_existing_report_refuses_before_native_or_package(self):
@@ -13,6 +17,8 @@ class SignedAttachmentProbeTests(unittest.TestCase):
                 with self.assertRaises(FileExistsError):main(driver,output)
                 body.assert_not_called();driver.list_targets.assert_not_called()
             self.assertEqual('KEEP',output.read_text())
+
+    @requires_signed_build
 
     def test_unsigned_driver_cannot_open_document(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -60,6 +66,8 @@ class SignedAttachmentProbeTests(unittest.TestCase):
             with self.assertRaises(ValueError):package_manifest(package)
             package.rmdir();package.symlink_to(base/'old',target_is_directory=True)
             with self.assertRaises(ValueError):package_manifest(package)
+
+    @requires_signed_build
 
     def test_final_manifest_failure_preserves_original_failure_and_report(self):
         import sys

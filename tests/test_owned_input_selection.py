@@ -6,6 +6,10 @@ import runpy
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,6 +37,8 @@ class OwnedInputSelectionTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):probe(output)
             self.assertEqual({'passed':False,'error_class':'RuntimeError'},json.loads(output.read_text()))
             self.assertEqual(0o600,output.stat().st_mode&0o777)
+
+    @requires_signed_build
 
     def test_missing_selection_blocks_fixture_start_and_provider_work(self):
         from tacto.input_audit_process import InputAuditProcessError
@@ -80,6 +86,8 @@ class OwnedInputSelectionTests(unittest.TestCase):
                     else:
                         probe('unused', require_selection=1)
                 create.assert_not_called()
+
+    @requires_signed_build
 
     def test_foreign_process_with_same_bundle_id_never_reaches_observe_or_input(self):
         from tacto.native_window_payload import WINDOW_INPUT_CAPABILITIES

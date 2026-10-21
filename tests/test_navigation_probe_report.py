@@ -6,6 +6,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock,patch
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -92,6 +96,8 @@ class NavigationProbeReportTests(unittest.TestCase):
                 with patch.object(module,'_run_navigation') as execute,self.assertRaises(ValueError):
                     module.main(Mock(),path,**options)
                 execute.assert_not_called();self.assertFalse(path.exists())
+
+    @requires_signed_build
 
     def test_manifest_covers_runtime_artifacts_and_new_imported_sources(self):
         module=load();manifest=module.source_hashes(ROOT)

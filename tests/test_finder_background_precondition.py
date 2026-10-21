@@ -7,6 +7,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 from examples.probes import signed_finder_preparation as probe
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 READY={'ready':True,'reason':'background_target'}
 BLOCKED={'ready':False,'reason':'target_already_foreground'}
@@ -46,6 +50,8 @@ class FinderBackgroundTests(unittest.TestCase):
         self.assertEqual(result['error'],'background_precondition_failed')
         driver._send.assert_called_once();driver.act.assert_not_called()
 
+    @requires_signed_build
+
     def test_initial_denial_is_not_a_failed_task_and_creates_no_fixture(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'report.json';driver=Mock()
@@ -59,6 +65,8 @@ class FinderBackgroundTests(unittest.TestCase):
             create.assert_not_called();audit.assert_not_called();driver.act.assert_not_called()
             self.assertEqual(0o600,path.stat().st_mode&0o777)
             self.assertEqual(json.loads(path.read_text())['precondition_status'],'not_run')
+
+    @requires_signed_build
 
     def test_task_outcome_remains_separate_from_changed_input_audit(self):
         audit=Mock();audit.__enter__=Mock(return_value=audit);audit.__exit__=Mock(return_value=False)

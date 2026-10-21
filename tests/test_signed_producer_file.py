@@ -8,6 +8,10 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -74,6 +78,8 @@ class ProducerEvaluationTests(unittest.TestCase):
             '--owned-worker-config','/owned/worker-config.json','--owned-worker-phase','reconcile'])
         self.assertEqual('reconcile',selected[0][1].keywords['phase'])
         self.assertEqual('skipped',cases[0]['status'])
+
+    @requires_signed_build
 
     def test_interrupt_report_is_private_exclusive_and_still_raised(self):
         module=load('examples/probes/signed_save_writer.py','producer_probe')

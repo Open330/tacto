@@ -11,9 +11,14 @@ from tacto.cli import _run_flow
 from tacto.flow import Capture, Flow, Postcondition, Selector, Step
 from tests.test_runtime_contract import contract
 from tests import test_auto_repair as helpers
+try:
+    from tests._artifacts import requires_playwright
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_playwright
 
 
 class BrowserCaptureContinuationTests(unittest.TestCase):
+    @requires_playwright
     def test_twelve_steps_two_repairs_keep_capture_and_do_not_repeat_input(self):
         driver=BrowserDriver();results=[];packets=[];actions=[];messages=[];output=io.StringIO()
         secret='synthetic-capture-7437'

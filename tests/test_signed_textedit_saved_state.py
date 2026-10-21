@@ -6,9 +6,14 @@ import unittest
 from unittest.mock import Mock,patch
 from examples.probes import signed_textedit_saved_state as probe
 from tacto.helper import InheritedHelperDriver
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 
 class TextEditSavedStateTests(unittest.TestCase):
+    @requires_signed_build
     def test_report_redacts_witness_titles_and_never_claims_writer_attribution(self):
         module=types.ModuleType('signed_textedit_save')
         module.__file__=str(Path(probe.__file__).with_name('signed_textedit_save.py'))
@@ -33,6 +38,8 @@ class TextEditSavedStateTests(unittest.TestCase):
             self.assertEqual(result['saved_state_result']['focus']['window_sample_count'],1)
             self.assertEqual(0o600,output.stat().st_mode&0o777)
             self.assertTrue(module.run.call_args.kwargs['scoped_save'])
+
+    @requires_signed_build
 
     def test_foreground_target_does_not_start_audit_or_owned_probe(self):
         module=types.ModuleType('signed_textedit_save');module.run=Mock()

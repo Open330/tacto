@@ -3,6 +3,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 import examples.probe_native_select as probe
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 
 class NativeModelPagingLimitTests(unittest.TestCase):
@@ -11,6 +15,8 @@ class NativeModelPagingLimitTests(unittest.TestCase):
             with self.subTest(value=value), patch('tacto.driver.Driver') as driver, self.assertRaises(ValueError):
                 probe.run_model_probe(Mock(),provider='codex',max_pages=value)
             driver.assert_not_called()
+
+    @requires_signed_build
 
     def test_default_and_explicit_lower_limits_reach_planner_without_dispatch(self):
         class Audit:
@@ -38,8 +44,12 @@ class NativeModelPagingLimitTests(unittest.TestCase):
                 self.assertFalse(result['passed'])
                 driver.act.assert_not_called()
 
+    @requires_signed_build
+
     def test_failed_final_readback_preserves_loop_and_observed_provider_cost(self):
         self._assert_failed_run_preserves_evidence(fail_inside_run=False)
+
+    @requires_signed_build
 
     def test_run_exception_preserves_calls_already_observed(self):
         self._assert_failed_run_preserves_evidence(fail_inside_run=True)

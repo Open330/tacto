@@ -4,8 +4,13 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 from examples.probes.signed_popup_journal_restart import main,journal_contents
+try:
+    from tests._artifacts import requires_signed_build
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_signed_build
 
 class SignedPopupJournalRestartTests(unittest.TestCase):
+    @requires_signed_build
     def test_existing_report_or_invalid_pid_cannot_start_workers(self):
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder).resolve();output=base/'report.json';output.write_text('KEEP');driver=Mock()

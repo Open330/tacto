@@ -6,6 +6,10 @@ from unittest.mock import patch
 
 from tacto.authoring import _attempt, _to_flow, author
 from tacto.flow import Flow, pin_params
+try:
+    from tests._artifacts import requires_playwright
+except ImportError:  # discovered with tests/ as the top level
+    from _artifacts import requires_playwright
 
 
 def recipe(title='{{label}}'):
@@ -105,6 +109,8 @@ class AuthoringLiteralTests(unittest.TestCase):
         spec['params']={'number':None};spec['derived']={'answer':'{{number}} + 1'}
         flow=self.attempt(spec,tree='0 StaticText Title: Source')
         self.assertEqual('3',flow.bind(number=2).steps[0].selector.title)
+
+    @requires_playwright
 
     def test_headless_browser_authored_literal_read_survives_saved_flow_replay(self):
         import tempfile
