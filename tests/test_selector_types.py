@@ -28,6 +28,20 @@ class SelectorTypeTests(unittest.TestCase):
                 with self.subTest(where=where, bad=bad), self.assertRaises(ValueError):
                     Flow.from_json(json.dumps(doc(**step)))
 
+    def test_falsy_values_of_the_wrong_type_are_refused_too(self):
+        for bad in (0, False, [], ""):
+            for where, step in (("selector", {"selector": bad}),
+                                ("postcondition", {"postcondition": {"field": bad, "equals": "1"}}),
+                                ("skip_if", {"skip_if": {"field": bad, "equals": "1"}}),
+                                ("capture", {"capture": {"name": "v", "field": bad}})):
+                with self.subTest(where=where, bad=bad), self.assertRaises(ValueError):
+                    Flow.from_json(json.dumps(doc(**step)))
+
+    def test_absent_null_and_empty_object_still_mean_no_selector(self):
+        for empty in (None, {}):
+            flow = Flow.from_json(json.dumps(doc(postcondition={"field": empty, "contains": "x"})))
+            self.assertIsNone(flow.steps[0].postcondition.field)
+
     def test_every_valid_shape_still_reads(self):
         for good in ({"identifier": ["AllClear", "Clear"]}, {"role": "TextField", "in_focused_window": True},
                      {"identifier": "display", "allow_nth": 0}, {"ancestor": "Sidebar", "title": "Docs"},

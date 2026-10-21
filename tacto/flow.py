@@ -1107,7 +1107,7 @@ class Flow:
                         "unverified_ok", "answers"):
                 if key in s and type(s[key]) is not bool:
                     raise ValueError(f"{key} must be boolean")
-            sel = _selector_from(s["selector"]) if s.get("selector") else None
+            sel = _optional_selector(s, "selector", "selector")
 
             def _post(pc, where, depth=0):
                 if pc is None or pc == {}:
@@ -1139,7 +1139,7 @@ class Flow:
                     raise FlowFieldError('check requires a predicate', path+'.'+where,
                         'Use equals:"text" (not value), contains, absent, absent_role or nonempty all_of. '
                         'For a field value use field:{"identifier":"observed-id"}, equals:"text", attribute:"Value".')
-                pf = _selector_from(pc["field"], f"{where}.field") if pc.get("field") else None
+                pf = _optional_selector(pc, "field", f"{where}.field")
                 if pc.get('absent_role') is not None and not pc['absent_role'].strip():
                     raise ValueError(f'{where}.absent_role must name a role')
                 return Postcondition(field=pf, equals=pc.get("equals"),
@@ -1380,7 +1380,7 @@ def _captures_from(step: dict) -> list["Capture"]:
     for c in raw:
         out.append(Capture(
             name=c.get("name", "value"),
-            field=_selector_from(c["field"], "captures.field") if c.get("field") else None,
+            field=_optional_selector(c, "field", "captures.field"),
             attribute=c.get("attribute", "Value"),
             sensitive=bool(c.get("sensitive")),
             many=bool(c.get("many")),
@@ -2091,6 +2091,17 @@ def _ready_hint(raw):
 
 
 _TEXT_FIELDS = ("identifier", "title", "desc", "value", "ancestor", "click_ancestor")
+
+
+def _optional_selector(container, key, where):
+    """Absent, null or {} means no selector, as before; anything else is checked.
+
+    Branching on truthiness let 0, false, [] and "" through as "none".
+    """
+    value = container.get(key)
+    if value is None or value == {}:
+        return None
+    return _selector_from(value, where)
 
 
 def _selector_from(raw, where="selector"):
