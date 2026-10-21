@@ -173,7 +173,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
 let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
-                                 "require_window", "window_identity", "prompt", "image", "model", "json", "path",
+                                 "require_window", "window_identity", "reveal", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
                                  "document_token", "document_path", "max_utf16_units", "timeout_seconds",
                                  "window_index", "window_element_index", "panel_token", "require_format", "element_indices", "read_strategy", "titlebar_probe"]
@@ -224,6 +224,13 @@ func vetted(_ msg: [String: Any]) -> String? {
     guard allowedTypes.contains(type) else { return "허용되지 않은 type: \(type)" }
     for key in msg.keys where !topLevelKeys.contains(key) {
         return "허용되지 않은 최상위 필드: \(key)"
+    }
+    if let raw = msg["reveal"] {
+        guard type == "observe", let labels = raw as? [String], (1...8).contains(labels.count),
+              labels.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.count <= 256 &&
+                  $0.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil }) else {
+            return "invalid observe reveal labels"
+        }
     }
     if let value = msg["window_identity"] {
         guard type == "observe", CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {

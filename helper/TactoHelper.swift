@@ -211,13 +211,89 @@ struct ObservationNodeSnapshot {
     }
 }
 
+/// A reveal is descriptive data, never a substring search or an AX action.
+func validRevealRequest(_ raw: Any) -> [String]? {
+    guard let labels = raw as? [String], (1...8).contains(labels.count),
+          labels.allSatisfy({ !$0.isEmpty && $0.unicodeScalars.count <= 256 &&
+              $0.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil }) else { return nil }
+    return labels
+}
+
+/// Separate search work from the ordinary 2500-node rendered tree. Every omitted
+/// child is probed only shallowly, and every probe shares one bounded scan budget.
+final class ObservationRevealScan {
+    let labels: Set<String>
+    var complete = true
+    var scannedNodes = 0
+    var started: Double? = nil
+    let now: () -> Double
+    let snapshot: (AXUIElement, Double) -> ObservationNodeSnapshot?
+    init(_ labels: [String], now: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
+         snapshot: @escaping (AXUIElement, Double) -> ObservationNodeSnapshot? = { element, remaining in
+             // Set and reset on this element only; a slow app must not turn a
+             // bounded reveal scan into thousands of system-default AX waits.
+             guard AXUIElementSetMessagingTimeout(element, Float(min(0.2, remaining))) == .success else { return nil }
+             defer { _ = AXUIElementSetMessagingTimeout(element, 0) }
+             return ObservationNodeSnapshot(element)
+         }) {
+        self.labels = Set(labels); self.now = now; self.snapshot = snapshot
+    }
+    var available: Bool {
+        if started == nil { started = now() }
+        let allowed = scannedNodes < 5000 && now() - started! < 3
+        if !allowed { complete = false }
+        return allowed
+    }
+    func matches(_ root: AXUIElement) -> Bool {
+        var localNodes = 0
+        func probe(_ element: AXUIElement, _ depth: Int) -> Bool {
+            guard available else { return false }
+            guard localNodes < 24 else { complete = false; return false }
+            localNodes += 1; scannedNodes += 1
+            let remaining = 3 - (now() - started!)
+            guard remaining > 0, let packet = snapshot(element, remaining) else { complete = false; return false }
+            guard now() - started! < 3 else { complete = false; return false }
+            if ["AXTitle", "AXDescription", "AXValue", "AXIdentifier"].contains(where: {
+                if let text = packet.value($0) as? String { return labels.contains(text) }
+                if let number = packet.value($0) as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+                    return labels.contains(number.stringValue)
+                }
+                return false
+            }) { return true }
+            // Unsupported/absent attributes are ordinary leaves; transport
+            // failures inside an otherwise successful batch are not absence.
+            for key in ["AXTitle", "AXDescription", "AXValue", "AXIdentifier", kAXChildrenAttribute as String] {
+                if let raw = packet.values[key], CFGetTypeID(raw as CFTypeRef) == AXValueGetTypeID(),
+                   AXValueGetType(raw as! AXValue) == .axError {
+                    var error = AXError.success
+                    if !AXValueGetValue(raw as! AXValue, .axError, &error) ||
+                        ![AXError.attributeUnsupported, AXError.noValue].contains(error) { complete = false }
+                }
+            }
+            let children = packet.value(kAXChildrenAttribute as String) as? [AXUIElement] ?? []
+            if depth >= 3 {
+                if !children.isEmpty { complete = false }
+                return false
+            }
+            for (position, child) in children.enumerated() {
+                if probe(child, depth + 1) { return true }
+                if position + 1 < children.count && (localNodes >= 24 || !available) {
+                    complete = false; break
+                }
+            }
+            return false
+        }
+        return probe(root, 0)
+    }
+}
+
 /// One line per element, in the exact format the Python `Selector` parses:
 /// `<indent><index> <Role>  Key: value, Key2: value [disabled] [selected]`
 func walk(_ el: AXUIElement, depth: Int, out: inout [String],
           elements: inout [AXUIElement], visited: inout Int,
           truncated: inout Bool, nodeLimit: Int = maxTreeNodes,
           deferred: ((AXUIElement, Int) -> Void)? = nil,
-          metrics: ObservationReadMetrics? = nil) {
+          metrics: ObservationReadMetrics? = nil, reveal: ObservationRevealScan? = nil) {
     if depth > 25 { return }
     if visited >= min(maxTreeNodes, nodeLimit) {
         if let deferred { deferred(el, depth) } else { truncated = true }
@@ -283,12 +359,27 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
         ?? (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
     for child in children.prefix(maxChildrenPerNode) {
         walk(child, depth: depth + 1, out: &out, elements: &elements,
-             visited: &visited, truncated: &truncated, nodeLimit: nodeLimit, deferred: deferred, metrics: metrics)
+             visited: &visited, truncated: &truncated, nodeLimit: nodeLimit, deferred: deferred, metrics: metrics, reveal: reveal)
     }
     if children.count > maxChildrenPerNode {
         truncated = true
+        var revealed = 0
+        if let reveal {
+            for child in children.dropFirst(maxChildrenPerNode) {
+                guard visited < min(maxTreeNodes, nodeLimit) else { reveal.complete = false; break }
+                guard reveal.available else { break }
+                if reveal.matches(child) {
+                    let before = visited
+                    walk(child, depth: depth + 1, out: &out, elements: &elements,
+                         visited: &visited, truncated: &truncated, nodeLimit: nodeLimit,
+                         deferred: deferred, metrics: metrics, reveal: reveal)
+                    if visited > before { revealed += 1 }
+                }
+            }
+        }
         out.append(String(repeating: "  ", count: depth + 1)
-                   + "… (\(children.count - maxChildrenPerNode)개 더 있음)")
+                   + "… (\(children.count - maxChildrenPerNode)개 더 있음)"
+                   + (revealed > 0 ? " reveal 일치 \(revealed)개 표시" : ""))
     }
 }
 
@@ -940,7 +1031,7 @@ func pid(forBundle bundle: String) -> pid_t? {
         && $0.activationPolicy == .regular }?.processIdentifier
 }
 
-func observe(_ target: String, requireWindow: Bool = true, documentToken: String? = nil, windowIdentity: Bool = false) -> [String: Any] {
+func observe(_ target: String, requireWindow: Bool = true, documentToken: String? = nil, windowIdentity: Bool = false, reveal: [String]? = nil) -> [String: Any] {
     guard let p = pid(forBundle: target) else {
         let gui = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         if gui.isEmpty {
@@ -988,6 +1079,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     var elements: [AXUIElement] = []
     var visited = 0
     let metrics = ObservationReadMetrics()
+    let revealScan = reveal.map { ObservationRevealScan($0) }
     var truncated = windows.count > maxTreeNodes
     // A large first window must not hide every later window, including a
     // file chooser. Divide the remaining budget among remaining windows so
@@ -1005,7 +1097,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         let windowBudget = (maxTreeNodes - visited) / (windowCount - position)
         walk(w, depth: 0, out: &block, elements: &elements,
              visited: &visited, truncated: &windowTruncated,
-             nodeLimit: visited + windowBudget, deferred: { pending.append(($0, $1)) },metrics:metrics)
+             nodeLimit: visited + windowBudget, deferred: { pending.append(($0, $1)) },metrics:metrics,reveal:revealScan)
         blocks.append(block); frontiers.append(pending); partial.append(windowTruncated)
     }
     for position in 0..<windowCount where visited < maxTreeNodes {
@@ -1017,7 +1109,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         for (node, depth) in pending {
             walk(node, depth: depth, out: &block, elements: &elements,
                  visited: &visited, truncated: &windowTruncated,
-                 deferred: { unfinished.append(($0, $1)) },metrics:metrics)
+                 deferred: { unfinished.append(($0, $1)) },metrics:metrics,reveal:revealScan)
         }
         blocks[position] = block; frontiers[position] = unfinished; partial[position] = windowTruncated
     }
@@ -1061,6 +1153,10 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
             // Reading only; nothing here opens a menu. A closed popup reports
             // no options because it HAS none until it is opened.
             "custom_selects": customSelects(p, elements, obsID: obsID)]
+    if let revealScan {
+        reply["reveal_scan_complete"] = revealScan.complete
+        reply["reveal_scanned_nodes"] = revealScan.scannedNodes
+    }
     if let documentToken { reply["document_token"] = documentToken }
     else { reply["window_listing_diagnostic"] = windowListing.metadata }
     if windowIdentity {
@@ -4770,6 +4866,7 @@ let experimentalForegroundCapabilities: [String] = []
 #endif
 
 let helperCapabilities: [String] = [
+    "observe.reveal",
     "observe", "act", "probe", "selection", "menu_state", "menu_items",
     "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "observe.subrole", "expect.enabled",
     "expect.no_modal", "expect.selection",
@@ -6187,6 +6284,9 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     case "menu_state", "menu_items":
         return readMenuState(msg)
     case "observe":
+        if let raw = msg["reveal"], validRevealRequest(raw) == nil {
+            return ["type":"error", "error":"invalid_reveal_request", "effect":"not_started"]
+        }
         if let raw = msg["window_identity"], CFGetTypeID(raw as CFTypeRef) != CFBooleanGetTypeID() {
             return ["type":"error", "error":"invalid_window_identity_request", "effect":"not_started"]
         }
@@ -6196,7 +6296,8 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         return observe(msg["target"] as? String ?? "",
                        requireWindow: msg["require_window"] as? Bool ?? true,
                        documentToken: msg["document_token"] as? String,
-                       windowIdentity: msg["window_identity"] as? Bool ?? false)
+                       windowIdentity: msg["window_identity"] as? Bool ?? false,
+                       reveal: msg["reveal"] as? [String])
     case "act":
         var savePanelToken: String?
         if let raw = msg["save_panel_token"] {

@@ -146,6 +146,12 @@ struct ObservationNodeSnapshot {
 final class ObservationReadMetrics {
  var packetAttempts=0,packetFallbacks=0,secondaryActionReads=0
 }
+final class ObservationRevealScan {
+ init(_ labels:[String]) {}
+ var complete=true
+ var available:Bool { false }
+ func matches(_ node:Int)->Bool { false }
+}
 func str(_ node: Int, _ key: String) -> String? {
  key == "AXRole" ? (roots.contains(node) ? "AXWindow" :
   childGraph != nil && [1,6].contains(node) ? "AXGroup" : "AXButton") : nil
@@ -165,6 +171,7 @@ func documentURLSyntaxPath(_ text: String) -> String? { nil }
 func quotedLabelValue(_ text: String) -> String? { nil }
 ''' + walker + '''
 func observation(_ windows: [Int]) -> [String: Any] {
+ let reveal: [String]? = nil
  roots = Set(windows); childReads = []
 ''' + loop + '''
  return ["visited":visited, "elements":elements, "lines":lines,
