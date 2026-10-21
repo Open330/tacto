@@ -129,6 +129,22 @@ class GroupSummaryTests(unittest.TestCase):
             self.assertIsNone(summary['savings_against_zero'])
 
 
+    def test_the_summary_cli_keeps_a_passed_run_with_unknown_usage(self):
+        """The original failure: strict summarizing aborted the whole CLI."""
+        import json,subprocess,sys
+        run=batch(0,'resumed');run['rows'][0]['usage']={'status':'missing_or_ambiguous'}
+        run['usage']=sum_usage(run['rows'])
+        with tempfile.TemporaryDirectory() as folder:
+            report=Path(folder)/'report.json';report.write_text(json.dumps({'results':[run]}))
+            out=Path(folder)/'summary.json'
+            done=subprocess.run([sys.executable,'-m','examples.summarize_reuse_ratios',str(report),'--output',str(out)],
+                                capture_output=True,text=True,cwd=Path(__file__).resolve().parents[1])
+            self.assertEqual(0,done.returncode,done.stderr)
+            group,=json.loads(out.read_text())['groups']
+            self.assertEqual(1,group['passed_runs'])
+            self.assertIsNone(group['median']['total_input_tokens'])
+            self.assertEqual(20,group['median']['seconds'])
+
 class CommandLineTests(unittest.TestCase):
     def test_a_missing_agent_cli_is_refused_before_any_build(self):
         with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as folder, \
