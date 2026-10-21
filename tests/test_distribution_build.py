@@ -195,3 +195,43 @@ class DistributionInventoryTests(unittest.TestCase):
                 builder.assert_called_once()
                 self.assertEqual(2,run.call_count)
                 self.assertTrue(all(call.args[0][0]=='bash' for call in run.call_args_list))
+
+    def test_successful_build_embeds_inventory_before_final_signing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);output=root/'result.app'
+            (root/'tacto').mkdir();(root/'tacto/__init__.py').write_text('x = 1\n')
+            for name in ('README.md','README.ko.md'):(root/name).write_text('guide')
+            before={'schema':1,'workspace_commit':'a'*40,'files':{},'digest':'b'*64}
+            def fake_build(app,identity):
+                runtime=app/'Contents/Resources/runtime'
+                self.package(runtime/'.venv')
+                site=runtime/'.venv/lib/python3.11/site-packages/tacto';site.mkdir()
+                (site/'__init__.py').write_text('x = 1\n')
+                for name in ('Contents/MacOS/TactoSetup','Contents/Resources/runtime/.venv/bin/python3',
+                             'Contents/Resources/runtime/launcher/tacto',
+                             'Contents/Resources/runtime/helper/Tacto Helper.app/Contents/MacOS/TactoHelper'):
+                    path=app/name;path.parent.mkdir(parents=True,exist_ok=True)
+                    path.write_bytes(next(iter(preview.MAGICS))+b'\0'*16)
+                (app/'Contents/Info.plist').write_bytes(distribution.plistlib.dumps({}))
+                return {'mock_build':True}
+            def fake_run(args,**kwargs):
+                if args[0]=='codesign':
+                    sealed=json.loads((output/'Contents/Resources/first-run-source.json').read_text())
+                    self.assertIn('distribution_inventory',sealed)
+                    self.assertTrue(sealed['inventory_compatibility']['passed'])
+                return subprocess.CompletedProcess(args,0,'','Timestamp=fixture\n')
+            timestamps=distribution.require_timestamps
+            with mock.patch.object(distribution,'ROOT',root), \
+                 mock.patch.object(distribution,'committed_sources',return_value=before), \
+                 mock.patch.object(distribution,'require_release_environment',return_value={'playwright':'1.63.0'}), \
+                 mock.patch.object(distribution.preview,'build',side_effect=fake_build), \
+                 mock.patch.object(distribution.preview,'requirement',return_value='fixture'), \
+                 mock.patch.object(distribution.subprocess,'run',side_effect=fake_run), \
+                 mock.patch.object(distribution,'require_timestamps',side_effect=lambda paths:timestamps(paths,run=fake_run)):
+                report=distribution.build(output,'fixture','v0.1.0-preview.19',initial_distribution=True)
+            sealed=json.loads((output/'Contents/Resources/first-run-source.json').read_text())
+            self.assertEqual(report['distribution_inventory'],sealed['distribution_inventory'])
+            self.assertEqual({'playwright':'1.63.0'},sealed['distribution_inventory']['distributions'])
+            self.assertEqual(4,len(sealed['distribution_inventory']['native_paths']))
+            self.assertTrue(report['all_extras_verified'])
+            self.assertEqual('initial_distribution',sealed['inventory_compatibility']['baseline'])
