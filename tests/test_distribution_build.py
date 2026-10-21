@@ -1,5 +1,7 @@
 """A distribution must name a version and one unmodified committed source."""
 import importlib.util
+import json
+from unittest import mock
 from pathlib import Path
 import subprocess
 import sys
@@ -10,6 +12,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'setup'))
 from build_distribution import release_version,committed_sources,require_timestamps
 import build_standalone_preview as preview
+import build_distribution as distribution
 
 class DistributionBuildTests(unittest.TestCase):
     def test_release_tags_are_closed(self):
@@ -51,3 +54,144 @@ class DistributionBuildTests(unittest.TestCase):
             signed=[p for p in found if p.name!='tool']
             self.assertEqual(2,require_timestamps(signed,run=lambda a,**_:Signed('Timestamp=now\n')))
 
+
+
+class DistributionInventoryTests(unittest.TestCase):
+    def inventory(self):
+        return {'schema':1,'distributions':{'tacto-runtime':'0.1.0','playwright':'1.63.0'},
+                'native_paths':['Contents/MacOS/TactoSetup','Contents/Resources/runtime/native.so']}
+
+    def package(self,venv,name='playwright',version='1.63.0',directory=None):
+        site=Path(venv)/'lib/python3.11/site-packages'
+        metadata=site/(directory or (name+'-'+version+'.dist-info'))
+        metadata.mkdir(parents=True)
+        (metadata/'METADATA').write_text('Metadata-Version: 2.1\nName: '+name+'\nVersion: '+version+'\n')
+
+    def test_metadata_comes_from_packaged_environment_and_normalizes_names(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.package(folder,'PyObjC_Framework.ScreenCaptureKit','12.2')
+            self.assertEqual({'pyobjc-framework-screencapturekit':'12.2'},distribution.distribution_packages(folder))
+
+    def test_duplicate_or_missing_package_metadata_cannot_pass(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.package(folder,'example_pkg','1');self.package(folder,'Example-Pkg','2')
+            with self.assertRaisesRegex(RuntimeError,'duplicate'):
+                distribution.distribution_packages(folder)
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(RuntimeError,'site-packages'):
+                distribution.distribution_packages(folder)
+
+    def test_all_extras_check_pins_packaged_environment_without_installing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);python=root/'.venv/bin/python';python.parent.mkdir(parents=True);python.touch()
+            self.package(root/'.venv')
+            run=mock.Mock(return_value=subprocess.CompletedProcess([],0,'',''))
+            self.assertEqual({'playwright':'1.63.0'},distribution.require_release_environment(root,run))
+            args,kwargs=run.call_args
+            for flag in ('--frozen','--all-extras','--check','--inexact','--offline'):
+                self.assertIn(flag,args[0])
+            self.assertEqual(str((root/'.venv').resolve()),kwargs['env']['UV_PROJECT_ENVIRONMENT'])
+            self.assertEqual(root,kwargs['cwd'])
+
+    def test_missing_extras_fail_before_any_copy_or_signing(self):
+        with mock.patch.object(distribution,'committed_sources',return_value={}), \
+             mock.patch.object(distribution,'require_release_environment',side_effect=RuntimeError('missing locked extras')), \
+             mock.patch.object(distribution.preview,'build') as builder, \
+             mock.patch.object(distribution.subprocess,'run') as run:
+            with self.assertRaisesRegex(RuntimeError,'extras'):
+                distribution.build('unused.app','unused','v0.1.0-preview.19')
+            builder.assert_not_called();run.assert_not_called()
+        with tempfile.TemporaryDirectory() as folder:
+            python=Path(folder)/'.venv/bin/python';python.parent.mkdir(parents=True);python.touch()
+            run=mock.Mock(return_value=subprocess.CompletedProcess([],1,'','missing playwright'))
+            with self.assertRaisesRegex(RuntimeError,'uv sync --frozen --all-extras'):
+                distribution.require_release_environment(Path(folder),run)
+
+    def test_package_deletion_fails_before_native_build(self):
+        with mock.patch.object(distribution,'committed_sources',return_value={}), \
+             mock.patch.object(distribution,'require_release_environment',return_value={'tacto-runtime':'0.1.0'}), \
+             mock.patch.object(distribution,'read_baseline',return_value=self.inventory()), \
+             mock.patch.object(distribution.subprocess,'run') as run:
+            with self.assertRaisesRegex(RuntimeError,'playwright'):
+                distribution.build('unused.app','unused','v0.1.0-preview.19')
+            run.assert_not_called()
+
+    def test_removed_package_and_native_path_each_require_explicit_reason(self):
+        previous=self.inventory();current=self.inventory()
+        del current['distributions']['playwright'];current['native_paths'].pop()
+        none={'distributions':{},'native_paths':{}}
+        with self.assertRaisesRegex(RuntimeError,'distributions'):
+            distribution.require_inventory_compatibility(current,previous,none)
+        packages={'distributions':{'playwright':'retired backend'},'native_paths':{}}
+        with self.assertRaisesRegex(RuntimeError,'native_paths'):
+            distribution.require_inventory_compatibility(current,previous,packages)
+        allowed={'distributions':{'playwright':'retired backend'},
+                 'native_paths':{'Contents/Resources/runtime/native.so':'removed with backend'}}
+        result=distribution.require_inventory_compatibility(current,previous,allowed)
+        self.assertTrue(result['passed']);self.assertEqual(['playwright'],result['removed_distributions'])
+        self.assertEqual(64,len(result['baseline_inventory_sha256']))
+
+    def test_version_updates_and_added_paths_do_not_look_like_removals(self):
+        previous=self.inventory();current=self.inventory()
+        current['distributions']['playwright']='1.64.0';current['distributions']['new-lib']='1'
+        current['native_paths'].append('Contents/new-native')
+        result=distribution.require_inventory_compatibility(current,previous,{'distributions':{},'native_paths':{}})
+        self.assertTrue(result['passed']);self.assertFalse(result['removed_native_paths'])
+
+    def test_stale_allowlist_and_wildcards_do_not_silently_accumulate(self):
+        previous=self.inventory()
+        with self.assertRaisesRegex(ValueError,'stale'):
+            distribution.require_inventory_compatibility(previous,previous,{'distributions':{'old-package':'old exception'},'native_paths':{}})
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'allow.json'
+            for value in ({'distributions':{'*':'all'},'native_paths':{}},
+                          {'distributions':{'playwright':''},'native_paths':{}}):
+                path.write_text(json.dumps(value))
+                with self.assertRaises(ValueError):distribution.read_removal_allowlist(path)
+
+    def test_baseline_manifest_requires_real_inventory_and_initial_is_explicit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'SOURCE-MANIFEST.json'
+            path.write_text(json.dumps({'files':{},'workspace_commit':'old'}))
+            with self.assertRaises(ValueError):distribution.read_baseline(path)
+            path.write_text(json.dumps({'distribution_inventory':self.inventory()}))
+            self.assertEqual(self.inventory(),distribution.read_baseline(path))
+            with self.assertRaises(RuntimeError):distribution.read_baseline(Path(folder)/'absent.app')
+            self.assertIsNone(distribution.read_baseline(initial_distribution=True))
+            with self.assertRaises(ValueError):distribution.read_baseline(path,initial_distribution=True)
+
+    def test_old_app_without_embedded_inventory_is_supported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            app=Path(folder)/'previous.app';venv=app/'Contents/Resources/runtime/.venv'
+            self.package(venv);binary=app/'Contents/MacOS/TactoSetup';binary.parent.mkdir(parents=True)
+            binary.write_bytes(next(iter(preview.MAGICS))+b'\0'*16)
+            found=distribution.read_baseline(app)
+            self.assertEqual({'playwright':'1.63.0'},found['distributions'])
+            self.assertEqual(['Contents/MacOS/TactoSetup'],found['native_paths'])
+
+    def test_invalid_or_empty_inventory_never_proves_compatibility(self):
+        for native in ([],['../outside'],['/absolute'],['a/../b'],['x','x'],[{'x':1}]):
+            bad=self.inventory();bad['native_paths']=native
+            with self.subTest(native=native),self.assertRaises(ValueError):distribution.validate_inventory(bad)
+        bad=self.inventory();bad['distributions']={}
+        with self.assertRaises(ValueError):distribution.validate_inventory(bad)
+
+
+    def test_copy_loss_and_native_deletion_stop_before_timestamp_signing(self):
+        previous=self.inventory()
+        for kind in ('package','native'):
+            packaged=self.inventory()
+            if kind=='package':del packaged['distributions']['playwright']
+            else:packaged['native_paths'].pop()
+            with self.subTest(kind=kind), \
+                 mock.patch.object(distribution,'committed_sources',return_value={}), \
+                 mock.patch.object(distribution,'require_release_environment',return_value=previous['distributions']), \
+                 mock.patch.object(distribution,'read_baseline',return_value=previous), \
+                 mock.patch.object(distribution,'app_inventory',return_value=packaged), \
+                 mock.patch.object(distribution.preview,'build',return_value={}) as builder, \
+                 mock.patch.object(distribution.subprocess,'run') as run:
+                with self.assertRaisesRegex(RuntimeError,'packaged distributions|native_paths'):
+                    distribution.build('unused.app','unused','v0.1.0-preview.19')
+                builder.assert_called_once()
+                self.assertEqual(2,run.call_count)
+                self.assertTrue(all(call.args[0][0]=='bash' for call in run.call_args_list))
