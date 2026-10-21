@@ -640,7 +640,7 @@ seed 작성과 repair는 각 비율에 포함했다.
 원자료별 집계는
 `reviews/2026-10-21/bench-reaggregate/matched-prior-per-report.json`에 있다.
 보고서마다 runtime·guide 버전이 다르므로 하나의 표본으로 합치지 않았다.
-옛 arm 이름 `nlc`는 tacto arm이다.
+공개 표에는 arm 이름을 Tacto로 통일했다.
 
 | 원자료 (`reviews/…/report.json`) | arm | 성공/실행 | 통과 run 시간 중앙값 | 전체 입력 중앙값 | 새 입력 중앙값 |
 |---|---|---:|---:|---:|---:|
@@ -655,8 +655,8 @@ seed 작성과 repair는 각 비율에 포함했다.
 | tacto-native-resumption-20261019/matched-capacity-followup | tacto | 1/1 | 21.5 s | 72,765 | 14,909 |
 | | sky | 1/1 | 61.5 s | 135,934 | 30,334 |
 
-이 기록들에서 실패는 tacto arm에서만 났다. 22회 중 3회 실패했고 sky arm은
-22회 모두 통과했다. 대신 tacto arm의 전체 입력은 대부분 sky arm의 절반 수준이다.
+이 기록들의 총 실행은 arm별 11회, 합계 22회다. Tacto는 11회 중 3회 실패했고
+Sky는 11회 모두 통과했다. 대신 tacto arm의 전체 입력은 대부분 sky arm의 절반 수준이다.
 2026-10-18 runtime만 예외로 tacto 입력이 더 많다. 시간은 보고서마다 우세가
 바뀐다.
 
@@ -667,8 +667,8 @@ seed 작성과 repair는 각 비율에 포함했다.
 - Windows에서의 agent 비교. Windows는 replay 정확성만 CI와 live로 확인했다.
 - 실제 과금, serving model 동일성, 서버 cache 상태.
 
-live 측정은 localhost macOS UI가 비어 있을 때만 할 수 있다. codex가 현재 UI를
-쓰고 있다. 실행 명령은 다음과 같다.
+새 live 측정에는 다른 사용자가 조작하지 않는 macOS 화면이 필요하다. 이번에는
+사용 중인 foreground를 보존하기 위해 실행하지 않았다. 실행 명령은 다음과 같다.
 
 ```
 uv run python -m examples.repeat_benchmark --output <새 디렉터리> --reps 3 \
