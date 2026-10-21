@@ -589,3 +589,84 @@ app's resource seal. The new builder precompiles before signing and verifies
 two actual signed-launcher runs. Owned Python entrypoints use `-B`; both benchmark
 arms are precompiled so this fix is not credited as an isolated polling gain.
 Related publication regressions: 92 tests passed; independent review approved.
+
+
+### 2026-10-21: 독립 context·반복·실패율 재집계 (기존 원자료)
+
+새 측정이 아니라 기존 원자료를 바뀐 집계기로 다시 읽은 결과다. 이 표들로
+계산기 단발 최고속도나 일반 앱 성능을 말하지 않는다.
+
+도구 변경:
+- `examples/repeat_benchmark.py`
+  - `freshN` arm(N=0/30/70/100)을 추가했다. agent job마다 독립 ephemeral
+    session을 쓰고 resume하지 않으며 workspace도 공유하지 않는다.
+  - 기존 `ratioN`은 이전처럼 CLI-resumed 대화 하나를 이어 쓴다.
+  - `--reps N`(1..10)으로 모든 arm을 반복한다. 결과는 `rep-NN/<arm>/`에 둔다.
+- `examples/summarize_reuse_ratios.py`
+  - 출력은 (context, reuse%) 그룹별 runs, passed_runs, failure_rate, 실패 사유,
+    run별 값, 통과 run의 중앙값, 같은 context의 0% 대비 변화율이다.
+  - 통과했지만 토큰 수를 모르는 run이 하나라도 있으면 그 중앙값은 `null`로
+    둔다. 0으로 채우지 않는다.
+  - fresh arm 안에 resumed job이 섞이면 실패로 센다.
+- `examples/benchmark_matched_conditions.py`
+  - `--reps N`을 추가했다. pair 번호가 반복 사이에도 이어지므로 arm 순서는
+    계속 번갈아 바뀐다.
+  - arm별 failure_rate와 통과 run의 시간·토큰 중앙값을 보고한다.
+
+**Flow 재사용 비율 (resumed context, 1 batch/비율, codex, 2026-10-13)**
+
+원자료는 `reviews/repeat-ratios-20261013/report.json`, 재집계 결과는
+`reviews/2026-10-21/bench-reaggregate/repeat-ratios-20261013-groups.json`이다.
+seed 작성과 repair는 각 비율에 포함했다.
+
+| reuse | 실패율 | 시간 | 전체 입력 | 새 입력 | 출력 | 시간 변화 (0% 대비) | 전체 입력 변화 (0% 대비) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0% | 0/1 | 235.4 s | 921,897 | 45,609 | 4,235 | — | — |
+| 30% | 0/1 | 291.6 s | 876,855 | 62,775 | 5,678 | +23.9% | −4.9% |
+| 70% | 0/1 | 211.1 s | 736,739 | 63,843 | 5,407 | −10.3% | −20.1% |
+| 100% | 0/1 | 120.8 s | 286,935 | 30,679 | 3,062 | −48.7% | −68.9% |
+
+30%와 70%에서는 seed 작성 비용(61 s, 107 s) 때문에 새 입력이 0%보다 많다.
+비율마다 1회뿐이라 분산과 실패율은 추정할 수 없다.
+
+**동일조건 독립 session 비교 (codex gpt-6.1-sol medium, 원자료별)**
+
+원자료별 집계는
+`reviews/2026-10-21/bench-reaggregate/matched-prior-per-report.json`에 있다.
+보고서마다 runtime·guide 버전이 다르므로 하나의 표본으로 합치지 않았다.
+옛 arm 이름 `nlc`는 tacto arm이다.
+
+| 원자료 (`reviews/…/report.json`) | arm | 성공/실행 | 통과 run 시간 중앙값 | 전체 입력 중앙값 | 새 입력 중앙값 |
+|---|---|---:|---:|---:|---:|
+| matched-conditions-20261014 | tacto | 3/3 | 47.6 s | 66,230 | 6,730 |
+| | sky | 3/3 | 39.7 s | 137,383 | 18,087 |
+| tacto-matched-runtime-20261018 | tacto | 1/3 | 46.4 s | 208,857 | 23,897 |
+| | sky | 3/3 | 28.4 s | 156,792 | 17,678 |
+| tacto-native-resumption-20261019/matched-native-three-pairs | tacto | 2/3 | 20.0 s | 66,536 | 8,872 |
+| | sky | 3/3 | 26.3 s | 137,695 | 19,329 |
+| tacto-native-resumption-20261019/matched-fresh-fixture | tacto | 1/1 | 30.6 s | 69,728 | 11,616 |
+| | sky | 1/1 | 25.5 s | 137,693 | 17,501 |
+| tacto-native-resumption-20261019/matched-capacity-followup | tacto | 1/1 | 21.5 s | 72,765 | 14,909 |
+| | sky | 1/1 | 61.5 s | 135,934 | 30,334 |
+
+이 기록들에서 실패는 tacto arm에서만 났다. 22회 중 3회 실패했고 sky arm은
+22회 모두 통과했다. 대신 tacto arm의 전체 입력은 대부분 sky arm의 절반 수준이다.
+2026-10-18 runtime만 예외로 tacto 입력이 더 많다. 시간은 보고서마다 우세가
+바뀐다.
+
+**미측정**
+- fresh context에서의 Flow 0/30/70/100% 비교: 도구만 준비했고 실행하지 않았다.
+- 같은 조건의 반복(reps ≥ 3) 분포와 실패율 신뢰구간.
+- claude provider의 matched 비교.
+- Windows에서의 agent 비교. Windows는 replay 정확성만 CI와 live로 확인했다.
+- 실제 과금, serving model 동일성, 서버 cache 상태.
+
+live 측정은 localhost macOS UI가 비어 있을 때만 할 수 있다. codex가 현재 UI를
+쓰고 있다. 실행 명령은 다음과 같다.
+
+```
+uv run python -m examples.repeat_benchmark --output <새 디렉터리> --reps 3 \
+  --arms codex-tacto-fresh0 codex-tacto-fresh30 codex-tacto-fresh70 codex-tacto-fresh100
+uv run python -m examples.summarize_reuse_ratios <디렉터리>/report.json --output <요약.json>
+uv run python -m examples.benchmark_matched_conditions --output <새 디렉터리> --reps 3
+```
