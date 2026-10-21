@@ -3,7 +3,7 @@ name: macos
 on:
   workflow_dispatch:
   push:
-    branches: [main, test/clean-fresh-checkout]
+    branches: [main]
   pull_request:
 
 permissions:
