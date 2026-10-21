@@ -510,11 +510,26 @@ class Observation:
                 return False
             seen += 1
             self.reveal_scanned += 1
-            values = _label_values(node)
+            # A slow app must not turn one probe into a system-default AX wait.
+            remaining = self.reveal_deadline - time.monotonic()
+            try:
+                if AXUIElementSetMessagingTimeout(node, min(.2, remaining)) != 0:
+                    self.reveal_complete = False
+                    return False
+            except Exception:
+                self.reveal_complete = False
+                return False
+            try:
+                values = _label_values(node)
+                kids = _attr(node, "AXChildren") or []
+            finally:
+                try:
+                    AXUIElementSetMessagingTimeout(node, 0)
+                except Exception:
+                    pass
             # Title, Description, Value, Identifier: what a selector names.
             if any(_reveal_text(values[i]) in self.reveal for i in (0, 1, 2, 4) if _reveal_text(values[i])):
                 return True
-            kids = _attr(node, "AXChildren") or []
             if depth >= REVEAL_CHILD_DEPTH:
                 if kids:
                     self.reveal_complete = False

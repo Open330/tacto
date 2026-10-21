@@ -833,8 +833,22 @@ def _dispatch_command(cmd, rest):
 
     if cmd == "observe":
         app = "<app.exe | pid:N>" if sys.platform == "win32" else "<bundle-id>"
-        usage = f"usage: observe {app} [--helper] [--json] [--all-windows | --document <absolute path>]"
+        usage = (f"usage: observe {app} [--helper] [--json] [--all-windows | --document <absolute path>]"
+                 " [--reveal <exact label>]...")
         structured = "--json" in rest
+        reveal = []
+        while "--reveal" in rest:
+            # Each one an exact name to look for past the per-container cap.
+            k = rest.index("--reveal")
+            if k + 1 >= len(rest):
+                print(usage)
+                return 2
+            reveal.append(rest[k + 1])
+            rest = rest[:k] + rest[k + 2:]
+        from .protocol import reveal_problem
+        if reveal and (reveal_problem(reveal) or "--document" in rest):
+            print(usage)
+            return 2
         if rest.count("--json") > 1:
             print(usage)
             return 2
@@ -858,6 +872,7 @@ def _dispatch_command(cmd, rest):
             return 2
         driver=_make_driver(rest)
         o = (_document_observation(driver,targets[0],document) if document is not None
+             else driver.observe(targets[0], "tree_full", reveal=reveal) if reveal
              else driver.observe(targets[0], "tree_full"))
         if structured:
             try:

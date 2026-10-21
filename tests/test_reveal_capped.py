@@ -36,6 +36,7 @@ class WalkTests(unittest.TestCase):
         with mock.patch.object(native, '_attr', attr), mock.patch.object(native, '_elem_label', label), \
              mock.patch.object(native, '_label_values', labels), \
              mock.patch.object(native, '_secondary_actions', lambda el: []), \
+             mock.patch.object(native, 'AXUIElementSetMessagingTimeout', lambda el, t: 0), \
              mock.patch.object(native, 'REVEAL_SCAN_NODES', REVEAL_SCAN_NODES):
             obs.walk(folder())
         return obs
@@ -80,7 +81,8 @@ class WalkTests(unittest.TestCase):
     def test_reveal_texts_are_bounded(self):
         self.assertIsNone(reveal_problem(None))
         self.assertIsNone(reveal_problem(['a'] * 8))
-        for bad in ([], ['a'] * 9, [''], ['x' * 257], ['a\nb'], 'file', [3]):
+        for bad in ([], ['a'] * 9, [''], ['x' * 257], ['a\nb'], 'file', [3],
+                    ['a\u2028b'], ['a\x85b'], ['\u200efile'], ['a\x7fb']):
             with self.subTest(bad=bad):
                 self.assertIsNotNone(reveal_problem(bad))
 
@@ -155,6 +157,27 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(1, calls['observe'].count(['file90']))
         self.assertFalse(result.ok)
         self.assertIn('끝까지 확인하지 못했습니다', str(result.log))
+
+
+class CommandTests(unittest.TestCase):
+    def test_observe_takes_repeatable_reveal_labels(self):
+        from tacto import cli
+        seen = []
+
+        class Driver:
+            capabilities = frozenset({'observe', 'observe.reveal'})
+            def observe(self, target, mode='tree_full', **kwargs):
+                seen.append((target, kwargs.get('reveal')))
+                return {'type': 'observation', 'obs_id': 'o', 'tree': '0 Window  Title: "F"'}
+        with mock.patch('tacto.session.sandboxed', return_value=False), \
+             mock.patch.object(cli, '_make_driver', lambda rest: Driver()), mock.patch('builtins.print'):
+            self.assertEqual(0, cli.main(['observe', 'com.apple.finder', '--reveal', 'file90', '--reveal', 'file91']))
+            for argv in (['observe', 'com.apple.finder', '--reveal'],
+                         ['observe', 'com.apple.finder', '--reveal', 'a\nb'],
+                         ['observe', 'com.apple.TextEdit', '--document', '/tmp/x', '--reveal', 'a']):
+                with self.subTest(argv=argv):
+                    self.assertEqual(2, cli.main(argv))
+        self.assertEqual([('com.apple.finder', ['file90', 'file91'])], seen)
 
 
 if __name__ == '__main__':

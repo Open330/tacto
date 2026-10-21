@@ -197,12 +197,20 @@ REVEAL_CAPABILITY = 'observe.reveal'
 
 
 def reveal_problem(reveal):
-    """None when `reveal` is absent or 1-8 exact label texts of 1-256 characters."""
+    """None when `reveal` is absent or 1-8 exact label texts of 1-256 characters.
+
+    Refuses what the helper and launcher refuse: control and format
+    characters (Unicode Cc, Cf) and every line separator.
+    """
+    import unicodedata
     if reveal is None:
         return None
+
+    def plain(text):
+        return all(unicodedata.category(c) not in ('Cc', 'Cf', 'Zl', 'Zp') and c != '\x85' for c in text)
     if (not isinstance(reveal, (list, tuple)) or not 1 <= len(reveal) <= 8
-            or any(not isinstance(text, str) or not 1 <= len(text) <= 256
-                   or any(ord(c) < 32 or ord(c) == 127 for c in text) for text in reveal)):
+            or any(not isinstance(text, str) or not 1 <= len(text) <= 256 or not plain(text)
+                   for text in reveal)):
         return 'reveal must be 1-8 label texts of 1-256 characters without control characters'
     return None
 
