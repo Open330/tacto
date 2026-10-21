@@ -204,6 +204,12 @@ class BuiltinHintTests(unittest.TestCase):
         self.assertEqual(["original", "original"], [st.ready_when.field.identifier for st in bound.steps])
         self.assertEqual(["1", "12"], [st.ready_when.equals for st in bound.steps])
 
+    def test_outside_a_loop_a_param_of_that_name_is_kept(self):
+        step = Step("click", Selector(identifier="one"), safety=SAFETY,
+                    ready_when=ReadyHint(DISPLAY, "Value", "{{items_so_far}}"))
+        bound = Flow("p", "pad", [step], params={"items_so_far": "expected-value"}, schema=2).bind()
+        self.assertEqual("expected-value", bound.steps[0].ready_when.equals)
+
     def test_items_so_far_is_what_the_loop_has_entered(self):
         step = Step("click", Selector(identifier="{{item}}"), safety=SAFETY, for_each="{{n}}",
                     ready_when=ReadyHint(DISPLAY, "Value", "{{items_so_far}}"))

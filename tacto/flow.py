@@ -1306,7 +1306,8 @@ def _bind_steps(steps, ctx) -> list:
         # item ("1", then "12"), for a ready hint that names exactly what an app
         # shows after each one. Built only for a hint that uses it, and
         # cumulatively, so other loops pay nothing for it.
-        so_far = "" if st.ready_when is not None and "items_so_far" in (st.ready_when.equals or "") else None
+        so_far = ("" if st.for_each and st.ready_when is not None
+                  and "items_so_far" in (st.ready_when.equals or "") else None)
         for it in items:
             c = dict(ctx) if it is None else {**ctx, "item": it}
             if so_far is None:
