@@ -709,11 +709,16 @@ replay witnesses the navigation with `NavigationReceipt`
 (`tacto/navigation_receipt.py`). Safari leaves a window's `AXDocument` empty
 (measured 2026-10-21); the loaded page is the window's `AXWebArea`, whose
 `AXURL` the helper reports as `URL:` on a fully quoted WebArea line, so a page
-title cannot spell that field. Only the shallowest WebArea of the one
-`[focused]` window counts, and it must be unique; frames are deeper. Before the
-press, from the observation the press is addressed to, that page must be another
-URL; after it, fresh observations must show the pinned destination (scheme and
-host lowercased, default port and an empty path made explicit). The event is
+title cannot spell that field. The window is the one holding the pressed
+address field, found again by its `Identifier` (the window in front may be
+another one, such as a start page with no WebArea). Only its shallowest WebArea
+counts, and it must be unique; frames are deeper. Before the press, from the
+observation the press is addressed to, that page must be another URL (or none);
+after it, fresh observations must show the pinned destination (scheme and host
+lowercased, default port and an empty path made explicit). When that page
+cannot be read before the press (a helper that does not report WebArea URLs, a
+window without an identifier), no built-in receipt is used and the press ends
+unverified as before. The event is
 then `browser_navigation` evidence. The address-bar value is never used. A
 redirect to another URL, or no load within the receipt's deadline, ends as
 `commit_unverified` with `destination_not_shown`; inspect the page without

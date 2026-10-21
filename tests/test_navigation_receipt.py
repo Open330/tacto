@@ -4,23 +4,29 @@ import unittest
 from unittest.mock import patch
 
 from tacto.commit_evidence import CommitEvidence, NavigationEvidence, evidence_error, make_event
-from tacto.navigation_receipt import NavigationReceipt, front_window_url, normalized_url
+from tacto.navigation_receipt import NavigationReceipt, normalized_url, page_url, window_of
 
 URL = 'https://example.com/expected'
 FIELD = 'WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD'
 
 
-def tree(document, typed=URL, focused=True, status='pending', frame=None):
+def tree(document, typed=URL, focused=True, status='pending', frame=None, window='w1'):
     """A Safari window: address field, the page's WebArea (AXURL), a frame."""
-    window = '0 Window  Title: "Page"' + (' [focused]' if focused else '')
+    line = f'0 Window  Title: "Page", Identifier: {json.dumps(window)}' + (' [focused]' if focused else '')
     page = '  2 WebArea  Title: "Page"'
     if document is not None:
         page += f', URL: {json.dumps(document)}'
-    lines = [window, f'  1 TextField  Identifier: {FIELD}, Value: {typed}', page]
+    lines = [line, f'  1 TextField  Identifier: {FIELD}, Value: {typed}', page + ', Secondary Actions: ShowMenu']
     if frame is not None:
         lines.append(f'    3 WebArea  Title: "ad", URL: {json.dumps(frame)}')
     lines.append(f'    4 StaticText  Identifier: navigation-status, Value: {status}')
     return '\n'.join(lines)
+
+
+def start_page(window='w0', index=50):
+    """Another window in front: a start page, no WebArea at all."""
+    return (f'{index} Window  Title: "Start", Identifier: {json.dumps(window)} [focused]\n'
+            f'  {index + 1} TextField  Identifier: {FIELD}, Value: ')
 
 
 def press(effects=('transmit',)):
@@ -37,28 +43,32 @@ class UrlTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNone(normalized_url(bad))
 
-    def test_only_the_one_focused_window_and_its_page_count(self):
-        self.assertEqual(URL, front_window_url(tree(URL)))
-        self.assertIsNone(front_window_url(tree(URL, focused=False)))
-        self.assertIsNone(front_window_url(tree(URL) + '\n' + tree(URL).replace('0 Window', '9 Window')))
-        self.assertIsNone(front_window_url(tree('/Users/x/file.txt')))
-        # A frame is a deeper WebArea and never stands for the page.
-        self.assertEqual('https://old.example/', front_window_url(tree('https://old.example/', frame=URL)))
-        self.assertIsNone(front_window_url(tree(None, frame=URL)))
-        # Two pages side by side in one window: no guessing.
+    def test_the_page_of_one_window_by_its_identifier(self):
+        self.assertEqual(URL, page_url(tree(URL), 'w1'))
+        self.assertIsNone(page_url(tree(URL), 'w2'))
+        self.assertEqual('', page_url(start_page(), 'w0'))          # a start page: no web page
+        self.assertEqual(URL, page_url(start_page() + '\n' + tree(URL), 'w1'))
+        self.assertIsNone(page_url(tree(URL) + '\n' + tree(URL), 'w1'))  # two windows, one id
+        self.assertIsNone(page_url(tree('/Users/x/file.txt'), 'w1'))
+        # A frame is a deeper WebArea and never stands for the page, even when
+        # the page itself reports no URL.
+        self.assertEqual('https://old.example/', page_url(tree('https://old.example/', frame=URL), 'w1'))
+        self.assertIsNone(page_url(tree(None, frame=URL), 'w1'))
         two = tree(URL).replace('  2 WebArea', '  5 WebArea  Title: "x", URL: "https://b.example/"\n  2 WebArea')
-        self.assertIsNone(front_window_url(two))
-        # Only the focused window's own lines: another window's page is not it.
-        other = tree('https://old.example/') + '\n9 Window  Title: "B"\n  10 WebArea  Title: "B", URL: ' + json.dumps(URL)
-        self.assertEqual('https://old.example/', front_window_url(other))
+        self.assertIsNone(page_url(two, 'w1'))
+
+    def test_the_window_holding_the_pressed_field(self):
+        both = start_page() + '\n' + tree(URL)
+        self.assertEqual('w0', window_of(both, 51))
+        self.assertEqual('w1', window_of(both, 1))
+        self.assertIsNone(window_of(both, 99))
+        self.assertIsNone(window_of(tree(URL).replace(', Identifier: "w1"', ''), 1))
 
     def test_a_page_title_cannot_spell_the_url_field(self):
-        spoof = ('0 Window  Title: "Page" [focused]\n'
-                 f'  2 WebArea  Title: x, URL: "{URL}"')            # unquoted title: not a helper line
-        self.assertIsNone(front_window_url(spoof))
-        quoted = ('0 Window  Title: "Page" [focused]\n'
-                  f'  2 WebArea  Title: {json.dumps("x, URL: " + json.dumps(URL))}')
-        self.assertIsNone(front_window_url(quoted))
+        head = '0 Window  Title: "Page", Identifier: "w1" [focused]\n'
+        self.assertIsNone(page_url(head + f'  2 WebArea  Title: x, URL: "{URL}"', 'w1'))
+        quoted = head + f'  2 WebArea  Title: {json.dumps("x, URL: " + json.dumps(URL))}'
+        self.assertIsNone(page_url(quoted, 'w1'))
 
 
 class ReceiptTests(unittest.TestCase):
@@ -76,10 +86,20 @@ class ReceiptTests(unittest.TestCase):
         self.assertIs(NavigationEvidence, type(proof.evidence))
         self.assertIsNone(evidence_error({**event, 'commit_evidence': proof}, receipt.commit_expected))
 
-    def test_a_start_page_without_a_document_can_navigate(self):
-        receipt = self.receipt(tree(None), [tree(URL)])
+    def test_a_start_page_can_navigate(self):
+        before = tree('https://old.example/').replace('  2 WebArea  Title: "Page", URL: "https://old.example/", Secondary Actions: ShowMenu\n', '')
+        receipt = self.receipt(before, [tree(URL)])
         event = press(); context = receipt.prepare_commit(event)
         self.assertIsNotNone(receipt.after_commit(event, {}, context))
+
+    def test_another_window_loading_it_does_not_count(self):
+        receipt = self.receipt(tree('https://old.example/'),
+                               [tree('https://old.example/') + '\n' + tree(URL, window='w9').replace('0 Window', '9 Window')] * 50,
+                               timeout_seconds=1)
+        event = press(); context = receipt.prepare_commit(event)
+        with self.assertRaises(Exception) as caught:
+            receipt.after_commit(event, {}, context)
+        self.assertEqual('destination_not_shown', caught.exception.public_code)
 
     def test_typing_alone_or_a_redirect_is_not_shown(self):
         for shown in ('https://old.example/', 'https://example.com/login'):
@@ -92,6 +112,8 @@ class ReceiptTests(unittest.TestCase):
 
     def test_already_there_or_not_a_navigation_is_refused_before_the_press(self):
         cases = ((tree(URL), press(), 'already_at_destination'),
+                 (tree(URL).replace(', Identifier: "w1"', ''), press(), 'window_unreadable'),
+                 (tree(None), press(), 'window_unreadable'),   # a page that reports no URL
                  (tree(None), press(('write_persistent',)), 'not_a_bound_navigation'),
                  (tree(None), make_event({'name': 'click', 'element_index': 1}, {'transmit'},
                                          'com.apple.Safari', obs_id='o'), 'not_a_bound_navigation'))
@@ -102,7 +124,7 @@ class ReceiptTests(unittest.TestCase):
                 self.assertEqual(code, caught.exception.public_code)
 
     def test_one_prepare_and_one_after(self):
-        receipt = self.receipt(tree(None), [tree(URL)])
+        receipt = self.receipt(tree('https://old.example/'), [tree(URL)])
         event = press(); context = receipt.prepare_commit(event)
         with self.assertRaises(Exception):receipt.prepare_commit(event)
         receipt.after_commit(event, {}, context)
@@ -121,14 +143,14 @@ class ReceiptTests(unittest.TestCase):
 
 
 class ReplayTests(unittest.TestCase):
-    def run_flow(self, loads, capability=True):
+    def run_flow(self, loads, capability=True, before='https://old.example/'):
         from tests.test_bound_return import App, CAPS, step
         from tacto.flow import Flow, Selector, Postcondition, replay, pin_params
         from tacto.contract import ContextBinding
 
         class Browser(App):
             def observe(self, *args, **kwargs):
-                document = loads if self.calls else 'https://old.example/'
+                document = loads if self.calls else before
                 return {'type': 'observation', 'obs_id': f'o{len(self.calls)}',
                         'tree': tree(document, status='done' if self.calls else 'pending')}
         app = Browser(response={'type': 'acted', 'action': 'press_key', 'input_route': 'safari_address_confirm',
@@ -160,6 +182,14 @@ class ReplayTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(('commit_unverified', 'destination_not_shown'),
                          (result.log[-1].get('error'), result.log[-1].get('detail')))
+
+    def test_an_unreadable_page_keeps_the_press_without_a_built_in_receipt(self):
+        """An older helper reports the WebArea without a URL: nothing to compare
+        against, so the press is not blocked and stays unverified."""
+        app, result = self.run_flow(URL, before=None)
+        self.assertEqual(1, len(app.calls))
+        self.assertFalse(result.ok)
+        self.assertEqual('missing_typed_host_commit_evidence', result.log[-1].get('detail'))
 
     def test_without_the_semantic_route_there_is_no_built_in_receipt(self):
         app, result = self.run_flow(URL, capability=False)

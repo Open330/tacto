@@ -1657,6 +1657,16 @@ def literal_step(step):
     return _render_step(step, {'__literal_data__':True})
 
 
+def _navigation_baseline(tree, payload):
+    """The page URL of the window holding the pressed field, '' for none, or None."""
+    from .navigation_receipt import page_url, window_of
+    index = payload.get("element_index")
+    if type(index) is not int:
+        return None
+    window = window_of(tree or "", index)
+    return page_url(tree, window) if window is not None else None
+
+
 def _receipt_public_codes() -> frozenset:
     """Every receipt's closed refusal codes — what replay may show of one."""
     import importlib
@@ -2725,7 +2735,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             # window itself when the host supplied no receipt of its own.
             step_prepare, step_after = prepare_commit, after_commit
             if (consequential and step_prepare is None and step_after is None
-                    and isinstance(claim.get("value"), str)):
+                    and isinstance(claim.get("value"), str)
+                    and _navigation_baseline(current["tree"], payload) is not None):
+                # Without a readable page for the pressed window (an older
+                # helper, a window with no identifier) the press stays as it
+                # was: dispatched, and unverified without a host receipt.
                 from .navigation_receipt import NavigationReceipt
                 try:
                     receipt = NavigationReceipt(

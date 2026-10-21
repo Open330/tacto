@@ -5,9 +5,9 @@ URL. Typing into the address field does not change it; loading a page does.
 So the navigation is witnessed by the window, not by the key press:
 
 - before the press (from the observation the press is addressed to): the
-  front window shows some other page;
-- after it (fresh observations): the front window shows the pinned
-  destination.
+  window holding the pressed address field shows some other page;
+- after it (fresh observations): that same window, found by its identifier,
+  shows the pinned destination.
 
 What it certifies is that this browser window loaded that URL. It is not a
 server-side receipt: what the site did with the request is not observed. A
@@ -64,30 +64,29 @@ def normalized_url(text):
     return urlunsplit((scheme, host, parts.path or '/', parts.query, parts.fragment))
 
 
-def front_window_url(tree):
-    """The normalized URL of the page loaded in the one [focused] window.
+def _windows(tree):
+    """[(window line, its lines)] for each top-level window of a tree."""
+    import re
+    lines = tree.splitlines()
+    tops = [i for i, line in enumerate(lines) if re.match(r'^\d+\s', line)]
+    return [(lines[i], lines[i:next((j for j in tops if j > i), len(lines))])
+            for i in tops if re.match(r'^\d+\s+(?:AX)?Window\b', lines[i])]
+
+
+def _page_url(block):
+    """The page of one window: its shallowest WebArea, unique, with a URL.
 
     Safari leaves a window's AXDocument empty; the page is its AXWebArea, whose
     AXURL the helper reports on a fully quoted WebArea line (a page title is
     the site's text and must not be able to spell a URL field). Frames are
-    deeper WebAreas: only the shallowest one counts, and it must be unique.
+    deeper WebAreas. A start page has none: ''.
     """
-    from .document_label import web_area_attributes, window_flag
     import re
-    lines = tree.splitlines()
-    tops = [i for i, line in enumerate(lines) if re.match(r'^\d+\s', line)]
-    focused = [i for i in tops if re.match(r'^\d+\s+(?:AX)?Window\b', lines[i])
-               and window_flag(lines[i], 'focused')]
-    if len(focused) != 1:
-        return None
-    start = focused[0]
-    end = next((i for i in tops if i > start), len(lines))
-    areas = []
-    for line in lines[start + 1:end]:
-        if re.match(r'^\s*\d+\s+(?:AX)?WebArea\b', line):
-            areas.append((len(line) - len(line.lstrip(' ')), line))
+    from .document_label import web_area_attributes
+    areas = [(len(line) - len(line.lstrip(' ')), line) for line in block[1:]
+             if re.match(r'^\s*\d+\s+(?:AX)?WebArea\b', line)]
     if not areas:
-        return None
+        return ''
     shallowest = min(depth for depth, _ in areas)
     pages = [line for depth, line in areas if depth == shallowest]
     if len(pages) != 1:
@@ -96,11 +95,32 @@ def front_window_url(tree):
     return normalized_url(fields.get('URL')) if fields else None
 
 
+def window_of(tree, element_index):
+    """The Identifier of the one window whose lines hold `element_index`."""
+    import re
+    from .document_label import window_attributes
+    found = [line for line, block in _windows(tree)
+             if any(re.match(rf'^\s*{element_index}\s', item) for item in block)]
+    if len(found) != 1:
+        return None
+    identifier = (window_attributes(found[0]) or {}).get('Identifier')
+    return identifier if isinstance(identifier, str) and identifier else None
+
+
+def page_url(tree, window):
+    """The page URL of the window with Identifier `window`; '' for none, None unknown."""
+    from .document_label import window_attributes
+    blocks = [block for line, block in _windows(tree)
+              if (window_attributes(line) or {}).get('Identifier') == window]
+    return _page_url(blocks[0]) if len(blocks) == 1 else None
+
+
 @dataclass(frozen=True)
 class _Prepared:
     event_id: str
     action_digest: str
     before: str
+    window: str
 
 
 class NavigationReceipt:
@@ -151,15 +171,17 @@ class NavigationReceipt:
         digest = action_digest(action, event['effects'], self._target, obs_id=event.get('obs_id'))
         if event.get('action_digest') != digest or not isinstance(event.get('event_id'), str):
             raise _refuse('event_malformed')
-        before = front_window_url(self._before_tree)
+        # The window holding the pressed address field, by its own identifier:
+        # not whichever window is in front, which may be another tab or a start page.
+        window = window_of(self._before_tree, action['element_index'])
+        before = page_url(self._before_tree, window) if window is not None else None
         if before is None:
-            # A blank or start page has no http(s) document; any page differs from it.
-            before = ''
+            raise _refuse('window_unreadable')
         if before == self._destination:
             raise _refuse('already_at_destination')
         if not _event_binding_matches(event, event['event_id'], digest):
             raise _refuse('event_malformed')
-        self._prepared = _Prepared(event['event_id'], digest, before)
+        self._prepared = _Prepared(event['event_id'], digest, before, window)
         return self._prepared
 
     def after_commit(self, event, driver_result, context):
@@ -179,7 +201,7 @@ class NavigationReceipt:
                 raise _refuse('reader_failed') from None
             if not isinstance(tree, str):
                 raise _refuse('reader_failed')
-            if front_window_url(tree) == self._destination:
+            if page_url(tree, prepared.window) == self._destination:
                 return CommitEvidence(prepared.event_id, prepared.action_digest,
                                       NavigationEvidence(uuid.uuid4().hex, self._destination))
             remaining = deadline - self._clock()
