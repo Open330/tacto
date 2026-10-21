@@ -208,6 +208,43 @@ class WindowsLiveTests(unittest.TestCase):
                                  {"name": "set_value", "element_index": self.editor(obs), "value": text})
         self.assertEqual("acted", result["type"], result)
 
+    def test_in_window_save_prompt_is_seen_as_modal(self):
+        """Windows 11 Notepad asks "save changes?" inside its own window (a
+        content dialog), so its owner is never disabled; UI Automation must
+        still report it modal (jiun-home, Korean UI, 2026-10-21)."""
+        pid = int(self.target[4:])
+        self.set_text("tacto prompt " + self.marker)
+        obs = self.driver.observe(self.target)
+        menu = re.search(r"^\s*(\d+) MenuItem\s+.*Identifier: File\b", obs["tree"], re.M)
+        if menu is None:
+            self.skipTest("classic Notepad: no tab to close")
+        # Before the menu: its open popup is itself reported modal.
+        self.assertIs(False, self.driver._backend.modal_present(pid))
+        self.assertEqual("acted", self.driver.act(obs["obs_id"], self.target,
+                         {"name": "click", "element_index": int(menu.group(1))})["type"])
+        close = self.driver.wait_until(self.target, lambda tree: re.search(
+            r"^\s*\d+ MenuItem\s+Title: (?:Close tab|탭 닫기)$", tree, re.M), timeout_ms=5000)
+        if close.get("type") != "observation":
+            self.skipTest("this Notepad has no Close tab command")
+        index = int(re.search(r"^\s*(\d+) MenuItem\s+Title: (?:Close tab|탭 닫기)$", close["tree"], re.M).group(1))
+        self.assertEqual("acted", self.driver.act(close["obs_id"], self.target,
+                         {"name": "click", "element_index": index})["type"])
+        prompt = self.driver.wait_until(self.target, lambda tree: "Identifier: SecondaryButton" in tree,
+                                        timeout_ms=5000)
+        self.assertEqual("observation", prompt["type"], prompt.get("last_obs", prompt).get("tree"))
+        self.assertIs(True, self.driver._backend.modal_present(pid), prompt["tree"])
+        from tacto.uia_backend import _disables_its_owner
+        # Not the owner rule: nothing is disabled; UI Automation sees the dialog.
+        self.assertFalse(any(_disables_its_owner(h, pid)
+                             for h in self.driver._backend._windows_by_pid().get(pid, [])))
+        dont = int(re.search(r"^\s*(\d+) Button\s+.*Identifier: SecondaryButton\b", prompt["tree"], re.M).group(1))
+        self.assertEqual("acted", self.driver.act(prompt["obs_id"], self.target,
+                         {"name": "click", "element_index": dont})["type"])
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and self.driver._backend.modal_present(pid):
+            time.sleep(0.2)
+        self.assertIs(False, self.driver._backend.modal_present(pid))
+
     def test_observe_set_value_and_read_back_without_input(self):
         obs = self.driver.observe(self.target)
         self.assertEqual("observation", obs["type"], obs)
