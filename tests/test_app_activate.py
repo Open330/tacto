@@ -62,6 +62,30 @@ class ActivateTests(unittest.TestCase):
         self.assertEqual('app_activation', r['type']); self.assertFalse(r['window_verified'])
         self.assertEqual(1, len(browser.acts))
 
+    def test_a_foreground_taken_during_the_window_step_is_reported_not_fought(self):
+        for focused in ('Inbox - Gmail', 'Apple'):   # already main; prepared
+            with self.subTest(focused=focused):
+                b = self.backend()
+                class Elsewhere(Browser):
+                    def observe(self, target):
+                        b.front = 99   # another app comes forward meanwhile
+                        return super().observe(target)
+                browser = Elsewhere(focused=focused)
+                r = self.run_activate(b, window='Gmail', driver=browser)
+                self.assertEqual(('error', 'foreground_changed', False, False),
+                                 (r['type'], r['error'], r['foreground_verified'], r['window_verified']))
+                self.assertEqual(1, b.activations)   # not re-activated
+                self.assertEqual(99, b.front)
+
+    def test_a_replaced_instance_after_the_window_step_is_not_verified(self):
+        b = self.backend()
+        class Restarted(Browser):
+            def act(self, *args, **kwargs):
+                b.apps = [dict(pid=43, path=b.path, ready=True)]
+                return super().act(*args, **kwargs)
+        r = self.run_activate(b, window='Gmail', driver=Restarted())
+        self.assertEqual('foreground_changed', r['error'])
+
     def test_missing_or_ambiguous_windows_are_listed_not_guessed(self):
         b, browser = self.backend(), Browser()
         missing = self.run_activate(b, window='Calendar', driver=browser)

@@ -267,6 +267,39 @@ print(String(data:try! JSONSerialization.data(withJSONObject:cases.map{controlPa
         self.assertNotIn('activate',fallback)
         self.assertEqual(2,body.count('controlPanelHasNoRoom(controlPanelDiagnostic)'))
 
+    def test_an_earlier_no_room_reason_cannot_excuse_a_panel_on_another_space(self):
+        """Codex review of 6151abd: no room once, then room but the existing
+        panel is on another Space. The second refusal must say so."""
+        import shutil, subprocess, tempfile
+        if not shutil.which('swift'): self.skipTest('macOS Swift required')
+        text=(ROOT/'helper/TactoHelper.swift').read_text()
+        head=text[text.index('func showControlPanel('):text.index('    if controlPanel == nil {',text.index('func showControlPanel('))]
+        rule=text[text.index('func controlPanelHasNoRoom('):text.index('/// How the last accepted action was shown')]
+        harness=r'''import Foundation
+import CoreGraphics
+struct FakeScreen { var visibleFrame=CGRect(x:0,y:0,width:1200,height:800) }
+enum NSScreen { static let screens=[FakeScreen()] }
+struct NSRunningApplication { init?(processIdentifier:Int32) { return nil }; var localizedName:String? { nil } }
+final class Panel { var isOnActiveSpace=false; func setFrame(_ rect:CGRect,display:Bool) {} }
+var controlPanel:Panel? = Panel()
+var controlPanelDiagnostic:[String:Bool]=[:]
+var frameAvailable=false
+func availableControlPanelFrame(screens:[CGRect],avoiding:[CGRect])->CGRect? {
+    frameAvailable ? CGRect(x:1,y:1,width:292,height:56) : nil
+}
+'''+head+"    _ = who; _ = size\n    return true\n}\n"+rule+r'''
+let first=showControlPanel(forPID:1,targets:[])
+let firstNoRoom=controlPanelHasNoRoom(controlPanelDiagnostic)
+frameAvailable=true
+let second=showControlPanel(forPID:1,targets:[])
+print(first, firstNoRoom, second, controlPanelHasNoRoom(controlPanelDiagnostic), controlPanelDiagnostic)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=pathlib.Path(directory)/'main.swift';path.write_text(harness)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=60)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual('false true false false ["active_space": false]',result.stdout.strip())
+
     def test_the_indicator_still_gates_every_action(self):
         # The point of it is that a caller cannot act invisibly. Losing the
         # outline must not lose that.

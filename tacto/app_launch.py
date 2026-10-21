@@ -257,4 +257,14 @@ def activate_app(target, *, window=None, driver=None, backend=None,
             if focused or clock() >= deadline:
                 break
             sleep(0.1)
+    # The app was in front before the window step; say so only if it still is.
+    # Something else taking the foreground meanwhile is reported, never fought.
+    try:
+        still = (backend.session_ready() and backend.frontmost_pid() == pid
+                 and [(a['pid'], a['path']) for a in backend.running(target)] == [(pid, path)])
+    except Exception:
+        still = False
+    if not still:
+        return dict(result, type='error', error='foreground_changed', effect='unknown',
+                    foreground_verified=False, window=title, window_verified=False)
     return dict(result, window=title, window_verified=bool(focused))

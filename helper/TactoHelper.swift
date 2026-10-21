@@ -3885,6 +3885,9 @@ func controlTargetFrames(forPID pid: pid_t, primaryTop: CGFloat) -> [CGRect]? {
 }
 
 func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
+    // Every call says why it failed this time; a no-room reason left over from
+    // an earlier call must not excuse a panel that is now on another Space.
+    controlPanelDiagnostic = [:]
     let who = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "앱"
     guard let frame = availableControlPanelFrame(screens: NSScreen.screens.map { $0.visibleFrame },
                             avoiding: targets) else {
@@ -3892,7 +3895,7 @@ func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
     }
     let size = frame.size
     if let panel = controlPanel {
-        guard panel.isOnActiveSpace else { return false }
+        guard panel.isOnActiveSpace else { controlPanelDiagnostic=["active_space":false]; return false }
         panel.setFrame(frame, display:true)
     }
     if controlPanel == nil {
@@ -4230,7 +4233,9 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     for _ in 0..<10 {
         Thread.sleep(forTimeInterval:0.05)
         guard sessionVisible() && !abortState.isStopped else { break }
-        guard let currentTargets = targetFrames() else { continue }
+        guard let currentTargets = targetFrames() else {
+            controlPanelDiagnostic=["target_frames_available":false]; continue
+        }
         shown = DispatchQueue.main.sync { showControlPanel(forPID: pid, targets:currentTargets) }
         if shown { break }
     }
