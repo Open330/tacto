@@ -1,6 +1,7 @@
 """A distribution must name a version and one unmodified committed source."""
 import importlib.util
 import json
+import os
 import shutil
 from unittest import mock
 from pathlib import Path
@@ -244,15 +245,17 @@ class DistributionInventoryTests(unittest.TestCase):
     def test_new_pyproject_extra_cannot_hide_behind_a_frozen_stale_lock(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);project=root/'pyproject.toml'
+            environment=dict(os.environ,UV_PROJECT_ENVIRONMENT=str(root/'.venv'))
+            environment.pop('UV_FROZEN',None);environment.pop('UV_LOCKED',None)
             project.write_text('[project]\nname="inventory-lock-fixture"\nversion="0.0.0"\nrequires-python=">=3.11"\n[tool.uv]\npackage=false\n')
             for args in (['uv','lock','--offline'],['uv','sync','--frozen','--all-extras','--offline']):
-                subprocess.run(args,cwd=root,check=True,capture_output=True,text=True,timeout=30)
+                subprocess.run(args,cwd=root,env=environment,check=True,capture_output=True,text=True,timeout=30)
             original_lock=(root/'uv.lock').read_bytes()
             project.write_text(project.read_text()+'[project.optional-dependencies]\nweb=["requests==2.34.2"]\n')
             # The former frozen-only check says nothing is missing: it has not
             # read the newly declared extra into the locked dependency graph.
             frozen=subprocess.run(['uv','sync','--frozen','--all-extras','--check','--inexact','--offline'],
-                                  cwd=root,capture_output=True,text=True,timeout=30)
+                                  cwd=root,env=environment,capture_output=True,text=True,timeout=30)
             self.assertEqual(0,frozen.returncode,frozen.stderr)
             with self.assertRaisesRegex(RuntimeError,'lockfile'):
                 distribution.require_release_environment(root)
