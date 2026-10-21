@@ -704,7 +704,16 @@ falls back to a key press; uncertain outcomes still require a fresh observation.
 receipt. Verify the destination page before reporting a successful navigation.
 
 Safari address confirmation performs the bound navigation; it does not supply a
-remote-service commit receipt. A Flow declaring `transmit` can therefore finish
-as `commit_unverified` even after navigation. Inspect the requested destination
-without repeating the confirmation; do not treat an address-bar value alone as
-proof that a remote service accepted a request.
+remote-service commit receipt. When the host supplies no receipt of its own,
+replay witnesses the navigation with `NavigationReceipt`
+(`tacto/navigation_receipt.py`): before the press, from the observation the press
+is addressed to, the front window's `Document` must be another page; after it,
+fresh observations must show the front window's `Document` equal to the pinned
+destination (scheme and host lowercased, default port and an empty path made
+explicit). The event is then `browser_navigation` evidence. The address-bar value
+is never used: typing changes it, loading a page changes the window's document.
+A redirect to another URL, or no load within the receipt's deadline, ends as
+`commit_unverified` with `destination_not_shown`; inspect the page without
+repeating the confirmation. The evidence says this window loaded the URL, not
+what the site did with the request. It needs the helper to report a Safari
+window's http(s) `AXDocument` in the window line.

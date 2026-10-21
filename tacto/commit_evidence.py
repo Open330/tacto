@@ -122,10 +122,18 @@ class TranscriptEvidence:
 
 
 @dataclass(frozen=True)
+class NavigationEvidence:
+    """The browser window, re-read after the press, shows `url` loaded. Not a
+    server receipt: what the site did with the request is not observed."""
+    receipt_id: str
+    url: str
+
+
+@dataclass(frozen=True)
 class CommitEvidence:
     event_id: str
     action_digest: str
-    evidence: ArtifactEvidence | SavedFileStateEvidence | ProducerArtifactEvidence | DeliveryEvidence | TranscriptEvidence
+    evidence: ArtifactEvidence | SavedFileStateEvidence | ProducerArtifactEvidence | DeliveryEvidence | TranscriptEvidence | NavigationEvidence
 
 
 @dataclass(frozen=True)
@@ -280,6 +288,17 @@ def evidence_error(event, expected=None):
             return 'transcript_recipient_mismatch'
         if hashlib.sha256(body.encode()).hexdigest() != detail.body_sha256:
             return 'transcript_content_mismatch'
+    elif type(detail) is NavigationEvidence:
+        if ('transmit' not in effects or
+                effects - {'transmit', 'read', 'write_ephemeral'}):
+            return 'navigation_effect_mismatch'
+        if not _text(detail.receipt_id) or not _text(detail.url):
+            return 'invalid_navigation_evidence'
+        destination = expected.get('이동할 주소')
+        if not _text(destination):
+            return 'navigation_expectation_missing'
+        if destination != detail.url:
+            return 'navigation_destination_mismatch'
     else:
         return 'unsupported_commit_evidence'
     return None

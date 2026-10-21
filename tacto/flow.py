@@ -1661,7 +1661,7 @@ def _receipt_public_codes() -> frozenset:
     """Every receipt's closed refusal codes — what replay may show of one."""
     import importlib
     codes = set()
-    for module in ("existing_file_receipt", "transcript_receipt", "delivery_receipt", "producer_file_receipt", "receipt_clock"):
+    for module in ("existing_file_receipt", "transcript_receipt", "delivery_receipt", "producer_file_receipt", "receipt_clock", "navigation_receipt"):
         try:
             codes |= set(getattr(importlib.import_module(f".{module}", __package__),
                                  "PUBLIC_CODES", ()))
@@ -2721,14 +2721,29 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     expected["저장한 이름"] = step.binding.resource_identity
                 if step.binding.destination_identity:
                     expected["저장 위치"] = step.binding.destination_identity
+            # A pinned Safari URL confirmation is witnessed by the browser
+            # window itself when the host supplied no receipt of its own.
+            step_prepare, step_after = prepare_commit, after_commit
+            if (consequential and step_prepare is None and step_after is None
+                    and isinstance(claim.get("value"), str)):
+                from .navigation_receipt import NavigationReceipt
+                try:
+                    receipt = NavigationReceipt(
+                        lambda target: (driver.observe(target, "tree_full") or {}).get("tree"),
+                        target=flow.target, destination=claim["value"], before_tree=current["tree"])
+                except ValueError:
+                    receipt = None
+                if receipt is not None:
+                    step_prepare, step_after = receipt.prepare_commit, receipt.after_commit
+                    expected.update(receipt.commit_expected)
             # Explicit host expectations may resolve a logical folder label
             # (e.g. Downloads) to the canonical path before execution.
             expected.update(host_expected)
             event = make_event(payload, effects, flow.target, obs_id=current['obs_id'])
             context = None
-            if consequential and prepare_commit is not None:
+            if consequential and step_prepare is not None:
                 try:
-                    context = prepare_commit(deepcopy(event))
+                    context = step_prepare(deepcopy(event))
                 except Exception as exc:
                     # Said, not swallowed — but only what a receipt chose to
                     # say: its own error messages are fixed strings; anything
@@ -2838,9 +2853,9 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                         "detail": response["unverified"]}
             if consequential:
                 proof = None
-                if after_commit is not None:
+                if step_after is not None:
                     try:
-                        proof = after_commit(deepcopy(event), deepcopy(response), context)
+                        proof = step_after(deepcopy(event), deepcopy(response), context)
                     except Exception as exc:
                         code = getattr(exc, "public_code", None)
                         event["evidence_error"] = (code if type(code) is str and code in _receipt_public_codes()
@@ -2855,7 +2870,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 res.commit_evidence[event["event_id"]] = proof
                 # What the proof is OF, kept with the event: a sender's own
                 # window is not the recipient's inbox (Codex review of a2207a2).
-                from .commit_evidence import TranscriptEvidence, SavedFileStateEvidence
+                from .commit_evidence import NavigationEvidence, TranscriptEvidence, SavedFileStateEvidence
                 if type(proof.evidence) is SavedFileStateEvidence:
                     event['commit_evidence_kind'] = 'saved_file_state'
                     event['saved_state_verified'] = True
@@ -2870,7 +2885,9 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                                 'detail':'saved_state_does_not_confirm_dispatch'}
                     return response
                 event["commit_evidence_kind"] = ("sender_transcript"
-                    if type(proof.evidence) is TranscriptEvidence else type(proof.evidence).__name__)
+                    if type(proof.evidence) is TranscriptEvidence
+                    else "browser_navigation" if type(proof.evidence) is NavigationEvidence
+                    else type(proof.evidence).__name__)
                 event["state"] = "confirmed"
                 if response.get("type") == "error":
                     # The host receipt resolved an uncertain dispatch. Keep
