@@ -213,4 +213,3 @@ def reveal_problem(reveal):
                    for text in reveal)):
         return 'reveal must be 1-8 label texts of 1-256 characters without control characters'
     return None
-
