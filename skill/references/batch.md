@@ -1,7 +1,10 @@
 # Repeat one saved Flow
 
-`tacto batch /absolute/template.json --helper --max-jobs 10` keeps one signed
-connection for a bounded batch. It does not load the authoring guide or send
+`tacto batch <saved name | /absolute/template.json> --helper --max-jobs 10`
+keeps one signed connection for a bounded batch; a saved name is the recipe
+`tacto replay <name>` would run. Separate commands each open a new signed
+connection: five runs of `calc_12x34` took 5.0 s as five replays and 2.0 s as
+one batch (0.27 s per job after the first). It does not load the authoring guide or send
 full Flow JSON each time. For interactive tools use tty:true; wait for
 `TACTO_BATCH_READY`, then send `{"params":{"amount":"17","result":"85"}}` plus
 a newline with write_stdin. All values are text; defaults fill omitted params.

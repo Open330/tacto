@@ -43,6 +43,32 @@ class BatchTests(unittest.TestCase):
         self.assertGreater(app.observations,3)
         self.assertNotIn('tree','\n'.join(messages))
         self.assertEqual(0,json.loads(messages[-1][len('TACTO_BATCH_DONE '):])['completed']-3)
+    def test_a_saved_name_repeats_the_recipe_replay_would_run(self):
+        from tacto.cli import _run_flow
+        from tacto.flow import Flow
+        loaded=[]
+        def load(name):
+            loaded.append(name);return Flow.from_json(json.dumps(calculator_example()))
+        app=SignedCalculator();app.close=Mock();make=Mock(return_value=app);messages=[]
+        read,write=os.pipe();os.write(write,b'{"params":{}}\n'*2);os.close(write)
+        with os.fdopen(read) as stream,contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()), \
+             patch('tacto.cli._indicator_for',return_value=contextlib.nullcontext()):
+            code=run_batch(['calc_example','--helper','--max-jobs','2'],make_driver=make,run_flow=_run_flow,
+                           stdin=stream,emit=messages.append,load_recipe=load)
+        self.assertEqual((0,['calc_example'],1),(code,loaded,make.call_count))
+        self.assertEqual(2,sum(m.startswith('TACTO_BATCH_RESULT ') for m in messages))
+        # A path (or a .json name) is still read as a file, never as a recipe name.
+        for path in ('/missing/flow.json','flow.json'):
+            messages.clear()
+            self.assertEqual(2,run_batch([path,'--helper'],make_driver=make,run_flow=_run_flow,
+                                         stdin=io.StringIO(),emit=messages.append,load_recipe=load))
+            self.assertTrue(messages[0].startswith('invalid_flow'));self.assertEqual(['calc_example'],loaded)
+        # An unknown name is refused before any connection.
+        missing=Mock(side_effect=FileNotFoundError('no such recipe'))
+        self.assertEqual(2,run_batch(['nope','--helper'],make_driver=make,run_flow=_run_flow,
+                                     stdin=io.StringIO(),emit=messages.append,load_recipe=missing))
+        self.assertEqual(1,make.call_count)
+
     def test_parameter_jobs_bind_independently_without_mutating_defaults(self):
         doc=calculator_example();doc['params']={'expected':'408'}
         doc['steps'][-1]['postcondition']['equals']='{{expected}}'

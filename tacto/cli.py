@@ -745,7 +745,8 @@ def _dispatch_command(cmd, rest):
     if cmd == 'batch':
         from .flow_batch import run_batch
         return run_batch(rest, make_driver=_make_driver, run_flow=_run_flow,
-                         stdin=sys.stdin, emit=lambda text:print(text,flush=True))
+                         stdin=sys.stdin, emit=lambda text:print(text,flush=True),
+                         load_recipe=_load_recipe)
 
     if cmd == 'session':
         from .flow_session import run_session

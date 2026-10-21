@@ -18,9 +18,10 @@ do not repeat a partially completed welcome task.
 
 - **Existing flow:** `tacto list`, `tacto show <name>`, then
   `tacto replay <name> --helper`. Do not read authoring guides.
-- **Repeat a saved flow:** read [batch](references/batch.md) to reuse one
-  signed connection with parameter-only jobs; enable automatic repair there
-  when failures should invoke an agent.
+- **Same saved flow more than once:** `tacto batch <name> --helper` instead
+  of repeated `replay`; each command opens a new signed connection, and one
+  batch connection made five runs about 2.5x faster. Read
+  [batch](references/batch.md) for parameter-only jobs and automatic repair.
 - **New deterministic task:** start `tacto session <bundle-id> --helper --guide`
   with `exec_command`, `tty: true`, `yield_time_ms: 1000`. This returns the
   minimal schema guide and observation together. Read no authoring files or

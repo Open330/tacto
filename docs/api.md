@@ -851,9 +851,10 @@ Literal learning and validation (internal validation record; not published).
 
 ### Bounded saved-Flow batch
 
-`tacto batch <flow.json> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings]`
+`tacto batch <flow.json | saved name> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings]`
 loads one immutable, fixed-target deterministic Flow and keeps one signed
-connection. After TACTO_BATCH_READY, send newline-terminated objects containing
+connection. A saved name loads the recipe `tacto replay <name>` would run (a
+built-in from the code); a path, or anything ending in `.json`, is a file. After TACTO_BATCH_READY, send newline-terminated objects containing
 only params, with string values. Per-job normal replay authorization, fresh
 observation and completion checks remain. By default no model is called.
 Opt-in selector repair is described below; interactive approval, document scope

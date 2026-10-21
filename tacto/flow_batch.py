@@ -85,7 +85,7 @@ class BatchDriver:
         return reply
 
 
-def run_batch(args, *, make_driver, run_flow, stdin, emit):
+def run_batch(args, *, make_driver, run_flow, stdin, emit, load_recipe=None):
     from .auto_repair import parse_options, RepairRefused
     try:args,auto_repair=parse_options(args)
     except RepairRefused as exc:
@@ -109,9 +109,12 @@ def run_batch(args, *, make_driver, run_flow, stdin, emit):
             else:maximum=value
     files=[v for v in args if v not in ('--helper','--timings')]
     if len(files)!=1 or files[0].startswith('-') or args.count('--helper')!=1 or args.count('--timings')>1:
-        emit('usage: batch <flow.json> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings] [--repair-packet /absolute/new.json]');return 2
+        emit('usage: batch <flow.json | saved name> --helper [--max-jobs 1..1000] [--idle-timeout 1..600] [--timings] [--repair-packet /absolute/new.json]');return 2
     try:
-        recipe=Flow.from_json(Path(files[0]).read_text())
+        # A saved name repeats the recipe `tacto replay <name>` runs, so going
+        # from one replay to many needs no exported file. A path stays a path.
+        is_name = load_recipe is not None and os.sep not in files[0] and not files[0].endswith('.json')
+        recipe=load_recipe(files[0]) if is_name else Flow.from_json(Path(files[0]).read_text())
     except (OSError,ValueError,TypeError,KeyError,RecursionError) as exc:
         emit('invalid_flow: '+feedback(exc));return 2
     if '{{' in recipe.target or any(s.action in ('decide','visual') for s in every_step(recipe.steps)):
