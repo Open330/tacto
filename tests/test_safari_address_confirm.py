@@ -18,7 +18,6 @@ import Foundation
 import ApplicationServices
 enum NativeWindowInputError:Error { case refused(String) }
 typealias AXRead = (AXUIElement,String) throws -> (AXError,CFTypeRef?)
-func axActionFailureEffect(_ status:AXError) -> String { "unknown" }
 FUNCTION
 for status:AXError in [.success,.cannotComplete] {
     let receipt=nativeSafariAddressConfirmReceipt(status,obsID:"test")
@@ -28,6 +27,7 @@ for status:AXError in [.success,.cannotComplete] {
     assert(receipt["posted_events"] as? Int == 0)
 }
 assert(nativeSafariAddressConfirmReceipt(.actionUnsupported,obsID:"test")["type"] as? String == "error")
+assert(nativeSafariAddressConfirmReceipt(.actionUnsupported,obsID:"test")["effect"] as? String == "not_started")
 let field=AXUIElementCreateApplication(100), group=AXUIElementCreateApplication(101), window=AXUIElementCreateApplication(102)
 func check(_ changes:[String:Any]=[:], actions:[String]=["AXConfirm"], fault:String?=nil) -> Bool {
     let values:[String:Any] = ["AXRole":"AXTextField","AXIdentifier":"WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",

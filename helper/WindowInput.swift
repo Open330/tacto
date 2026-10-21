@@ -1256,7 +1256,7 @@ func buildNativeWindowText(_ windowID: CGWindowID, text: String) throws -> Nativ
 /// throw. A performed confirmation is never followed by a keyboard fallback.
 func nativeSafariAddressConfirmReceipt(_ status:AXError, obsID:String) -> [String:Any] {
     guard status == .success || status == .cannotComplete else {
-        return ["type":"error","error":"action_failed","effect":axActionFailureEffect(status),
+        return ["type":"error","error":"action_failed","effect":status == .actionUnsupported ? "not_started" : "unknown",
                 "ax_confirmation_attempted":true,"posted_or_attempted_events":0,
                 "detail":"Safari address confirmation did not return success"]
     }
