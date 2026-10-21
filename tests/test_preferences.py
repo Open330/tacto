@@ -15,13 +15,14 @@ class PreferencesTests(unittest.TestCase):
             self.assertEqual(DEFAULTS, load_preferences(root))
             self.assertFalse(root.exists())
             root.mkdir()
-            for value in [{'logging_enabled':'false','retention_days':True},
+            for value in [{'logging_enabled':'false','retention_days':True,'show_control_banner':0},
                           {'schema':2,'logging_enabled':False}, ['invalid']]:
                 (root/'preferences.json').write_text(json.dumps(value))
                 self.assertEqual(DEFAULTS, load_preferences(root))
-            (root/'preferences.json').write_text(json.dumps(dict(schema=1,logging_enabled=False,retention_days=7,present_first_result=False)))
+            (root/'preferences.json').write_text(json.dumps(dict(schema=1,logging_enabled=False,retention_days=7,present_first_result=False,show_control_banner=False)))
             self.assertFalse(load_preferences(root)['logging_enabled'])
             self.assertFalse(load_preferences(root)['present_first_result'])
+            self.assertFalse(load_preferences(root)['show_control_banner'])
             self.assertEqual(7, load_preferences(root)['retention_days'])
 
     def test_disabled_logging_creates_no_receipt_or_log_directory(self):

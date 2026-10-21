@@ -116,6 +116,21 @@ class SetupWindowLifecycleTests(unittest.TestCase):
         known = true; state.accessibility = true; state.screen = true
         notice = nil; checkInFlight = false; permissionDetails = false
         render()
+        // Existing menu follows all current runs and clears crashes/timeouts.
+        runtimeMenuTitle = NSMenuItem(title:"",action:nil,keyEquivalent:"")
+        runtimeStop = NSMenuItem(title:"중단",action:nil,keyEquivalent:"")
+        let runID = UUID().uuidString
+        let run = TactoRuntimeStatus.Run(["schema":1,"uid":getuid(),"pid":getpid(),
+            "id":runID,"target":"Fixture","active":true,"stopped":false])!
+        runtimeRuns[runID] = (run,Date()); updateRuntimeMenu()
+        assert(runtimeMenuTitle!.title.contains("Fixture") && runtimeStop!.isEnabled)
+        let stoppedRun = TactoRuntimeStatus.Run(["schema":1,"uid":getuid(),"pid":getpid(),
+            "id":runID,"target":"Fixture","active":true,"stopped":true])!
+        runtimeRuns[runID] = (stoppedRun,Date()); updateRuntimeMenu()
+        assert(runtimeMenuTitle!.title.contains("중단됨") && !runtimeStop!.isEnabled)
+        runtimeRuns[runID] = (run,Date(timeIntervalSinceNow:-5)); updateRuntimeMenu()
+        assert(runtimeRuns.isEmpty && !runtimeStop!.isEnabled)
+        assert(runtimeMenuTitle!.title == "진행 중인 작업 없음")
         try! Data("{\"stable_refresh\":true,\"dismissed_stays_closed\":true,\"reopen_count\":20,\"non_key_panel\":true,\"authentication_priority\":true}\n".utf8)
             .write(to: directory.appendingPathComponent("lifecycle-check.json"))
 '''
@@ -135,7 +150,7 @@ class SetupWindowLifecycleTests(unittest.TestCase):
             (folder/'PermissionState.swift').write_bytes((ROOT/'setup/PermissionState.swift').read_bytes())
             (folder/'ActivityCenter.swift').write_bytes((ROOT/'setup/ActivityCenter.swift').read_bytes())
             binary = folder/'TactoSetup'
-            built = subprocess.run(['swiftc', 'main.swift', 'PermissionState.swift', 'ActivityCenter.swift', '-o', str(binary)],
+            built = subprocess.run(['swiftc', 'main.swift', 'PermissionState.swift', 'ActivityCenter.swift', str(ROOT/'RuntimeStatus.swift'), '-o', str(binary)],
                                    cwd=folder, capture_output=True, text=True, timeout=90)
             self.assertEqual(0, built.returncode, built.stderr)
             output = folder/'snapshot'

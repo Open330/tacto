@@ -412,6 +412,11 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     var statusItem: NSStatusItem?
     var statusMenuTitle: NSMenuItem?
+    var runtimeMenuTitle: NSMenuItem?
+    var runtimeStop: NSMenuItem?
+    var runtimeObserver: NSObjectProtocol?
+    var runtimeTimer: Timer?
+    var runtimeRuns: [String:(TactoRuntimeStatus.Run, Date)] = [:]
     var connectButton: NSButton!
     var watch: PermissionWatch?
     var watchTimer: Timer?
@@ -679,6 +684,7 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         connectButton.isHidden = connection == .current && !installing
         statusMenuTitle?.title = "Tacto 설정 · " + badge.stringValue
         statusItem?.button?.toolTip = "Tacto 설정 · " + badge.stringValue
+        updateRuntimeMenu()
         activityCenter?.updateStatus(badge.stringValue)
         if let notice { status.stringValue = notice }
         else if !known { status.stringValue = "권한 상태를 확인하고 있어요…" }
@@ -997,7 +1003,14 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         item.button?.image?.isTemplate = true
         item.button?.setAccessibilityLabel("Tacto 설정")
         let menu = NSMenu()
+        menu.autoenablesItems = false
         statusMenuTitle = menu.addItem(withTitle: "Tacto 설정 · " + badge.stringValue, action: nil, keyEquivalent: "")
+        menu.addItem(.separator())
+        statusMenuTitle?.isEnabled = false
+        runtimeMenuTitle = menu.addItem(withTitle:"진행 중인 작업 없음", action:nil, keyEquivalent:"")
+        runtimeMenuTitle?.isEnabled = false
+        runtimeStop = menu.addItem(withTitle:"현재 작업 중단", action:#selector(stopRuntime), keyEquivalent:"")
+        runtimeStop?.target = self
         menu.addItem(.separator())
         let show = menu.addItem(withTitle: "Tacto 열기", action: #selector(reopen), keyEquivalent: "")
         show.target = self
@@ -1012,7 +1025,35 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Tacto 종료", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         item.menu = menu; statusItem = item
+        runtimeObserver = DistributedNotificationCenter.default().addObserver(
+            forName:TactoRuntimeStatus.status,object:nil,queue:.main) { [weak self] note in
+                guard let self, let info = note.userInfo, let run = TactoRuntimeStatus.Run(info) else { return }
+                if run.active { self.runtimeRuns[run.id] = (run,Date()) }
+                else { self.runtimeRuns.removeValue(forKey:run.id) }
+                self.updateRuntimeMenu()
+            }
+        DistributedNotificationCenter.default().postNotificationName(TactoRuntimeStatus.query,
+            object:nil,userInfo:nil,deliverImmediately:true)
+        let timer = Timer(timeInterval:1,repeats:true) { [weak self] _ in self?.updateRuntimeMenu() }
+        RunLoop.main.add(timer,forMode:.common)
+        runtimeTimer = timer
         render()
+    }
+    func updateRuntimeMenu() {
+        runtimeRuns = runtimeRuns.filter { Date().timeIntervalSince($0.value.1) < 4 && kill($0.value.0.pid,0) == 0 }
+        let runs = runtimeRuns.values.map { $0.0 }
+        let names = Array(Set(runs.map { $0.target })).sorted().joined(separator:", ")
+        let title = runs.isEmpty ? "진행 중인 작업 없음" : (runs.allSatisfy { $0.stopped } ? "중단됨 · " : "작업 중 · ") + names
+        runtimeMenuTitle?.title = title
+        runtimeStop?.isEnabled = runs.contains { !$0.stopped }
+        statusItem?.button?.toolTip = runs.isEmpty ? "Tacto 설정 · " + badge.stringValue : title + " · Esc로 중단"
+    }
+    @objc func stopRuntime() {
+        updateRuntimeMenu()
+        for id in runtimeRuns.keys {
+            DistributedNotificationCenter.default().postNotificationName(TactoRuntimeStatus.stop,
+                object:nil,userInfo:["id":id],deliverImmediately:true)
+        }
     }
     @objc func reopen() {
         if connection == .current { workspace().presentCurrent() }

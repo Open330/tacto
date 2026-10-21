@@ -176,9 +176,11 @@ class TheIndicatorCoversNothing(unittest.TestCase):
     panel itself was the problem.
     """
 
-    def test_the_helper_shows_a_menu_bar_item(self):
+    def test_the_helper_reuses_the_apps_persistent_menu(self):
         text = (ROOT / "helper/TactoHelper.swift").read_text()
-        self.assertIn("NSStatusBar.system.statusItem(withLength:", text)
+        self.assertNotIn("NSStatusBar.system.statusItem(withLength:", text)
+        self.assertIn("RuntimePublisher.shared.start(pid:pid)", text)
+        self.assertIn("NSStatusBar.system.statusItem(withLength:", (ROOT/"setup/main.swift").read_text())
         self.assertIn("func showControlIndicator(forPID", text)
 
     def test_the_python_indicator_shows_a_menu_bar_item(self):
@@ -403,7 +405,7 @@ class TheIndicatorCanBeActedOn(unittest.TestCase):
     def test_the_indicator_has_a_menu(self):
         text = (ROOT / "helper/TactoHelper.swift").read_text()
         self.assertIn("func controlMenu(for appName: String?) -> NSMenu", text)
-        self.assertIn("item.menu = controlMenu(for: who)", text)
+        self.assertIn("#selector(stopRuntime)", (ROOT/"setup/main.swift").read_text())
 
     def test_the_menu_names_what_is_being_driven(self):
         text = (ROOT / "helper/TactoHelper.swift").read_text()

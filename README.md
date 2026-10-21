@@ -91,7 +91,7 @@ Authoring, judgment, and repair still cost model tokens. Automatic selector repa
 
 The development repair path passes only relevant candidates for supported static-selector failures. It resumes after verified checkpoints without blindly resending actions that may already have completed. It does not recover every UI change or crash. [Repair scope](docs/tacto-auto-repair-2026-10-14.md).
 
-During native execution, the menu bar shows `● Tacto`; press Esc to stop. The persistent GUI settings item, **Tacto 설정**, reopens settings and does not indicate a running task.
+Native execution uses the existing Tacto menu bar icon for task status and **현재 작업 중단**; no extra helper icon appears. Press Esc to stop. In **설정**, turn off **작업 중 배너 표시** to hide the upper-right task banner starting with the next task.
 
 </details>
 

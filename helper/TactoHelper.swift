@@ -3745,7 +3745,6 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
 // locked copy of "is this stopped" would be a second answer to the one
 // question that must have one.
 /// The menu-bar item that says this is happening. Nil when nothing is running.
-var controlItem: NSStatusItem?
 
 /// A visible stop control for AX work, without capturing anyone's screen.
 /// Never key/main, never moved across Spaces, and never activates the helper.
@@ -3893,7 +3892,8 @@ func showControlPanel(forPID pid: pid_t, targets: [CGRect]) -> Bool {
 /// Actual image capture retains Screen Recording permission and macOS's own
 /// recording indicator. AX-only access never starts a capture stream merely
 /// to light an indicator. The panel stays outside target windows and refuses
-/// work when it cannot remain visible without covering them.
+/// work when it cannot remain visible without covering them, unless the user
+/// explicitly disabled this optional banner in settings.
 /// What the indicator's menu does when someone chooses to stop.
 ///
 /// `static let` rather than a global, and the position is load-bearing for the
@@ -3908,39 +3908,72 @@ final class ControlMenuTarget: NSObject {
         abortState.stopNow()
         note("tacto-helper: 표시 메뉴에서 중단했습니다")
         DispatchQueue.main.async {
-            controlItem?.button?.title = "● Tacto 중단됨"
+            RuntimePublisher.shared.publish()
             controlPanelLabel?.stringValue = "Tacto · 중단됨"
+        }
+    }
+}
+
+/// Reuse the installed app's persistent menu. No helper-owned status item.
+final class RuntimePublisher {
+    static let shared = RuntimePublisher()
+    let id = UUID().uuidString
+    let showBanner = TactoRuntimeStatus.showBanner()
+    var target = "Tacto"
+    var active = false
+    var timer: Timer?
+    var observers: [NSObjectProtocol] = []
+    var started = false
+    var lastPublish = Date.distantPast
+
+    func publish(active: Bool = true) {
+        self.active = active
+        DistributedNotificationCenter.default().postNotificationName(TactoRuntimeStatus.status,
+            object:nil, userInfo:["schema":1,"uid":getuid(),"pid":getpid(),"id":id,
+                "target":target,"active":active,"stopped":abortState.isStopped], deliverImmediately:true)
+    }
+    func start(pid: pid_t) {
+        target = String((NSRunningApplication(processIdentifier:pid)?.localizedName ?? "앱").prefix(64))
+        if !started {
+            started = true
+            let center = DistributedNotificationCenter.default()
+            observers.append(center.addObserver(forName:TactoRuntimeStatus.query,object:nil,queue:.main) { [weak self] _ in
+                guard let self, self.active else { return }; self.publish()
+            })
+            observers.append(center.addObserver(forName:TactoRuntimeStatus.stop,object:nil,queue:.main) { [weak self] note in
+                guard let self, self.active, note.userInfo?["id"] as? String == self.id else { return }
+                ControlMenuTarget.shared.stopNow(nil)
+                self.publish()
+            })
+            timer = Timer.scheduledTimer(withTimeInterval:1,repeats:true) { [weak self] _ in
+                guard let self, self.active else { return }; self.publish()
+            }
+            // Launch only the same signed product, in the background, if needed.
+            let identifier = "ai.callabo.tacto.setup.standalone.preview"
+            if NSRunningApplication.runningApplications(withBundleIdentifier:identifier).isEmpty,
+               let team = TactoSigning.ownTeam(),
+               let text = TactoSigning.requirement(identifier:identifier,team:team) {
+                let url = URL(fileURLWithPath:"/Applications/Tacto.app")
+                var code: SecStaticCode?; var requirement: SecRequirement?
+                if SecStaticCodeCreateWithPath(url as CFURL,[],&code) == errSecSuccess,
+                   SecRequirementCreateWithString(text as CFString,[],&requirement) == errSecSuccess,
+                   let code, let requirement, SecStaticCodeCheckValidity(code,[],requirement) == errSecSuccess {
+                    let config = NSWorkspace.OpenConfiguration()
+                    config.activates = false; config.addsToRecentItems = false
+                    config.arguments = ["--background"]
+                    NSWorkspace.shared.openApplication(at:url,configuration:config) { _,_ in }
+                }
+            }
+        }
+        if Date().timeIntervalSince(lastPublish) >= 0.5 {
+            lastPublish = Date(); publish()
         }
     }
 }
 
 @discardableResult
 func showControlIndicator(forPID pid: pid_t) -> Bool {
-    let who = NSRunningApplication(processIdentifier: pid)?.localizedName
-    // Short on purpose: menu bar space is the person's, and "● Tacto · Calculator
-    // · Esc" crowded it (reported). Which app, and how to stop, are one click
-    // away in the menu and on hover in the tooltip.
-    let title = "● Tacto"
-    let tip = (who.map { "Tacto가 \($0) 을(를) 조작하고 있습니다" } ?? "Tacto가 이 화면을 조작하고 있습니다")
-        + ". Esc로 즉시 멈춥니다."
-    if let existing = controlItem {
-        existing.button?.title = title
-        existing.button?.toolTip = tip      // the target can change mid-run
-        existing.menu = controlMenu(for: who)
-        return true
-    }
-    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    guard let button = item.button else {
-        NSStatusBar.system.removeStatusItem(item)
-        return false
-    }
-    button.title = title
-    button.toolTip = tip
-    // A menu, because an indicator you cannot act on is only half of what it
-    // promises. Esc stops the run, and someone who does not know that was
-    // being told something was happening and given nothing to do about it.
-    item.menu = controlMenu(for: who)
-    controlItem = item
+    RuntimePublisher.shared.start(pid:pid)
     return true
 }
 
@@ -4077,12 +4110,8 @@ func readyControlTargetFrames(timeout: TimeInterval = 0.5,
     return nil
 }
 
-/// Both signals, and only one of them decides.
+/// The user can hide the optional stop panel. Esc and session checks always apply.
 ///
-/// The menu-bar item is best effort: when the bar has room it names the app
-/// being driven, which the system indicator cannot do. When it does not, it
-/// hides without telling anyone — so what the refusal hangs on is the stream,
-/// the signal that cannot hide.
 func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     // AX access does not read pixels. Keep its visible stop control independent
     // from Screen Recording; actual image APIs retain their permission checks.
@@ -4094,6 +4123,13 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
     guard sessionVisible() else {
         lastIndicatorRefusal="session_not_visible";return false
     }
+    guard !abortState.isStopped else { lastIndicatorRefusal="aborted_by_user"; return false }
+    // Explicit user preference hides only the panel. Session and Esc guards remain.
+    let banner = DispatchQueue.main.sync { () -> Bool in
+        _ = showControlIndicator(forPID:pid)
+        return RuntimePublisher.shared.showBanner
+    }
+    if !banner { return !abortState.isStopped && sessionVisible() }
     func targetFrames() -> [CGRect]? {
         guard let top = DispatchQueue.main.sync(execute:{ NSScreen.screens.first?.frame.maxY }) else { return nil }
         // AX reads must stay off the main loop so the Stop control responds.
@@ -4109,8 +4145,7 @@ func ensureVisibleControl(forPID pid: pid_t, windowless: Bool = false) -> Bool {
         return false
     }
     let ready = DispatchQueue.main.sync {
-        _ = showControlIndicator(forPID: pid)
-        return showControlPanel(forPID: pid, targets:targets)
+        showControlPanel(forPID: pid, targets:targets)
     }
     if ready { return true }
     // WindowServer visibility arrives on a later main-loop turn. Poll only
@@ -4216,27 +4251,12 @@ func openContextMenus(pid: pid_t, nodeBudget: Int = 4000, depthLimit: Int = 14) 
     return found
 }
 
-/// The status item's button is in a window the system reports as visible
-/// and on a screen. A necessary condition, not proof the person can see it:
-/// behind the menu-bar overflow chevron, `isVisible` was measured to stay
-/// true, and whether `occlusionState` drops `.visible` there has not been
-/// measured. It refuses the cases it can see (no window, ordered out,
-/// off-screen); the overflow case is an open gap, not one this closes.
-func controlItemOnScreen() -> Bool {
-    guard let window = controlItem?.button?.window else { return false }
-    return window.isVisible && window.occlusionState.contains(.visible)
-        && NSScreen.screens.contains { $0.frame.intersects(window.frame) }
-}
-
 func hideControlIndicator() {
     controlPanel?.orderOut(nil)
     controlPanel?.close()
     controlPanel = nil
     controlPanelLabel = nil
-    if let item = controlItem {
-        NSStatusBar.system.removeStatusItem(item)
-    }
-    controlItem = nil
+    RuntimePublisher.shared.publish(active:false)
 }
 
 // Capture lives beside the indicator on purpose: both are about what this
@@ -6197,7 +6217,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--indicator-menu-probe"),
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
         abortState.begin()
         let shown = showControlIndicator(forPID: getpid())
-        let menu = controlItem?.menu
+        let menu: NSMenu? = controlMenu(for:NSRunningApplication.current.localizedName)
         let stop = menu?.items.last
         var report = "{\"shown\": \(shown)"
         report += ", \"menu_items\": \(menu?.items.count ?? 0)"
@@ -6288,99 +6308,16 @@ if let index = CommandLine.arguments.firstIndex(of: "--hold-indicator"),
     exit(0)
 }
 
-// `--indicator-probe <seconds>`: show the menu-bar item and hold it.
-//
-// Whether a status item is actually ON SCREEN is not something its own API
-// will tell you: `isVisible` answered true for an item nobody could see. The
-// suspicion it exists to test is that the menu bar belongs to the console
-// login session, and a process in another one — an ssh session, say — gets a
-// status bar that is not the one the person is looking at.
+// Historical flag now publishes metadata through the existing app menu.
 if let index = CommandLine.arguments.firstIndex(of: "--indicator-probe"),
    index + 1 < CommandLine.arguments.count,
    let seconds = Double(CommandLine.arguments[index + 1]) {
     let app = NSApplication.shared
-    let policySet = app.setActivationPolicy(.accessory)
-    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    item.button?.title = "● Tacto"
-    // The audit session id, read here rather than in the interpolation: the
-    // type checker gives up on a long one, and the session is the whole point.
-    var auditToken = audit_token_t()
-    var tokenWords = mach_msg_type_number_t(
-        MemoryLayout<audit_token_t>.size / MemoryLayout<natural_t>.size)
-    let gotToken = withUnsafeMutablePointer(to: &auditToken) { p -> kern_return_t in
-        p.withMemoryRebound(to: integer_t.self, capacity: Int(tokenWords)) {
-            task_info(mach_task_self_, task_flavor_t(TASK_AUDIT_TOKEN), $0, &tokenWords)
-        }
-    } == KERN_SUCCESS
-    let asid: String = gotToken ? String(auditToken.val.6) : "null"
-    let hasButton: Bool = item.button != nil
-    let visible: Bool = item.isVisible
-    let pidNow: Int32 = getpid()
-    // Where macOS actually PUT it. `isVisible` is the item's own opinion; the
-    // button's window frame is the screen talking. An item the menu bar had no
-    // room for still answers true and lives at a frame nobody can see.
-    let buttonWindow = item.button?.window
-    let frame = buttonWindow?.frame ?? .zero
-    let screen = NSScreen.main?.frame ?? .zero
-    let onScreen: Bool = buttonWindow?.isVisible ?? false
-    var report = "{\"policy_set\": \(policySet)"
-    report += ", \"has_button\": \(hasButton)"
-    report += ", \"visible\": \(visible)"
-    report += ", \"button_window_visible\": \(onScreen)"
-    report += ", \"frame\": [\(frame.origin.x), \(frame.origin.y), "
-    report += "\(frame.size.width), \(frame.size.height)]"
-    report += ", \"screen\": [\(screen.size.width), \(screen.size.height)]"
-    report += ", \"asid\": \(asid)"
-    report += ", \"pid\": \(pidNow)}"
-    // Reported from INSIDE the run loop, not before it. The menu bar lays a
-    // status item out as part of running; read beforehand the button's window
-    // is 48 wide and 0 high at the origin, which looks exactly like "macOS
-    // refused to place it" and is really "nothing has run yet". That mistake
-    // cost a round of this investigation.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-        let laidOut = item.button?.window?.frame ?? .zero
-        var after = report
-        after += " /after-runloop/ {\"frame\": [\(laidOut.origin.x), "
-        after += "\(laidOut.origin.y), \(laidOut.size.width), \(laidOut.size.height)]"
-        after += ", \"visible\": \(item.isVisible)"
-        after += ", \"window_visible\": \(item.button?.window?.isVisible ?? false)}"
-        note("tacto-helper: indicator probe \(after)")
-        if let out = CommandLine.arguments.firstIndex(of: "--probe-out"),
-           out + 1 < CommandLine.arguments.count {
-            try? after.write(toFile: CommandLine.arguments[out + 1],
-                             atomically: true, encoding: .utf8)
-        }
-    }
-    // And then photograph the menu bar, because every reading so far has been
-    // the API's opinion of itself. `isVisible` said true for an item nobody
-    // could see; a frame says where it would be. A picture is the only one of
-    // the three that is evidence.
-    if let shot = CommandLine.arguments.firstIndex(of: "--probe-shot"),
-       shot + 1 < CommandLine.arguments.count {
-        let path = CommandLine.arguments[shot + 1]
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) {
-                content, _ in
-                guard let content, let display = content.displays.first else { return }
-                let filter = SCContentFilter(display: display, excludingWindows: content.windows.filter { $0.owningApplication?.processID == getpid() })
-                let configuration = SCStreamConfiguration()
-                configuration.width = display.width * 2
-                configuration.height = display.height * 2
-                configuration.showsCursor = false
-                SCScreenshotManager.captureImage(contentFilter: filter,
-                                                 configuration: configuration) { image, _ in
-                    guard let image,
-                          let destination = CGImageDestinationCreateWithURL(
-                            URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString,
-                            1, nil) else { return }
-                    CGImageDestinationAddImage(destination, image, nil)
-                    CGImageDestinationFinalize(destination)
-                    note("tacto-helper: menu bar photographed to \(path)")
-                }
-            }
-        }
-    }
-    DispatchQueue.global().asyncAfter(deadline: .now() + min(120, max(1, seconds))) {
+    app.setActivationPolicy(.accessory)
+    abortState.begin()
+    _ = showControlIndicator(forPID:getpid())
+    DispatchQueue.main.asyncAfter(deadline:.now() + min(120,max(1,seconds))) {
+        RuntimePublisher.shared.publish(active:false)
         exit(0)
     }
     app.run()
@@ -6774,6 +6711,7 @@ let rendezvousDeadline: TimeInterval = 20
     savePanelTokens.removeAll()
     abortState.begin()
     serve(connection: conn)
+    DispatchQueue.main.sync { RuntimePublisher.shared.publish(active:false) }
     // Serving returned, so the client's end is gone. One client, one lifetime:
     // a helper that outlived its client would be a process holding an
     // accessibility grant that nothing is asking anything of, and under
