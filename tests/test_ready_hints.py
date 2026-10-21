@@ -183,6 +183,16 @@ class BuiltinHintTests(unittest.TestCase):
         self.assertEqual(["0", "9", "9 ×", "9 × 4", "9 × 40"],
                          [st.ready_when.equals for st in flow.steps if st.ready_when])
 
+    def test_loops_without_such_a_hint_pay_nothing_for_it(self):
+        import time
+        step = Step("click", Selector(identifier="{{item}}"), safety=SAFETY, for_each="{{n}}")
+        flow = Flow("p", "pad", [step], params={"n": "7" * 8000}, schema=2)
+        started = time.monotonic()
+        bound = flow.bind()
+        self.assertEqual(8000, len(bound.steps))
+        # Quadratic prefix building took about 1.1 s here; linear binding is far below.
+        self.assertLess(time.monotonic() - started, 0.5)
+
     def test_items_so_far_is_what_the_loop_has_entered(self):
         step = Step("click", Selector(identifier="{{item}}"), safety=SAFETY, for_each="{{n}}",
                     ready_when=ReadyHint(DISPLAY, "Value", "{{items_so_far}}"))

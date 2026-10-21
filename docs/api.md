@@ -822,8 +822,10 @@ sends the next input too early. So hints are written only where the app's
 meaning is known, and are not learned from what a run happened to see. The
 built-in Calculator recipes carry its exact display after each press, read on
 macOS 27 (operators `+ − × ÷`, the minus being U+2212). Inside a `for_each`
-loop `{{items_so_far}}` is what the loop has entered so far ("1", then "12"),
-so `calc_arith` and `calc_multiply` can name the display for any operands.
+loop a step's `ready_when` may use `{{items_so_far}}`, what the loop has
+entered so far ("1", then "12"; available to the hint only, and it takes the
+place of a param of that name there), so `calc_arith` and `calc_multiply` can
+name the display for any operands.
 Exact only for plain integers below 1000: Calculator groups thousands and
 spells decimals out, and those presses settle as before. In process on this
 Mac, `12 × 34` went from 6.8 s to 0.35 s and `75 − 8` from 5.6 s to 0.22 s;
