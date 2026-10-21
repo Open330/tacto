@@ -6,7 +6,7 @@ import stat
 import sys
 
 DEFAULTS = {'schema': 1, 'logging_enabled': True, 'retention_days': 30,
-            'present_first_result': True, 'show_control_banner': True}
+            'show_control_banner': True}
 
 
 def product_directory():
@@ -32,7 +32,7 @@ def load_preferences(root=None):
             value = json.loads(stream.read(16385))
         if not isinstance(value, dict) or type(value.get('schema', 1)) is not int or value.get('schema', 1) != 1:
             return result
-        for key in ('logging_enabled', 'present_first_result', 'show_control_banner'):
+        for key in ('logging_enabled', 'show_control_banner'):
             if type(value.get(key)) is bool:
                 result[key] = value[key]
         if type(value.get('retention_days')) is int and value['retention_days'] in (7, 30, 90):

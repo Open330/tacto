@@ -21,7 +21,7 @@ class PreferencesTests(unittest.TestCase):
                 self.assertEqual(DEFAULTS, load_preferences(root))
             (root/'preferences.json').write_text(json.dumps(dict(schema=1,logging_enabled=False,retention_days=7,present_first_result=False,show_control_banner=False)))
             self.assertFalse(load_preferences(root)['logging_enabled'])
-            self.assertFalse(load_preferences(root)['present_first_result'])
+            self.assertNotIn('present_first_result',load_preferences(root))
             self.assertFalse(load_preferences(root)['show_control_banner'])
             self.assertEqual(7, load_preferences(root)['retention_days'])
 

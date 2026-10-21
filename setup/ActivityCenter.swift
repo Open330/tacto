@@ -10,11 +10,10 @@ private func activityInteger(_ value: Any?) -> Int? {
 struct TactoPreferences {
     var loggingEnabled = true
     var retentionDays = 30
-    var presentFirstResult = true
     var showControlBanner = true
     var object: [String: Any] {
         ["schema": 1, "logging_enabled": loggingEnabled, "retention_days": retentionDays,
-         "present_first_result": presentFirstResult, "show_control_banner": showControlBanner]
+         "show_control_banner": showControlBanner]
     }
     init(_ object: [String: Any] = [:]) {
         func boolean(_ key: String, _ fallback: Bool) -> Bool {
@@ -22,7 +21,6 @@ struct TactoPreferences {
             return n.boolValue
         }
         loggingEnabled = boolean("logging_enabled", true)
-        presentFirstResult = boolean("present_first_result", true)
         showControlBanner = boolean("show_control_banner", true)
         if let n = activityInteger(object["retention_days"]), [7,30,90].contains(n) { retentionDays = n }
     }
@@ -265,7 +263,6 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
     private let saveStatus = activityLabel("변경 사항은 다음 작업부터 적용됩니다.", 12, secondary:true)
     private let logToggle = NSButton(checkboxWithTitle:"실행 기록 자동 저장", target:nil, action:nil)
     private let bannerToggle = NSButton(checkboxWithTitle:"작업 중 배너 표시", target:nil, action:nil)
-    private let presentToggle = NSButton(checkboxWithTitle:"첫 작업 완료 후 결과 문서 앞으로 표시", target:nil, action:nil)
     private let retention = NSPopUpButton(frame:.zero,pullsDown:false)
     private let historyButton = ActivityNavigationButton()
     private let settingsButton = ActivityNavigationButton()
@@ -376,15 +373,13 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         logToggle.target = self; logToggle.action = #selector(saveSettings)
         bannerToggle.target = self; bannerToggle.action = #selector(saveSettings)
         bannerToggle.setAccessibilityIdentifier("tacto.settings.control-banner")
-        presentToggle.target = self; presentToggle.action = #selector(saveSettings)
-        logToggle.setAccessibilityIdentifier("tacto.settings.logging"); presentToggle.setAccessibilityIdentifier("tacto.settings.presentation")
+        logToggle.setAccessibilityIdentifier("tacto.settings.logging")
         retention.addItems(withTitles:["7일", "30일", "90일"]); retention.target = self; retention.action = #selector(saveSettings)
         retention.setAccessibilityIdentifier("tacto.settings.retention")
         let remove = button("저장된 기록 모두 삭제…", "trash", #selector(confirmDelete))
         let cards = [settingsCard("실행 기록", "접근한 앱·동작·결과·시간을 이 Mac에 저장합니다. 화면 내용·입력값·프롬프트는 기록하지 않습니다.",logToggle),
                      settingsCard("기록 보관 기간", "선택한 기간과 최대 200개·20MB 제한 안에서 다음 작업 시작 시 정리합니다.",retention),
-                     settingsCard("작업 표시", "끄면 우상단 배너를 숨깁니다. 기존 Tacto 메뉴에서 작업 상태를 확인하거나 중단할 수 있고, Esc로도 중단할 수 있습니다.",bannerToggle),
-                     settingsCard("첫 작업 결과", "첫 작업이 끝나면 TextEdit 문서를 앞으로 보여줍니다. 일반 워크플로는 백그라운드 동작을 유지합니다.",presentToggle)]
+                     settingsCard("작업 표시", "끄면 우상단 배너를 숨깁니다. 기존 Tacto 메뉴에서 작업 상태를 확인하거나 중단할 수 있고, Esc로도 중단할 수 있습니다.",bannerToggle)]
         settings.addArrangedSubview(activityLabel("설정",24,.semibold))
         for card in cards { settings.addArrangedSubview(card); card.widthAnchor.constraint(equalTo:settings.widthAnchor).isActive = true }
         for v in [saveStatus,remove,activityLabel("기록은 Tacto를 통한 접근 내역입니다. 에이전트의 내부 추론이나 전체 대화는 포함하지 않습니다.",12,secondary:true)] { settings.addArrangedSubview(v) }
@@ -499,14 +494,13 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         do { currentSettings = try store.preferences(); saveStatus.stringValue = "변경 사항은 다음 작업부터 적용됩니다." }
         catch { saveStatus.stringValue = "설정을 읽지 못했어요. 기본값을 표시합니다."; currentSettings = TactoPreferences() }
         logToggle.state = currentSettings.loggingEnabled ? .on : .off
-        presentToggle.state = currentSettings.presentFirstResult ? .on : .off
         bannerToggle.state = currentSettings.showControlBanner ? .on : .off
         retention.selectItem(at:[7,30,90].firstIndex(of:currentSettings.retentionDays) ?? 1)
     }
     @objc private func saveSettings() {
         var desired = currentSettings; desired.showControlBanner = bannerToggle.state == .on
         desired.loggingEnabled = logToggle.state == .on
-        desired.presentFirstResult = presentToggle.state == .on; desired.retentionDays = [7,30,90][max(0,retention.indexOfSelectedItem)]
+        desired.retentionDays = [7,30,90][max(0,retention.indexOfSelectedItem)]
         do { try store.save(desired); currentSettings = desired; saveStatus.stringValue = "저장했어요. 다음 작업부터 적용됩니다." }
         catch { loadSettings(); saveStatus.stringValue = "설정을 저장하지 못했어요. 이전 설정을 유지합니다." }
     }

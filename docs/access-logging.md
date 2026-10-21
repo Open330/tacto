@@ -7,8 +7,8 @@ operation timeline, duration and result. New records refresh while the history
 window is active; closing/minimizing it or switching apps pauses refresh work.
 
 **설정** (also Command–comma) controls automatic logging, retention (7/30/90
-days), whether the fixed first task presents its result document, and **작업 중
-배너 표시**. Disabling the banner hides only the upper-right panel; the existing
+days), and **작업 중 배너 표시**. The fixed first task always brings its
+verified result document forward; it has no presentation setting. Disabling the banner hides only the upper-right panel; the existing
 Tacto menu shows active tasks and **현재 작업 중단**, and Esc still stops input.
 Helpers do not create a second menu bar icon. Status is transient metadata
 (app name and stop state), never screen contents or input values. Changes

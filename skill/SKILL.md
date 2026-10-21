@@ -10,7 +10,7 @@ Use the signed `tacto` command for UI work. Resolve `command -v tacto` or
 
 For the fixed welcome task, run `tacto first-run --helper --yes` once; it launches
 TextEdit, creates a document, verifies the welcome text and brings the result
-forward unless disabled in settings, without Flow authoring. `foreground_verified` confirms result presentation.
+forward, without Flow authoring. `foreground_verified` confirms result presentation.
 `text_verified` proves visible text, not a save. On failure report stage/error;
 do not repeat a partially completed welcome task.
 
