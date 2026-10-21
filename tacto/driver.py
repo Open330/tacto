@@ -298,11 +298,19 @@ def _arm_reveal(obs, reveal):
 
 
 def _reveal_text(value):
-    """A label value as the helper compares it: text, or a number that is not a bool."""
+    """A label value as the helper compares it: text, or a number that is not a bool.
+
+    Numbers read as NSNumber.stringValue does: 7 is "7", 1.5 is "1.5", 2.0 is "2".
+    """
+    import math
     if isinstance(value, str):
         return value
-    if isinstance(value, int) and not isinstance(value, bool):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
         return str(value)
+    if isinstance(value, float) and math.isfinite(value):
+        return str(int(value)) if value.is_integer() and abs(value) < 1e15 else repr(value)
     return None
 
 

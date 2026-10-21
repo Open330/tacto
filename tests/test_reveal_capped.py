@@ -76,7 +76,9 @@ class WalkTests(unittest.TestCase):
     def test_numbers_match_as_text_but_booleans_do_not(self):
         self.assertEqual('7', native._reveal_text(7))
         self.assertIsNone(native._reveal_text(True))
-        self.assertIsNone(native._reveal_text(1.5))
+        self.assertEqual('1.5', native._reveal_text(1.5))     # NSNumber.stringValue
+        self.assertEqual('2', native._reveal_text(2.0))
+        self.assertIsNone(native._reveal_text(float('nan')))
 
     def test_reveal_texts_are_bounded(self):
         self.assertIsNone(reveal_problem(None))

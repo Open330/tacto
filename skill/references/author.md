@@ -249,7 +249,9 @@ and the matching rows appear under the same container, marked
 this way, nor a value the app wraps in invisible marks (Calculator's digits):
 the comparison is exact. If the miss says the capped list was not checked to
 the end, the target may still exist; narrow the window or folder instead of
-retrying.
+retrying. The scan reads at most 5000 nodes in 3 seconds; a Finder row is about ten
+nodes, so a list view is searched to roughly its first few hundred rows past the
+cap (measured 2026-10-22: row 2999 of 3000 was not reached).
 
 ### Safety: state meaning, never a risk level
 
