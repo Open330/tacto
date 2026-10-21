@@ -158,7 +158,14 @@ def reuse_schedule(percent):
     if percent not in schedules:raise ValueError('reuse percent must be 0,30,70,100')
     return schedules[percent]
 
-def reused_flow(base,app,target,provider,percent=None):
+def reused_flow(base,app,target,provider,percent=None,fresh=False):
+    """Ten jobs, `percent` of them replayed from one authored Flow.
+
+    Agent jobs share one CLI-resumed conversation by default (`ratioN` arms);
+    with `fresh` (`freshN` arms) every agent job is its own ephemeral session,
+    so no job inherits another's context, and each usage record is that run's
+    own total rather than a difference of a resumed session's counters.
+    """
     fixture=Fixture(base/'fixture',app);rows=[];agents=[];template=base/'template.json'
     temporary=tempfile.TemporaryDirectory(prefix='tacto-repeat-mixed-')
     workspace=Path(temporary.name);session=None;previous=None;setup=None
@@ -178,15 +185,21 @@ def reused_flow(base,app,target,provider,percent=None):
         for n,job in enumerate(jobs(),1):
             fixture.setup(job,changed=n>=7)
             if percent is not None and n not in schedule:
-                row=run_agent(provider,prompt(job,target,'tacto'),base/f'agent-{n:02d}',
-                              resume=session,workspace=workspace,retain=True)
-                if provider=='codex':
-                    aggregate=dict(row['usage']);row['usage']=codex_turn_delta(aggregate,previous);previous=aggregate
-                session=row['session_id'];row['job']=job;row['mode']='agent'
+                if fresh:
+                    row=run_agent(provider,prompt(job,target,'tacto'),base/f'agent-{n:02d}')
+                else:
+                    row=run_agent(provider,prompt(job,target,'tacto'),base/f'agent-{n:02d}',
+                                  resume=session,workspace=workspace,retain=True)
+                    if provider=='codex':
+                        aggregate=dict(row['usage']);row['usage']=codex_turn_delta(aggregate,previous);previous=aggregate
+                    session=row['session_id']
+                row['job']=job;row['mode']='agent';row['context']='fresh' if fresh else 'resumed'
                 row['oracle']=fixture.oracle(job);rows.append(row);agents.append(row)
-                write(base/'progress.json',{'kind':'mixed-reuse','reuse_percent':percent,'rows':rows,'agent_runs':agents,'usage':sum_usage(agents)})
-                print(json.dumps({'arm':f'{provider}-tacto-ratio{percent}','job':n,'mode':'agent','passed':row['oracle']['passed'],'seconds':row['seconds']}),flush=True)
-                if not row['oracle']['passed'] or row['exit']!=0 or not session:break
+                write(base/'progress.json',{'kind':'mixed-reuse','reuse_percent':percent,'context':'fresh' if fresh else 'resumed',
+                                            'rows':rows,'agent_runs':agents,'usage':sum_usage(agents)})
+                print(json.dumps({'arm':f"{provider}-tacto-{'fresh' if fresh else 'ratio'}{percent}",'job':n,'mode':'agent',
+                                  'passed':row['oracle']['passed'],'seconds':row['seconds']}),flush=True)
+                if not row['oracle']['passed'] or row['exit']!=0 or (not fresh and not session):break
                 continue
             if n==1 and percent is None:
                 row=run_agent(provider,prompt(job,target,'tacto',template=template),base/'author')
@@ -244,26 +257,47 @@ def reused_flow(base,app,target,provider,percent=None):
                 if not oracle['passed']:break
             write(base/'progress.json',{'kind':'reused-flow','reuse_percent':percent,'rows':rows,'agent_runs':agents,'usage':sum_usage(agents)})
             print(json.dumps({'arm':f'{provider}-tacto-ratio{percent}' if percent is not None else f'{provider}-tacto-reuse','job':n,'passed':rows[-1]['oracle']['passed']}),flush=True)
-        return {'kind':'mixed-reuse' if percent is not None else 'reused-flow','reuse_percent':percent,'setup':setup,'provider':provider,'rows':rows,'agent_runs':agents,'usage':sum_usage(agents),
+        return {'kind':'mixed-reuse' if percent is not None else 'reused-flow','reuse_percent':percent,
+                'context':'fresh' if fresh else 'resumed','setup':setup,'provider':provider,'rows':rows,'agent_runs':agents,'usage':sum_usage(agents),
                 'passed':len(rows)==10 and all(r['oracle']['passed'] for r in rows)}
     finally:fixture.close();temporary.cleanup()
+
+def parse_arm(arm):
+    """`provider-layer-kind`: kind is workflow, reuse, ratioN (resumed agent
+    jobs) or freshN (an independent session per agent job), N in 0/30/70/100."""
+    provider,layer,kind=arm.split('-')
+    if provider not in ('codex','claude') or layer not in ('tacto','sky'):raise ValueError(f'unknown arm {arm}')
+    if kind in ('workflow','reuse'):return provider,layer,kind,None,False
+    for prefix,fresh in (('ratio',False),('fresh',True)):
+        if kind.startswith(prefix) and kind[len(prefix):].isdigit():
+            percent=int(kind[len(prefix):]);reuse_schedule(percent)
+            if layer!='tacto':raise ValueError('reuse ratios need the tacto layer')
+            return provider,layer,'mixed',percent,fresh
+    raise ValueError(f'unknown arm kind {kind}')
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--output',required=True)
     parser.add_argument('--arms',nargs='+',default=['codex-tacto-workflow','claude-tacto-workflow','codex-sky-workflow','codex-tacto-reuse','claude-tacto-reuse'])
-    args=parser.parse_args();base=Path(args.output).resolve();base.mkdir(mode=0o700)
+    parser.add_argument('--reps',type=int,default=1,help='independent repetitions of every arm (1..10)')
+    args=parser.parse_args()
+    if not 1<=args.reps<=10:parser.error('--reps must be 1..10')
+    for arm in args.arms:parse_arm(arm)   # refuse a typo before building anything
+    base=Path(args.output).resolve();base.mkdir(mode=0o700)
     target='ai.callabo.tacto.repeatbench.'+uuid.uuid4().hex[:8]
     app=build(base,target);results=[]
-    for arm in args.arms:
-        arm_base=base/arm;arm_base.mkdir(mode=0o700)
-        provider,layer,kind=arm.split('-')
+    for rep,arm in [(r,a) for r in range(1,args.reps+1) for a in args.arms]:
+        arm_base=base/arm if args.reps==1 else base/f'rep-{rep:02d}'/arm
+        arm_base.mkdir(mode=0o700,parents=True)
+        provider,layer,kind,percent,fresh=parse_arm(arm)
         before=source_manifest()
         try:
             result=(workflow(arm_base,app,target,provider,layer) if kind=='workflow'
-                    else reused_flow(arm_base,app,target,provider,int(kind[5:]) if kind.startswith('ratio') else None))
-        except Exception as exc:result={'passed':False,'error':type(exc).__name__,'detail':str(exc)[:240]}
-        result['arm']=arm;result['source_before']=before;result['source_after']=source_manifest()
+                    else reused_flow(arm_base,app,target,provider,percent,fresh=fresh))
+        except Exception as exc:result={'passed':False,'error':type(exc).__name__,'detail':str(exc)[:240],
+                                        'kind':'mixed-reuse' if kind=='mixed' else kind,'reuse_percent':percent,
+                                        'context':'fresh' if fresh else 'resumed'}
+        result['arm']=arm;result['rep']=rep;result['source_before']=before;result['source_after']=source_manifest()
         result['source_stable']=result['source_before']==result['source_after'];results.append(result)
         write(base/'report.json',{'schema':1,'fixture_target':target,'jobs':jobs(),'results':results,
             'comparison_eligible':False,'fixture_source_sha256':hashlib.sha256((ROOT/'tests/fixtures/NativeRepeatBenchmark.swift').read_bytes()).hexdigest(),

@@ -31,8 +31,15 @@ def aggregate(rows):
     for arm in ('tacto','sky'):
         selected=[row for row in rows if row['arm']==arm]
         complete=all(r['exit']==0 and r['oracle']['passed'] for r in selected)
-        entry={'runs':len(selected),'passed':sum(r['exit']==0 and r['oracle']['passed'] for r in selected),
-               'seconds':sum(r['seconds'] for r in selected),'mean_seconds':statistics.mean(r['seconds'] for r in selected)}
+        ok=[r for r in selected if r['exit']==0 and r['oracle']['passed']]
+        entry={'runs':len(selected),'passed':len(ok),
+               'failure_rate':round(1-len(ok)/len(selected),4) if selected else None,
+               'seconds':sum(r['seconds'] for r in selected),'mean_seconds':statistics.mean(r['seconds'] for r in selected),
+               'median_seconds_passed':statistics.median(r['seconds'] for r in ok) if ok else None}
+        # Per passed run; unknown in any run keeps the median unknown, not zero.
+        for key in ('total_input_tokens','new_input_tokens','output_tokens'):
+            vals=[r['usage'].get(key) for r in ok]
+            entry['median_'+key+'_passed']=statistics.median(vals) if ok and all(type(v) is int for v in vals) else None
         for key in ('total_input_tokens','new_input_tokens','cache_read_tokens','output_tokens'):
             vals=[r['usage'].get(key) for r in selected]
             entry[key]=sum(vals) if complete and all(type(v) is int for v in vals) else None
@@ -93,7 +100,9 @@ def main():
     p.add_argument('--cases',nargs='+',choices=['bonus_on','bonus_off','renamed_button'],default=['bonus_on','bonus_off','renamed_button'])
     p.add_argument('--preflight-only',action='store_true')
     p.add_argument('--profile',action='store_true',help='Record host JSONL event timing; request native --timings')
+    p.add_argument('--reps',type=int,default=1,help='repetitions of every selected case pair (1..10)')
     args=p.parse_args()
+    if not 1<=args.reps<=10:p.error('--reps must be 1..10')
     if not 1<=args.timeout<=1200:p.error('--timeout must be1..1200')
     if len(args.cases)!=len(set(args.cases)):p.error('duplicate cases')
     base=Path(args.output).resolve();base.mkdir(mode=0o700)
@@ -124,7 +133,10 @@ def main():
     app=build(base,target);rows=[]
     cases=[('bonus_on',jobs()[0],False),('bonus_off',jobs()[1],False),('renamed_button',jobs()[6],True)]
     cases=[case for case in cases if case[0] in args.cases]
-    for pair,(case,values,changed) in enumerate(cases,1):
+    # Pairs are numbered across repetitions, so arm order keeps alternating
+    # and every run gets its own trace and fixture directory.
+    schedule=[(rep,case) for rep in range(1,args.reps+1) for case in cases]
+    for pair,(rep,(case,values,changed)) in enumerate(schedule,1):
         for arm in (('tacto','sky') if pair%2 else ('sky','tacto')):
             job=dict(values,job=f'P{pair:02d}')
             own_prompt=prompt(job,target,arm,launcher=args.launcher,tacto_guide=selected_guide['path'])
@@ -133,14 +145,14 @@ def main():
             row=run_arm(app,base,pair,arm,job,changed,lambda:run_agent('codex',own_prompt,base/f'{pair:02d}-{arm}',
                 timeout=args.timeout,model=args.model,reasoning_effort=args.reasoning_effort,
                 **({'profile':True} if args.profile else {})))
-            row.update(arm=arm,case=case,pair=pair,job=job)
+            row.update(arm=arm,case=case,pair=pair,rep=rep,job=job)
             rows.append(row);write(base/'progress.json',{'rows':rows})
             print(json.dumps({'pair':pair,'arm':arm,'passed':row['oracle']['passed'],'seconds':row['seconds'],
                 'input':row['usage'].get('total_input_tokens'),'new_input':row['usage'].get('new_input_tokens')}),flush=True)
     after=manifest(args.launcher,selected_guide['path']);summary=aggregate(rows)
     initial_matched=all(all(rows[i]['initial_state'][k]==rows[i+1]['initial_state'][k] for k in INITIAL_KEYS_COMPARED) for i in range(0,len(rows),2))
     same_config=hashlib.sha256(config.read_bytes()).hexdigest()==config_hash
-    passed=(len(rows)==len(cases)*2 and all(r['exit']==0 and r['oracle']['passed'] and r['oracle']['single_commit']
+    passed=(len(rows)==len(schedule)*2 and all(r['exit']==0 and r['oracle']['passed'] and r['oracle']['single_commit']
                                 and not r['oracle']['active'] for r in rows))
     write(base/'report.json',{'passed':passed,'rows':rows,'summary':summary,'source_before':before,'source_after':after,
         'source_stable':before==after,'comparison_eligible':False,'profiling_enabled':args.profile,
@@ -149,10 +161,10 @@ def main():
             'initial_state_keys_compared':list(INITIAL_KEYS_COMPARED),'initial_state_keys_excluded':[]},
         'comparison_limits':['actual serving model, hidden context and full foreground/caret equivalence unverified'],
         'requested_conditions_matched':before==after and same_config and initial_matched,
-        'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'selected_cases':args.cases,'initial_states_matched':initial_matched,'config_sha256':config_hash,
+        'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'selected_cases':args.cases,'repetitions':args.reps,'initial_states_matched':initial_matched,'config_sha256':config_hash,
         'config_stable':same_config,'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
         'comparison_scope':'fresh independent sessions; a fresh owned fixture process and data directory per arm; same app build/task/default tools, timeout/model/settings; counterbalanced order',
-        'limits':['selected case pairs, one sample per case','actual serving model and billing unverified',
+        'limits':[f'selected case pairs, {args.reps} sample(s) per case','actual serving model and billing unverified',
             'server cache and global instructions not cleared','not Flow replay or scripted Sky reuse comparison',
             'fixture setup excluded; all agent instruction reading/authoring/execution included']})
     print(str(base/'report.json'),flush=True)

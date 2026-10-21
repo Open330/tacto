@@ -1,0 +1,116 @@
+"""Fresh-context reuse arms, repetitions and their summary."""
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from examples import repeat_benchmark
+from examples.repeat_benchmark import parse_arm, sum_usage
+from examples.summarize_reuse_ratios import summarize_groups
+
+
+def usage(total=10):
+    return {'status':'reported','total_input_tokens':total,'new_input_tokens':2,
+            'cache_read_tokens':total-2,'cache_creation_tokens':None,'output_tokens':1}
+
+
+def batch(percent=0,context='fresh',rep=1,passed=True,seconds=2,total=10):
+    rows=[{'seconds':seconds,'exit':0,'mode':'agent','context':context,'job':{'job':f'T{i:02d}'},
+           'trace_directory':f'/t/{i}','usage':usage(total),
+           'oracle':{'passed':True,'single_commit':True,'active':False}} for i in range(1,11)]
+    return {'arm':f'codex-tacto-{context}{percent}','kind':'mixed-reuse','reuse_percent':percent,'context':context,'rep':rep,'passed':passed,
+            'rows':rows,'agent_runs':rows,'usage':sum_usage(rows),'setup':None}
+
+
+class FakeFixture:
+    def __init__(self,*_):pass
+    def setup(self,*_ ,**__):pass
+    def oracle(self,_):return {'passed':True,'single_commit':True,'active':False}
+    def close(self):pass
+
+
+class ParseArmTests(unittest.TestCase):
+    def test_fresh_and_ratio_arms(self):
+        self.assertEqual(('codex','tacto','mixed',30,True),parse_arm('codex-tacto-fresh30'))
+        self.assertEqual(('claude','tacto','mixed',70,False),parse_arm('claude-tacto-ratio70'))
+        self.assertEqual(('codex','sky','workflow',None,False),parse_arm('codex-sky-workflow'))
+
+    def test_bad_arms_are_refused(self):
+        for arm in ('codex-tacto-fresh50','codex-sky-fresh30','gpt-tacto-ratio0',
+                    'codex-tacto-freshx','codex-tacto','codex-tacto-other'):
+            with self.subTest(arm=arm),self.assertRaises(ValueError):parse_arm(arm)
+
+
+class FreshContextTests(unittest.TestCase):
+    def run_zero(self,fresh):
+        calls=[]
+        def agent(provider,text,trace,**kwargs):
+            calls.append(kwargs)
+            return {'exit':0,'seconds':1,'session_id':'s1','usage':usage(),'trace_directory':str(trace)}
+        with tempfile.TemporaryDirectory() as folder, \
+             mock.patch.object(repeat_benchmark,'Fixture',FakeFixture), \
+             mock.patch.object(repeat_benchmark,'run_agent',agent), \
+             mock.patch.object(repeat_benchmark,'codex_turn_delta',lambda now,_:now):
+            result=repeat_benchmark.reused_flow(Path(folder),None,'t','codex',0,fresh=fresh)
+        return result,calls
+
+    def test_fresh_never_resumes_or_shares_a_workspace(self):
+        result,calls=self.run_zero(True)
+        self.assertEqual(10,len(calls))
+        self.assertTrue(all(c=={} for c in calls))
+        self.assertEqual('fresh',result['context'])
+        self.assertTrue(all(r['context']=='fresh' for r in result['rows']))
+        self.assertTrue(result['passed'])
+
+    def test_resumed_carries_the_session(self):
+        result,calls=self.run_zero(False)
+        self.assertIsNone(calls[0]['resume'])
+        self.assertTrue(all(c['resume']=='s1' for c in calls[1:]))
+        self.assertEqual('resumed',result['context'])
+
+
+class GroupSummaryTests(unittest.TestCase):
+    def test_failure_rate_and_medians_over_repetitions(self):
+        runs=[batch(rep=1,seconds=2),batch(rep=2,seconds=4),batch(rep=3,passed=False)]
+        group,=summarize_groups(runs)
+        self.assertEqual(3,group['runs']);self.assertEqual(2,group['passed_runs'])
+        self.assertAlmostEqual(0.3333,group['failure_rate'])
+        self.assertEqual(30,group['median']['seconds'])
+        self.assertEqual(100,group['median']['total_input_tokens'])
+        self.assertEqual(3,group['failures'][0]['rep'])
+
+    def test_unknown_usage_keeps_the_median_unknown(self):
+        good,unknown=batch(rep=1),batch(rep=2)
+        unknown['rows'][0]['usage']={'status':'missing_or_ambiguous'}
+        unknown['usage']=sum_usage(unknown['rows'])
+        group,=summarize_groups([good,unknown])
+        self.assertIsNone(group['median']['total_input_tokens'])
+        self.assertEqual(20,group['median']['seconds'])
+
+    def test_a_resumed_job_in_a_fresh_arm_is_a_failure(self):
+        run=batch();run['rows'][3]['context']='resumed'
+        group,=summarize_groups([run])
+        self.assertEqual(1.0,group['failure_rate'])
+
+    def test_contexts_are_compared_only_against_their_own_zero(self):
+        groups=summarize_groups([batch(0,'fresh',total=10),batch(0,'resumed',total=40)])
+        self.assertEqual({('fresh',0),('resumed',0)},{(g['context'],g['reuse_percent']) for g in groups})
+        self.assertTrue(all('median_change_vs_zero' not in g for g in groups))
+
+
+class MatchedRepetitionTests(unittest.TestCase):
+    def test_failure_rate_and_medians_use_passed_runs(self):
+        from examples.benchmark_matched_conditions import aggregate
+        def row(arm,seconds,passed=True,total=10):
+            return {'arm':arm,'exit':0,'seconds':seconds,'oracle':{'passed':passed},
+                    'usage':{'total_input_tokens':total,'new_input_tokens':2,'cache_read_tokens':total-2,'output_tokens':1}}
+        rows=[row('tacto',4),row('tacto',8),row('tacto',99,passed=False),row('sky',5),row('sky',7)]
+        tacto=aggregate(rows)['tacto']
+        self.assertAlmostEqual(0.3333,tacto['failure_rate']);self.assertEqual(6,tacto['median_seconds_passed'])
+        self.assertEqual(10,tacto['median_total_input_tokens_passed'])
+        rows[3]['usage']={}
+        sky=aggregate(rows)['sky']
+        self.assertEqual(0.0,sky['failure_rate']);self.assertIsNone(sky['median_total_input_tokens_passed'])
+
+
+if __name__=='__main__':unittest.main()

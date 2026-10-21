@@ -5,15 +5,16 @@ from pathlib import Path
 
 FIELDS=('total_input_tokens','new_input_tokens','cache_read_tokens','output_tokens')
 
-def measured_batch(result):
+def measured_batch(result,*,unknown_usage=False):
+    """`unknown_usage` keeps a verified batch with missing token counts, as None."""
     rows=result.get('rows',[])
     if not result.get('passed') or len(rows)!=10 or not all(r['oracle']['passed'] and r['oracle']['single_commit'] for r in rows):
         raise ValueError('ten independently verified jobs required')
     usage=result['usage']
-    if usage.get('unknown_usage_records') or any(type(usage.get(k)) is not int for k in FIELDS):
-        raise ValueError('complete usage required')
-    new=usage['total_input_tokens']-usage['cache_read_tokens']
-    if new<0:raise ValueError('cache read exceeds total input')
+    complete=not usage.get('unknown_usage_records') and all(type(usage.get(k)) is int for k in FIELDS)
+    if not complete and not unknown_usage:raise ValueError('complete usage required')
+    new=usage['total_input_tokens']-usage['cache_read_tokens'] if complete else None
+    if new is not None and new<0:raise ValueError('cache read exceeds total input')
     seconds=sum(r['seconds']+r.get('recovery',{}).get('seconds',0) for r in rows)
     # Authoring is already row1; subsequent agent runs are recovery.
     if result.get('kind')=='mixed-reuse':
@@ -23,7 +24,7 @@ def measured_batch(result):
         seconds+=sum(r['seconds'] for r in result.get('agent_runs',[])[1:])
     return {'arm':result['arm'],'jobs':10,'passed':True,'source_stable':result.get('source_stable'),
             'agent_invocations':usage['agent_invocations'],'seconds':seconds,
-            **{k:usage[k] for k in FIELDS},'reported_new_input_tokens':usage['new_input_tokens'],
+            **{k:usage.get(k) if complete else None for k in FIELDS},'reported_new_input_tokens':usage.get('new_input_tokens') if complete else None,
             'cache_creation_tokens':usage.get('cache_creation_tokens'),
             'new_input_tokens':new,'new_input_basis':'total_input_tokens - cache_read_tokens'}
 
