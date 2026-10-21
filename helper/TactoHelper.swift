@@ -222,9 +222,10 @@ func validRevealRequest(_ raw: Any) -> [String]? {
 /// Separate search work from the ordinary 2500-node rendered tree. Every omitted
 /// child is probed only shallowly, and every probe shares one bounded scan budget.
 final class ObservationRevealScan {
-    let labels: Set<String>
+    let labels: [String]
     var complete = true
     var scannedNodes = 0
+    var revealed = 0
     var started: Double? = nil
     let now: () -> Double
     let snapshot: (AXUIElement, Double) -> ObservationNodeSnapshot?
@@ -236,7 +237,7 @@ final class ObservationRevealScan {
              defer { _ = AXUIElementSetMessagingTimeout(element, 0) }
              return ObservationNodeSnapshot(element)
          }) {
-        self.labels = Set(labels); self.now = now; self.snapshot = snapshot
+        self.labels = labels; self.now = now; self.snapshot = snapshot
     }
     var available: Bool {
         if started == nil { started = now() }
@@ -253,10 +254,13 @@ final class ObservationRevealScan {
             let remaining = 3 - (now() - started!)
             guard remaining > 0, let packet = snapshot(element, remaining) else { complete = false; return false }
             guard now() - started! < 3 else { complete = false; return false }
+            // Swift String equality folds canonical Unicode equivalents;
+            // reveal, like Python, compares the raw scalar sequence exactly.
+            func exact(_ text: String) -> Bool { labels.contains { $0.utf8.elementsEqual(text.utf8) } }
             if ["AXTitle", "AXDescription", "AXValue", "AXIdentifier"].contains(where: {
-                if let text = packet.value($0) as? String { return labels.contains(text) }
+                if let text = packet.value($0) as? String { return exact(text) }
                 if let number = packet.value($0) as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
-                    return labels.contains(number.stringValue)
+                    return exact(number.stringValue)
                 }
                 return false
             }) { return true }
@@ -294,8 +298,9 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
           truncated: inout Bool, nodeLimit: Int = maxTreeNodes,
           deferred: ((AXUIElement, Int) -> Void)? = nil,
           metrics: ObservationReadMetrics? = nil, reveal: ObservationRevealScan? = nil) {
-    if depth > 25 { return }
+    if depth > 25 { reveal?.complete = false; return }
     if visited >= min(maxTreeNodes, nodeLimit) {
+        reveal?.complete = false
         if let deferred { deferred(el, depth) } else { truncated = true }
         return
     }
@@ -373,13 +378,13 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
                     walk(child, depth: depth + 1, out: &out, elements: &elements,
                          visited: &visited, truncated: &truncated, nodeLimit: nodeLimit,
                          deferred: deferred, metrics: metrics, reveal: reveal)
-                    if visited > before { revealed += 1 }
+                    if visited > before { revealed += 1; reveal.revealed += 1 }
                 }
             }
         }
         out.append(String(repeating: "  ", count: depth + 1)
-                   + "… (\(children.count - maxChildrenPerNode)개 더 있음)"
-                   + (revealed > 0 ? " reveal 일치 \(revealed)개 표시" : ""))
+                   + "… (\(children.count - maxChildrenPerNode)개 더 있음"
+                   + (revealed > 0 ? "; 찾는 항목 \(revealed)개 표시" : "") + ")")
     }
 }
 
@@ -1081,6 +1086,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     let metrics = ObservationReadMetrics()
     let revealScan = reveal.map { ObservationRevealScan($0) }
     var truncated = windows.count > maxTreeNodes
+    if truncated { revealScan?.complete = false }
     // A large first window must not hide every later window, including a
     // file chooser. Divide the remaining budget among remaining windows so
     // later roots AND controls can be read. Resume suspended frontiers with
@@ -1156,6 +1162,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     if let revealScan {
         reply["reveal_scan_complete"] = revealScan.complete
         reply["reveal_scanned_nodes"] = revealScan.scannedNodes
+        reply["revealed"] = revealScan.revealed
     }
     if let documentToken { reply["document_token"] = documentToken }
     else { reply["window_listing_diagnostic"] = windowListing.metadata }
@@ -6285,7 +6292,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         return readMenuState(msg)
     case "observe":
         if let raw = msg["reveal"], validRevealRequest(raw) == nil {
-            return ["type":"error", "error":"invalid_reveal_request", "effect":"not_started"]
+            return ["type":"error", "error":"invalid_reveal", "effect":"not_started"]
         }
         if let raw = msg["window_identity"], CFGetTypeID(raw as CFTypeRef) != CFBooleanGetTypeID() {
             return ["type":"error", "error":"invalid_window_identity_request", "effect":"not_started"]

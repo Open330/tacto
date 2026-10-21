@@ -149,6 +149,7 @@ final class ObservationReadMetrics {
 final class ObservationRevealScan {
  init(_ labels:[String]) {}
  var complete=true
+ var revealed=0
  var available:Bool { false }
  func matches(_ node:Int)->Bool { false }
 }

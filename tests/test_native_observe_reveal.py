@@ -65,7 +65,7 @@ precondition(!baseline.0.contains("Title: file-2999"))
 let scan = ObservationRevealScan(["file-2999"])
 let found = render(scan)
 precondition(scan.complete && scan.scannedNodes == 2940)
-precondition(found.0.contains("reveal 일치 1개 표시"))
+precondition(found.0.contains("개 더 있음; 찾는 항목 1개 표시)") && scan.revealed == 1)
 precondition(found.2 == baseline.2 + 1 && found.2 <= maxTreeNodes)
 precondition(nodeID(found.1.last!) == 2999) // Real observation element index, not a scan-local index.
 precondition(!found.0.contains("Title: file-2998"))
@@ -82,6 +82,12 @@ precondition(!depth.complete)
 put(2999, "wide", Array(4100...4150)); for n in 4100...4150 { put(n, "other") }
 let wide = ObservationRevealScan(["absent"]); _ = render(wide)
 precondition(!wide.complete)
+// A normal rendering cutoff is incomplete too, even before a scan starts.
+let budget = ObservationRevealScan(["absent"])
+var cutLines: [String] = [], cutElements: [AXUIElement] = []; var cutVisited = 0, cut = false
+walk(element(1), depth: 0, out: &cutLines, elements: &cutElements,
+     visited: &cutVisited, truncated: &cut, nodeLimit: 2, reveal: budget)
+precondition(!budget.complete && cutVisited == 2)
 // Global node ceiling applies across all omitted children, not per container.
 graph = [:]; put(1, "Window", Array(2...5201)); for n in 2...5201 { put(n, "other") }
 let capped = ObservationRevealScan(["absent"]); _ = render(capped)
@@ -97,6 +103,9 @@ _ = render(failed); precondition(!failed.complete)
 // Boolean AXValue is not a rendered label and cannot be a match.
 put(6000, ""); graph[6000]!["AXValue"] = kCFBooleanTrue
 let boolScan = ObservationRevealScan(["1"]); precondition(!boolScan.matches(element(6000)))
+put(6002, "e\u{0301}")
+precondition(!ObservationRevealScan(["é"]).matches(element(6002)))
+precondition(ObservationRevealScan(["é", "e\u{0301}"]).matches(element(6002)))
 var axFailure = AXError.cannotComplete
 put(6001, ""); graph[6001]!["AXTitle"] = AXValueCreate(.axError, &axFailure)!
 let partial = ObservationRevealScan(["absent"]); precondition(!partial.matches(element(6001)) && !partial.complete)
