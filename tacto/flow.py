@@ -1302,8 +1302,12 @@ def _bind_steps(steps, ctx) -> list:
         items = [None]
         if st.for_each:
             items = list(_render(st.for_each, ctx))
-        for it in items:
-            c = dict(ctx) if it is None else {**ctx, "item": it}
+        for k, it in enumerate(items):
+            # `items_so_far`: what the loop has entered up to and including
+            # this item ("1", then "12"), for a hint that names exactly what an
+            # app shows after each one.
+            c = dict(ctx) if it is None else {**ctx, "item": it,
+                                              "items_so_far": "".join(str(x) for x in items[:k + 1])}
             bound = _render_step(st, c)
             if bound.action == "decide" and "branches" in bound.params:
                 bound = replace(bound, params={**bound.params, "branches": {

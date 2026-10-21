@@ -70,7 +70,7 @@ def calc_arith() -> Flow:
     return Flow(
         name="calc_arith", target="com.apple.calculator",
         params={"a": "12", "b": "34", "op": "*"},
-        tables={"digit": DIGIT_BUTTON, "opbtn": OP_BUTTON},
+        tables={"digit": DIGIT_BUTTON, "opbtn": OP_BUTTON, "opshown": OP_SHOWN},
         derived={"result": "{{a}} {{op}} {{b}}"},
         steps=[
             Step("click", Selector(role="Button",
@@ -589,16 +589,52 @@ def _display_ready(build, shown):
     return built
 
 
+# What Calculator's display shows for each operator, read on macOS 27: the
+# minus is U+2212, not a hyphen.
+OP_SHOWN = {"+": "+", "-": "\u2212", "*": "×", "/": "÷"}
+
+
+def _arithmetic_ready(build, op_shown):
+    """Calculator presses for `a op b`, each followed by its exact display.
+
+    Exact only for plain integers below 1000: Calculator groups thousands
+    ("1,234"), spells decimals out ("zero point five") and keeps "0" for a
+    leading zero. Any other display simply does not match, and that press
+    settles as before.
+    """
+    from dataclasses import replace
+    from .flow import ReadyHint
+
+    def built():
+        flow = build()
+        display = Selector(role="ScrollArea", identifier="StandardInputView")
+        shown = {"{{a}}": "{{items_so_far}}", "{{b}}": "{{a}} " + op_shown + " {{items_so_far}}"}
+        steps, operand_seen = [], False
+        for st in flow.steps:
+            if st.action != "click" or st.postcondition is not None or st.expect is not None:
+                steps.append(st); continue
+            if st.for_each in shown:
+                equals = shown[st.for_each]; operand_seen = True
+            elif not operand_seen:
+                equals = "0"                       # All Clear, before anything is entered
+            else:
+                equals = "{{a}} " + op_shown       # the operator after the first operand
+            steps.append(replace(st, ready_when=ReadyHint(display, "Value", equals)))
+        return replace(flow, steps=steps)
+    built.__name__ = build.__name__
+    return built
+
+
 def _calculator():
     from .flow import calculator_12x34, calculator_multiply
     return {"calc_12x34": _display_ready(calculator_12x34, ["0", "1", "12", "12 ×", "12 × 3", "12 × 34"]),
-            "calc_multiply": calculator_multiply}
+            "calc_multiply": _arithmetic_ready(calculator_multiply, "×")}
 
 
 def builders() -> dict:
     """Name -> zero-argument builder, for every recipe that ships with Tacto."""
     return {**_calculator(),
-            "calc_arith": calc_arith,
+            "calc_arith": _arithmetic_ready(calc_arith, "{{opshown[op]}}"),
             "finder_open_folder": finder_open_folder,
             "finder_count_items": finder_count_items,
             "finder_list_items": finder_list_items,

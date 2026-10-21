@@ -163,13 +163,31 @@ class ReadyHintFormatTests(unittest.TestCase):
 
 
 class BuiltinHintTests(unittest.TestCase):
-    def test_only_the_fixed_input_calculator_recipe_carries_hints(self):
+    def test_only_calculator_recipes_carry_hints(self):
         from tacto.library import builders
         built = {name: build() for name, build in builders().items()}
         with_hints = sorted(name for name, flow in built.items() if any(st.ready_when for st in flow.steps))
-        self.assertEqual(["calc_12x34"], with_hints)
+        self.assertEqual(["calc_12x34", "calc_arith", "calc_multiply"], with_hints)
         self.assertEqual(["0", "1", "12", "12 ×", "12 × 3", "12 × 34"],
                          [st.ready_when.equals for st in built["calc_12x34"].steps if st.ready_when])
+
+    def test_arithmetic_hints_name_each_exact_display(self):
+        # Read off Calculator on macOS 27; the minus is U+2212.
+        from tacto.library import builders
+        for op, shown in (("+", "+"), ("-", "\u2212"), ("*", "×"), ("/", "÷")):
+            flow = builders()["calc_arith"]().bind(a="75", b="81", op=op)
+            with self.subTest(op=op):
+                self.assertEqual(["0", "7", "75", f"75 {shown}", f"75 {shown} 8", f"75 {shown} 81"],
+                                 [st.ready_when.equals for st in flow.steps if st.ready_when])
+        flow = builders()["calc_multiply"]().bind(a="9", b="40")
+        self.assertEqual(["0", "9", "9 ×", "9 × 4", "9 × 40"],
+                         [st.ready_when.equals for st in flow.steps if st.ready_when])
+
+    def test_items_so_far_is_what_the_loop_has_entered(self):
+        step = Step("click", Selector(identifier="{{item}}"), safety=SAFETY, for_each="{{n}}",
+                    ready_when=ReadyHint(DISPLAY, "Value", "{{items_so_far}}"))
+        bound = Flow("p", "pad", [step], params={"n": "305"}, schema=2).bind()
+        self.assertEqual(["3", "30", "305"], [st.ready_when.equals for st in bound.steps])
 
 
 if __name__ == "__main__":

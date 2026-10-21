@@ -820,9 +820,14 @@ A screen value is not a completion signal by itself: an app may show a value,
 even the final one, before its own state has caught up, and moving on then
 sends the next input too early. So hints are written only where the app's
 meaning is known, and are not learned from what a run happened to see. The
-built-in `calc_12x34` carries Calculator's exact display after each press (in
-process on this Mac, 6.4 s to 0.24 s); recipes whose inputs vary settle as
-before.
+built-in Calculator recipes carry its exact display after each press, read on
+macOS 27 (operators `+ − × ÷`, the minus being U+2212). Inside a `for_each`
+loop `{{items_so_far}}` is what the loop has entered so far ("1", then "12"),
+so `calc_arith` and `calc_multiply` can name the display for any operands.
+Exact only for plain integers below 1000: Calculator groups thousands and
+spells decimals out, and those presses settle as before. In process on this
+Mac, `12 × 34` went from 6.8 s to 0.35 s and `75 − 8` from 5.6 s to 0.22 s;
+`1234 + 5` went from 7.9 s to 3.4 s and `0.5 × 2` stayed near its settle time.
 
 ### Multiple results at one checkpoint
 
