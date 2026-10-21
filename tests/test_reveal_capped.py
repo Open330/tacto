@@ -62,6 +62,21 @@ class WalkTests(unittest.TestCase):
         obs = self.walk(['file99'], REVEAL_SCAN_NODES=30)
         self.assertEqual((0, False), (obs.revealed, obs.reveal_complete))
 
+    def test_unread_depth_or_per_child_overflow_is_incomplete(self):
+        with mock.patch.object(native, 'REVEAL_CHILD_DEPTH', 1):
+            obs = self.walk(['file99'])        # the name sits at depth 2 of each row
+        self.assertEqual((0, False), (obs.revealed, obs.reveal_complete))
+        with mock.patch.object(native, 'REVEAL_CHILD_NODES', 2):
+            obs = self.walk(['file99'])
+        self.assertEqual((0, False), (obs.revealed, obs.reveal_complete))
+        self.assertTrue(self.walk(['file99']).reveal_complete)
+        self.assertEqual(40 * 3, self.walk(['nothing']).reveal_scanned)   # every row read once
+
+    def test_numbers_match_as_text_but_booleans_do_not(self):
+        self.assertEqual('7', native._reveal_text(7))
+        self.assertIsNone(native._reveal_text(True))
+        self.assertIsNone(native._reveal_text(1.5))
+
     def test_reveal_texts_are_bounded(self):
         self.assertIsNone(reveal_problem(None))
         self.assertIsNone(reveal_problem(['a'] * 8))

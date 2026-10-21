@@ -88,5 +88,7 @@ or value) is still found past the cap: when it is missing and the tree shows
 `… (N개 더 있음)`, replay asks once more for exactly those names (`observe.reveal`)
 and the matching rows appear under the same container, marked
 `; 찾는 항목 K개 표시`. A role-only or substring selector cannot be looked up
-this way. If the miss says the capped list was not checked to the end, the
-target may still exist; narrow the window or folder instead of retrying.
+this way, nor a value the app wraps in invisible marks (Calculator's digits):
+the comparison is exact. If the miss says the capped list was not checked to
+the end, the target may still exist; narrow the window or folder instead of
+retrying.

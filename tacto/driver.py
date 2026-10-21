@@ -294,8 +294,16 @@ _LABEL_ATTRS = ("AXTitle", "AXDescription", "AXValue", "AXHelp",
 
 def _arm_reveal(obs, reveal):
     if reveal:
-        obs.reveal = tuple(reveal)
-        obs.reveal_deadline = time.monotonic() + REVEAL_SCAN_SECONDS
+        obs.reveal = tuple(reveal)   # the 3-second clock starts at the first scan
+
+
+def _reveal_text(value):
+    """A label value as the helper compares it: text, or a number that is not a bool."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    return None
 
 
 def _label_values(el):
@@ -484,24 +492,40 @@ class Observation:
         self.revealed = 0
 
     def _reveals(self, el):
-        """Whether `el` or a shallow part of it carries a reveal text exactly."""
-        todo = [(el, 0)]
+        """Whether `el` or a shallow part of it carries a reveal text exactly.
+
+        Same budget and meaning as the helper: 24 nodes and depth 3 per child,
+        5000 nodes and 3 seconds per observation from the first scan. Anything
+        left unread makes the scan incomplete, so a miss is not "not there".
+        """
+        if self.reveal_deadline is None:
+            self.reveal_deadline = time.monotonic() + REVEAL_SCAN_SECONDS
         seen = 0
-        while todo:
+
+        def probe(node, depth):
+            nonlocal seen
             if (self.reveal_scanned >= REVEAL_SCAN_NODES
-                    or time.monotonic() >= self.reveal_deadline):
+                    or time.monotonic() >= self.reveal_deadline or seen >= REVEAL_CHILD_NODES):
                 self.reveal_complete = False
                 return False
-            node, depth = todo.pop()
-            self.reveal_scanned += 1
             seen += 1
+            self.reveal_scanned += 1
             values = _label_values(node)
-            if any(isinstance(v, str) and v in self.reveal for v in values):
+            # Title, Description, Value, Identifier: what a selector names.
+            if any(_reveal_text(values[i]) in self.reveal for i in (0, 1, 2, 4) if _reveal_text(values[i])):
                 return True
-            if depth < REVEAL_CHILD_DEPTH and seen < REVEAL_CHILD_NODES:
-                kids = _attr(node, "AXChildren") or []
-                todo.extend((kid, depth + 1) for kid in reversed(kids[:REVEAL_CHILD_NODES - seen]))
-        return False
+            kids = _attr(node, "AXChildren") or []
+            if depth >= REVEAL_CHILD_DEPTH:
+                if kids:
+                    self.reveal_complete = False
+                return False
+            for kid in kids:
+                if probe(kid, depth + 1):
+                    return True
+                if not self.reveal_complete:
+                    return False
+            return False
+        return probe(el, 0)
 
     def walk(self, el, depth=0, *, node_limit=None, deferred=None):
         if depth > MAX_TREE_DEPTH:
@@ -549,6 +573,9 @@ class Observation:
             shown = 0
             if self.reveal:
                 for child in children[MAX_CHILDREN_PER_NODE:]:
+                    if self.visited >= limit:
+                        self.reveal_complete = False
+                        break
                     if self._reveals(child):
                         self.walk(child, depth + 1, node_limit=node_limit, deferred=deferred)
                         shown += 1
@@ -1441,6 +1468,7 @@ class Driver:
             # only when the scan was complete.
             answer["revealed"] = obs.revealed
             answer["reveal_scan_complete"] = obs.reveal_complete
+            answer["reveal_scanned_nodes"] = obs.reveal_scanned
         if document_token is not None:
             answer['document_token'] = document_token
         if obs.truncated:
