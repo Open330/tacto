@@ -93,6 +93,19 @@ class ActivateTests(unittest.TestCase):
         r = self.run_activate(b, window='Gmail', driver=Pending())
         self.assertEqual('foreground_changed', r['error'])
 
+    def test_an_already_front_answer_is_read_after_the_run_loop_turns(self):
+        b = self.backend(); b.finish = False
+        b.front = 42                     # stale: another app has since come forward
+        pending = [99]
+        pump = b.pump
+        def pump_and_deliver(seconds):
+            if pending: b.front = pending.pop()
+            pump(seconds)
+        b.pump = pump_and_deliver
+        r = self.run_activate(b)
+        self.assertEqual('app_activation', r['type'])
+        self.assertEqual(1, b.activations)   # it really was not in front any more
+
     def test_a_replaced_instance_after_the_window_step_is_not_verified(self):
         b = self.backend(); b.finish = False   # the fake pump must not restore pid 42
         class Restarted(Browser):

@@ -93,6 +93,9 @@ def present_app(target, pid, *, backend=None, clock=time.monotonic):
             return dict(failed, error='presentation_identity_changed')
         if not backend.session_ready():
             return dict(failed, error='gui_session_unavailable')
+        # A long-lived caller may not have run its loop since the last change;
+        # deliver pending NSWorkspace notifications before trusting frontmost.
+        backend.pump(0.05)
         if backend.frontmost_pid() == pid:
             return {'foreground_verified': True}
         if not backend.activate(pid):
