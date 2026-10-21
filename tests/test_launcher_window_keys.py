@@ -12,6 +12,27 @@ ROOT=Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(sys.platform=='darwin' and shutil.which('swift'), 'macOS Swift required')
 class LauncherWindowKeyTests(unittest.TestCase):
+    def test_observed_value_pin_is_typed_bounded_and_requires_an_element(self):
+        source=(ROOT/'launcher/tacto.swift').read_text()
+        schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
+        checks=r'''
+let base:[String:Any] = ["type":"act","target":"com.apple.Safari","obs_id":"owned",
+    "action":["name":"press_key","element_index":0,"key":"Return"],
+    "expect":["role":"TextField","attribute":"Identifier","label":"WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD","value":"https://example.com/"]]
+var requests=[base]
+for value:Any in [true,1,["x"],String(repeating:"x",count:16385)] {
+    var row=base; var expect=base["expect"] as! [String:Any];expect["value"]=value;row["expect"]=expect;requests.append(row)
+}
+var menu=base;menu["action"]=["name":"menu","path":["File","New"]];requests.append(menu)
+print(String(data:try! JSONSerialization.data(withJSONObject:requests.map{vetted($0)==nil}),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'main.swift'
+            path.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw:Any?)->Double? {1}\n'+schema+checks)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual([True,False,False,False,False,False],json.loads(result.stdout))
+
     def test_gemini_text_route_is_allowed_without_adding_image_or_unknown_providers(self):
         source=(ROOT/'launcher/tacto.swift').read_text()
         schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]

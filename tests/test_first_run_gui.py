@@ -66,7 +66,7 @@ func testTerminalOpen(_ urls:[URL], withApplicationAt app:URL,
             (folder/'PermissionState.swift').write_bytes((ROOT/'setup/PermissionState.swift').read_bytes())
             (folder/'ActivityCenter.swift').write_bytes((ROOT/'setup/ActivityCenter.swift').read_bytes())
             binary=folder/'TactoSetup'
-            built=subprocess.run(['swiftc','main.swift','PermissionState.swift','ActivityCenter.swift','-o',str(binary)],cwd=folder,
+            built=subprocess.run(['swiftc','main.swift','PermissionState.swift','ActivityCenter.swift',str(ROOT/'RuntimeStatus.swift'),'-o',str(binary)],cwd=folder,
                                  capture_output=True,text=True,timeout=90)
             self.assertEqual(0,built.returncode,built.stderr)
             output=folder/'snapshot'

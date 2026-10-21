@@ -1415,7 +1415,7 @@ func mismatch(_ expect: [String: Any], element: AXUIElement?, pid p: pid_t) -> S
         // weakly satisfied here, it is unanswerable — and an ignored
         // precondition looks exactly like a met one, which is the failure this
         // contract was built to stop. Refused, not skipped.
-        let named = ["role", "label", "attribute", "enabled"]
+        let named = ["role", "label", "attribute", "enabled", "value"]
             .filter { expect[$0] != nil }
         if !named.isEmpty {
             return "이 동작은 대상 요소를 지정하지 않는데 "
@@ -1424,6 +1424,8 @@ func mismatch(_ expect: [String: Any], element: AXUIElement?, pid p: pid_t) -> S
         }
         return nil
     }
+    if let expectedValue = expect["value"] as? String,
+       (attr(el,kAXValueAttribute as String) as? String) != expectedValue { return "대상 값이 달라졌습니다" }
     if (expect["enabled"] as? Bool) == true,
        (attr(el, kAXEnabledAttribute as String) as? Bool) == false {
         return "대상이 비활성 상태입니다"
@@ -2334,6 +2336,68 @@ func submitReturnBackground(_ obsID: String, _ target: String, _ element: AXUIEl
         return ["type":"error", "error":"action_failed", "effect":"not_started",
                 "posted_or_attempted_events":0, "detail":"Return context failed"]
     }
+}
+
+/// Semantic URL confirmation only; nil keeps the existing keyboard route.
+func confirmSafariAddress(_ obsID:String, _ target:String, _ el:AXUIElement, _ p:pid_t,
+                          deadline:Double, expect:[String:Any]?, submitAuthorized:Bool) -> [String:Any]? {
+    guard submitAuthorized, target == "com.apple.Safari", latestDocumentToken == nil,
+          let start = latestProcessStart, let expectedURL = expect?["value"] as? String else { return nil }
+    let elements = latestElements
+    let generation = latestElementGeneration
+    var attempted = false
+    do {
+        let scope = NativeWindowReadScope(deadline:deadline,check:{
+            guard !abortState.isStopped, latestObsID == obsID, latestTargetPID == p,
+                  latestElementGeneration == generation,
+                  nativeProcessStartIdentity(p) == start, nativeObservedBundleMatches(p,target) else {
+                throw NativeWindowInputError.refused("Safari navigation context changed")
+            }
+        })
+        let eligible = try nativeSafariAddressConfirmEligible(el,read:scope.read,actions:{ node in
+            let result = try scope.withTimeout(node) { () -> (AXError,CFArray?) in
+                var raw: CFArray?
+                let status = AXUIElementCopyActionNames(node,&raw)
+                return (status,raw)
+            }
+            guard result.0 == .success, let actions = result.1 as? [String] else {
+                throw NativeWindowInputError.refused("Safari address actions unavailable")
+            }
+            return actions
+        })
+        if eligible {
+            guard try scope.read(el,"AXValue").1 as? String == expectedURL else {
+                throw NativeWindowInputError.refused("Safari address value changed")
+            }
+            var owner: pid_t = 0
+            guard AXUIElementGetPid(el,&owner) == .success, owner == p,
+                  elements.filter({CFEqual($0,el)}).count == 1 else {
+                throw NativeWindowInputError.refused("Safari address owner changed")
+            }
+            try scope.ready(forceFull:true)
+            if let want = expect, mismatch(want,element:el,pid:p) != nil {
+                throw NativeWindowInputError.refused("Safari navigation binding changed")
+            }
+            let status = try scope.withTimeout(el) {
+                attempted = true
+                return AXUIElementPerformAction(el,"AXConfirm" as CFString)
+            }
+            guard status == .success else {
+                return ["type":"error","error":"action_failed","effect":axActionFailureEffect(status),
+                        "ax_confirmation_attempted":true,"posted_or_attempted_events":0,
+                        "detail":"Safari address confirmation did not return success"]
+            }
+            return ["type":"acted","action":"press_key","obs_id":obsID,
+                    "input_route":"safari_address_confirm","mechanism":"ax_confirm",
+                    "posted_events":0,"reobserve_required":true,"unverified":"observe_effect"]
+        }
+    } catch {
+        return ["type":"error","error":abortState.isStopped ? "aborted_by_user" : "action_failed",
+                "effect":attempted ? "unknown" : "not_started",
+                "ax_confirmation_attempted":attempted,"posted_or_attempted_events":0,
+                "detail":"Safari address confirmation context unavailable"]
+    }
+    return nil
 }
 
 func nativeOpeningParametersProblem(_ action:[String:Any]) -> String? {
@@ -3623,6 +3687,10 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             return ["type":"error", "error":"action_failed", "effect":"not_started",
                     "detail":"press_key requires an observed input element and Tab/shift+Tab/arrows, or Return in the Go to Folder path field"]
         }
+        if key == "Return", let result = confirmSafariAddress(obsID,target,el,p,
+                deadline:deadline,expect:expect,submitAuthorized:submitAuthorized) {
+            return result
+        }
         // Return commits — it sends a message, submits a form, saves. So it
         // is taken only into the Go to Folder sheet's path field (see
         // returnTargetRefusal), where it navigates. The flow must also declare
@@ -4664,6 +4732,7 @@ let helperCapabilities: [String] = [
     "expect.no_modal", "expect.selection",
     "effect",                       // errors say whether an effect is possible
     "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
+    "press_key.safari_address_confirm",
     "action.menu", "action.scroll", "action.secondary_action",
     // Finder only: show an existing folder without activating Finder.
     "action.open_folder",

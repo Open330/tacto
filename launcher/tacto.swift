@@ -183,7 +183,7 @@ let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", 
 // nine and a half SECONDS, measured. So the claim travels with the action and
 // the helper checks it there — which also leaves no gap between checking and
 // acting. It names attributes to compare, never a program or a permission.
-let expectKeys: Set<String> = ["role", "label", "attribute", "enabled",
+let expectKeys: Set<String> = ["role", "label", "attribute", "enabled", "value",
                                "no_modal", "selection"]
 // Which attribute a label was read from, so the check compares that one
 // exactly instead of searching a rendered line for a substring.
@@ -484,6 +484,9 @@ func vetted(_ msg: [String: Any]) -> String? {
             }
             if let r = d["role"], !(r is String) { return "expect.role 형식 오류" }
             if let l = d["label"], !(l is String) { return "expect.label 형식 오류" }
+            if let value = d["value"] {
+                guard let text = value as? String, text.utf8.count <= 16384 else { return "expect.value 형식 오류" }
+            }
             if let n = d["no_modal"], !(n is Bool) { return "expect.no_modal 형식 오류" }
             if let en = d["enabled"], !(en is Bool) { return "expect.enabled 형식 오류" }
             if let at = d["attribute"] {
@@ -579,7 +582,7 @@ func vetted(_ msg: [String: Any]) -> String? {
         let takesElement = schema.required.contains("element_index")
                         || schema.optional.contains("element_index")
         if !takesElement, let e = msg["expect"] as? [String: Any] {
-            for field in ["role", "label", "attribute", "enabled"]
+            for field in ["role", "label", "attribute", "enabled", "value"]
             where e[field] != nil {
                 return "\(name) 은 대상 요소를 지정하지 않는데 expect.\(field) 가 있습니다"
             }

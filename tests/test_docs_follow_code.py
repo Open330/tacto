@@ -76,9 +76,10 @@ class DocsFollowCodeTests(unittest.TestCase):
                 self.assertIn(f"docs/{doc.name}", readme)
 
     def test_the_readme_describes_the_indicator_that_exists(self):
-        from tacto.overlay import LABEL
         readme = read("README.md")
-        self.assertIn(LABEL, readme)
+        self.assertIn("existing Tacto menu bar icon", readme)
+        self.assertIn("작업 중 배너 표시", readme)
+        self.assertNotIn("NSStatusBar.system.statusItem",read("helper/TactoHelper.swift"))
         self.assertNotIn("테두리가", readme)     # the outline was removed 2026-09-21
         self.assertNotIn("TACTO1", readme)        # there is no synthetic input to mark
 

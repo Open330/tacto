@@ -27,6 +27,10 @@ func prepareBackgroundWindow(_ obs: String, _ target: String, _ element: AXUIEle
     return ["type":"acted","key":key!]
 }
 // Host-vouched Return (submit_authorized) and the bound target check.
+func confirmSafariAddress(_ obs:String,_ target:String,_ el:AXUIElement,_ p:pid_t,
+    deadline:Double,expect:[String:Any]?,submitAuthorized:Bool) -> [String:Any]? {
+    precondition(target == "fixture"); return nil
+}
 var submitAuthorized = false
 var boundRefusal: String? = nil
 func boundReturnTargetRefusal(_ element: AXUIElement, read: AXRead) -> String? { boundRefusal }

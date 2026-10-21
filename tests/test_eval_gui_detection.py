@@ -312,7 +312,26 @@ class EverySwitchIsTheSameSwitch(unittest.TestCase):
                          and not line.strip().startswith("#")]
                 if not takes:
                     continue
-                if "foreground_allowed" not in text:
+                if path == ROOT / "tacto/app_launch.py":
+                    # The user-requested first-task result is deliberately
+                    # presented after identity/text verification. It is not an
+                    # evaluation activation. Keep this exception at one method.
+                    import ast
+                    tree = ast.parse(text)
+                    approved = []
+                    for cls in tree.body:
+                        if isinstance(cls,ast.ClassDef) and cls.name == "NativePresentationBackend":
+                            for method in cls.body:
+                                if isinstance(method,ast.FunctionDef) and method.name == "activate":
+                                    approved += [node.lineno for node in ast.walk(method)
+                                                 if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)
+                                                 and node.func.attr == "activateWithOptions_"]
+                    actual = [node.lineno for node in ast.walk(tree)
+                              if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)
+                              and node.func.attr == "activateWithOptions_"]
+                    if len(approved) != 1 or actual != approved:
+                        offenders.append(str(path.relative_to(ROOT)))
+                elif "foreground_allowed" not in text:
                     offenders.append(str(path.relative_to(ROOT)))
         self.assertEqual([], offenders,
                          "these take the screen without consulting the shared "

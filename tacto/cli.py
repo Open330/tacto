@@ -30,7 +30,7 @@ Usage:
   tacto parameterize <flow> -p 12=a -p 34=b --digits   # concrete IR -> template
   tacto run <flow.json>   # execute a Flow IR file directly (no intent step)
       (--helper routes through the signed Swift helper that holds the permissions)
-      (add --no-indicator to hide the "● Tacto" menu-bar item shown while it runs)
+      (signed macOS tasks use the existing Tacto menu; configure the task banner in app Settings)
   tacto replay <name>     # replay a saved flow by name
       (run/replay: --think N lets a step that declared a surprise ask N times;
        unset, a recipe promoted from a walk may ask once, a written one never)
@@ -69,6 +69,7 @@ from contextvars import ContextVar
 
 from .agent import Agent
 from .store import FlowStore
+from .helper import HelperUnavailable
 
 _execution_journal = ContextVar('tacto_execution_journal', default=None)
 
@@ -1391,6 +1392,15 @@ def main(argv=None):
         return code
     except FlowStore.MigrationRequired as exc:
         print(f"migration_required: {exc}", file=sys.stderr)
+        if log is not None:
+            log.finish(2)
+        return 2
+    except HelperUnavailable:
+        detail = "도우미 연결을 사용할 수 없습니다. Tacto 앱에서 권한과 연결 상태를 확인하세요."
+        if '--json' in arguments:
+            print(json.dumps({'type':'error','error':'helper_unavailable','effect':'unknown','detail':detail},ensure_ascii=False))
+        else:
+            print('helper_unavailable: '+detail,file=sys.stderr)
         if log is not None:
             log.finish(2)
         return 2

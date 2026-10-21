@@ -1249,6 +1249,47 @@ func buildNativeWindowText(_ windowID: CGWindowID, text: String) throws -> Nativ
     return NativeWindowKeyPair(down: events[0], up: events[1], owners: owners)
 }
 
+/// Safari exposes a semantic confirmation on its native URL field. It is
+/// addressed to that element, rather than a keyboard event sent to the app's
+/// key window (which can be the address suggestion popup).
+/// Missing/changed action support returns false before input; malformed reads
+/// throw. A performed confirmation is never followed by a keyboard fallback.
+func nativeSafariAddressConfirmEligible(_ element: AXUIElement,
+                                       read: AXRead,
+                                       actions: (AXUIElement) throws -> [String]) throws -> Bool {
+    func value(_ node: AXUIElement, _ name: String) throws -> CFTypeRef? {
+        let (status, value) = try read(node,name)
+        if status == .attributeUnsupported || status == .noValue { return nil }
+        guard status == .success, let value else {
+            throw NativeWindowInputError.refused("Safari address state unavailable")
+        }
+        return value
+    }
+    guard try value(element,"AXRole") as? String == "AXTextField",
+          try value(element,"AXIdentifier") as? String == "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD",
+          let enabled = try value(element,"AXEnabled"), CFGetTypeID(enabled) == CFBooleanGetTypeID(),
+          enabled as? Bool == true,
+          let text = try value(element,"AXValue") as? String,
+          let url = URLComponents(string:text), ["http","https"].contains(url.scheme?.lowercased() ?? ""),
+          let host = url.host, !host.isEmpty,
+          try actions(element).contains("AXConfirm") else { return false }
+    var node = element
+    for _ in 0..<24 {
+        guard let raw = try value(node,"AXParent"), CFGetTypeID(raw) == AXUIElementGetTypeID() else {
+            throw NativeWindowInputError.refused("Safari address ancestry unavailable")
+        }
+        node = raw as! AXUIElement
+        guard let role = try value(node,"AXRole") as? String else {
+            throw NativeWindowInputError.refused("Safari address ancestry unreadable")
+        }
+        if ["AXWebArea","AXSheet","AXDialog","AXApplication"].contains(role) { return false }
+        if role == "AXWindow" {
+            return try value(node,"AXSubrole") as? String == "AXStandardWindow"
+        }
+    }
+    throw NativeWindowInputError.refused("Safari address ancestry exceeded")
+}
+
 // MARK: - Return into the Go to Folder sheet (press_key Return only)
 
 /// An AX attribute read: the caller decides how it is bounded.

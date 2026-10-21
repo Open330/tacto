@@ -288,3 +288,19 @@ is needed for screenshot features and is optional for basic readiness. This does
 not establish a fresh-Mac or stable-release qualification.
 
 번들 Python은 앱 실행용입니다. 번들 안에서 pip로 패키지를 추가하거나 확장 모듈을 빌드하는 경로는 지원하지 않습니다. 번들 문서는 표시된 소스 커밋의 스냅샷이며, 최신 배포 검증은 Release 페이지와 출시 기준 문서를 확인하세요.
+
+### Building one versioned distribution
+
+Maintainers can build a Developer ID distribution from a clean committed tree:
+
+```sh
+python setup/build_distribution.py --output /private/tmp/Tacto.app \
+  --identity 'DEVELOPER_ID_IDENTITY' --tag v0.1.0-preview.15 \
+  --report /private/tmp/tacto-build-report.json
+```
+
+This rebuilds the helper, launcher and GUI, pins their source commit and manifest,
+and applies secure timestamp signatures to the bundled native runtime. It refuses
+uncommitted sources or a source change during packaging. The command does not
+notarize, install or publish: notarize the app and installer, validate their
+stapled tickets and Gatekeeper assessment, and deploy the same verified archive.

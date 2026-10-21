@@ -62,6 +62,17 @@ class CLIReadRouteTests(unittest.TestCase):
                 with self.assertRaises(HelperUnavailable): cli._dispatch(command[0], command[1:])
                 direct.assert_not_called()
 
+    def test_main_reports_helper_failure_without_traceback_or_private_transport_text(self):
+        for flags in ([],['--json']):
+            with patch.object(cli,'_main',side_effect=HelperUnavailable('PRIVATE CHANNEL DETAIL')), \
+                    patch('tacto.access_log.AccessLog'),contextlib.redirect_stdout(io.StringIO()) as out, \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(2,cli.main(['apps','--helper',*flags]))
+            text=out.getvalue()+err.getvalue()
+            self.assertIn('helper_unavailable',text)
+            self.assertNotIn('Traceback',text);self.assertNotIn('PRIVATE',text)
+            if flags:self.assertEqual('unknown',json.loads(out.getvalue())['effect'])
+
     def test_explicit_python_route_is_preserved(self):
         for command in (['apps'], ['observe', 'owned.fixture']):
             driver = self.fake()

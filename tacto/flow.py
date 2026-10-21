@@ -2682,6 +2682,17 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                         break
                 if step.require_enabled and step.action != "prepare_window":
                     claim["enabled"] = True
+            if (flow.target == "com.apple.Safari" and payload.get("name") == "press_key"
+                    and payload.get("key") == "Return"
+                    and "press_key.safari_address_confirm" in getattr(driver,"capabilities",())
+                    and Selector._attr(line,"Identifier") == "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD"):
+                # Pin the intended destination, not a suggestion Safari may
+                # have substituted between set_value and this observation.
+                value = (step.binding.destination_identity if step.binding is not None else None)
+                if value is None and step.safety is not None:
+                    value = step.safety.destination.identity
+                if isinstance(value,str) and value.lower().startswith(("https://","http://")):
+                    claim["value"] = value
             effects = set(step.safety.effects) if step.safety is not None else safety.effects_of(payload, line, target=flow.target)[0]
             observed_effects, observed_reason = safety.effects_of(payload, line, target=flow.target)
             # Element/option signals come from the resolved target. A menu's

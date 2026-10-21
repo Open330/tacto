@@ -679,3 +679,23 @@ late sheet·late role·nested modal 및 unreadable/malformed 값·pending budget
 두 명시 source subset은 전후 stable이며 두 suite의 겹치는 검사를 합쳐 고유
 검사 수로 주장하지 않는다. 실제 native GUI 입력이나 Finder 성능·과제 성공,
 사람 typing 보존을 검증한 결과는 아니다.
+
+## Safari URL confirmation
+
+The signed helper advertises `press_key.safari_address_confirm`. For an
+already authorized `press_key Return` on Safari's native
+`WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD`, replay pins the intended URL from the submit binding or declared destination in
+`expect.value` in addition to the element's existing role/identifier claim.
+The helper rechecks the exact value, process instance, observation generation,
+owner, enabled state and native chrome ancestry. Only full HTTP(S) URLs and an
+advertised `AXConfirm` action qualify; web content, sheets/dialogs and other
+apps keep their existing routes. URLs without a scheme use the existing key
+path and may still be refused if its readiness cannot be established.
+
+The qualifying route invokes the field's semantic `AXConfirm` once and sends
+zero keyboard events. It therefore does not need to route a Return through
+Safari's address suggestions window, which may omit `AXModal`. The generic
+keyboard readiness check is unchanged. A confirmation failure or timeout never
+falls back to a key press; uncertain outcomes still require a fresh observation.
+`acted` with `unverified: observe_effect` proves neither navigation nor server
+receipt. Verify the destination page before reporting a successful navigation.
