@@ -268,7 +268,10 @@ class WindowsPackagedAppLiveTests(unittest.TestCase):
         index = Selector(identifier="num1Button").resolve(obs["tree"])[0]
         result = driver.act(obs["obs_id"], target, {"name": "click", "element_index": index})
         self.assertEqual("acted", result["type"], result)
-        after = driver.wait_until(target, lambda tree: re.search(r"Display is 1\b", tree), timeout_ms=5000)
+        # "Display is 1" in English, "표시는 1" in Korean: match the result
+        # element by its identifier, whatever the display language.
+        after = driver.wait_until(target, lambda tree: re.search(
+            r"Title: [^,\n]*\b1, Identifier: CalculatorResults\b", tree), timeout_ms=5000)
         self.assertEqual("observation", after["type"], after)
 
 
