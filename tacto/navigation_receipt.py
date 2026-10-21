@@ -1,8 +1,8 @@
 """Host receipt for one confirmed Safari address-field navigation.
 
-Safari's window reports the page it shows as its AXDocument, an http(s) URL.
-Typing into the address field does not change it; loading a page does. So
-the navigation is witnessed by the window, not by the key press:
+Safari's page is the window's web area, whose AXURL is the loaded page's
+URL. Typing into the address field does not change it; loading a page does.
+So the navigation is witnessed by the window, not by the key press:
 
 - before the press (from the observation the press is addressed to): the
   front window shows some other page;
@@ -65,14 +65,35 @@ def normalized_url(text):
 
 
 def front_window_url(tree):
-    """The normalized http(s) Document of the one window marked [focused]."""
-    from .document_label import window_attributes, window_flag
+    """The normalized URL of the page loaded in the one [focused] window.
+
+    Safari leaves a window's AXDocument empty; the page is its AXWebArea, whose
+    AXURL the helper reports on a fully quoted WebArea line (a page title is
+    the site's text and must not be able to spell a URL field). Frames are
+    deeper WebAreas: only the shallowest one counts, and it must be unique.
+    """
+    from .document_label import web_area_attributes, window_flag
     import re
-    shown = [window_attributes(line) or {} for line in tree.splitlines()
-             if re.match(r'^\d+\s+(?:AX)?Window\b', line) and window_flag(line, 'focused')]
-    if len(shown) != 1:
+    lines = tree.splitlines()
+    tops = [i for i, line in enumerate(lines) if re.match(r'^\d+\s', line)]
+    focused = [i for i in tops if re.match(r'^\d+\s+(?:AX)?Window\b', lines[i])
+               and window_flag(lines[i], 'focused')]
+    if len(focused) != 1:
         return None
-    return normalized_url(shown[0].get('Document'))
+    start = focused[0]
+    end = next((i for i in tops if i > start), len(lines))
+    areas = []
+    for line in lines[start + 1:end]:
+        if re.match(r'^\s*\d+\s+(?:AX)?WebArea\b', line):
+            areas.append((len(line) - len(line.lstrip(' ')), line))
+    if not areas:
+        return None
+    shallowest = min(depth for depth, _ in areas)
+    pages = [line for depth, line in areas if depth == shallowest]
+    if len(pages) != 1:
+        return None
+    fields = web_area_attributes(pages[0])
+    return normalized_url(fields.get('URL')) if fields else None
 
 
 @dataclass(frozen=True)

@@ -15,14 +15,14 @@ def quote_value(value):
     return encoded
 
 
-def _parse_window(line):
+def _parse_window(line,role_name='Window',keys=_KEYS):
     """Every window field is quoted, including titles that may spoof a key."""
-    role=re.match(r'^\s*\d+\s+(?:AX)?Window(?:\s+|$)',line)
+    role=re.match(r'^\s*\d+\s+(?:AX)?'+role_name+r'(?:\s+|$)',line)
     if not role:return None
     value=line[role.end():];decoder=json.JSONDecoder();fields={}
     while value:
         if _TAIL.fullmatch(value):return fields,value
-        marker=re.match(r'(?:'+_KEYS+r'):\s*',value)
+        marker=re.match(r'(?:'+keys+r'):\s*',value)
         if not marker:return None
         key=marker.group().split(':',1)[0]
         if key in fields:return None
@@ -40,6 +40,12 @@ def _parse_window(line):
 
 def window_attributes(line):
     parsed=_parse_window(line)
+    return parsed[0] if parsed is not None else None
+
+
+def web_area_attributes(line):
+    """Fields of a quoted WebArea line, URL included (its page sets the title)."""
+    parsed=_parse_window(line,'WebArea',_KEYS+'|URL')
     return parsed[0] if parsed is not None else None
 
 

@@ -10,14 +10,17 @@ URL = 'https://example.com/expected'
 FIELD = 'WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD'
 
 
-def tree(document, typed=URL, focused=True, status='pending'):
-    window = '0 Window  Title: "Page"'
+def tree(document, typed=URL, focused=True, status='pending', frame=None):
+    """A Safari window: address field, the page's WebArea (AXURL), a frame."""
+    window = '0 Window  Title: "Page"' + (' [focused]' if focused else '')
+    page = '  2 WebArea  Title: "Page"'
     if document is not None:
-        window += f', Document: {json.dumps(document)}'
-    if focused:
-        window += ' [focused]'
-    return (window + f'\n  1 TextField  Identifier: {FIELD}, Value: {typed}'
-            f'\n  2 StaticText  Identifier: navigation-status, Value: {status}')
+        page += f', URL: {json.dumps(document)}'
+    lines = [window, f'  1 TextField  Identifier: {FIELD}, Value: {typed}', page]
+    if frame is not None:
+        lines.append(f'    3 WebArea  Title: "ad", URL: {json.dumps(frame)}')
+    lines.append(f'    4 StaticText  Identifier: navigation-status, Value: {status}')
+    return '\n'.join(lines)
 
 
 def press(effects=('transmit',)):
@@ -34,11 +37,28 @@ class UrlTests(unittest.TestCase):
             with self.subTest(bad=bad):
                 self.assertIsNone(normalized_url(bad))
 
-    def test_only_the_one_focused_window_counts(self):
+    def test_only_the_one_focused_window_and_its_page_count(self):
         self.assertEqual(URL, front_window_url(tree(URL)))
         self.assertIsNone(front_window_url(tree(URL, focused=False)))
-        self.assertIsNone(front_window_url(tree(URL) + '\n' + tree(URL).replace('0 Window', '3 Window')))
+        self.assertIsNone(front_window_url(tree(URL) + '\n' + tree(URL).replace('0 Window', '9 Window')))
         self.assertIsNone(front_window_url(tree('/Users/x/file.txt')))
+        # A frame is a deeper WebArea and never stands for the page.
+        self.assertEqual('https://old.example/', front_window_url(tree('https://old.example/', frame=URL)))
+        self.assertIsNone(front_window_url(tree(None, frame=URL)))
+        # Two pages side by side in one window: no guessing.
+        two = tree(URL).replace('  2 WebArea', '  5 WebArea  Title: "x", URL: "https://b.example/"\n  2 WebArea')
+        self.assertIsNone(front_window_url(two))
+        # Only the focused window's own lines: another window's page is not it.
+        other = tree('https://old.example/') + '\n9 Window  Title: "B"\n  10 WebArea  Title: "B", URL: ' + json.dumps(URL)
+        self.assertEqual('https://old.example/', front_window_url(other))
+
+    def test_a_page_title_cannot_spell_the_url_field(self):
+        spoof = ('0 Window  Title: "Page" [focused]\n'
+                 f'  2 WebArea  Title: x, URL: "{URL}"')            # unquoted title: not a helper line
+        self.assertIsNone(front_window_url(spoof))
+        quoted = ('0 Window  Title: "Page" [focused]\n'
+                  f'  2 WebArea  Title: {json.dumps("x, URL: " + json.dumps(URL))}')
+        self.assertIsNone(front_window_url(quoted))
 
 
 class ReceiptTests(unittest.TestCase):
