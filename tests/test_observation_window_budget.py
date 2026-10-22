@@ -145,6 +145,7 @@ struct ObservationNodeSnapshot {
 }
 final class ObservationReadMetrics {
  var packetAttempts=0,packetFallbacks=0,secondaryActionReads=0
+ var packetNanos:UInt64=0,secondaryActionNanos:UInt64=0
 }
 final class ObservationRevealScan {
  init(_ labels:[String]) {}

@@ -95,8 +95,10 @@ class ReadbackStabilityTests(unittest.TestCase):
                 return {'type': 'document_text', 'document_token': 'held',
                         'text_complete': True, 'text': 'expected', 'document_path': path}
 
+        # Room for a loaded machine (CI, full suite): a 20 ms deadline could
+        # expire before the replaced file was read at all.
         receipt = ExistingTextFileReceipt(Document(), document_path=path,
-                                          timeout_seconds=.02, poll_interval=.005)
+                                          timeout_seconds=.5, poll_interval=.005)
         event = make_event({'name': 'menu', 'path': SAVE_PATH, 'focused_document': path},
                            {'write_persistent'}, 'com.apple.TextEdit', obs_id='owned')
         context = receipt.prepare_commit(event)

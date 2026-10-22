@@ -164,6 +164,10 @@ final class ObservationReadMetrics {
     var packetAttempts = 0
     var packetFallbacks = 0
     var secondaryActionReads = 0
+    // Where an observation's time goes, kept apart from the closed count set
+    // above (probes accept exactly those keys): reported as observation_timing_ms.
+    var packetNanos: UInt64 = 0
+    var secondaryActionNanos: UInt64 = 0
     var metadata: [String: Int] {
         ["packet_attempts":packetAttempts,"packet_successes":packetAttempts-packetFallbacks,
          "packet_fallbacks":packetFallbacks,"secondary_action_reads":secondaryActionReads]
@@ -306,7 +310,9 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     }
     visited += 1
     metrics?.packetAttempts += 1
+    let packetStart = DispatchTime.now().uptimeNanoseconds
     let snapshot = ObservationNodeSnapshot(el)
+    metrics?.packetNanos += DispatchTime.now().uptimeNanoseconds &- packetStart
     if snapshot == nil { metrics?.packetFallbacks += 1 }
     let role = snapshot.map { $0.string(kAXRoleAttribute as String) ?? "?" }
         ?? str(el, kAXRoleAttribute as String) ?? "?"
@@ -350,7 +356,9 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
             ?? ((attr(el, kAXSelectedAttribute as String) as? Bool) == true)
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
         metrics?.secondaryActionReads += 1
+        let actionStart = DispatchTime.now().uptimeNanoseconds
         let extra = secondaryActionsOf(el)
+        metrics?.secondaryActionNanos += DispatchTime.now().uptimeNanoseconds &- actionStart
         // "  Secondary Actions: …" when there is no label before it, so the
         // role token never carries a comma ("Cell," matched nothing).
         let actions = extra.isEmpty ? ""
@@ -1055,6 +1063,10 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     // it.
     let windows: [AXUIElement]
     var windowListing = WindowListingDiagnostic()
+    func milliseconds(since start: UInt64) -> Int {
+        Int((DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000)
+    }
+    let listingStart = DispatchTime.now().uptimeNanoseconds
     do {
         windows = try documentToken.map { [try documentWindowForToken(target, $0)] }
             ?? realWindows(of: app, diagnostic: &windowListing)
@@ -1077,9 +1089,13 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     if abortState.isStopped {
         return ["type": "error", "error": "aborted_by_user"]
     }
+    let listingMs = milliseconds(since: listingStart)
+    let indicatorStart = DispatchTime.now().uptimeNanoseconds
     guard ensureVisibleControl(forPID: p, windowless: true) else {
         return indicatorRefusal()
     }
+    let indicatorMs = milliseconds(since: indicatorStart)
+    let walkStart = DispatchTime.now().uptimeNanoseconds
     var lines: [String] = []
     var elements: [AXUIElement] = []
     var visited = 0
@@ -1155,10 +1171,16 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
             "tree": windows.isEmpty ? "(창 없음 — 메뉴만 사용 가능)"
                                     : lines.joined(separator: "\n"),
             "element_count": elements.count, "truncated": truncated,
-            "observation_metrics":metrics.metadata,
-            // Reading only; nothing here opens a menu. A closed popup reports
-            // no options because it HAS none until it is opened.
-            "custom_selects": customSelects(p, elements, obsID: obsID)]
+            "observation_metrics":metrics.metadata]
+    let walkMs = milliseconds(since: walkStart)
+    // Reading only; nothing here opens a menu. A closed popup reports
+    // no options because it HAS none until it is opened.
+    let selectsStart = DispatchTime.now().uptimeNanoseconds
+    reply["custom_selects"] = customSelects(p, elements, obsID: obsID)
+    reply["observation_timing_ms"] = ["window_listing":listingMs, "indicator":indicatorMs, "walk":walkMs,
+        "packets":Int(metrics.packetNanos / 1_000_000),
+        "secondary_actions":Int(metrics.secondaryActionNanos / 1_000_000),
+        "custom_selects":milliseconds(since: selectsStart)]
     if let revealScan {
         reply["reveal_scan_complete"] = revealScan.complete
         reply["reveal_scanned_nodes"] = revealScan.scannedNodes
