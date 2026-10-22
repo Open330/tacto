@@ -106,12 +106,15 @@ CAFFEINATE = '/usr/bin/caffeinate'
 
 
 def _process_identity(pid, run=subprocess.run):
-    """(start time, full command) of a live pid, or None."""
+    """(start time, full command) of a live pid; False when ps says there is no
+    such process; None when it could not be asked (unknown, not absent)."""
     try:
         started = run(['/bin/ps', '-p', str(int(pid)), '-o', 'lstart='], capture_output=True, text=True, timeout=5)
         command = run(['/bin/ps', '-p', str(int(pid)), '-o', 'command='], capture_output=True, text=True, timeout=5)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
+    if started.returncode == 1 and not started.stdout.strip():
+        return False
     if started.returncode or command.returncode or not started.stdout.strip():
         return None
     return started.stdout.strip(), command.stdout.strip()
@@ -159,7 +162,10 @@ def keep_awake_for(minutes, *, state_dir=None, run=subprocess.Popen, now=None, i
     state = _state_dir(state_dir)
     record = state/'keep-awake.json'
     with _KeepAwakeLock(state):
-        _stop_locked(state, kill=kill, now=now, identify=identify)
+        if _stop_locked(state, kill=kill, now=now, identify=identify).get('unverified'):
+            # A previous holder may still run and could not be checked: do not
+            # add a second one nobody would know to stop.
+            raise RuntimeError('previous keep-awake holder could not be verified; try --stop again')
         argv = [CAFFEINATE, '-di', '-t', str(minutes*60)]
         proc = run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         until = (now or time.time)() + minutes*60
@@ -197,17 +203,26 @@ def _stop_locked(state, *, kill=None, now=None, identify=_process_identity):
         pid, until, started, command = entry['pid'], entry['until'], entry['started'], entry['command']
     except (OSError, ValueError, KeyError, TypeError):
         return {'type': 'keep_awake_stopped', 'stopped': False}
-    record.unlink(missing_ok=True)
     if type(until) not in (int, float) or until <= (now or time.time)():
+        record.unlink(missing_ok=True)
         return {'type': 'keep_awake_stopped', 'stopped': False}   # it has already ended by itself
+    identity = identify(pid)
+    if identity is None:
+        # Could not ask: keep the only handle to a holder that may still run.
+        return {'type': 'keep_awake_stopped', 'stopped': False, 'unverified': True}
     # Same process: start time and full command, so a recycled pid is never signalled.
-    if identify(pid) != (started, command):
+    if identity != (started, command):
+        record.unlink(missing_ok=True)
         return {'type': 'keep_awake_stopped', 'stopped': False}
     try:
         (kill or os.kill)(int(pid), signal.SIGTERM)
     except ProcessLookupError:
-        return {'type': 'keep_awake_stopped', 'stopped': False}
-    return {'type': 'keep_awake_stopped', 'stopped': True}
+        pass
+    else:
+        record.unlink(missing_ok=True)
+        return {'type': 'keep_awake_stopped', 'stopped': True}
+    record.unlink(missing_ok=True)
+    return {'type': 'keep_awake_stopped', 'stopped': False}
 
 
 def preflight(require_unlocked: bool = True) -> dict:

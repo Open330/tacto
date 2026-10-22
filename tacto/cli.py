@@ -721,8 +721,9 @@ def _dispatch_command(cmd, rest):
         from .session import keep_awake_for, stop_keep_awake, KEEP_AWAKE_MAX_MINUTES
         usage = f'usage: keep-awake [--minutes 1..{KEEP_AWAKE_MAX_MINUTES}] | keep-awake --stop'
         if rest == ['--stop']:
-            print(json.dumps(stop_keep_awake()))
-            return 0
+            stopped = stop_keep_awake()
+            print(json.dumps(stopped))
+            return 1 if stopped.get('unverified') else 0
         minutes = 60
         if rest:
             if len(rest) != 2 or rest[0] != '--minutes' or not rest[1].isdigit():
@@ -734,6 +735,10 @@ def _dispatch_command(cmd, rest):
         except ValueError:
             print(usage)
             return 2
+        except (RuntimeError, OSError):
+            print(json.dumps({'type': 'error', 'error': 'keep_awake_unverified', 'effect': 'not_started',
+                              'detail': 'the previous holder could not be checked; run keep-awake --stop again'}))
+            return 1
         return 0
 
     if cmd == 'activate':

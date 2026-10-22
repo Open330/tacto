@@ -61,10 +61,13 @@ class KeepAwakeTests(unittest.TestCase):
             return Proc(pid)
         def kill(pid, sig):
             killed.append(pid); live.pop(pid, None)
+        ps = {'down': False}
+        identify = lambda pid: None if ps['down'] else live.get(pid, False)
         start = lambda minutes, now=0: session.keep_awake_for(minutes, state_dir=folder, run=run,
-                                                            now=lambda: now, identify=live.get, kill=kill)
+                                                            now=lambda: now, identify=identify, kill=kill)
         stop = lambda now=0: session.stop_keep_awake(state_dir=folder, kill=kill, now=lambda: now,
-                                                     identify=live.get)
+                                                     identify=identify)
+        self.ps = ps
         return session, live, killed, started, start, stop
 
     def test_holds_for_the_asked_minutes_and_replaces_its_own_previous_holder(self):
@@ -87,6 +90,19 @@ class KeepAwakeTests(unittest.TestCase):
             start(30)
             self.assertFalse(stop(now=10**6)['stopped'])        # past its own end: nothing to stop
             self.assertEqual([], killed)
+
+    def test_a_holder_that_cannot_be_checked_is_kept_and_not_doubled(self):
+        with tempfile.TemporaryDirectory() as folder:
+            session, live, killed, started, start, stop = self.harness(folder)
+            start(30)
+            self.ps['down'] = True                       # ps times out for a moment
+            result = stop()
+            self.assertEqual((False, True), (result['stopped'], result.get('unverified')))
+            with self.assertRaises(RuntimeError):start(30)   # no second, untracked holder
+            self.assertEqual(1, len(started))
+            self.ps['down'] = False
+            self.assertTrue(stop()['stopped'])
+            self.assertEqual({}, live)
 
     def test_concurrent_starts_and_stops_leave_no_untracked_holder(self):
         import threading
@@ -124,6 +140,12 @@ class KeepAwakeTests(unittest.TestCase):
                          ['keep-awake', 'now']):
                 with self.subTest(argv=argv):
                     self.assertEqual(2, cli.main(argv))
+            with mock.patch('sys.platform', 'darwin'), \
+                 mock.patch('tacto.session.keep_awake_for', side_effect=RuntimeError('unverified')):
+                self.assertEqual(1, cli.main(['keep-awake', '--minutes', '30']))
+            with mock.patch('sys.platform', 'darwin'), \
+                 mock.patch('tacto.session.stop_keep_awake', return_value={'stopped': False, 'unverified': True}):
+                self.assertEqual(1, cli.main(['keep-awake', '--stop']))
 
 
 if __name__ == '__main__':
