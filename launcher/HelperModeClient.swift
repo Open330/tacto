@@ -6,6 +6,7 @@ enum ModeConnection {
     case ready(Int32, String)
     case unavailable(String)
     case busy
+    case cancelled
 }
 
 var residentModePID: Int?
@@ -133,4 +134,14 @@ func residentConnection(_ key: String) -> ModeConnection {
         }
     }
     return .ready(sockets[0],"resident")
+}
+
+// Waiting never opens an independent A helper to bypass a busy lease.
+func acquireModeConnection(_ key: String, mode: String, cancelled: () -> Bool) -> ModeConnection {
+    let raw = Double(ProcessInfo.processInfo.environment["TACTO_HELPER_WAIT_SECONDS"] ?? "10") ?? 10
+    let seconds = raw.isFinite ? min(30,max(0,raw)) : 10
+    return TactoMode.waitForLease(seconds:seconds,
+        attempt:{ mode == "warm" ? warmConnection(key) : residentConnection(key) },
+        busy:{ if case .busy = $0 { return true }; return false },
+        cancelled:cancelled) ?? .cancelled
 }

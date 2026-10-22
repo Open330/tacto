@@ -12,6 +12,20 @@ enum TactoMode {
     static let service = "ai.callabo.tacto.prototype.resident"
     static let agent = "ai.callabo.tacto.prototype.agent"
     static let limit = 8 * 1024 * 1024
+    // Retry acquisition only. No application frame exists until this returns.
+    static func waitForLease<T>(seconds: Double, attempt: () -> T,
+                                busy: (T) -> Bool, cancelled: () -> Bool) -> T? {
+        let deadline = ProcessInfo.processInfo.systemUptime + seconds
+        var result = attempt()
+        while busy(result) {
+            if cancelled() { return nil }
+            if ProcessInfo.processInfo.systemUptime >= deadline { return result }
+            usleep(50_000)
+            if cancelled() { return nil }
+            result = attempt()
+        }
+        return result
+    }
     static func buildKey(_ binary: URL) -> String? {
         guard let bytes = try? Data(contentsOf: binary) else { return nil }
         return SHA256.hash(data: bytes).map { String(format:"%02x", $0) }.joined()

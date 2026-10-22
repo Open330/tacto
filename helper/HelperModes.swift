@@ -143,23 +143,25 @@ func startWarmMode(_ build: String) -> Bool {
                       hello["protocol"] as? Int == 1 else { return }
                 let id = UUID()
                 guard ModeLease.shared.take(id) else { _ = TactoMode.send(conn,["status":"busy"]); return }
-                resetPersistentSession(starting:true)
-                guard TactoMode.send(conn,["status":"ready","protocol":1,"build":build,"pid":getpid()]) else {
-                    resetPersistentSession(starting:false); ModeLease.shared.release(id); return
-                }
-                // Notice a disconnected client while an AX request is in flight.
-                // This monitor never consumes data and only stops its own lease.
-                DispatchQueue.global().async {
-                    while ModeLease.shared.owns(id) {
-                        var byte: UInt8 = 0
-                        let n = recv(conn,&byte,1,MSG_PEEK | MSG_DONTWAIT)
-                        if n == 0 { ModeLease.shared.stop(id); return }
-                        usleep(100_000)
+                modeWorker.sync {
+                    resetPersistentSession(starting:true)
+                    guard TactoMode.send(conn,["status":"ready","protocol":1,"build":build,"pid":getpid()]) else {
+                        resetPersistentSession(starting:false); ModeLease.shared.release(id); return
                     }
+                    // Notice a disconnected client while an AX request is in flight.
+                    // This monitor never consumes data and only stops its own lease.
+                    DispatchQueue.global().async {
+                        while ModeLease.shared.owns(id) {
+                            var byte: UInt8 = 0
+                            let n = recv(conn,&byte,1,MSG_PEEK | MSG_DONTWAIT)
+                            if n == 0 { ModeLease.shared.stop(id); return }
+                            usleep(100_000)
+                        }
+                    }
+                    serve(connection:conn)
+                    resetPersistentSession(starting:false)
+                    ModeLease.shared.release(id)
                 }
-                serve(connection:conn)
-                resetPersistentSession(starting:false)
-                ModeLease.shared.release(id)
             }
         }
     }

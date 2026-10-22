@@ -72,7 +72,7 @@ from contextvars import ContextVar
 
 from .agent import Agent
 from .store import FlowStore
-from .helper import HelperUnavailable
+from .helper import HelperUnavailable, HelperLeaseRefused
 
 _execution_journal = ContextVar('tacto_execution_journal', default=None)
 
@@ -756,10 +756,12 @@ def _dispatch_command(cmd, rest):
         from .open_url import open_url, DEFAULT_BROWSER
         driver = None
         if '--helper' in rest:
-            from .helper import HelperUnavailable
+            from .helper import HelperUnavailable, HelperLeaseRefused
             try:
                 driver = _make_driver(rest)
-            except (HelperUnavailable, OSError, ValueError):
+            except (HelperUnavailable, OSError, ValueError) as exc:
+                if isinstance(exc, HelperLeaseRefused):
+                    raise
                 print(json.dumps({'type': 'error', 'error': 'helper_unavailable', 'effect': 'not_started',
                                   'hint': 'tacto doctor --check'}))
                 return 1
@@ -787,10 +789,12 @@ def _dispatch_command(cmd, rest):
         driver = None
         if window is not None or '--helper' in rest:
             # With the helper the result also says a window is showing.
-            from .helper import HelperUnavailable
+            from .helper import HelperUnavailable, HelperLeaseRefused
             try:
                 driver = _make_driver(rest)
-            except (HelperUnavailable, OSError, ValueError):
+            except (HelperUnavailable, OSError, ValueError) as exc:
+                if isinstance(exc, HelperLeaseRefused):
+                    raise
                 print(json.dumps({'type': 'error', 'error': 'helper_unavailable', 'target': args[0],
                                   'effect': 'not_started', 'hint': 'tacto doctor --check'}))
                 return 1
@@ -806,10 +810,12 @@ def _dispatch_command(cmd, rest):
             print('usage: first-run --helper --yes (creates one document and writes the fixed welcome text)')
             return 2
         from .first_run import run_first_task
-        from .helper import HelperUnavailable
+        from .helper import HelperUnavailable, HelperLeaseRefused
         try:
             driver = _make_driver(rest)
-        except (HelperUnavailable, OSError, ValueError):
+        except (HelperUnavailable, OSError, ValueError) as exc:
+            if isinstance(exc, HelperLeaseRefused):
+                raise
             result = dict(type='first_run', status='failed', stage='connect',
                           error='helper_unavailable', effect='not_started',
                           model_calls=0, save_command_sent=False, repeat_write=False,
@@ -1498,6 +1504,12 @@ def main(argv=None):
     except FlowStore.MigrationRequired as exc:
         print(f"migration_required: {exc}", file=sys.stderr)
         if log is not None:
+            log.finish(2)
+        return 2
+    except HelperLeaseRefused as exc:
+        print(json.dumps(exc.result(), ensure_ascii=False))
+        if log is not None:
+            log.task_result(exc.result())
             log.finish(2)
         return 2
     except HelperUnavailable:

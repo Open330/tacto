@@ -11,8 +11,11 @@ request validation and helper handlers; they do not add an unsigned broker.
 | B | `TACTO_HELPER_MODE=resident` | optional SMAppService agent and NSXPCConnection | A when unregistered, disabled, incompatible or refused |
 
 Both reused helpers accept **one driving connection at a time**. A competing
-connection is refused before screen work; it does not fall back and bypass that
-helper's lease. This serializes the globals inside one helper, not all processes
+launcher retries acquisition for up to 10 seconds before screen work; it does
+not fall back and bypass that helper's lease. `TACTO_HELPER_WAIT_SECONDS=0..30`
+sets that bound (0 refuses immediately). A timeout reports `helper_busy`,
+`effect=not_started`, and retry guidance. Esc held during waiting or a closed
+child channel cancels acquisition; application frames are never retried. This serializes the globals inside one helper, not all processes
 or mixed modes across the system. Production session-object isolation remains
 separate work. Esc and invalidation stop the current lease; new connections
 receive fresh observation/document/menu tokens, abort epoch and runtime status
@@ -74,8 +77,13 @@ each other's identifier/team with NSXPC signing requirements. Registration may
 be unavailable or require OS approval; default mode A remains usable. Always
 unregister in cleanup, including failed measurements. Before replacing a host
 or changing build, unregister the old host and verify its agent departed.
-The build script refuses to overwrite an existing host. Agent idle exit is
-120 seconds; launchd can start it again on the next connection while registered.
+The build script refuses to overwrite an existing host. Agent idle exit defaults to
+120 seconds; pass `--idle-seconds 5` to build-host.py for a short experiment.
+Unlike warm's cold-launch environment option, resident's timeout is embedded in
+its signed host plist; rebuild a separate host after unregistering the old one.
+Launchd can start it again on the next connection while registered. After a
+crash, launchd throttling may temporarily refuse the XPC connection; that initial
+acquisition falls back to A. This is availability recovery, not resident reuse.
 
 ## Failure boundaries and validation
 
@@ -93,3 +101,22 @@ handling, lease exclusion and stale-callback fencing. Benchmark throughput,
 real Esc, simultaneous full agent runs, update cleanup and broader app/permission
 cases still require the separate experiment. No stable-release qualification
 or system-wide input coordination is claimed.
+
+### Concurrency follow-up
+
+Warm acquisition/authentication remains separate from the serial worker. Once a
+lease is acquired, session reset, all request handlers and cleanup now use the
+same serial worker as resident. Busy clients never enter the worker or touch AX
+state. Initial failed/slow Safari AX reads in the external experiment were not
+reproduced in the three-pair pre-change check; serialization aligns execution
+paths but does not by itself establish their cause. Repeat read-only concurrency
+and retain raw `window_listing_diagnostic` on a failure before attributing it to
+lease traffic or claiming the transient is eliminated.
+
+Follow-up signed checks: both modes completed 10 concurrent observation pairs
+(20 commands each), with no fallback, AX error or long stall; maximum command
+latency was 425 ms warm and 494 ms resident in that run. A held read-only session
+refused a zero-wait contender with `helper_busy`; another contender waited until
+release and then succeeded. Five-second idle settings exited after 5.1 s warm
+and 5.6 s resident. These are bounded development checks, not a guarantee against
+all AX stalls or a substitute for repeated performance qualification.
