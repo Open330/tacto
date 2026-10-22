@@ -54,8 +54,7 @@ an unverified upload merely because it failed or returned unknown.
 
 Driving apps needs the permissions granted to Tacto's signed helper. If
 `tacto apps --helper` reports an error or no apps, run `tacto doctor --check` and
-report its result. Do not grant permissions or change the helper's signing
-requirement yourself. See [installation and backend paths](../docs/installation.md)
+report its result. See [installation and backend paths](../docs/installation.md)
 when a launcher or helper connection fails.
 
 ## Worker restart protection
@@ -85,7 +84,7 @@ accessibility APIs; Tacto then reports "Tacto가 샌드박스 안에서 실행�
   justification to run outside that sandbox.
 - If an actual sandbox blocks Tacto and escalation is unavailable, report the
   blocker and ask the user to run in a GUI-capable environment, such as
-  `--sandbox danger-full-access`. Do not change permissions to fix a sandbox.
+  `--sandbox danger-full-access`.
 
 Reading and writing recipes (`tacto list`, `tacto show`, `tacto candidates`,
 `tacto promote`) works inside a sandbox; only commands that touch the screen

@@ -51,7 +51,7 @@ and matching file bytes before reporting that it was saved.
 
 Use the installed signed backend consistently. Check `tacto apps --helper` and
 `tacto doctor --check` for connection or permission errors before attributing the
-failure to the target window. Never change permissions automatically.
+failure to the target window.
 
 If a window was observed but preparation or input was refused, inspect
 `preparation_diagnostic` instead of treating it as an absent window.
