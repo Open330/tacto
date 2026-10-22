@@ -26,14 +26,21 @@ def run(tacto, argv, mode, extra=None):
         if line.startswith('{') and 'tacto_helper_mode' in line:
             try:report = json.loads(line)
             except ValueError:pass
-    error = None
+    error, diagnostic = None, None
     for stream in (done.stdout, done.stderr):
         for line in stream.splitlines():
             if line.startswith('{') and '"error"' in line:
-                try:error = json.loads(line).get('error') or error
-                except ValueError:pass
+                try:
+                    reply = json.loads(line)
+                except ValueError:
+                    continue
+                error = reply.get('error') or error
+                # Kept to explain an intermittent failure, never screen contents.
+                diagnostic = {k: reply[k] for k in ('window_listing_diagnostic', 'observation_timing_ms', 'reason')
+                              if k in reply} or diagnostic
     return {'exit': done.returncode, 'ms': round((time.monotonic()-start)*1000), 'effective': report.get('effective'),
-            'reason': report.get('reason'), 'helper_pid': report.get('helper_pid'), 'error': error}
+            'reason': report.get('reason'), 'helper_pid': report.get('helper_pid'), 'error': error,
+            'diagnostic': diagnostic}
 
 
 def alive(pid):
@@ -43,7 +50,7 @@ def alive(pid):
         return False
 
 
-def concurrency(tacto, mode, app, rounds=5):
+def concurrency(tacto, mode, app, rounds=10):
     out = []
     for _ in range(rounds):
         with concurrent.futures.ThreadPoolExecutor(2) as pool:
