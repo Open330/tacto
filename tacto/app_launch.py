@@ -204,7 +204,23 @@ def _open_activating(backend, target, path, pid, clock):
         return {'foreground_verified': False, 'error': 'activation_not_observed'}
 
 
-def _show_a_window(driver, backend, target, path, clock, sleep):
+def _still_in_front(backend, target, path, pid):
+    """The app was in front before the window step; say so only if it still is.
+
+    Something else taking the foreground meanwhile is reported, never fought.
+    NSWorkspace's frontmost and running lists change only as this thread's run
+    loop delivers notifications, and the window step ran none: turn it first,
+    or the answer can be the one from before the step.
+    """
+    try:
+        backend.pump(0.05)
+        return (_session_problem(backend) is None and backend.frontmost_pid() == pid
+                and [(a['pid'], a['path']) for a in backend.running(target)] == [(pid, path)])
+    except Exception:
+        return False
+
+
+def _show_a_window(driver, backend, target, path, clock, sleep, *, already_opened=False):
     """True once the app shows a window here; else why not (one Dock-click request)."""
     def present():
         obs = driver.observe(target)
@@ -216,10 +232,11 @@ def _show_a_window(driver, backend, target, path, clock, sleep):
         return True
     if seen not in ('no_window', 'no_window_content', 'window_offscreen', 'no_visible_window', 'minimized'):
         return seen if seen in ('screen_locked', 'app_hidden') else 'window_observation_unavailable'
-    try:
-        backend.open_activating(path)
-    except Exception:
-        return 'window_not_opened'
+    if not already_opened:
+        try:
+            backend.open_activating(path)
+        except Exception:
+            return 'window_not_opened'
     deadline = clock() + 3
     while True:
         if present() is True:
@@ -293,12 +310,18 @@ def activate_app(target, *, window=None, driver=None, backend=None,
     result = {'type': 'app_activation', 'target': target, 'pid': pid, 'foreground_verified': True,
               'route': presented.get('route', 'running_application')}
     if driver is not None:
-        shown = _show_a_window(driver, backend, target, path, clock, sleep)
+        # One LaunchServices open in all: if bringing the app forward already
+        # took that route, its window may still be on its way.
+        shown = _show_a_window(driver, backend, target, path, clock, sleep,
+                               already_opened=presented.get('route') == 'launch_services')
         if shown is not True:
             return dict(result, type='error', effect='unknown' if shown == 'window_not_opened' else 'not_started',
                         error=shown)
         result['window_present'] = True
     if window is None:
+        if driver is not None and not _still_in_front(backend, target, path, pid):
+            return dict(result, type='error', error='foreground_changed', effect='unknown',
+                        foreground_verified=False)
         return result
 
     def windows():
@@ -327,18 +350,7 @@ def activate_app(target, *, window=None, driver=None, backend=None,
             if focused or clock() >= deadline:
                 break
             sleep(0.1)
-    # The app was in front before the window step; say so only if it still is.
-    # Something else taking the foreground meanwhile is reported, never fought.
-    # NSWorkspace's frontmost and running lists change only as this thread's
-    # run loop delivers notifications, and the window step ran none: turn it
-    # first, or the answer can be the one from before the step.
-    try:
-        backend.pump(0.05)
-        still = (_session_problem(backend) is None and backend.frontmost_pid() == pid
-                 and [(a['pid'], a['path']) for a in backend.running(target)] == [(pid, path)])
-    except Exception:
-        still = False
-    if not still:
+    if not _still_in_front(backend, target, path, pid):
         return dict(result, type='error', error='foreground_changed', effect='unknown',
                     foreground_verified=False, window=title, window_verified=False)
     return dict(result, window=title, window_verified=bool(focused))

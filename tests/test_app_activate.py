@@ -194,6 +194,47 @@ class NoWindowTests(unittest.TestCase):
         self.assertEqual('screen_locked', r['error'])
         self.assertEqual([], opened)
 
+    def test_focus_or_instance_changing_while_a_window_is_awaited_is_reported(self):
+        for change in ('focus', 'instance'):
+            with self.subTest(change=change):
+                b = PresentationTests.PresentationBackend(); b.finish = False
+                b.apps = [dict(pid=42, path=b.path, ready=True)]
+
+                class Moving:
+                    def observe(self, target):
+                        if change == 'focus':b.front = 99
+                        else:b.apps = [dict(pid=43, path=b.path, ready=True)]
+                        return {'type': 'observation', 'obs_id': 'o', 'tree': '0 Window  Title: "Page" [focused]'}
+                r = activate_app('com.apple.Safari', backend=b, driver=Moving(), clock=lambda: b.time)
+                self.assertEqual(('foreground_changed', False), (r['error'], r['foreground_verified']))
+                self.assertEqual(1, b.activations)          # not fought
+
+    def test_a_launch_services_activation_is_the_only_open_request(self):
+        for appears in (True, False):
+            with self.subTest(window_appears=appears):
+                b = PresentationTests.PresentationBackend()
+                b.apps = [dict(pid=42, path=b.path, ready=True)]
+                b.accept = False                          # activate declined
+                opened = []
+                def open_activating(path):
+                    opened.append(path); b.front = 42
+                b.open_activating = open_activating
+                polls = []
+
+                class Late:
+                    def observe(self, target):
+                        polls.append(1)
+                        if appears and len(polls) > 2:    # the first open's window, arriving late
+                            return {'type': 'observation', 'obs_id': 'o', 'tree': '0 Window  Title: "Start Page" [focused]'}
+                        return {'type': 'error', 'error': 'no_window_content', 'reason': 'window_offscreen'}
+                r = activate_app('com.apple.Safari', backend=b, driver=Late(), clock=lambda: b.time,
+                                 sleep=lambda s: setattr(b, 'time', b.time + s))
+                self.assertEqual(1, len(opened))
+                self.assertEqual('launch_services', r['route'])
+                self.assertEqual('app_activation' if appears else 'error', r['type'])
+                if not appears:
+                    self.assertEqual('window_not_opened', r['error'])
+
     def test_without_the_helper_nothing_is_observed_or_opened(self):
         b = PresentationTests.PresentationBackend()
         b.apps = [dict(pid=42, path=b.path, ready=True)]
