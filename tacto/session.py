@@ -101,6 +101,61 @@ class KeepAwake:
         return False
 
 
+KEEP_AWAKE_MAX_MINUTES = 480
+
+
+def keep_awake_for(minutes, *, state_dir=None, run=subprocess.Popen, now=None):
+    """Hold the display and system awake for `minutes`, beyond this command.
+
+    A person's opt-in for long unattended or remote work: an idle lock between
+    an agent's commands otherwise stops every later screen step, and only the
+    person can unlock. `caffeinate -di -t` ends by itself; it never defeats a
+    manual lock, a security policy or a closed lid. One holder at a time: a new
+    request replaces the previous one this command started.
+    """
+    import json, signal, time
+    from pathlib import Path
+    if type(minutes) is not int or not 1 <= minutes <= KEEP_AWAKE_MAX_MINUTES:
+        raise ValueError(f'minutes must be 1..{KEEP_AWAKE_MAX_MINUTES}')
+    from .preferences import product_directory
+    state = Path(state_dir) if state_dir else product_directory()
+    state.mkdir(parents=True, exist_ok=True)
+    record = state/'keep-awake.json'
+    stop_keep_awake(state_dir=state)
+    proc = run(['caffeinate', '-di', '-t', str(minutes*60)],
+               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    until = (now or time.time)() + minutes*60
+    record.write_text(json.dumps({'pid': proc.pid, 'until': until}))
+    return {'type': 'keep_awake', 'pid': proc.pid, 'minutes': minutes, 'until': until,
+            'note': 'idle lock only; a manual lock or policy still applies'}
+
+
+def stop_keep_awake(*, state_dir=None, kill=None):
+    """End the holder this command started, if it is still that caffeinate."""
+    import json, signal
+    from pathlib import Path
+    from .preferences import product_directory
+    state = Path(state_dir) if state_dir else product_directory()
+    record = state/'keep-awake.json'
+    try:
+        pid = json.loads(record.read_text())['pid']
+    except (OSError, ValueError, KeyError, TypeError):
+        return {'type': 'keep_awake_stopped', 'stopped': False}
+    record.unlink(missing_ok=True)
+    try:
+        name = subprocess.run(['ps', '-p', str(int(pid)), '-o', 'comm='], capture_output=True,
+                              text=True, timeout=5).stdout.strip()
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        name = ''
+    if not name.endswith('caffeinate'):
+        return {'type': 'keep_awake_stopped', 'stopped': False}   # already ended; pid not ours now
+    try:
+        (kill or os.kill)(int(pid), signal.SIGTERM)
+    except ProcessLookupError:
+        return {'type': 'keep_awake_stopped', 'stopped': False}   # ended on its own meanwhile
+    return {'type': 'keep_awake_stopped', 'stopped': True}
+
+
 def preflight(require_unlocked: bool = True) -> dict:
     """One call before a task: capabilities + live lock/screen state + a verdict.
 

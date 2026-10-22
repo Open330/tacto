@@ -12,7 +12,7 @@ import time
 import uuid
 
 current = ContextVar('tacto_access_log', default=None)
-COMMANDS = frozenset(('doctor', 'apps', 'launch', 'activate', 'first-run', 'observe', 'session', 'batch',
+COMMANDS = frozenset(('doctor', 'apps', 'launch', 'activate', 'keep-awake', 'first-run', 'observe', 'session', 'batch',
                       'document-attachments', 'capture', 'drag', 'vroid-drag', 'vroid-focus',
                       'run', 'replay', 'do', 'web-upload'))
 _NAMES = re.compile(r'^tacto-\d{8}T\d{12}Z-[0-9a-f]{32}\.jsonl$')

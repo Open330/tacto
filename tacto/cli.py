@@ -6,6 +6,7 @@ Usage:
   tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
   tacto activate <bundle-id> [--window TEXT] [--helper]  # on a person's request: bring the app (and that window) forward
+  tacto keep-awake [--minutes N] | --stop  # opt-in: no idle lock during long remote work (manual lock still applies)
   tacto capture <bundle-id> --helper --output window.png [--window TITLE]
   tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
   tacto first-run --helper --yes      # new TextEdit document, fixed text, fresh verification
@@ -711,6 +712,29 @@ def _dispatch_command(cmd, rest):
             current.get().task_result(result)
         print(json.dumps(result, ensure_ascii=False))
         return 0 if result.get('type') == 'app_launch' else 1
+
+    if cmd == 'keep-awake':
+        # Opt-in: keep the screen from idle-locking during long remote work.
+        if sys.platform != 'darwin':
+            print('keep-awake is macOS-only; see docs/windows.md')
+            return 2
+        from .session import keep_awake_for, stop_keep_awake, KEEP_AWAKE_MAX_MINUTES
+        usage = f'usage: keep-awake [--minutes 1..{KEEP_AWAKE_MAX_MINUTES}] | keep-awake --stop'
+        if rest == ['--stop']:
+            print(json.dumps(stop_keep_awake()))
+            return 0
+        minutes = 60
+        if rest:
+            if len(rest) != 2 or rest[0] != '--minutes' or not rest[1].isdigit():
+                print(usage)
+                return 2
+            minutes = int(rest[1])
+        try:
+            print(json.dumps(keep_awake_for(minutes)))
+        except ValueError:
+            print(usage)
+            return 2
+        return 0
 
     if cmd == 'activate':
         # Only on a person's request: an agent never takes the foreground on

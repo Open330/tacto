@@ -11,9 +11,17 @@ class NativeLaunchBackend:
         self.workspace = NSWorkspace.sharedWorkspace()
 
     def session_ready(self):
+        return self.session_problem() is None
+
+    def session_problem(self):
+        """None, 'screen_locked' (a person must unlock), or 'gui_session_unavailable'."""
         from .session import lock_state
         state = lock_state()
-        return state.get('locked') is False and state.get('on_console') is True
+        if state.get('on_console') is not True:
+            return 'gui_session_unavailable'
+        if state.get('locked') is True:
+            return 'screen_locked'
+        return None if state.get('locked') is False else 'gui_session_unavailable'
 
     def resolve(self, target):
         from Foundation import NSBundle
@@ -80,6 +88,24 @@ class NativePresentationBackend(NativeLaunchBackend):
             NSURL.fileURLWithPath_(path), config, None)
 
 
+# A locked screen is a person's to unlock: Tacto never unlocks it, and nothing
+# behind it can be read or brought forward (tacto/session.py). Said plainly, so
+# an agent hands off instead of asking for a window to be shown.
+SCREEN_LOCKED_HINT = ('화면이 잠겨 있습니다 — 사람이 암호로 잠금을 풀어야 합니다. Tacto는 잠금을 풀지 않습니다. '
+                      '긴 원격 작업 전에는 `tacto keep-awake`로 유휴 잠금을 막을 수 있습니다.')
+
+
+def _session_problem(backend):
+    probe = getattr(backend, 'session_problem', None)
+    if callable(probe):
+        return probe()
+    return None if backend.session_ready() else 'gui_session_unavailable'
+
+
+def _session_error(problem):
+    return {'error': problem, **({'hint': SCREEN_LOCKED_HINT} if problem == 'screen_locked' else {})}
+
+
 def present_app(target, pid, *, backend=None, clock=time.monotonic):
     """Bring an already verified result forward; never launch or write text."""
     failed = {'foreground_verified': False}
@@ -91,8 +117,9 @@ def present_app(target, pid, *, backend=None, clock=time.monotonic):
         apps = backend.running(target)
         if path is None or len(apps) != 1 or apps[0]['pid'] != pid or apps[0]['path'] != path:
             return dict(failed, error='presentation_identity_changed')
-        if not backend.session_ready():
-            return dict(failed, error='gui_session_unavailable')
+        problem = _session_problem(backend)
+        if problem:
+            return dict(failed, **_session_error(problem))
         # A long-lived caller may not have run its loop since the last change;
         # deliver pending NSWorkspace notifications before trusting frontmost.
         backend.pump(0.05)
@@ -122,8 +149,9 @@ def launch_app(target, *, backend=None, timeout=10, clock=time.monotonic):
     started = False
     try:
         backend = backend if backend is not None else NativeLaunchBackend()
-        if not backend.session_ready():
-            return error('gui_session_unavailable')
+        problem = _session_problem(backend)
+        if problem:
+            return dict(error(problem), **_session_error(problem))
         path = backend.resolve(target)
         if path is None:
             return error('application_not_installed')
@@ -138,8 +166,9 @@ def launch_app(target, *, backend=None, timeout=10, clock=time.monotonic):
                         'status': 'launched' if started else 'already_running',
                         'application_running': True, 'window_verified': False}
             if not started and not apps:
-                if not backend.session_ready():
-                    return error('gui_session_unavailable')
+                problem = _session_problem(backend)
+                if problem:
+                    return dict(error(problem), **_session_error(problem))
                 started = True
                 request = backend.start(path)
             if request is not None and request.get('error'):
@@ -209,8 +238,9 @@ def activate_app(target, *, window=None, driver=None, backend=None,
         return error('window_needs_helper')
     try:
         backend = backend if backend is not None else NativePresentationBackend()
-        if not backend.session_ready():
-            return error('gui_session_unavailable')
+        problem = _session_problem(backend)
+        if problem:
+            return dict(error(problem), **_session_error(problem))
         path = backend.resolve(target)
         if path is None:
             return error('application_not_installed')
@@ -267,7 +297,7 @@ def activate_app(target, *, window=None, driver=None, backend=None,
     # first, or the answer can be the one from before the step.
     try:
         backend.pump(0.05)
-        still = (backend.session_ready() and backend.frontmost_pid() == pid
+        still = (_session_problem(backend) is None and backend.frontmost_pid() == pid
                  and [(a['pid'], a['path']) for a in backend.running(target)] == [(pid, path)])
     except Exception:
         still = False
