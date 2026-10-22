@@ -60,6 +60,8 @@ func prepareBackgroundWindow(_ obsID:String, _ target:String, _ element:AXUIElem
                              deadline:Double, expectation:[String:Any]?, elementClicks:Int) -> [String:Any] {
     pointerCalls += 1; return ["type":"acted", "input_route":"window_bound_element_click"]
 }
+// The list-selection route never applies to this button (no parent list).
+func selectListItem(_ el:AXUIElement, deadline:Double) -> [String:Any]? { nil }
 func AXUIElementPerformAction(_ el:AXUIElement, _ action:CFString) -> AXError {
     precondition(CFEqual(el,button)); precondition(savePanelTokens.isEmpty)
     posts += 1; return actionError

@@ -301,7 +301,8 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
           elements: inout [AXUIElement], visited: inout Int,
           truncated: inout Bool, nodeLimit: Int = maxTreeNodes,
           deferred: ((AXUIElement, Int) -> Void)? = nil,
-          metrics: ObservationReadMetrics? = nil, reveal: ObservationRevealScan? = nil) {
+          metrics: ObservationReadMetrics? = nil, reveal: ObservationRevealScan? = nil,
+          selectedByParent: Bool = false) {
     if depth > 25 { reveal?.complete = false; return }
     if visited >= min(maxTreeNodes, nodeLimit) {
         reveal?.complete = false
@@ -352,8 +353,12 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
             ?? (attr(el, kAXEnabledAttribute as String) as? Bool) ?? true
         // AXSelected is how a chosen button in a set says so (System
         // Settings' Light / Dark / Auto); shown like [disabled] (2026-10-09).
-        let selected = snapshot.map { ($0.value(kAXSelectedAttribute as String) as? Bool) == true }
-            ?? ((attr(el, kAXSelectedAttribute as String) as? Bool) == true)
+        // A list can hold the selection itself, its items never saying
+        // AXSelected (Finder's column view, 2026-10-23: a selected file read
+        // as unselected, so a correct selection looked like a failure). The
+        // item is often an unlabeled group, so its labeled contents say it.
+        let selected = selectedByParent || (snapshot.map { ($0.value(kAXSelectedAttribute as String) as? Bool) == true }
+            ?? ((attr(el, kAXSelectedAttribute as String) as? Bool) == true))
         let short = role.hasPrefix("AX") ? String(role.dropFirst(2)) : role
         metrics?.secondaryActionReads += 1
         let actionStart = DispatchTime.now().uptimeNanoseconds
@@ -370,9 +375,11 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     }
     let children = snapshot.map { ($0.value(kAXChildrenAttribute as String) as? [AXUIElement]) ?? [] }
         ?? (attr(el, kAXChildrenAttribute as String) as? [AXUIElement]) ?? []
+    let chosen = role == "AXList" ? (attr(el, "AXSelectedChildren") as? [AXUIElement]) ?? [] : []
     for child in children.prefix(maxChildrenPerNode) {
         walk(child, depth: depth + 1, out: &out, elements: &elements,
-             visited: &visited, truncated: &truncated, nodeLimit: nodeLimit, deferred: deferred, metrics: metrics, reveal: reveal)
+             visited: &visited, truncated: &truncated, nodeLimit: nodeLimit, deferred: deferred, metrics: metrics, reveal: reveal,
+             selectedByParent: selectedByParent || chosen.contains(child))
     }
     if children.count > maxChildrenPerNode {
         truncated = true
@@ -385,7 +392,8 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
                     let before = visited
                     walk(child, depth: depth + 1, out: &out, elements: &elements,
                          visited: &visited, truncated: &truncated, nodeLimit: nodeLimit,
-                         deferred: deferred, metrics: metrics, reveal: reveal)
+                         deferred: deferred, metrics: metrics, reveal: reveal,
+                         selectedByParent: selectedByParent || chosen.contains(child))
                     if visited > before { revealed += 1; reveal.revealed += 1 }
                 }
             }
@@ -1445,6 +1453,41 @@ func confirmComboBoxSelectionTransition(_ control:AXUIElement,_ menu:AXUIElement
         }
         throw NativeWindowInputError.refused("ComboBox selection transition unconfirmed")
     }
+}
+
+/// Clicking an item of a list that keeps its own selection means selecting
+/// it, and the list can be told so directly: no pointer, no geometry. Finder's
+/// column view needed this (2026-10-23): the file's column lay outside the
+/// narrow window, so a pointer click was refused, and after scrolling the
+/// background click did not select. The item is the element or one of its
+/// two nearest ancestors that the list holds. Finder answers the set with an
+/// error even when it took effect, so the list is read back and only that
+/// decides. nil when this route does not apply, so the pointer route runs.
+func selectListItem(_ el: AXUIElement, deadline: Double) -> [String: Any]? {
+    var item = el
+    for _ in 0..<3 {
+        guard let parent = attr(item, kAXParentAttribute as String) else { return nil }
+        let list = parent as! AXUIElement
+        if str(list, kAXRoleAttribute as String) == kAXListRole as String {
+            var settable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(list, kAXSelectedChildrenAttribute as CFString, &settable) == .success,
+                  settable.boolValue else { return nil }
+            guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline else {
+                return ["type": "error", "error": "input_cancelled_or_expired", "effect": "not_started"]
+            }
+            let error = AXUIElementSetAttributeValue(list, kAXSelectedChildrenAttribute as CFString, [item] as CFArray)
+            Thread.sleep(forTimeInterval: 0.1)
+            let now = (attr(list, kAXSelectedChildrenAttribute as String) as? [AXUIElement]) ?? []
+            guard now.count == 1, CFEqual(now[0], item) else {
+                return ["type": "error", "error": "action_failed", "effect": "unknown",
+                        "input_route": "ax_list_selection", "detail": "list selection did not read back (\(error.rawValue))"]
+            }
+            return ["type": "acted", "input_route": "ax_list_selection", "selection_read_back": true,
+                    "note": "selected through the list; observe again"]
+        }
+        item = list
+    }
+    return nil
 }
 
 /// Everything this app currently has selected and focused, as one short
@@ -2904,6 +2947,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         var advertised: CFArray?
         let listed = AXUIElementCopyActionNames(el, &advertised)
+        if listed == .success, let names = advertised as? [String],
+           !names.contains(kAXPressAction as String), savePanelToken == nil,
+           let selected = selectListItem(el, deadline: deadline) {
+            return selected.merging(["action": name, "obs_id": obsID]) { a, _ in a }
+        }
         if listed == .success, let names = advertised as? [String],
            !names.contains(kAXPressAction as String) {
             return pointerClick()
