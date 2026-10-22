@@ -127,6 +127,36 @@ r = run([CGPoint(x: 10, y: 10)], duration: 0.2)
 precondition(r["error"] as? String == "person_moved_pointer" && r["effect"] as? String == "unknown", "\(r)")
 precondition(r["pointer_restored"] as? Bool == false && cursor == CGPoint(x: 900, y: 900))
 takeOverAt = nil
+// A move that fails after shifting the cursor is reported, never restored on a guess.
+var failingMove = false, locationGone = false
+func edgeIO() -> PointerHoverIO {
+    PointerHoverIO(location: { locationGone && !moves.isEmpty ? nil : cursor },
+        move: { cursor = $0; moves.append($0); return !failingMove },
+        frame: { frameValue }, owner: { _ in 42 }, now: { clock }, sleep: { clock += $0 })
+}
+func runEdge() -> [String: Any] {
+    moves = []; clock = 0; cursor = CGPoint(x: 500, y: 500)
+    return dispatchPointerHover(pid: 42, path: [CGPoint(x: 10, y: 10)], duration: 0.1, hold: 1, deadline: 5,
+        stopped: { false }, context: {}, io: edgeIO())
+}
+failingMove = true
+r = runEdge()
+precondition(r["effect"] as? String == "unknown" && r["pointer_restored"] as? Bool == false, "\(r)")
+precondition(moves.count == 1, "no further warp after a failed move: \(moves)")
+failingMove = false; locationGone = true
+r = runEdge()
+precondition(r["error"] as? String == "pointer_location_unavailable" && r["effect"] as? String == "unknown", "\(r)")
+precondition(moves.count == 1 && r["pointer_restored"] as? Bool == false, "no restore on a guess: \(moves)")
+locationGone = false
+// The person moving between reading the start and the first move.
+var nudgeBeforeFirst = true
+moves = []; clock = 0
+r = dispatchPointerHover(pid: 42, path: [CGPoint(x: 10, y: 10)], duration: 0.1, hold: 1, deadline: 5,
+    stopped: { false }, context: {}, io: PointerHoverIO(
+        location: { if nudgeBeforeFirst && moves.isEmpty && clock == 0 { nudgeBeforeFirst = false; return CGPoint(x: 500, y: 500) }; return moves.isEmpty ? CGPoint(x: 900, y: 900) : cursor },
+        move: { cursor = $0; moves.append($0); return true },
+        frame: { frameValue }, owner: { _ in 42 }, now: { clock }, sleep: { clock += $0 }))
+precondition(r["error"] as? String == "person_moved_pointer" && r["effect"] as? String == "not_started", "\(r)")
 // Refused before any movement.
 for (path, duration, hold, deadline, stopped) in [
         ([CGPoint(x: 300, y: 10)], 0.1, 1.0, 5.0, false),      // outside the window
