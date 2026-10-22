@@ -34,7 +34,7 @@ Inspect the verified/unverified result before requesting another compile.
 | `branch_unwalked` / `branch_walk_failed` | a branch answer has no steps and no walker, or the walk did not get there |
 | `window_list_unavailable` | AX window-list or role data could not be read reliably; this does not establish that a window is absent. Use the diagnostic guidance below |
 | `no_window_content` | no accessible window was observed; inspect the reported `reason` and follow the window diagnostics below. This alone does not prove screen lock or require a user handoff |
-| `screen_locked` | the Mac's screen is locked: nothing behind it can be read, launched or brought forward. Stop screen steps and ask the person to unlock (it needs their password); never try to unlock, and do not ask them to show a window instead. Before long unattended or remote work, with their agreement, `tacto keep-awake --minutes N` prevents an idle lock (a manual lock or policy still applies; `--stop` ends it) |
+| `screen_locked` | the Mac's screen is locked: nothing behind it can be read, launched or brought forward. Stop screen steps and ask the person to unlock (it needs their password); never try to unlock, and do not ask them to show a window instead. Before long unattended or remote work, with their agreement, `tacto keep-awake --minutes N` prevents idle display and system sleep, which commonly leads to the lock; it does not guarantee against a screen-saver, manual or policy lock (`--stop` ends it) |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
 ### When a menu needs the app in front

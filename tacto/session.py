@@ -70,7 +70,7 @@ def lock_state() -> dict:
 
 @dataclass
 class KeepAwake:
-    """Prevent idle display/system sleep (hence idle lock) for a task's lifetime.
+    """Prevent idle display/system sleep (a common path to the lock) for a task's lifetime.
 
     Wraps `caffeinate -di`. Best-effort: does not stop a manual lock or policy.
     Use as a context manager around a flow run.
@@ -102,57 +102,111 @@ class KeepAwake:
 
 
 KEEP_AWAKE_MAX_MINUTES = 480
+CAFFEINATE = '/usr/bin/caffeinate'
 
 
-def keep_awake_for(minutes, *, state_dir=None, run=subprocess.Popen, now=None):
-    """Hold the display and system awake for `minutes`, beyond this command.
+def _process_identity(pid, run=subprocess.run):
+    """(start time, full command) of a live pid, or None."""
+    try:
+        started = run(['/bin/ps', '-p', str(int(pid)), '-o', 'lstart='], capture_output=True, text=True, timeout=5)
+        command = run(['/bin/ps', '-p', str(int(pid)), '-o', 'command='], capture_output=True, text=True, timeout=5)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+    if started.returncode or command.returncode or not started.stdout.strip():
+        return None
+    return started.stdout.strip(), command.stdout.strip()
 
-    A person's opt-in for long unattended or remote work: an idle lock between
-    an agent's commands otherwise stops every later screen step, and only the
-    person can unlock. `caffeinate -di -t` ends by itself; it never defeats a
-    manual lock, a security policy or a closed lid. One holder at a time: a new
-    request replaces the previous one this command started.
-    """
-    import json, signal, time
+
+class _KeepAwakeLock:
+    """One start/replace/stop at a time, across processes (concurrent agents)."""
+    def __init__(self, state):
+        self.path = state/'keep-awake.lock'
+
+    def __enter__(self):
+        import fcntl
+        self.handle = open(self.path, 'a')
+        fcntl.flock(self.handle, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        import fcntl
+        fcntl.flock(self.handle, fcntl.LOCK_UN)
+        self.handle.close()
+        return False
+
+
+def _state_dir(state_dir):
     from pathlib import Path
-    if type(minutes) is not int or not 1 <= minutes <= KEEP_AWAKE_MAX_MINUTES:
-        raise ValueError(f'minutes must be 1..{KEEP_AWAKE_MAX_MINUTES}')
     from .preferences import product_directory
     state = Path(state_dir) if state_dir else product_directory()
     state.mkdir(parents=True, exist_ok=True)
+    return state
+
+
+def keep_awake_for(minutes, *, state_dir=None, run=subprocess.Popen, now=None, identify=None, kill=None):
+    """Prevent idle display and system sleep for `minutes`, beyond this command.
+
+    A person's opt-in for long unattended or remote work: a display that goes
+    to sleep between an agent's commands can lock the screen, and only the
+    person can unlock. `caffeinate -di -t` ends by itself. It does not defeat
+    a manual lock, a security policy, a closed lid, or a screen-saver lock.
+    One holder at a time: a new request replaces the one this command started.
+    """
+    import json, os as _os, time
+    if type(minutes) is not int or not 1 <= minutes <= KEEP_AWAKE_MAX_MINUTES:
+        raise ValueError(f'minutes must be 1..{KEEP_AWAKE_MAX_MINUTES}')
+    identify = identify or _process_identity
+    state = _state_dir(state_dir)
     record = state/'keep-awake.json'
-    stop_keep_awake(state_dir=state)
-    proc = run(['caffeinate', '-di', '-t', str(minutes*60)],
-               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    until = (now or time.time)() + minutes*60
-    record.write_text(json.dumps({'pid': proc.pid, 'until': until}))
+    with _KeepAwakeLock(state):
+        _stop_locked(state, kill=kill, now=now, identify=identify)
+        argv = [CAFFEINATE, '-di', '-t', str(minutes*60)]
+        proc = run(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        until = (now or time.time)() + minutes*60
+        try:
+            identity = identify(proc.pid)
+            if identity is None:
+                raise OSError('holder identity unreadable')
+            temporary = record.with_suffix('.tmp')
+            temporary.write_text(json.dumps({'pid': proc.pid, 'until': until, 'started': identity[0],
+                                             'command': ' '.join(argv)}))
+            _os.replace(temporary, record)
+        except Exception:
+            # Never leave a holder nobody can find to stop.
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            raise
     return {'type': 'keep_awake', 'pid': proc.pid, 'minutes': minutes, 'until': until,
-            'note': 'idle lock only; a manual lock or policy still applies'}
+            'note': 'idle display/system sleep only; a manual, policy or screen-saver lock still applies'}
 
 
-def stop_keep_awake(*, state_dir=None, kill=None):
-    """End the holder this command started, if it is still that caffeinate."""
-    import json, signal
-    from pathlib import Path
-    from .preferences import product_directory
-    state = Path(state_dir) if state_dir else product_directory()
+def stop_keep_awake(*, state_dir=None, kill=None, now=None, identify=None):
+    """End the holder this command started, if that exact process still runs."""
+    state = _state_dir(state_dir)
+    with _KeepAwakeLock(state):
+        return _stop_locked(state, kill=kill, now=now, identify=identify or _process_identity)
+
+
+def _stop_locked(state, *, kill=None, now=None, identify=_process_identity):
+    import json, signal, time
     record = state/'keep-awake.json'
     try:
-        pid = json.loads(record.read_text())['pid']
+        entry = json.loads(record.read_text())
+        pid, until, started, command = entry['pid'], entry['until'], entry['started'], entry['command']
     except (OSError, ValueError, KeyError, TypeError):
         return {'type': 'keep_awake_stopped', 'stopped': False}
     record.unlink(missing_ok=True)
-    try:
-        name = subprocess.run(['ps', '-p', str(int(pid)), '-o', 'comm='], capture_output=True,
-                              text=True, timeout=5).stdout.strip()
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        name = ''
-    if not name.endswith('caffeinate'):
-        return {'type': 'keep_awake_stopped', 'stopped': False}   # already ended; pid not ours now
+    if type(until) not in (int, float) or until <= (now or time.time)():
+        return {'type': 'keep_awake_stopped', 'stopped': False}   # it has already ended by itself
+    # Same process: start time and full command, so a recycled pid is never signalled.
+    if identify(pid) != (started, command):
+        return {'type': 'keep_awake_stopped', 'stopped': False}
     try:
         (kill or os.kill)(int(pid), signal.SIGTERM)
     except ProcessLookupError:
-        return {'type': 'keep_awake_stopped', 'stopped': False}   # ended on its own meanwhile
+        return {'type': 'keep_awake_stopped', 'stopped': False}
     return {'type': 'keep_awake_stopped', 'stopped': True}
 
 

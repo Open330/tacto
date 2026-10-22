@@ -46,36 +46,73 @@ class LockedScreenTests(unittest.TestCase):
 
 
 class KeepAwakeTests(unittest.TestCase):
-    def test_holds_for_the_asked_minutes_and_replaces_its_own_previous_holder(self):
+    """Fake processes: pid -> (start time, command) as /bin/ps reports them."""
+
+    def harness(self, folder):
         from tacto import session
-        started, killed = [], []
+        live, killed, started = {}, [], []
 
         class Proc:
-            def __init__(self, pid): self.pid = pid
+            def __init__(self, pid):self.pid = pid
+            def terminate(self):live.pop(self.pid, None)
         def run(argv, **kwargs):
-            started.append(argv); return Proc(1000 + len(started))
-        ps = mock.Mock(return_value=mock.Mock(stdout='/usr/bin/caffeinate\n'))
-        with tempfile.TemporaryDirectory() as folder, mock.patch.object(session.subprocess, 'run', ps), \
-             mock.patch.object(session.os, 'kill', lambda pid, sig: killed.append(pid)):
-            first = session.keep_awake_for(30, state_dir=folder, run=run, now=lambda: 0)
-            second = session.keep_awake_for(90, state_dir=folder, run=run, now=lambda: 0)
-            stopped = session.stop_keep_awake(state_dir=folder)
-            again = session.stop_keep_awake(state_dir=folder)
-        self.assertEqual(['caffeinate', '-di', '-t', '1800'], started[0])
-        self.assertEqual(['caffeinate', '-di', '-t', '5400'], started[1])
-        self.assertEqual((1800, 5400), (first['until'], second['until']))
-        self.assertEqual([1001, 1002], killed)          # the previous holder, then on --stop
-        self.assertTrue(stopped['stopped']);self.assertFalse(again['stopped'])
+            pid = 1000 + len(started); started.append(argv)
+            live[pid] = (f'start-{pid}', ' '.join(argv))
+            return Proc(pid)
+        def kill(pid, sig):
+            killed.append(pid); live.pop(pid, None)
+        start = lambda minutes, now=0: session.keep_awake_for(minutes, state_dir=folder, run=run,
+                                                            now=lambda: now, identify=live.get, kill=kill)
+        stop = lambda now=0: session.stop_keep_awake(state_dir=folder, kill=kill, now=lambda: now,
+                                                     identify=live.get)
+        return session, live, killed, started, start, stop
 
-    def test_a_reused_pid_that_is_not_caffeinate_is_left_alone(self):
-        from tacto import session
-        killed = []
+    def test_holds_for_the_asked_minutes_and_replaces_its_own_previous_holder(self):
         with tempfile.TemporaryDirectory() as folder:
-            (__import__('pathlib').Path(folder)/'keep-awake.json').write_text(json.dumps({'pid': 77, 'until': 0}))
-            with mock.patch.object(session.subprocess, 'run', return_value=mock.Mock(stdout='/bin/zsh\n')), \
-                 mock.patch.object(session.os, 'kill', lambda pid, sig: killed.append(pid)):
-                self.assertFalse(session.stop_keep_awake(state_dir=folder)['stopped'])
-        self.assertEqual([], killed)
+            session, live, killed, started, start, stop = self.harness(folder)
+            first = start(30); second = start(90)
+            self.assertEqual(['/usr/bin/caffeinate', '-di', '-t', '1800'], started[0])
+            self.assertEqual((1800, 5400), (first['until'], second['until']))
+            self.assertEqual([1000], killed)                    # the previous holder only
+            self.assertTrue(stop()['stopped']); self.assertEqual([1000, 1001], killed)
+            self.assertFalse(stop()['stopped'])
+            self.assertIn('screen-saver', first['note'])
+
+    def test_a_recycled_pid_or_an_expired_record_is_never_signalled(self):
+        with tempfile.TemporaryDirectory() as folder:
+            session, live, killed, started, start, stop = self.harness(folder)
+            start(30)
+            live[1000] = ('later-start', '/usr/bin/caffeinate -di -t 1800')   # same command, new process
+            self.assertFalse(stop()['stopped'])
+            start(30)
+            self.assertFalse(stop(now=10**6)['stopped'])        # past its own end: nothing to stop
+            self.assertEqual([], killed)
+
+    def test_concurrent_starts_and_stops_leave_no_untracked_holder(self):
+        import threading
+        with tempfile.TemporaryDirectory() as folder:
+            session, live, killed, started, start, stop = self.harness(folder)
+            barrier = threading.Barrier(4)
+            def work(action):
+                barrier.wait()
+                action()
+            threads = [threading.Thread(target=work, args=(a,)) for a in
+                       (lambda: start(30), lambda: start(60), lambda: stop(), lambda: start(45))]
+            for t in threads:t.start()
+            for t in threads:t.join()
+            stop()
+            self.assertEqual({}, live)      # every holder started was stopped, none left running
+
+    def test_a_holder_that_cannot_be_recorded_is_ended(self):
+        from tacto import session
+        ended = []
+
+        class Proc:
+            pid = 9
+            def terminate(self):ended.append(9)
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(OSError):
+            session.keep_awake_for(5, state_dir=folder, run=lambda *a, **k: Proc(), identify=lambda pid: None)
+        self.assertEqual([9], ended)
 
     def test_bounds_and_usage(self):
         from tacto import session, cli

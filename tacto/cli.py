@@ -6,7 +6,7 @@ Usage:
   tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
   tacto activate <bundle-id> [--window TEXT] [--helper]  # on a person's request: bring the app (and that window) forward
-  tacto keep-awake [--minutes N] | --stop  # opt-in: no idle lock during long remote work (manual lock still applies)
+  tacto keep-awake [--minutes N] | --stop  # opt-in: no idle display/system sleep during long remote work (no screen-saver or policy lock guarantee)
   tacto capture <bundle-id> --helper --output window.png [--window TITLE]
   tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
   tacto first-run --helper --yes      # new TextEdit document, fixed text, fresh verification

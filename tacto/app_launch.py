@@ -92,7 +92,8 @@ class NativePresentationBackend(NativeLaunchBackend):
 # behind it can be read or brought forward (tacto/session.py). Said plainly, so
 # an agent hands off instead of asking for a window to be shown.
 SCREEN_LOCKED_HINT = ('화면이 잠겨 있습니다 — 사람이 암호로 잠금을 풀어야 합니다. Tacto는 잠금을 풀지 않습니다. '
-                      '긴 원격 작업 전에는 `tacto keep-awake`로 유휴 잠금을 막을 수 있습니다.')
+                      '긴 원격 작업 전에는 `tacto keep-awake`로 화면·시스템 잠자기를 막아 둘 수 있습니다 '
+                      '(화면 보호기·정책 잠금까지 막는 보장은 없음).')
 
 
 def _session_problem(backend):
