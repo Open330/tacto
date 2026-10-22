@@ -6,6 +6,7 @@ Usage:
   tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
   tacto activate <bundle-id> [--window TEXT] [--helper]  # on a person's request: bring the app (and that window) forward
+  tacto open-url <URL> [--browser <bundle-id>] [--helper]  # on a person's request: open a web page as a link click does
   tacto keep-awake [--minutes N] | --stop  # opt-in: no idle display/system sleep during long remote work (no screen-saver or policy lock guarantee)
   tacto capture <bundle-id> --helper --output window.png [--window TITLE]
   tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
@@ -617,9 +618,9 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "launch", "activate", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+    if cmd in ("doctor", "apps", "launch", "activate", "open-url", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         if sys.platform == "win32":
-            if cmd in ("doctor", "launch", "activate", "first-run", "document-attachments", "capture", "drag",
+            if cmd in ("doctor", "launch", "activate", "open-url", "first-run", "document-attachments", "capture", "drag",
                        "vroid-drag", "vroid-focus"):
                 print(f"{cmd} is macOS-only; see docs/windows.md")
                 return 2
@@ -740,6 +741,34 @@ def _dispatch_command(cmd, rest):
                               'detail': 'the previous holder could not be checked; run keep-awake --stop again'}))
             return 1
         return 0
+
+    if cmd == 'open-url':
+        # Only on a person's request: the browser comes to the front.
+        args = [value for value in rest if value != '--helper']
+        browser = None
+        if '--browser' in args:
+            at = args.index('--browser')
+            browser = args[at + 1] if at + 1 < len(args) else None
+            args = args[:at] + args[at + 2:]
+        if len(args) != 1 or rest.count('--helper') > 1 or ('--browser' in rest and browser is None):
+            print('usage: open-url <http(s) URL> [--browser <bundle-id>] [--helper]  (--helper confirms the page loaded)')
+            return 2
+        from .open_url import open_url, DEFAULT_BROWSER
+        driver = None
+        if '--helper' in rest:
+            from .helper import HelperUnavailable
+            try:
+                driver = _make_driver(rest)
+            except (HelperUnavailable, OSError, ValueError):
+                print(json.dumps({'type': 'error', 'error': 'helper_unavailable', 'effect': 'not_started',
+                                  'hint': 'tacto doctor --check'}))
+                return 1
+        result = open_url(args[0], browser=browser or DEFAULT_BROWSER, driver=driver)
+        from .access_log import current
+        if current.get() is not None:
+            current.get().task_result({k: v for k, v in result.items() if k != 'url'})
+        print(json.dumps(result, ensure_ascii=False))
+        return 0 if result.get('type') == 'url_opened' else 1
 
     if cmd == 'activate':
         # Only on a person's request: an agent never takes the foreground on

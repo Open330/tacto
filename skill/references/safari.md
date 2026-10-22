@@ -1,3 +1,8 @@
+To just open an address the person asked for, use `tacto open-url <URL>
+--helper` (LaunchServices, no typing; `loaded_verified` from the page's web area,
+`page_not_shown` for a redirect, never reopened). Use the steps below only when a
+Flow must navigate an existing window.
+
 For Safari address navigation, use File > Open Location… to start editing,
 then `set_value` on `WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD` and a bound submit
 `Return`. Setting the value and confirming without starting address editing can
