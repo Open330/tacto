@@ -67,6 +67,17 @@ class InputRoutingSourceTests(unittest.TestCase):
         for path in (ROOT / 'helper').glob('*.swift'):
             code = '\n'.join(line for line in path.read_text().splitlines()
                              if not line.lstrip().startswith(('//', '///')))
+            if path.name == 'PointerHover.swift':
+                # The one global route: hover moves the cursor and nothing
+                # else — one warp, one posted move, no button, no activation.
+                self.assertEqual(1, code.count('CGWarpMouseCursorPosition('))
+                self.assertEqual(1, code.count('.post(tap:'))
+                self.assertEqual(['mouseType: .mouseMoved'], re.findall(r'mouseType: \.\w+', code))
+                for banned in ('CGEventPost(', 'CGDisplayMoveCursorToPoint(', 'keyboardEvent', 'MouseDown',
+                               'MouseUp', 'MouseDragged', 'scrollWheel', 'activate(', 'kAXRaiseAction',
+                               'postToPid'):
+                    self.assertNotIn(banned, code, f'{banned} in hover')
+                continue
             for banned in ('CGEventPost(', 'CGWarpMouseCursorPosition(',
                            'CGDisplayMoveCursorToPoint(', '.post(tap:',
                            'NSApplication.shared.activate('):

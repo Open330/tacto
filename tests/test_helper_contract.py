@@ -993,6 +993,7 @@ WIRE_ONLY = frozenset({
 # These features are implemented by the signed helper, not by Driver.
 SIGNED_HELPER_ONLY = frozenset({
     "action.drag", "drag.window_bound",
+    "action.hover", "hover.pointer_restored",
     "action.click.save_panel_guard",
     # Return to the Go to Folder path field: helper press_key only; Driver's own
     # press_key stays navigation keys.
