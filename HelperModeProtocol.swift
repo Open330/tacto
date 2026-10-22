@@ -1,0 +1,75 @@
+// Optional benchmark transports. Default launches remain unchanged.
+import Foundation
+import Darwin
+import CryptoKit
+
+@objc(TactoModeRPC) protocol TactoModeRPC {
+    func acquire(_ build: String, reply: @escaping (NSDictionary) -> Void)
+    func request(_ frame: Data, reply: @escaping (Data) -> Void)
+}
+
+enum TactoMode {
+    static let service = "ai.callabo.tacto.prototype.resident"
+    static let agent = "ai.callabo.tacto.prototype.agent"
+    static let limit = 8 * 1024 * 1024
+    static func buildKey(_ binary: URL) -> String? {
+        guard let bytes = try? Data(contentsOf: binary) else { return nil }
+        return SHA256.hash(data: bytes).map { String(format:"%02x", $0) }.joined()
+    }
+    static func directory(_ key: String) -> String? {
+        let path = "/tmp/tacto-warm-\(getuid())-\(key.prefix(20))"
+        if mkdir(path, 0o700) != 0 && errno != EEXIST { return nil }
+        var info = stat()
+        guard lstat(path, &info) == 0, info.st_uid == getuid(),
+              info.st_mode & S_IFMT == S_IFDIR, info.st_mode & 0o777 == 0o700 else { return nil }
+        return path
+    }
+    static func address(_ path: String) -> sockaddr_un? {
+        var addr = sockaddr_un(); addr.sun_family = sa_family_t(AF_UNIX)
+        guard path.utf8.count < MemoryLayout.size(ofValue:addr.sun_path) else { return nil }
+        withUnsafeMutableBytes(of:&addr.sun_path) { dst in
+            Array(path.utf8CString).withUnsafeBytes { src in dst.copyBytes(from:src) }
+        }
+        return addr
+    }
+    static func connect(_ path: String) -> Int32? {
+        let fd = socket(AF_UNIX,SOCK_STREAM,0)
+        guard fd >= 0, var addr = address(path) else { return nil }
+        let ok = withUnsafePointer(to:&addr) { p in p.withMemoryRebound(to:sockaddr.self,capacity:1) {
+            Darwin.connect(fd,$0,socklen_t(MemoryLayout<sockaddr_un>.size)) == 0
+        }}
+        guard ok else { close(fd); return nil }; return fd
+    }
+    static func send(_ fd: Int32, _ object: [String:Any]) -> Bool {
+        guard var data = try? JSONSerialization.data(withJSONObject:object) else { return false }
+        data.append(10); var position = 0
+        return data.withUnsafeBytes { bytes in
+            while position < data.count {
+                let n = write(fd, bytes.baseAddress!.advanced(by:position), data.count-position)
+                if n < 0 && errno == EINTR { continue }
+                if n <= 0 { return false }; position += n
+            }
+            return true
+        }
+    }
+    // Used only for the tiny pre-request handshake; read exactly through LF,
+    // never consume a following application frame.
+    static func receive(_ fd: Int32, seconds: Double = 3) -> [String:Any]? {
+        var bytes = Data(); let deadline = ProcessInfo.processInfo.systemUptime + seconds
+        while bytes.count < 4096 {
+            let left = deadline - ProcessInfo.processInfo.systemUptime
+            if left <= 0 { return nil }
+            var p = pollfd(fd:fd,events:Int16(POLLIN),revents:0)
+            let result = poll(&p,1,Int32(max(1,left*1000)))
+            if result < 0 && errno == EINTR { continue }
+            guard result > 0 else { return nil }
+            var byte: UInt8 = 0
+            let n = read(fd,&byte,1)
+            if n < 0 && errno == EINTR { continue }
+            guard n == 1 else { return nil }
+            if byte == 10 { return (try? JSONSerialization.jsonObject(with:bytes)) as? [String:Any] }
+            bytes.append(byte)
+        }
+        return nil
+    }
+}
