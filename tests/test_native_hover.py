@@ -137,6 +137,48 @@ for (path, duration, hold, deadline, stopped) in [
     precondition(r["type"] as? String == "error" && r["effect"] as? String == "not_started", "\(r)")
     precondition(moves.isEmpty && cursor == CGPoint(x: 500, y: 500))
 }
+// A backend may report failure after physically moving the pointer.
+do {
+    var point = CGPoint(x: 500, y: 500)
+    var attempts = 0
+    let partial = PointerHoverIO(location: { point }, move: {
+        point = $0; attempts += 1; return attempts > 1
+    }, frame: { CGRect(x:100,y:200,width:300,height:200) }, owner:{_ in 42},
+       now:{0}, sleep:{_ in})
+    let result = dispatchPointerHover(pid:42,path:[CGPoint(x:10,y:10)],duration:0,hold:0,
+        deadline:5,stopped:{false},context:{},io:partial)
+    precondition(result["effect"] as? String == "unknown", "\(result)")
+    precondition(result["pointer_restored"] as? Bool == true && attempts == 2)
+    precondition(point == CGPoint(x:500,y:500))
+}
+// Losing the pointer read is not evidence that the person left it alone.
+do {
+    var point = CGPoint(x:500,y:500)
+    var reads = 0
+    var attempts = 0
+    let unavailable = PointerHoverIO(location:{
+        reads += 1; return reads >= 3 ? nil : point
+    },move:{ point=$0;attempts += 1;return true },
+       frame:{CGRect(x:100,y:200,width:300,height:200)},owner:{_ in 42},now:{0},sleep:{_ in})
+    let result = dispatchPointerHover(pid:42,path:[CGPoint(x:10,y:10)],duration:0,hold:0,
+        deadline:5,stopped:{false},context:{},io:unavailable)
+    precondition(result["error"] as? String == "pointer_location_unavailable", "\(result)")
+    precondition(result["effect"] as? String == "unknown" && attempts == 1)
+    precondition(result["pointer_restored"] as? Bool == false)
+}
+// A takeover between the initial snapshot and first move is preserved.
+do {
+    var reads=0
+    var attempts=0
+    let takeover = PointerHoverIO(location:{
+        reads += 1;return reads == 1 ? CGPoint(x:500,y:500) : CGPoint(x:900,y:900)
+    },move:{_ in attempts += 1;return true},frame:{CGRect(x:100,y:200,width:300,height:200)},
+       owner:{_ in 42},now:{0},sleep:{_ in})
+    let result = dispatchPointerHover(pid:42,path:[CGPoint(x:10,y:10)],duration:0,hold:0,
+        deadline:5,stopped:{false},context:{},io:takeover)
+    precondition(result["error"] as? String == "person_moved_pointer", "\(result)")
+    precondition(result["effect"] as? String == "not_started" && attempts == 0)
+}
 print("HOVER_PASS")
 '''
         with tempfile.TemporaryDirectory() as directory:

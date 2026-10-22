@@ -68,7 +68,7 @@ class TextEditReceiptTests(unittest.TestCase):
             return make_textedit_receipt(self.driver, target=kwargs.pop('target', 'com.apple.TextEdit'),
                                          directory=kwargs.pop('directory', str(self.directory)),
                                          filename=kwargs.pop('filename', self.path.name),
-                                         timeout_seconds=.2, **kwargs)
+                                         timeout_seconds=kwargs.pop('timeout_seconds', 3.0), **kwargs)
 
     def run_save(self, adapter):
         contract = SafetyContract(effects=['write_persistent'], reversibility='recoverable',

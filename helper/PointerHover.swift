@@ -26,9 +26,9 @@ func pointerHoverSystemIO(window: AXUIElement) -> PointerHoverIO {
         move: { point in
             // A warp alone can leave apps that poll motion unchanged; the
             // moved event is what tracking areas and global monitors see.
-            guard CGWarpMouseCursorPosition(point) == .success,
-                  let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
-                                      mouseCursorPosition: point, mouseButton: .left) else { return false }
+            guard let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved,
+                                      mouseCursorPosition: point, mouseButton: .left),
+                  CGWarpMouseCursorPosition(point) == .success else { return false }
             event.flags = []
             event.post(tap: .cghidEventTap)
             return true
@@ -72,6 +72,7 @@ func dispatchPointerHover(pid: pid_t, path: [CGPoint], duration: Double, hold: D
     var original: CGPoint?
     var last: CGPoint?
     var personMoved = false
+    var pointerUnavailable = false
     var frames: [CGRect] = []
     var owners: [Bool] = []
     func refuse(_ detail: String) -> NativeWindowInputError { .refused(detail) }
@@ -79,7 +80,8 @@ func dispatchPointerHover(pid: pid_t, path: [CGPoint], duration: Double, hold: D
     // The person moving the mouse ends the hover at once, and the cursor stays
     // where they put it: taking it back from them is not restoring anything.
     func personTookOver() -> Bool {
-        guard let last, let here = io.location() else { return false }
+        guard let last else { return false }
+        guard let here = io.location() else { pointerUnavailable = true; return true }
         if hypot(here.x - last.x, here.y - last.y) > pointerHoverTolerance { personMoved = true }
         return personMoved
     }
@@ -87,12 +89,15 @@ func dispatchPointerHover(pid: pid_t, path: [CGPoint], duration: Double, hold: D
         guard !personTookOver() else { throw refuse("person moved the pointer") }
         guard !stopped(), io.now() < deadline else { throw refuse("hover stopped or deadline expired") }
         try context()
-        guard io.move(point) else { throw refuse("pointer positioning failed") }
+        // A backend failure can follow a partial move. Count the attempt and
+        // retain its requested position before invoking the backend, so it can
+        // never be reported as definitely not started.
         moved += 1
         last = point
+        guard io.move(point) else { throw refuse("pointer positioning failed") }
     }
     func restore() -> Bool {
-        guard let original, moved > 0, !personMoved, !personTookOver() else { return false }
+        guard let original, moved > 0, !personMoved, !pointerUnavailable, !personTookOver() else { return false }
         guard io.move(original) else { return false }
         moved += 1
         guard let here = io.location() else { return false }
@@ -109,6 +114,7 @@ func dispatchPointerHover(pid: pid_t, path: [CGPoint], duration: Double, hold: D
         }
         guard let start = io.location() else { throw refuse("pointer location unavailable") }
         original = start
+        last = start
         note(first)
         let screen = path.map { CGPoint(x: first.minX + $0.x, y: first.minY + $0.y) }
         owners = screen.map { io.owner($0) == pid }
@@ -146,7 +152,7 @@ func dispatchPointerHover(pid: pid_t, path: [CGPoint], duration: Double, hold: D
     } catch {
         let restored = restore()
         var reply: [String: Any] = ["type": "error",
-            "error": personMoved ? "person_moved_pointer" : "hover_failed",
+            "error": personMoved ? "person_moved_pointer" : pointerUnavailable ? "pointer_location_unavailable" : "hover_failed",
             "effect": moved > 0 ? "unknown" : "not_started",
             "pointer_events": moved, "buttons": 0,
             "pointer_restored": restored, "person_moved_pointer": personMoved,
