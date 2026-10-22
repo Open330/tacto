@@ -257,6 +257,7 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 - [tacto everyday examples 2026 10 15](docs/tacto-everyday-examples-2026-10-15.md)
 - [tacto browser examples 2026 10 15](docs/tacto-browser-examples-2026-10-15.md)
 - [release readiness](docs/release-readiness.md)
+- [Beta participant guide](docs/beta-participant-guide.md)
 - [First-run quality review](docs/tacto-quality-review-2026-10-19.md)
 - [tacto native release fixes 2026 10 16](docs/tacto-native-release-fixes-2026-10-16.md)
 - [tacto peer review 2026 10 16](docs/tacto-peer-review-2026-10-16.md)

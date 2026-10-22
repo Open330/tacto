@@ -313,6 +313,7 @@ macOS 설정의 **빠른 실행(helper 유지)**을 켜면 다음 작업의 시�
 - [실제 앱·웹 일상 작업 10개](docs/tacto-everyday-examples-2026-10-15.md)
 - [초기 브라우저 사용 예제 3개](docs/tacto-browser-examples-2026-10-15.md)
 - [출시 범위·검증 조건과 최종 DMG 검사](docs/release-readiness.md)
+- [베타 참여 안내](docs/beta-participant-guide.md)
 - [첫 작업 품질 개선·교차 검토](docs/tacto-quality-review-2026-10-19.md)
 - [네이티브 서명·기본 빌드·설치 UX 수정 결과](docs/tacto-native-release-fixes-2026-10-16.md)
 - [전체 개선 peer 검토와 잔여 출시 제한](docs/tacto-peer-review-2026-10-16.md)
