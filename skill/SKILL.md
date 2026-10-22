@@ -58,7 +58,9 @@ permission. Preserve the user's foreground/input; do not activate apps on your
 own or change permissions. When the person asks for an app or window to be
 brought forward (or agrees when you ask), run `tacto activate <bundle-id>
 --window "<part of its title>" --helper`; it reports `foreground_verified` and
-`window_verified`. On `window_not_found`/`window_ambiguous` pick from `windows`. Verify the requested result before reporting completion.
+`window_verified`. On `window_not_found`/`window_ambiguous` pick from `windows`.
+With `--helper` an app that comes forward with no window here is asked once for
+one, as a Dock click would (`window_present`; `window_not_opened` if none came). Verify the requested result before reporting completion.
 Inspect an uncertain outcome before retrying. A `screen_locked` result means the person must unlock; stop and say so.
 Human gates need human action;
 a missing window needs diagnosis.

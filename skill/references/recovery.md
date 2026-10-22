@@ -74,6 +74,10 @@ for interpreting these refusals and the effect of earlier actions.
 - `app_hidden`: the current backend already attempts one bounded unhide without
   activating the app. If it still reports hidden, report that recovery failed;
   do not repeatedly retry, activate the app or restore focus yourself.
+- `window_offscreen` or `no_visible_window` also covers an app whose every window
+  was closed (Safari keeps the last one ordered out). When the person asks to bring
+  the app forward, `tacto activate <bundle-id> --helper` asks once for a window as a
+  Dock click does.
 - `window_offscreen` or `no_visible_window` (a messenger whose window was closed,
   or went to another Space after a context menu): with `--helper`, a recipe may
   start with `{"action": "reopen_window"}` (no selector, no params). It asks the

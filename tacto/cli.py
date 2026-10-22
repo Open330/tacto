@@ -756,7 +756,8 @@ def _dispatch_command(cmd, rest):
             return 2
         from .app_launch import activate_app
         driver = None
-        if window is not None:
+        if window is not None or '--helper' in rest:
+            # With the helper the result also says a window is showing.
             from .helper import HelperUnavailable
             try:
                 driver = _make_driver(rest)

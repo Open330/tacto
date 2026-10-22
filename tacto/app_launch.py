@@ -204,6 +204,31 @@ def _open_activating(backend, target, path, pid, clock):
         return {'foreground_verified': False, 'error': 'activation_not_observed'}
 
 
+def _show_a_window(driver, backend, target, path, clock, sleep):
+    """True once the app shows a window here; else why not (one Dock-click request)."""
+    def present():
+        obs = driver.observe(target)
+        if obs.get('type') == 'observation':
+            return bool(_windows_in(obs.get('tree', ''))) or 'no_window'
+        return obs.get('reason') or obs.get('error') or 'window_observation_unavailable'
+    seen = present()
+    if seen is True:
+        return True
+    if seen not in ('no_window', 'no_window_content', 'window_offscreen', 'no_visible_window', 'minimized'):
+        return seen if seen in ('screen_locked', 'app_hidden') else 'window_observation_unavailable'
+    try:
+        backend.open_activating(path)
+    except Exception:
+        return 'window_not_opened'
+    deadline = clock() + 3
+    while True:
+        if present() is True:
+            return True
+        if clock() >= deadline:
+            return 'window_not_opened'
+        sleep(0.25)
+
+
 def _windows_in(tree):
     """(element index, title, focused) for each top-level window line."""
     from .document_label import window_attributes, window_flag
@@ -226,6 +251,11 @@ def activate_app(target, *, window=None, driver=None, backend=None,
     verified instance runs; `window` must name exactly one of its windows by
     a part of its title, which the existing `prepare_window` then makes main.
     Nothing is launched, typed or clicked.
+
+    With a `driver`, an app that comes forward with no window on this desktop
+    (all closed, minimized, or on another Space; Safari after its last window
+    was closed) is asked once for one, as a Dock click asks: an app with none
+    usually opens a new window, a minimized one comes back.
     """
     def error(code, effect='not_started', **extra):
         return {'type': 'error', 'error': code, 'target': target, 'effect': effect, **extra}
@@ -262,6 +292,12 @@ def activate_app(target, *, window=None, driver=None, backend=None,
                      'unknown' if presented.get('error') == 'activation_not_observed' else 'not_started')
     result = {'type': 'app_activation', 'target': target, 'pid': pid, 'foreground_verified': True,
               'route': presented.get('route', 'running_application')}
+    if driver is not None:
+        shown = _show_a_window(driver, backend, target, path, clock, sleep)
+        if shown is not True:
+            return dict(result, type='error', effect='unknown' if shown == 'window_not_opened' else 'not_started',
+                        error=shown)
+        result['window_present'] = True
     if window is None:
         return result
 

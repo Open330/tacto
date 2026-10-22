@@ -275,9 +275,12 @@ def _why_no_window(pid: int, lock: dict) -> tuple[str, str]:
     except Exception:
         hidden = []
     if hidden:
+        # Safari keeps a closed last window ordered out, so "all closed" lands
+        # here too (2026-10-22): the window server still lists it.
         return ("window_offscreen",
-                "앱의 창이 화면에 없습니다(닫혀 숨었거나 다른 데스크톱(Space)에 있음) — "
-                "reopen_window 로 앱에 창을 다시 열어 달라고 요청할 수 있습니다. (window offscreen)")
+                "앱의 창이 화면에 없습니다(모두 닫혔거나, 숨었거나, 다른 데스크톱(Space)에 있음) — "
+                "reopen_window 로 앱에 창을 다시 열어 달라고 요청할 수 있고, 사람이 앱을 앞으로 가져오라고 하면 "
+                "`tacto activate <bundle-id> --helper` 가 창이 없을 때 한 번 열어 달라고 요청합니다. (window offscreen)")
     return ("no_visible_window",
             "앱에 열린 창이 없거나, 창이 다른 데스크톱(Space)에 있습니다 — reopen_window 로 "
             "창을 다시 열어 달라고 요청하거나, 창을 열어 주세요. (no visible window)")

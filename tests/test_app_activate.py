@@ -160,6 +160,49 @@ class ActivateTests(unittest.TestCase):
         self.assertEqual(0, b.activations)
 
 
+class NoWindowTests(unittest.TestCase):
+    """Safari running with every window closed (2026-10-22, Preview 19 check)."""
+
+    def run_case(self, appears_after_reopen, reason='window_offscreen'):
+        b = PresentationTests.PresentationBackend()
+        b.apps = [dict(pid=42, path=b.path, ready=True)]
+        opened = []
+        b.open_activating = opened.append
+
+        class Safari:
+            def observe(self, target):
+                if appears_after_reopen and opened:
+                    return {'type': 'observation', 'obs_id': 'o', 'tree': '0 Window  Title: "Start Page" [focused]'}
+                return {'type': 'error', 'error': 'no_window_content', 'reason': reason}
+        r = activate_app('com.apple.Safari', backend=b, driver=Safari(), clock=lambda: b.time,
+                         sleep=lambda s: setattr(b, 'time', b.time + s))
+        return r, opened
+
+    def test_an_app_with_no_window_is_asked_once_for_one(self):
+        r, opened = self.run_case(True)
+        self.assertEqual(('app_activation', True), (r['type'], r['window_present']))
+        self.assertEqual(1, len(opened))
+
+    def test_a_window_that_never_comes_is_reported_after_one_request(self):
+        r, opened = self.run_case(False)
+        self.assertEqual(('window_not_opened', 'unknown'), (r['error'], r['effect']))
+        self.assertTrue(r['foreground_verified'])
+        self.assertEqual(1, len(opened))
+
+    def test_a_locked_screen_is_not_answered_with_a_dock_click(self):
+        r, opened = self.run_case(False, reason='screen_locked')
+        self.assertEqual('screen_locked', r['error'])
+        self.assertEqual([], opened)
+
+    def test_without_the_helper_nothing_is_observed_or_opened(self):
+        b = PresentationTests.PresentationBackend()
+        b.apps = [dict(pid=42, path=b.path, ready=True)]
+        b.open_activating = lambda path: self.fail('opened without being able to see')
+        r = activate_app('com.apple.Safari', backend=b, clock=lambda: b.time)
+        self.assertEqual('app_activation', r['type'])
+        self.assertNotIn('window_present', r)
+
+
 class ActivateCommandTests(unittest.TestCase):
     def test_window_requires_the_helper_and_usage_is_strict(self):
         from tacto import cli
