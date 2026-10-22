@@ -758,7 +758,8 @@ def guess_target(intent: str, driver: Driver) -> str | None:
     for word, bundle in (_WINDOWS_APP_ALIASES if sys.platform == "win32" else _APP_ALIASES).items():
         if word in said:
             hits.append(bundle)
-    for app in driver.list_targets()["apps"]:
+    apps = driver.list_targets()["apps"]
+    for app in apps:
         for name in (app["displayName"], app["id"]):
             if name and name.lower() in said:
                 hits.append(app["id"])
@@ -766,8 +767,11 @@ def guess_target(intent: str, driver: Driver) -> str | None:
     unique = sorted(set(hits))
     if len(unique) != 1:
         return None
-    # Only worth returning if the app can actually be driven right now.
-    return unique[0] if driver._resolve(unique[0], launch=False) else None
+    # Only worth returning if the app can actually be driven right now. The
+    # running list is what every driver offers; `_resolve` is the in-process
+    # driver's own, and the signed helper's driver has none (2026-10-23:
+    # `tacto do --helper` raised AttributeError on a fresh Mac).
+    return unique[0] if unique[0] in {app["id"] for app in apps} else None
 
 
 def pick_target(intent: str, driver: Driver, provider: str = "auto") -> str:
