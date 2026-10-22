@@ -967,6 +967,27 @@ var helperRunning: NSRunningApplication?
     return conn
 }
 
+// Opt-in only. No helper mode setting reaches Python or screen data.
+var effectiveHelperMode = "per_command"
+var requestedHelperMode = "per_command"
+@Sendable func startSelectedHelper() -> Int32? {
+    let mode = inherited["TACTO_HELPER_MODE"] ?? "per_command"
+    requestedHelperMode = mode
+    guard mode == "warm" || mode == "resident" else { return startHelper() }
+    guard let key = TactoMode.buildKey(helperApp.appendingPathComponent("Contents/MacOS/TactoHelper")) else {
+        modeDiagnostic(mode,"per_command","missing_build"); return startHelper()
+    }
+    let attempt = mode == "warm" ? warmConnection(key) : residentConnection(key)
+    switch attempt {
+    case .ready(let fd,let actual):
+        effectiveHelperMode = actual; modeDiagnostic(mode,actual, pid:actual == "resident" ? residentModePID : peerToken(fd).map { Int($0.val.5) }); return fd
+    case .busy:
+        modeDiagnostic(mode,"busy","driving_lease_held"); return nil
+    case .unavailable(let reason):
+        modeDiagnostic(mode,"per_command",reason); return startHelper()
+    }
+}
+
 // MARK: - Child on an inherited socket
 
 var pair: [Int32] = [0, 0]
@@ -1208,7 +1229,7 @@ relayQueue.async {
             // Starting the helper and authenticating it are now one step: the
             // connection IS the launch result, so there is no second phase in
             // which we could have a running helper and no way to reach it.
-            guard let fd = startHelper() else {
+            guard let fd = startSelectedHelper() else {
                 writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
                                          "effect": "not_started",
                                          "detail": "도우미를 시작하지 못했습니다"])
@@ -1237,10 +1258,13 @@ relayQueue.async {
         }
         var forwarded = reply
         if msg["type"] as? String == "ping", reply["type"] as? String == "pong",
-           let token = peerToken(helperFD) {
+           effectiveHelperMode != "resident", let token = peerToken(helperFD) {
             // OS credentials on the authenticated helper connection, not the
             // child's socket (whose peer is this launcher). Metadata only.
             forwarded["helper_peer"] = ["pid": Int(token.val.5), "pid_version": Int(token.val.7)]
+        }
+        if requestedHelperMode == "warm" || requestedHelperMode == "resident" {
+            forwarded["helper_transport"] = effectiveHelperMode
         }
         writeJSONLine(relayEnd, forwarded)
     }

@@ -44,7 +44,7 @@ def committed_sources(root=ROOT):
     names=git('ls-files','-z').decode().split('\0')
     selected=[name for name in names if name and (
         name.startswith(('tacto/','helper/','launcher/','setup/','skill/','docs/'))
-        or name in ('SigningPolicy.swift','RuntimeStatus.swift','signing.sh','pyproject.toml','uv.lock','README.md','README.ko.md'))]
+        or name in ('SigningPolicy.swift','HelperModeProtocol.swift','RuntimeStatus.swift','signing.sh','pyproject.toml','uv.lock','README.md','README.ko.md'))]
     files={name:hashlib.sha256((root/name).read_bytes()).hexdigest()
            for name in selected if (root/name).is_file()}
     return {'schema':1,'workspace_commit':commit,'files':files,

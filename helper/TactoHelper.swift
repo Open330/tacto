@@ -4125,8 +4125,8 @@ final class ControlMenuTarget: NSObject {
 /// Reuse the installed app's persistent menu. No helper-owned status item.
 final class RuntimePublisher {
     static let shared = RuntimePublisher()
-    let id = UUID().uuidString
-    let showBanner = TactoRuntimeStatus.showBanner()
+    var id = UUID().uuidString
+    var showBanner = TactoRuntimeStatus.showBanner()
     var target = "Tacto"
     var active = false
     var timer: Timer?
@@ -4230,6 +4230,7 @@ func controlWindowID(forPID pid: pid_t) -> CGWindowID? {
 }
 
 func ensureControlStream(forPID pid: pid_t) -> Bool {
+    let connectionEpoch = ModeEpoch.shared.snapshot()
     guard let windowID = controlWindowID(forPID: pid) else {
         note("tacto-helper: 조작 표시를 켜지 못했습니다 — 대상 창을 찾지 못했습니다")
         return false
@@ -4248,6 +4249,9 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
     var why = "no answer"
     SCShareableContent.getExcludingDesktopWindows(true, onScreenWindowsOnly: false) {
         content, error in
+        guard connectionEpoch == ModeEpoch.shared.snapshot() else {
+            why = "session_changed"; ready.signal(); return
+        }
         guard let window = content?.windows.first(where: { $0.windowID == windowID }) else {
             why = "window not shareable: \(error?.localizedDescription ?? "none")"
             ready.signal(); return
@@ -4280,9 +4284,14 @@ func ensureControlStream(forPID pid: pid_t) -> Bool {
             if let startError {
                 why = "startCapture: \(startError.localizedDescription)"
             } else {
-                controlStream = stream
-                controlStreamWindow = windowID
-                started = true
+                if !ModeEpoch.shared.perform(connectionEpoch, {
+                    controlStream = stream
+                    controlStreamWindow = windowID
+                    started = true
+                }) {
+                    stream.stopCapture { _ in }
+                    why = "session_changed"
+                }
             }
             ready.signal()
         }
@@ -6746,7 +6755,9 @@ let connectPath: String? = {
     return args[i + 1]
 }()
 
-guard connectPath != nil else {
+let persistentMode: String? = CommandLine.arguments.contains("--warm-server") ? "warm" :
+    (CommandLine.arguments.contains("--resident-agent") ? "resident" : nil)
+guard connectPath != nil || persistentMode != nil else {
     FileHandle.standardError.write(Data(
         "tacto-helper: --connect 가 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
     exit(3)
@@ -6997,13 +7008,53 @@ let rendezvousDeadline: TimeInterval = 20
     }
 }
 
+// Serial driving lease replaces per-process ownership only in explicit modes.
+func resetPersistentSession(starting: Bool) {
+    ModeEpoch.shared.rotate()
+    if !starting { abortState.stopNow() }
+    latestObsID = ""; latestElements = []; latestProcessStart = nil
+    latestTargetPID = -1; latestTargetName = ""; latestDocumentToken = nil
+    pendingSelect = nil; spentMenu = nil; documentTokens.removeAll(); savePanelTokens.removeAll()
+    documentOperationDeadline = nil
+    DispatchQueue.main.sync {
+        hideControlIndicator()
+        controlStream?.stopCapture { _ in }
+        controlStream = nil; controlStreamWindow = nil
+        controlPanelDiagnostic = [:]; lastIndicatorMode = ""; lastIndicatorRefusal = ""
+        if starting {
+            RuntimePublisher.shared.id = UUID().uuidString
+            RuntimePublisher.shared.target = "Tacto"
+            RuntimePublisher.shared.showBanner = TactoRuntimeStatus.showBanner()
+            RuntimePublisher.shared.lastPublish = Date.distantPast
+        }
+    }
+    if starting { abortState.begin() }
+}
+
 // A panel and a key monitor need an app object and a run loop; the helper is an
 // accessory (no Dock icon, never takes focus).
 let nsApp = NSApplication.shared
 nsApp.setActivationPolicy(.accessory)
 watchForAbort()
 
-DispatchQueue.global().async {
-    serveLauncher(at: connectPath!)   // peer-authenticated; never returns
+if let mode = persistentMode {
+    guard let binary = Bundle.main.executableURL, let build = TactoMode.buildKey(binary) else { exit(78) }
+    if mode == "warm" {
+        guard startWarmMode(build) else { exit(4) }
+    } else { startResidentMode(build) }
+    let args = CommandLine.arguments
+    let position = args.firstIndex(of:"--mode-idle")
+    let raw = position.flatMap { $0+1 < args.count ? Double(args[$0+1]) : nil } ?? 120
+    let idle = raw.isFinite ? min(600,max(1,raw)) : 120
+    Timer.scheduledTimer(withTimeInterval:0.5,repeats:true) { _ in
+        if ModeLease.shared.expired(idle) {
+            if mode == "warm", let directory = TactoMode.directory(build) { unlink(directory+"/helper.sock") }
+            exit(0)
+        }
+    }
+} else {
+    DispatchQueue.global().async {
+        serveLauncher(at: connectPath!)   // peer-authenticated; never returns
+    }
 }
 nsApp.run()

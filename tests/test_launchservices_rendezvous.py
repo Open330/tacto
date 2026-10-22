@@ -56,7 +56,9 @@ class WhichEndListens(unittest.TestCase):
         self.assertNotIn("func serveSocket", HELPER)
 
     def test_the_helper_refuses_to_run_without_a_rendezvous(self):
-        self.assertIn("guard connectPath != nil else {", HELPER)
+        self.assertIn("guard connectPath != nil || persistentMode != nil else {", HELPER)
+        self.assertIn('CommandLine.arguments.contains("--warm-server")', HELPER)
+        self.assertIn('CommandLine.arguments.contains("--resident-agent")', HELPER)
 
     def test_the_helper_looks_the_flag_up_by_name(self):
         # LaunchServices may append arguments of its own, so a fixed position

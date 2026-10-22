@@ -165,7 +165,7 @@ def build(output, identity):
         paths=[ROOT/name for name in ('pyproject.toml','README.md','setup/build_standalone_preview.py','setup/main.swift',
             'setup/PermissionState.swift','setup/ActivityCenter.swift','docs/assets/tacto-app.icns','docs/assets/tacto-logo.svg',
             'docs/assets/tacto-menu-template.svg','helper/bundle.sh',
-            'launcher/tacto.swift','RuntimeStatus.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
+            'launcher/tacto.swift','launcher/HelperModeClient.swift','HelperModeProtocol.swift','RuntimeStatus.swift','SigningPolicy.swift','signing.sh','skill/install.sh','skill/SKILL.md',
             'helper/Tacto Helper.app/Contents/MacOS/TactoHelper','helper/Tacto Helper.app/Contents/Info.plist')]
         paths+=sorted((ROOT/'tacto').glob('*.py'))
         return {str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
@@ -217,7 +217,7 @@ def build(output, identity):
         launcher=runtime/'launcher/tacto'
         launcher_source=Path(folder)/'launcher-source';launcher_source.mkdir()
         shutil.copy2(ROOT/'launcher/tacto.swift',launcher_source/'main.swift')
-        run(['swiftc','-O','-file-prefix-map',str(ROOT)+'=/tacto-source',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),'-o',str(launcher)])
+        run(['swiftc','-O','-file-prefix-map',str(ROOT)+'=/tacto-source',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),str(ROOT/'HelperModeProtocol.swift'),str(ROOT/'launcher/HelperModeClient.swift'),'-o',str(launcher)])
         sign(launcher,identity,'ai.callabo.tacto',requirement('ai.callabo.tacto'))
         run(['codesign','--verify','-R='+requirement('ai.callabo.tacto'),str(launcher)])
         native=list(native_files(runtime/'.venv'))
