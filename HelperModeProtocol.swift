@@ -24,7 +24,16 @@ enum TactoMode {
         return SHA256.hash(data: bytes).map { String(format:"%02x", $0) }.joined()
     }
     static func directory(_ key: String) -> String? {
-        let path = "/tmp/tacto-warm-\(getuid())-\(key.prefix(20))"
+        let count = confstr(_CS_DARWIN_USER_TEMP_DIR,nil,0)
+        guard count > 1, count <= 4096 else { return nil }
+        var bytes = [CChar](repeating:0,count:count)
+        guard confstr(_CS_DARWIN_USER_TEMP_DIR,&bytes,bytes.count) == count else { return nil }
+        let parent = String(cString:bytes)
+        var parentInfo = stat()
+        guard lstat(parent,&parentInfo) == 0, parentInfo.st_uid == getuid(),
+              parentInfo.st_mode & S_IFMT == S_IFDIR, parentInfo.st_mode & 0o777 == 0o700 else { return nil }
+        let path = parent + (parent.hasSuffix("/") ? "" : "/") + "tacto-warm-\(key.prefix(20))"
+        guard address(path+"/helper.sock") != nil else { return nil }
         if mkdir(path, 0o700) != 0 && errno != EEXIST { return nil }
         var info = stat()
         guard lstat(path, &info) == 0, info.st_uid == getuid(),

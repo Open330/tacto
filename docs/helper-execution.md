@@ -18,15 +18,19 @@ TACTO_HELPER_MODE=per_command tacto observe com.apple.Safari --helper --json
 
 One warm helper drives one signed connection at a time. Concurrent commands
 wait up to **10 seconds**, then report **`helper_busy`** (`effect=not_started`,
-`retryable=true`) with retry guidance. Esc held while waiting or a closed client
-cancels acquisition. A request already dispatched is never automatically replayed.
+`retryable=true`) with retry guidance. A closed client cancels acquisition.
+The launcher does not monitor global keys or request Input Monitoring to wait;
+the helper keeps its existing Esc interruption for active tasks. A request already dispatched is never automatically replayed.
 A session or batch keeps its lease until it ends; leave it promptly when finished.
 
-The warm socket is private to the user and signed helper build. Launcher and
+The warm socket lives beneath macOS's private per-user temporary directory and
+is separate for each signed helper build. Launcher and
 helper authenticate each other; a new build uses a new socket, and older helpers
 exit after their idle time. Missing/refused startup can fall back to the usual
 per-command route before any application request. A busy lease never bypasses
-its owner through fallback. Optional mode diagnostics on stderr report the
+its owner through fallback. This is a per-helper lease, not system-wide input
+coordination: a refused/incompatible handshake can select A, whose independent
+helper follows the existing per-command semantics. Optional mode diagnostics on stderr report the
 requested/effective route and helper PID, so a fallback must not be counted as
 a fast-mode benchmark sample.
 

@@ -983,8 +983,9 @@ var helperStartError = "helper_unavailable"
     let attempt = acquireModeConnection(key,idleSeconds:settings.idleSeconds,cancelled:{
         var channel = pollfd(fd:relayEnd,events:0,revents:0)
         _ = poll(&channel,1,0)
+        // Do not poll global key state here: only the existing helper owns
+        // task interruption. Waiting adds no Input Monitoring requirement.
         return channel.revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0
-            || CGEventSource.keyState(.combinedSessionState,key:53)
     })
     switch attempt {
     case .ready(let fd,let actual):

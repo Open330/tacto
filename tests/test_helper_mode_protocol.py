@@ -61,9 +61,11 @@ print("lease-and-callback-ok")
 import Foundation
 import Darwin
 let key = UUID().uuidString.replacingOccurrences(of:"-",with:"").lowercased()
-let path = "/tmp/tacto-warm-\(getuid())-\(key.prefix(20))"
-defer { unlink(path); rmdir(path) }
 guard let created = TactoMode.directory(key) else { fatalError("directory missing") }
+let path = created
+defer { unlink(path); rmdir(path) }
+precondition(!path.hasPrefix("/tmp/"))
+precondition(TactoMode.address(path+"/helper.sock") != nil)
 var info = stat(); precondition(lstat(created,&info) == 0 && info.st_mode & 0o777 == 0o700)
 chmod(created,0o755); precondition(TactoMode.directory(key) == nil)
 chmod(created,0o700); rmdir(created)
