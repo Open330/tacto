@@ -14,6 +14,8 @@ forward, without Flow authoring. `foreground_verified` confirms result presentat
 `text_verified` proves visible text, not a save. On failure report stage/error;
 do not repeat a partially completed welcome task.
 
+Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto Settings or use `TACTO_HELPER_MODE=warm`; concurrent commands wait up to 10s, then return `helper_busy` (retry after the current task ends).
+
 ## Choose the current stage
 
 - **Existing flow:** `tacto list`, `tacto show <name>`, then

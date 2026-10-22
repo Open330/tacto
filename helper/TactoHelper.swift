@@ -6755,8 +6755,7 @@ let connectPath: String? = {
     return args[i + 1]
 }()
 
-let persistentMode: String? = CommandLine.arguments.contains("--warm-server") ? "warm" :
-    (CommandLine.arguments.contains("--resident-agent") ? "resident" : nil)
+let persistentMode: String? = CommandLine.arguments.contains("--warm-server") ? "warm" : nil
 guard connectPath != nil || persistentMode != nil else {
     FileHandle.standardError.write(Data(
         "tacto-helper: --connect 가 필요합니다 (서명된 런처가 실행합니다)\n".utf8))
@@ -7039,15 +7038,14 @@ watchForAbort()
 
 if let mode = persistentMode {
     guard let binary = Bundle.main.executableURL, let build = TactoMode.buildKey(binary) else { exit(78) }
-    if mode == "warm" {
-        guard startWarmMode(build) else { exit(4) }
-    } else { startResidentMode(build) }
     let args = CommandLine.arguments
     let position = args.firstIndex(of:"--mode-idle")
     let raw = position.flatMap { $0+1 < args.count ? Double(args[$0+1]) : nil } ?? 120
     let idle = raw.isFinite ? min(600,max(1,raw)) : 120
+    ModeLease.shared.setInitialIdle(idle)
+    guard startWarmMode(build) else { exit(4) }
     Timer.scheduledTimer(withTimeInterval:0.5,repeats:true) { _ in
-        if ModeLease.shared.expired(idle) {
+        if ModeLease.shared.beginIdleExit() {
             if mode == "warm", let directory = TactoMode.directory(build) { unlink(directory+"/helper.sock") }
             exit(0)
         }

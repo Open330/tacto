@@ -972,14 +972,15 @@ var effectiveHelperMode = "per_command"
 var requestedHelperMode = "per_command"
 var helperStartError = "helper_unavailable"
 @Sendable func startSelectedHelper() -> Int32? {
-    let mode = inherited["TACTO_HELPER_MODE"] ?? "per_command"
+    let settings = TactoRuntimeStatus.helperSettings(TactoRuntimeStatus.preferences(),environment:inherited)
+    let mode = settings.mode
     requestedHelperMode = mode
-    guard mode == "warm" || mode == "resident" else { return startHelper() }
+    guard mode == "warm" else { return startHelper() }
     guard let key = TactoMode.buildKey(helperApp.appendingPathComponent("Contents/MacOS/TactoHelper")) else {
         modeDiagnostic(mode,"per_command","missing_build"); return startHelper()
     }
     helperStartError = "helper_unavailable"
-    let attempt = acquireModeConnection(key,mode:mode,cancelled:{
+    let attempt = acquireModeConnection(key,idleSeconds:settings.idleSeconds,cancelled:{
         var channel = pollfd(fd:relayEnd,events:0,revents:0)
         _ = poll(&channel,1,0)
         return channel.revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0
@@ -987,7 +988,7 @@ var helperStartError = "helper_unavailable"
     })
     switch attempt {
     case .ready(let fd,let actual):
-        effectiveHelperMode = actual; modeDiagnostic(mode,actual, pid:actual == "resident" ? residentModePID : peerToken(fd).map { Int($0.val.5) }); return fd
+        effectiveHelperMode = actual; modeDiagnostic(mode,actual, pid:peerToken(fd).map { Int($0.val.5) }); return fd
     case .busy:
         helperStartError = "helper_busy"
         modeDiagnostic(mode,"busy","driving_lease_wait_timeout"); return nil
@@ -1272,12 +1273,12 @@ relayQueue.async {
         }
         var forwarded = reply
         if msg["type"] as? String == "ping", reply["type"] as? String == "pong",
-           effectiveHelperMode != "resident", let token = peerToken(helperFD) {
+           let token = peerToken(helperFD) {
             // OS credentials on the authenticated helper connection, not the
             // child's socket (whose peer is this launcher). Metadata only.
             forwarded["helper_peer"] = ["pid": Int(token.val.5), "pid_version": Int(token.val.7)]
         }
-        if requestedHelperMode == "warm" || requestedHelperMode == "resident" {
+        if requestedHelperMode == "warm" {
             forwarded["helper_transport"] = effectiveHelperMode
         }
         writeJSONLine(relayEnd, forwarded)

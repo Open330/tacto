@@ -6,7 +6,7 @@ import stat
 import sys
 
 DEFAULTS = {'schema': 1, 'logging_enabled': True, 'retention_days': 30,
-            'show_control_banner': True}
+            'show_control_banner': True, 'keep_helper_warm': False, 'helper_idle_minutes': 2}
 
 
 def product_directory():
@@ -32,9 +32,11 @@ def load_preferences(root=None):
             value = json.loads(stream.read(16385))
         if not isinstance(value, dict) or type(value.get('schema', 1)) is not int or value.get('schema', 1) != 1:
             return result
-        for key in ('logging_enabled', 'show_control_banner'):
+        for key in ('logging_enabled', 'show_control_banner', 'keep_helper_warm'):
             if type(value.get(key)) is bool:
                 result[key] = value[key]
+        if type(value.get('helper_idle_minutes')) is int and 1 <= value['helper_idle_minutes'] <= 10:
+            result['helper_idle_minutes'] = value['helper_idle_minutes']
         if type(value.get('retention_days')) is int and value['retention_days'] in (7, 30, 90):
             result['retention_days'] = value['retention_days']
     except (OSError, ValueError, UnicodeError):

@@ -12,6 +12,8 @@ SERVICE = 'ai.callabo.tacto.prototype.resident'
 
 
 def build(output, identity, idle_seconds=120):
+    if '--resident-agent' not in (ROOT / 'helper/TactoHelper.swift').read_text():
+        raise SystemExit('Resident is spike-only. Build the spike/helper-modes branch in a separate checkout.')
     app = Path(output).absolute() / 'TactoModes.app'
     if app.exists():
         raise SystemExit('Output exists; unregister the previous host before replacing it')
@@ -24,7 +26,7 @@ def build(output, identity, idle_seconds=120):
     with tempfile.TemporaryDirectory(prefix='tacto-mode-host-') as folder:
         source = Path(folder) / 'main.swift'
         shutil.copy2(ROOT / 'spike/helper-modes/Host.swift', source)
-        subprocess.run(['xcrun', 'swiftc', '-O', str(source), str(ROOT / 'HelperModeProtocol.swift'),
+        subprocess.run(['xcrun', 'swiftc', '-O', str(source), str(ROOT / 'spike/helper-modes/ResidentProtocol.swift'),
                         '-o', str(macos / 'TactoModes')], check=True)
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
         'CFBundleIdentifier': 'ai.callabo.tacto.prototype.host', 'CFBundleExecutable': 'TactoModes',

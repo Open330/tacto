@@ -25,6 +25,19 @@ class PreferencesTests(unittest.TestCase):
             self.assertFalse(load_preferences(root)['show_control_banner'])
             self.assertEqual(7, load_preferences(root)['retention_days'])
 
+    def test_warm_preferences_are_typed_and_optional(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder); file=root/'preferences.json'
+            self.assertFalse(load_preferences(root)['keep_helper_warm'])
+            self.assertEqual(2,load_preferences(root)['helper_idle_minutes'])
+            for value in (True,0,11,2.0,'10',None):
+                file.write_text(json.dumps({'schema':1,'helper_idle_minutes':value,'keep_helper_warm':1}))
+                self.assertFalse(load_preferences(root)['keep_helper_warm'])
+                self.assertEqual(2,load_preferences(root)['helper_idle_minutes'])
+            file.write_text(json.dumps({'schema':1,'keep_helper_warm':True,'helper_idle_minutes':10}))
+            self.assertTrue(load_preferences(root)['keep_helper_warm'])
+            self.assertEqual(10,load_preferences(root)['helper_idle_minutes'])
+
     def test_disabled_logging_creates_no_receipt_or_log_directory(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)/'Tacto'; root.mkdir()

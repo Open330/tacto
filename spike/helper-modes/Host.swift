@@ -1,7 +1,7 @@
 import Foundation
 import ServiceManagement
 
-let service = SMAppService.agent(plistName:TactoMode.agent+".plist")
+let service = SMAppService.agent(plistName:TactoResident.agent+".plist")
 func status() -> String {
     switch service.status {
     case .enabled: return "enabled"

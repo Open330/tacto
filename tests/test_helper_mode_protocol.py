@@ -37,6 +37,12 @@ lease.release(b); precondition(lease.owns(a))
 lease.release(a); precondition(lease.take(b))
 lease.stop(a); precondition(abortState.stops == 1)
 lease.stop(b); precondition(abortState.stops == 2); lease.release(b)
+let retiring = ModeLease()
+retiring.setInitialIdle(0)
+let c = UUID()
+precondition(retiring.take(c));precondition(!retiring.beginIdleExit())
+retiring.release(c);usleep(1000)
+precondition(retiring.beginIdleExit());precondition(!retiring.take(UUID()))
 print("lease-and-callback-ok")
 '''
         with tempfile.TemporaryDirectory() as directory:

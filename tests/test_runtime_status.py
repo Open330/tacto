@@ -18,6 +18,10 @@ class RuntimeStatusTests(unittest.TestCase):
         source.write_text('''import Foundation
 if CommandLine.arguments[1] == "preference" {
     print(TactoRuntimeStatus.showBanner(in:URL(fileURLWithPath:CommandLine.arguments[2])))
+} else if CommandLine.arguments[1] == "helper" {
+    let raw = try! JSONSerialization.jsonObject(with:Data(CommandLine.arguments[2].utf8)) as! [String:Any]
+    let settings = TactoRuntimeStatus.helperSettings(raw["object"] as! [String:Any],environment:raw["environment"] as! [String:String])
+    print("\\(settings.mode) \\(settings.idleSeconds)")
 } else {
     let raw = try! JSONSerialization.jsonObject(with:Data(CommandLine.arguments[2].utf8)) as! [String:Any]
     var info = raw
@@ -55,6 +59,22 @@ if CommandLine.arguments[1] == "preference" {
             target=root/'elsewhere';target.write_text('{"schema":1,"show_control_banner":false}')
             file.symlink_to(target)
             self.assertEqual(self.probe('preference',folder),'true')
+    def test_helper_defaults_gui_values_and_environment_priority(self):
+        def probe(obj=None, env=None):
+            return self.probe('helper',json.dumps({'object':obj or {},'environment':env or {}}))
+        self.assertEqual('per_command 120',probe())
+        self.assertEqual('warm 600',probe({'keep_helper_warm':True,'helper_idle_minutes':10}))
+        self.assertEqual('warm 60',probe({'keep_helper_warm':True,'helper_idle_minutes':1}))
+        self.assertEqual('per_command 120',probe({'keep_helper_warm':True},{'TACTO_HELPER_MODE':'per_command'}))
+        self.assertEqual('warm 3',probe({}, {'TACTO_HELPER_MODE':'warm','TACTO_HELPER_IDLE_SECONDS':'3'}))
+        self.assertEqual('per_command 120',probe({'keep_helper_warm':True},{'TACTO_HELPER_MODE':'resident'}))
+        for value in (True,0,11,2.5,'10'):
+            self.assertEqual('warm 120',probe({'keep_helper_warm':True,'helper_idle_minutes':value}))
+        for value in (1,'true',None):
+            self.assertEqual('per_command 120',probe({'keep_helper_warm':value}))
+        for value in ('0','601','NaN','oops'):
+            self.assertEqual('warm 120',probe({}, {'TACTO_HELPER_MODE':'warm','TACTO_HELPER_IDLE_SECONDS':value}))
+
     def test_opt_out_keeps_abort_and_session_guards_before_panel_placement(self):
         text=(ROOT/'helper/TactoHelper.swift').read_text()
         gate=text.split('func ensureVisibleControl(',1)[1].split('/// Why the last',1)[0]

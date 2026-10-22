@@ -16,16 +16,18 @@ final class ModeEpoch: @unchecked Sendable {
     }
 }
 
-// Prototype boundary: all mutable helper state is protected by one driving
+// Warm helper boundary: all mutable helper state is protected by one driving
 // lease. A second connection is refused BEFORE any screen request. No replay.
 final class ModeLease: @unchecked Sendable {
     static let shared = ModeLease()
     private let lock = NSLock()
+    private var idleSeconds: Double = 120
+    private var retiring = false
     private var owner: UUID?
     private var lastActivity = ProcessInfo.processInfo.systemUptime
     func take(_ id: UUID) -> Bool {
         lock.lock(); defer { lock.unlock() }
-        guard owner == nil else { return false }; owner = id; return true
+        guard owner == nil, !retiring else { return false }; owner = id; return true
     }
     func owns(_ id: UUID) -> Bool { lock.lock(); defer { lock.unlock() }; return owner == id }
     func stop(_ id: UUID) {
@@ -38,87 +40,21 @@ final class ModeLease: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if owner == id { owner = nil; lastActivity = ProcessInfo.processInfo.systemUptime }
     }
-    func expired(_ seconds: Double) -> Bool {
+    func setInitialIdle(_ seconds: Double) {
+        lock.lock(); idleSeconds = seconds; lock.unlock()
+    }
+    func setIdle(_ seconds: Int, owner id: UUID) {
         lock.lock(); defer { lock.unlock() }
-        return owner == nil && ProcessInfo.processInfo.systemUptime-lastActivity > seconds
+        if owner == id { idleSeconds = Double(min(600,max(1,seconds))) }
+    }
+    func beginIdleExit() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard owner == nil, ProcessInfo.processInfo.systemUptime-lastActivity > idleSeconds else { return false }
+        retiring = true; return true
     }
 }
 
-func modeRefusal(_ code: String) -> Data {
-    (try? JSONSerialization.data(withJSONObject:["type":"error","error":code,"effect":"not_started"])) ?? Data()
-}
-
-// The serial worker owns globals; invalidation marks abort immediately and
-// queues cleanup AFTER an in-flight request, before another lease can begin.
-let modeWorker = DispatchQueue(label:"tacto.prototype.driving-lease")
-
-final class ModeRPCSession: NSObject, TactoModeRPC, @unchecked Sendable {
-    let id = UUID()
-    let build: String
-    private let lock = NSLock()
-    private var connected = true
-    private var acquired = false
-    init(build: String) { self.build = build }
-    func alive() -> Bool { lock.lock(); defer { lock.unlock() }; return connected }
-    func acquire(_ requested: String, reply: @escaping (NSDictionary) -> Void) {
-        lock.lock()
-        guard connected, !acquired, requested == build else {
-            lock.unlock(); reply(["status":"incompatible"]); return
-        }
-        guard ModeLease.shared.take(id) else { lock.unlock(); reply(["status":"busy"]); return }
-        acquired = true; lock.unlock()
-        modeWorker.async {
-            guard self.alive() else { self.finish(); reply(["status":"closed"]); return }
-            resetPersistentSession(starting:true)
-            reply(["status":"ready","protocol":1,"build":self.build,"pid":getpid()])
-        }
-    }
-    func request(_ frame: Data, reply: @escaping (Data) -> Void) {
-        modeWorker.async {
-            guard self.alive(), ModeLease.shared.owns(self.id) else { reply(modeRefusal("helper_lease_missing")); return }
-            guard frame.count <= TactoMode.limit,
-                  let message = (try? JSONSerialization.jsonObject(with:frame)) as? [String:Any] else {
-                reply(modeRefusal("invalid_frame")); return
-            }
-            reply((try? JSONSerialization.data(withJSONObject:handle(message))) ?? modeRefusal("invalid_reply"))
-        }
-    }
-    func finish() {
-        if ModeLease.shared.owns(id) {
-            resetPersistentSession(starting:false)
-            ModeLease.shared.release(id)
-        }
-    }
-    func invalidate() {
-        lock.lock(); connected = false; lock.unlock()
-        ModeLease.shared.stop(id)
-        modeWorker.async { self.finish() }
-    }
-}
-
-final class ModeXPCListener: NSObject, NSXPCListenerDelegate {
-    let build: String
-    init(build: String) { self.build = build }
-    func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
-        connection.setCodeSigningRequirement(clientRequirement)
-        let session = ModeRPCSession(build:build)
-        connection.exportedInterface = NSXPCInterface(with:TactoModeRPC.self)
-        connection.exportedObject = session
-        connection.invalidationHandler = { session.invalidate() }
-        connection.interruptionHandler = { session.invalidate() }
-        connection.resume(); return true
-    }
-}
-
-// Objects must outlive startup. Only explicit --resident-agent uses launchd.
-var residentListener: NSXPCListener?
-var residentDelegate: ModeXPCListener?
-func startResidentMode(_ build: String) {
-    let delegate = ModeXPCListener(build:build)
-    let listener = NSXPCListener(machServiceName:TactoMode.service)
-    listener.delegate = delegate; residentDelegate = delegate; residentListener = listener
-    listener.resume()
-}
+let modeWorker = DispatchQueue(label:"tacto.warm.driving-lease")
 
 func startWarmMode(_ build: String) -> Bool {
     guard let directory = TactoMode.directory(build),
@@ -143,6 +79,9 @@ func startWarmMode(_ build: String) -> Bool {
                       hello["protocol"] as? Int == 1 else { return }
                 let id = UUID()
                 guard ModeLease.shared.take(id) else { _ = TactoMode.send(conn,["status":"busy"]); return }
+                if let idle = hello["idle_seconds"] as? NSNumber,
+                   CFGetTypeID(idle) != CFBooleanGetTypeID(), idle.doubleValue == Double(idle.intValue),
+                   (1...600).contains(idle.intValue) { ModeLease.shared.setIdle(idle.intValue,owner:id) }
                 modeWorker.sync {
                     resetPersistentSession(starting:true)
                     guard TactoMode.send(conn,["status":"ready","protocol":1,"build":build,"pid":getpid()]) else {

@@ -217,7 +217,7 @@ def build(output, identity):
         launcher=runtime/'launcher/tacto'
         launcher_source=Path(folder)/'launcher-source';launcher_source.mkdir()
         shutil.copy2(ROOT/'launcher/tacto.swift',launcher_source/'main.swift')
-        run(['swiftc','-O','-file-prefix-map',str(ROOT)+'=/tacto-source',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),str(ROOT/'HelperModeProtocol.swift'),str(ROOT/'launcher/HelperModeClient.swift'),'-o',str(launcher)])
+        run(['swiftc','-O','-file-prefix-map',str(ROOT)+'=/tacto-source',str(launcher_source/'main.swift'),str(ROOT/'SigningPolicy.swift'),str(ROOT/'HelperModeProtocol.swift'),str(ROOT/'RuntimeStatus.swift'),str(ROOT/'launcher/HelperModeClient.swift'),'-o',str(launcher)])
         sign(launcher,identity,'ai.callabo.tacto',requirement('ai.callabo.tacto'))
         run(['codesign','--verify','-R='+requirement('ai.callabo.tacto'),str(launcher)])
         native=list(native_files(runtime/'.venv'))

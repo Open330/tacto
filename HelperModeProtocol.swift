@@ -3,14 +3,7 @@ import Foundation
 import Darwin
 import CryptoKit
 
-@objc(TactoModeRPC) protocol TactoModeRPC {
-    func acquire(_ build: String, reply: @escaping (NSDictionary) -> Void)
-    func request(_ frame: Data, reply: @escaping (Data) -> Void)
-}
-
 enum TactoMode {
-    static let service = "ai.callabo.tacto.prototype.resident"
-    static let agent = "ai.callabo.tacto.prototype.agent"
     static let limit = 8 * 1024 * 1024
     // Retry acquisition only. No application frame exists until this returns.
     static func waitForLease<T>(seconds: Double, attempt: () -> T,
