@@ -155,9 +155,9 @@ README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드�
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[Tacto 미리보기 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.20) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+[Tacto 미리보기 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.21) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
 
-Preview 20은 기존 메뉴 아이콘 하나에서 설정과 작업 상태를 보여주고, 작업 배너를 선택적으로 숨깁니다. 첫 작업 결과는 별도 설정 없이 바로 보여주며, Safari URL 이동과 Flow 반복 실행을 개선했습니다. 앱 안에서 실행 기록을 검색하고 기록 저장 여부와 보관 기간을 바꿀 수 있습니다. Preview 9와 서명 식별자가 같습니다. Preview 8 이하에서 전환하는 경우 앱 조작은 **Tacto Helper**, 화면 기록은 **Tacto**에 다시 허용하세요.
+Preview 21은 명령 사이에 helper를 유지하는 선택형 빠른 실행을 제공합니다. 기본값은 꺼짐이며 필요할 때 설정에서 켤 수 있습니다. 기존 메뉴 아이콘 하나에서 설정과 작업 상태를 보여주고, 작업 배너를 선택적으로 숨깁니다. 앱 안에서 실행 기록을 검색하고 기록 저장 여부와 보관 기간을 바꿀 수 있습니다. Preview 9와 서명 식별자가 같습니다. Preview 8 이하에서 전환하는 경우 앱 조작은 **Tacto Helper**, 화면 기록은 **Tacto**에 다시 허용하세요.
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
