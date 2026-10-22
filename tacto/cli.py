@@ -618,10 +618,10 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "launch", "activate", "open-url", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+    if cmd in ("doctor", "apps", "launch", "activate", "open-url", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "hover", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         if sys.platform == "win32":
             if cmd in ("doctor", "launch", "activate", "open-url", "first-run", "document-attachments", "capture", "drag",
-                       "vroid-drag", "vroid-focus"):
+                       "hover", "vroid-drag", "vroid-focus"):
                 print(f"{cmd} is macOS-only; see docs/windows.md")
                 return 2
             from .windows_driver import keep_awake
@@ -971,6 +971,9 @@ def _dispatch_command(cmd, rest):
     if cmd == "drag":
         from .native_drag import main as drag_main
         return drag_main(rest, _make_driver(rest))
+    if cmd == "hover":
+        from .native_hover import main as hover_main
+        return hover_main(rest, _make_driver(rest))
     if cmd == "vroid-drag":
         from .vroid_drag import main as drag_main
         return drag_main(rest, _make_driver(rest))

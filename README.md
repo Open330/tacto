@@ -54,6 +54,12 @@ tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
 tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
 ```
 
+Apps that react to the real cursor (hover effects, a character that avoids it) can be exercised with `tacto hover`: it moves the cursor into the observed window without pressing a button, optionally captures the window while the cursor is there, and puts the cursor back. Moving the mouse yourself stops it. [Hover guide](skill/references/hover.md).
+
+```sh
+tacto hover <bundle-id> --helper --to 120 80 --hold 1 --capture during.png
+```
+
 ## Know what your agent did
 
 **Delegate the work. Inspect the activity.** Tacto's in-app history shows accesses

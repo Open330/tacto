@@ -122,6 +122,12 @@ tacto capture <bundle-id> --helper --window 'Exact title' --output window.png
 tacto drag <bundle-id> --helper --window 'Exact title' --from 20 80 --to 220 80
 ```
 
+실제 커서 위치에 반응하는 앱(마우스를 올렸을 때의 효과, 커서를 피하는 캐릭터)은 `tacto hover`로 시험합니다. 버튼을 누르지 않고 관찰한 창 안으로 커서를 옮기고, 커서가 그 자리에 있는 동안 창을 캡처할 수 있으며, 끝나면 커서를 원래 자리로 돌려놓습니다. 그 사이 사용자가 마우스를 움직이면 즉시 멈춥니다. [hover 안내](skill/references/hover.md).
+
+```sh
+tacto hover <bundle-id> --helper --to 120 80 --hold 1 --capture during.png
+```
+
 <a id="how-it-works"></a>
 
 ## Make it once. Use it again.

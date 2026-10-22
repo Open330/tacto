@@ -29,6 +29,7 @@ Requires the signed helper capabilities `action.drag` and `drag.window_bound`.
 The target must be its app's focused window and the app must be in the background.
 The helper sends a continuous left-button stroke to that window; it does not
 activate apps, move the global pointer, or provide cross-app file dragging.
+To move the real cursor itself (hover effects), use [hover](hover.md).
 Finder file moves, browser HTML drag-and-drop, window moving/resizing and cross-app
 drops need their own receiving tests; they are not established by this route.
 If unsupported, report the specific operation rather than substituting clicks.

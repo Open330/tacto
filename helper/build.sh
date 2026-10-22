@@ -15,11 +15,12 @@ trap 'rm -rf "$STAGE"' EXIT
 cp TactoHelper.swift "$STAGE/main.swift"
 cp PeerAuth.swift  "$STAGE/PeerAuth.swift"
 cp WindowInput.swift "$STAGE/WindowInput.swift"
+cp PointerHover.swift "$STAGE/PointerHover.swift"
 cp FrontmostProcess.swift "$STAGE/FrontmostProcess.swift"
 cp SavePanelObservation.swift "$STAGE/SavePanelObservation.swift"
 cp WindowDispatch.swift "$STAGE/WindowDispatch.swift"
 
-SWIFT_ARGS=(-O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" "../SigningPolicy.swift" "../RuntimeStatus.swift" "../HelperModeProtocol.swift" "HelperModes.swift" -o "$STAGE/tacto-helper")
+SWIFT_ARGS=(-O -sdk "$SDK" "$STAGE/main.swift" "$STAGE/PeerAuth.swift" "$STAGE/WindowInput.swift" "$STAGE/FrontmostProcess.swift" "$STAGE/SavePanelObservation.swift" "$STAGE/WindowDispatch.swift" "$STAGE/PointerHover.swift" "../SigningPolicy.swift" "../RuntimeStatus.swift" "../HelperModeProtocol.swift" "HelperModes.swift" -o "$STAGE/tacto-helper")
 case "${TACTO_ENABLE_EXPERIMENTAL_FOREGROUND:-0}" in
   0) ;;
   1)

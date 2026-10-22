@@ -616,10 +616,10 @@ class HelperDriver:
                     or 'press_key.return_bound' not in getattr(self, 'capabilities', ())):
                 return {'type': 'error', 'error': 'submit_authorization_invalid',
                         'effect': 'not_started'}
-        if action.get('name') in ('click_point', 'drag', 'vroid_drag', 'vroid_focus'):
+        if action.get('name') in ('click_point', 'drag', 'hover', 'vroid_drag', 'vroid_focus'):
             if risk_class not in ('confirm','preapproved') or approved is not True:
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started'}
-            if ('action.' + action['name'] if action['name'] in ('drag','vroid_drag','vroid_focus') else 'action.click_point') not in getattr(self,'capabilities',()):
+            if ('action.' + action['name'] if action['name'] in ('drag','hover','vroid_drag','vroid_focus') else 'action.click_point') not in getattr(self,'capabilities',()):
                 return {'type':'error','error':'coordinate_authorization_required','effect':'not_started',
                         'detail':'helper does not support authorized window points'}
         if risk_class not in RISK_CLASSES:
@@ -642,13 +642,13 @@ class HelperDriver:
                "action": action}
         if save_panel_token is not None:
             msg['save_panel_token'] = save_panel_token
-        if action.get('name') in ('click_point', 'drag', 'vroid_drag', 'vroid_focus'):
+        if action.get('name') in ('click_point', 'drag', 'hover', 'vroid_drag', 'vroid_focus'):
             msg['coordinate_authorized'] = True
         if action.get('name') == 'window_input':
             msg['window_input_authorized'] = True
         if submit_authorized is True:
             msg['submit_authorized'] = True
-        if action.get("name") in ("click", "click_point", "drag", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"):
+        if action.get("name") in ("click", "click_point", "drag", "hover", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"):
             from .model_budget import remaining_model_seconds
             # Capture before computing remaining time; never extend the budget
             # by serialization or time spent waiting for the helper.

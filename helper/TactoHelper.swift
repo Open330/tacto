@@ -2579,7 +2579,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
     if action["name"] as? String == "window_input", !windowInputAuthorized {
         return ["type":"error", "error":"window_input_authorization_required", "effect":"not_started"]
     }
-    if ["click_point", "drag", "vroid_drag", "vroid_focus"].contains(action["name"] as? String ?? ""), !coordinateAuthorized {
+    if ["click_point", "drag", "hover", "vroid_drag", "vroid_focus"].contains(action["name"] as? String ?? ""), !coordinateAuthorized {
         return ["type":"error", "error":"coordinate_authorization_required", "effect":"not_started"]
     }
     let deadline = min(clickDeadline ?? .infinity, ProcessInfo.processInfo.systemUptime + 5)
@@ -2800,6 +2800,42 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         return prepareBackgroundWindow(obsID,target,el,p,deadline:deadline,expectation:expect,point:from,
             drag:NativeWindowDrag(path:[from]+via+[to],duration:duration.doubleValue))
+    case "hover":
+        // The global pointer, never a button: see PointerHover.swift.
+        guard Set(action.keys).isSuperset(of:["name","element_index","to","duration","hold"]),
+              Set(action.keys).isSubset(of:["name","element_index","to","duration","hold","via","capture"]),
+              action["capture"] == nil || (action["capture"] as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true,
+              let index=documentIsWholeNumber(action["element_index"]),index.intValue>=0,index.intValue<elements.count,
+              let el=element(),str(el,kAXRoleAttribute as String)==kAXWindowRole,
+              let to=pointerHoverPoint(action["to"]),
+              action["via"] == nil || action["via"] is [Any],
+              let duration=action["duration"] as? NSNumber,CFGetTypeID(duration) != CFBooleanGetTypeID(),
+              let hold=action["hold"] as? NSNumber,CFGetTypeID(hold) != CFBooleanGetTypeID(),
+              let start=latestProcessStart,nativeProcessStartIdentity(p)==start else {
+            return ["type":"error","error":"invalid_hover","effect":"not_started"]
+        }
+        let rawVia=action["via"] as? [Any] ?? []
+        let via=rawVia.compactMap {pointerHoverPoint($0)}
+        guard rawVia.count<=12,via.count==rawVia.count else {
+            return ["type":"error","error":"invalid_hover","effect":"not_started"]
+        }
+        let generation=latestElementGeneration
+        return dispatchPointerHover(pid:p,path:via+[to],duration:duration.doubleValue,hold:hold.doubleValue,
+            deadline:deadline,stopped:{abortState.isStopped},context:{
+                guard latestObsID==obsID, latestTargetPID==p,
+                      latestElementGeneration==generation, nativeProcessStartIdentity(p)==start else {
+                    throw NativeWindowInputError.refused("hover observation changed")
+                }
+            },io:pointerHoverSystemIO(window:el),
+            atHoldEnd:(action["capture"] as? Bool) == true ? {
+                // Capture names windows by their place among the app's windows,
+                // not by the observation's element index.
+                guard let window=realWindows(of:AXUIElementCreateApplication(p)).firstIndex(where:{CFEqual($0,el)}) else {
+                    return ["type":"error","error":"window_id_unavailable","effect":"not_started"]
+                }
+                return captureWindow(obsID,target,windowIndex:window,
+                                     deadline:min(deadline-0.2,ProcessInfo.processInfo.systemUptime+1))
+            } : nil)
     case "click_point":
         guard Set(action.keys) == Set(["name", "element_index", "point"]),
               let index = documentIsWholeNumber(action["element_index"]),
@@ -4942,6 +4978,9 @@ let helperCapabilities: [String] = [
     "action.click.by_point",
     "action.click_point", "click_point.window_bound", "click_point.host_authorization",
     "action.drag", "drag.window_bound",
+    // The one route that moves the person's cursor: no buttons, no activation,
+    // restored afterwards unless they moved it themselves.
+    "action.hover", "hover.pointer_restored",
     // double_click: AXOpen where offered, else two window-bound clicks at the
     // observed element's hit-tested centre (click count 1 then 2).
     "action.double_click",
@@ -6363,7 +6402,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
             }
             submitAuthorized = true
         }
-        let coordinate = ["click_point", "drag", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "")
+        let coordinate = ["click_point", "drag", "hover", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "")
         var coordinateAuthorized = false
         if coordinate || msg["coordinate_authorized"] != nil {
             guard coordinate, let value = msg["coordinate_authorized"] as? NSNumber,
@@ -6374,7 +6413,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
         }
         var clickDeadline: Double?
         if let raw = msg["click_deadline_uptime"] {
-            guard let action = msg["action"] as? [String: Any], ["click", "click_point", "drag", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
+            guard let action = msg["action"] as? [String: Any], ["click", "click_point", "drag", "hover", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
                   let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
                   number.doubleValue.isFinite, number.doubleValue > 0 else {
                 return ["type": "error", "error": "invalid_click_deadline", "effect": "not_started"]

@@ -35,6 +35,8 @@ Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto 
 - **Safari URL navigation:** read [Safari](references/safari.md) for address
   editing and verification of the loaded page before authoring the flow.
 - **Drag a slider, text selection or canvas:** read [drag](references/drag.md).
+- **Something that reacts to the real cursor (hover, a character avoiding it):**
+  read [hover](references/hover.md).
 - **Save/parameterize:** when repeated tasks need a template, read
   [reuse](references/reuse.md) only.
 - **Document scope, approval, judgment, or no interactive tools:** read

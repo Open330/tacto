@@ -97,6 +97,8 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     "click":            (["name"], ["element_index", "point", "window_index"]),
     "click_point":      (["name", "element_index", "point"], []),
     "drag":             (["name", "element_index", "from", "to", "duration"], ["via"]),
+    // The global pointer, no buttons; restored afterwards (PointerHover.swift).
+    "hover":            (["name", "element_index", "to", "duration", "hold"], ["via", "capture"]),
     "vroid_focus":      (["name", "element_index", "title"], []),
     "vroid_drag":       (["name", "element_index", "from", "to", "duration", "title"], ["via", "graph_bounds"]),
     // AXOpen where offered, else two window-bound clicks on the element.
@@ -299,8 +301,8 @@ func vetted(_ msg: [String: Any]) -> String? {
             return "opaque window input authorization required"
         }
     }
-    if msg["coordinate_authorized"] != nil || ["click_point", "drag", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "") {
-        guard type == "act", ["click_point", "drag", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? ""),
+    if msg["coordinate_authorized"] != nil || ["click_point", "drag", "hover", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? "") {
+        guard type == "act", ["click_point", "drag", "hover", "vroid_drag", "vroid_focus"].contains((msg["action"] as? [String:Any])?["name"] as? String ?? ""),
               let value = msg["coordinate_authorized"] as? NSNumber,
               CFGetTypeID(value) == CFBooleanGetTypeID(), value.boolValue else {
             return "coordinate authorization required"
@@ -477,7 +479,7 @@ func vetted(_ msg: [String: Any]) -> String? {
     }
     if let raw = msg["click_deadline_uptime"] {
         guard type == "act", let action = msg["action"] as? [String: Any],
-              ["click", "click_point", "drag", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
+              ["click", "click_point", "drag", "hover", "vroid_drag", "vroid_focus", "prepare_window", "press_key", "window_input"].contains(action["name"] as? String ?? ""),
               let number = raw as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               number.doubleValue.isFinite, number.doubleValue > 0 else {
             return "invalid click deadline"
@@ -604,7 +606,7 @@ func vetted(_ msg: [String: Any]) -> String? {
                 if !(v is String) { return "\(k) 형식 오류" }
             case "name", "direction": if !(v is String) { return "\(k) 형식 오류" }
             case "from", "to":
-                guard ["drag","vroid_drag"].contains(name), let point=v as? [String:Any], Set(point.keys)==Set(["x","y"]),
+                guard ["drag","vroid_drag"].contains(name) || (name == "hover" && k == "to"), let point=v as? [String:Any], Set(point.keys)==Set(["x","y"]),
                       let x=point["x"] as? NSNumber, let y=point["y"] as? NSNumber,
                       CFGetTypeID(x) != CFBooleanGetTypeID(), CFGetTypeID(y) != CFBooleanGetTypeID(),
                       x.doubleValue.isFinite,y.doubleValue.isFinite,x.doubleValue>=0,y.doubleValue>=0 else {
@@ -620,7 +622,7 @@ func vetted(_ msg: [String: Any]) -> String? {
                 guard (rect["width"] as! NSNumber).doubleValue>0,
                       (rect["height"] as! NSNumber).doubleValue>0 else {return "empty curve graph bounds"}
             case "via":
-                guard ["drag","vroid_drag"].contains(name), let points=v as? [[String:Any]], points.count<=12 else {
+                guard ["drag","vroid_drag","hover"].contains(name), let points=v as? [[String:Any]], points.count<=12 else {
                     return "invalid drag path"
                 }
                 for point in points {
@@ -631,6 +633,11 @@ func vetted(_ msg: [String: Any]) -> String? {
                         return "invalid drag path point"
                     }
                 }
+            case "capture":
+                guard name == "hover", let b=v as? NSNumber, CFGetTypeID(b) == CFBooleanGetTypeID() else {return "invalid hover capture"}
+            case "duration" where name == "hover", "hold":
+                guard name == "hover", let d=v as? NSNumber, CFGetTypeID(d) != CFBooleanGetTypeID(),
+                      d.doubleValue.isFinite, d.doubleValue >= 0, d.doubleValue <= 2 else {return "invalid hover \(k)"}
             case "duration":
                 guard ["drag","vroid_drag"].contains(name),let d=v as? NSNumber,CFGetTypeID(d) != CFBooleanGetTypeID(),
                       d.doubleValue.isFinite,d.doubleValue >= (name == "drag" ? 0.1 : 0.5),d.doubleValue<=2 else {return "invalid drag duration"}
