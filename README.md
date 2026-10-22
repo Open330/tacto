@@ -15,7 +15,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.<br>
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.22) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.1) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -90,7 +90,7 @@ This is **computer use**: agents read app interfaces, click controls, and enter 
 | Create a Flow with Claude or Codex | Resolve targets from fresh observations and check outcomes | Use a model for judgment or supported repairs |
 | Model-independent execution format | **Zero model calls during normal deterministic replay** | Supported repair resumes at the affected step |
 
-Authoring, judgment, and repair still cost model tokens. Automatic selector repair currently belongs to the **development checkout's Codex provider**; it is not included in the main-branch preview.
+Authoring, judgment, and repair still cost model tokens. Automatic selector repair currently belongs to the **development checkout's Codex provider**; it is not included in the packaged release candidate.
 
 <details>
 <summary>What if the interface changes or completion is uncertain?</summary>
@@ -115,17 +115,17 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 ## Get started
 
-**Developer preview for Apple Silicon Macs on macOS 27.0.1.**
+**1.0.0-rc.1 release candidate for Apple Silicon Macs on macOS 27.0.1.**
 
-[Download preview](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.22). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Preview 22 simplifies the agent skill instructions; runtime behavior is unchanged from Preview 21. Optional faster startup keeps the helper ready between commands. It is off by default; enable it in settings when needed. One persistent menu shows settings and task status, and task banners remain optional. Browse operation timelines and configure logging and retention in the app. Signing identities are unchanged from Preview 9. Upgrading from Preview 8 or earlier requires granting permissions to **Tacto Helper** (app control) and **Tacto** (screen recording).
+[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.1). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Version 1.0.0-rc.1 is a candidate for stable qualification, based on Preview 22. Optional faster startup keeps the helper ready between commands. It is off by default; enable it in settings when needed. One persistent menu shows settings and task status, and task banners remain optional. Browse operation timelines and configure logging and retention in the app. Signing identities are unchanged from Preview 9. Upgrading from Preview 8 or earlier requires granting permissions to **Tacto Helper** (app control) and **Tacto** (screen recording).
 
-This is a **private developer prerelease**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
+This is a **private release candidate, not an approved stable release**. Stable qualification still needs human fresh-install, permission-recovery and limited-beta checks; historical GitHub reference/cache cleanup is also pending.
 
 After setup, **Start first task** detects Claude Code or Codex and opens a fresh CLI conversation with one fixed Tacto command. The command launches TextEdit if needed, creates a new document and verifies its welcome text without an internal model call. The agent CLI may still ask for its normal trust or login confirmation.
 
 Tacto runs in the menu bar without a Dock icon. Close the settings window to leave it in the background; use the menu bar icon to reopen settings or quit. [Preview 7 validation](docs/release-readiness.md#2026-10-19-preview-7-release).
 
-This is an early preview, **not a stable release**. The repository and downloads currently require GitHub access permission. Installation, permissions, Claude/Codex connection and a same-team app update were verified on the build Mac. Fresh-Mac installation, other macOS versions and the full stable-release task/beta checks remain unverified. Windows and Intel Mac builds are not provided. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
+This is a release candidate, **not an approved stable release**. The repository and downloads currently require GitHub access permission. Installation, permissions, Claude/Codex connection and a same-team app update were verified on the build Mac. Fresh-Mac installation, other macOS versions and the full stable-release task/beta checks remain unverified. Windows and Intel Mac builds are not provided. The bundled onboarding UI and detailed guides are currently primarily Korean; this README is available in both languages.
 
 Under the previous development signature, Finder and Safari completed 40 tasks. The first 20 TextEdit saves required the user to bring the app forward; all 20 retries then passed. Those initial failures remain in the record. These results are not unattended 60/60 success or approval of the newly signed DMG. [Release evidence and remaining checks](docs/release-readiness.md) · [Installation details](docs/installation.md).
 
@@ -293,7 +293,7 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 ---
 
 **Tacto** · Local execution. Reusable computer use.<br>
-Developer preview · Proprietary license
+Release candidate · Proprietary license
 
 
 <details>

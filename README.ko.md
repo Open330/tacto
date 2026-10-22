@@ -156,18 +156,18 @@ Tacto는 실행할 때 대상을 새 관찰에서 찾고 결과 조건을 검사
 
 ## 첫 작업 시작하기
 
-**macOS 개발자 미리보기**입니다.
+**macOS용 1.0.0-rc.1 정식 출시 후보**입니다.
 README는 한국어·영어로 제공하며, 앱 온보딩과 상세 가이드는 현재 주로 한국어입니다.
 
 Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gatekeeper 검사**를 완료했습니다.
 [Release 페이지](https://github.com/Open330/tacto/releases)에서 배포 상태와 첨부 파일을 확인하세요.
-[Tacto 미리보기 다운로드](https://github.com/Open330/tacto/releases/tag/v0.1.0-preview.22) · Apple Silicon · macOS 27.0.1 · 개발자 미리보기(정식 안정 버전 아님).
+[Tacto 출시 후보 다운로드](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.1) · Apple Silicon · macOS 27.0.1 · 출시 후보(정식 안정 버전 아님).
 
-Preview 22는 에이전트 스킬의 안내 문구를 정리했습니다. 런타임 동작은 Preview 21과 같으며, 명령 사이에 helper를 유지하는 선택형 빠른 실행을 제공합니다. 기본값은 꺼짐이며 필요할 때 설정에서 켤 수 있습니다. 기존 메뉴 아이콘 하나에서 설정과 작업 상태를 보여주고, 작업 배너를 선택적으로 숨깁니다. 앱 안에서 실행 기록을 검색하고 기록 저장 여부와 보관 기간을 바꿀 수 있습니다. Preview 9와 서명 식별자가 같습니다. Preview 8 이하에서 전환하는 경우 앱 조작은 **Tacto Helper**, 화면 기록은 **Tacto**에 다시 허용하세요.
+1.0.0-rc.1은 Preview 22를 바탕으로 정식 출시 검증을 진행하는 후보입니다. 명령 사이에 helper를 유지하는 선택형 빠른 실행을 제공합니다. 기본값은 꺼짐이며 필요할 때 설정에서 켤 수 있습니다. 기존 메뉴 아이콘 하나에서 설정과 작업 상태를 보여주고, 작업 배너를 선택적으로 숨깁니다. 앱 안에서 실행 기록을 검색하고 기록 저장 여부와 보관 기간을 바꿀 수 있습니다. Preview 9와 서명 식별자가 같습니다. Preview 8 이하에서 전환하는 경우 앱 조작은 **Tacto Helper**, 화면 기록은 **Tacto**에 다시 허용하세요.
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
-현재 **비공개 개발자 미리보기**입니다. 정식 출시는 새 사용자 설치·권한 복구·제한 베타의 사람 확인이 필요하며, GitHub 과거 참조·캐시 정리도 남아 있습니다.
+현재 **비공개 정식 출시 후보**이며 아직 정식 안정 버전이 아닙니다. 정식 출시는 새 사용자 설치·권한 복구·제한 베타의 사람 확인이 필요하며, GitHub 과거 참조·캐시 정리도 남아 있습니다.
 
 설정 후 **첫 작업 시작**을 누르면 설치된 Claude Code·Codex를 감지해 새 CLI 대화를 엽니다. 명령 하나로 TextEdit 실행·새 문서 생성·환영 문구 입력과 확인을 처리하며, 내부 모델 호출은 없습니다. 에이전트 CLI 자체의 최초 신뢰·로그인 확인은 나타날 수 있습니다.
 
@@ -348,7 +348,7 @@ macOS 설정의 **빠른 실행(helper 유지)**을 켜면 다음 작업의 시�
 ---
 
 **Tacto** · Local execution. Reusable computer use.<br>
-Developer preview · Proprietary license
+Release candidate · Proprietary license
 
 
 <details>
