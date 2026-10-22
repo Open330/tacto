@@ -73,6 +73,17 @@ class CLIReadRouteTests(unittest.TestCase):
             self.assertNotIn('Traceback',text);self.assertNotIn('PRIVATE',text)
             if flags:self.assertEqual('unknown',json.loads(out.getvalue())['effect'])
 
+    def test_lease_refusal_preserves_code_without_private_peer_detail(self):
+        from tacto.helper import HelperLeaseRefused
+        for code in ('helper_busy', 'aborted_by_user'):
+            with patch.object(cli, '_main', side_effect=HelperLeaseRefused(code)), \
+                    patch('tacto.access_log.AccessLog'), contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(2, cli.main(['apps', '--helper']))
+            result = json.loads(out.getvalue())
+            self.assertEqual(code, result['error'])
+            self.assertEqual('not_started', result['effect'])
+            self.assertEqual(code == 'helper_busy', result['retryable'])
+
     def test_explicit_python_route_is_preserved(self):
         for command in (['apps'], ['observe', 'owned.fixture']):
             driver = self.fake()

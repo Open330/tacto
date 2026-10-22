@@ -123,6 +123,21 @@ class HelperUnavailable(RuntimeError):
     pass
 
 
+class HelperLeaseRefused(HelperUnavailable):
+    """An allowlisted pre-dispatch refusal, never arbitrary peer text."""
+    def __init__(self, code):
+        if code not in ('helper_busy', 'aborted_by_user'):
+            raise ValueError('invalid lease refusal')
+        self.code = code
+        self.detail = ('다른 작업이 도우미를 사용 중입니다. 작업이 끝난 뒤 다시 시도해 주세요.'
+                       if code == 'helper_busy' else '도우미 대기를 취소했습니다')
+        super().__init__(self.detail)
+
+    def result(self):
+        return {'type': 'error', 'error': self.code, 'effect': 'not_started',
+                'retryable': self.code == 'helper_busy', 'detail': self.detail}
+
+
 # What this client sends and therefore needs honoured. A helper that does not
 # name all of these is one whose refusals and preconditions cannot be relied
 # on, and silence is not agreement.
@@ -197,6 +212,10 @@ class InheritedHelperDriver:
         try:
             pong = self._send({"type": "ping"})
             self.handshake = pong       # what the helper said about itself
+            if (isinstance(pong, dict) and pong.get('type') == 'error'
+                    and pong.get('effect') == 'not_started'
+                    and pong.get('error') in ('helper_busy', 'aborted_by_user')):
+                raise HelperLeaseRefused(pong['error'])
             if not isinstance(pong, dict) or pong.get("type") != "pong":
                 raise HelperUnavailable(f"도우미가 응답하지 않습니다: {pong}")
             if not pong.get("trusted"):

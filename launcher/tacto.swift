@@ -970,6 +970,7 @@ var helperRunning: NSRunningApplication?
 // Opt-in only. No helper mode setting reaches Python or screen data.
 var effectiveHelperMode = "per_command"
 var requestedHelperMode = "per_command"
+var helperStartError = "helper_unavailable"
 @Sendable func startSelectedHelper() -> Int32? {
     let mode = inherited["TACTO_HELPER_MODE"] ?? "per_command"
     requestedHelperMode = mode
@@ -977,12 +978,22 @@ var requestedHelperMode = "per_command"
     guard let key = TactoMode.buildKey(helperApp.appendingPathComponent("Contents/MacOS/TactoHelper")) else {
         modeDiagnostic(mode,"per_command","missing_build"); return startHelper()
     }
-    let attempt = mode == "warm" ? warmConnection(key) : residentConnection(key)
+    helperStartError = "helper_unavailable"
+    let attempt = acquireModeConnection(key,mode:mode,cancelled:{
+        var channel = pollfd(fd:relayEnd,events:0,revents:0)
+        _ = poll(&channel,1,0)
+        return channel.revents & Int16(POLLHUP | POLLERR | POLLNVAL) != 0
+            || CGEventSource.keyState(.combinedSessionState,key:53)
+    })
     switch attempt {
     case .ready(let fd,let actual):
         effectiveHelperMode = actual; modeDiagnostic(mode,actual, pid:actual == "resident" ? residentModePID : peerToken(fd).map { Int($0.val.5) }); return fd
     case .busy:
-        modeDiagnostic(mode,"busy","driving_lease_held"); return nil
+        helperStartError = "helper_busy"
+        modeDiagnostic(mode,"busy","driving_lease_wait_timeout"); return nil
+    case .cancelled:
+        helperStartError = "aborted_by_user"
+        modeDiagnostic(mode,"cancelled","lease_wait_cancelled"); return nil
     case .unavailable(let reason):
         modeDiagnostic(mode,"per_command",reason); return startHelper()
     }
@@ -1230,9 +1241,12 @@ relayQueue.async {
             // connection IS the launch result, so there is no second phase in
             // which we could have a running helper and no way to reach it.
             guard let fd = startSelectedHelper() else {
-                writeJSONLine(relayEnd, ["type": "error", "error": "helper_unavailable",
+                writeJSONLine(relayEnd, ["type": "error", "error": helperStartError,
                                          "effect": "not_started",
-                                         "detail": "도우미를 시작하지 못했습니다"])
+                                         "retryable": helperStartError == "helper_busy",
+                                         "detail": helperStartError == "helper_busy"
+                                            ? "다른 작업이 도우미를 사용 중입니다. 작업이 끝난 뒤 다시 시도해 주세요."
+                                            : (helperStartError == "aborted_by_user" ? "도우미 대기를 취소했습니다" : "도우미를 시작하지 못했습니다")])
                 continue
             }
             helperFD = fd

@@ -64,6 +64,16 @@ chmod(created,0o700); rmdir(created)
 precondition(symlink("/tmp",path) == 0); precondition(TactoMode.directory(key) == nil); unlink(path)
 var pair: [Int32] = [0,0]; precondition(socketpair(AF_UNIX,SOCK_STREAM,0,&pair) == 0)
 defer { close(pair[0]); close(pair[1]) }
+var attempts = 0
+let acquired: Int? = TactoMode.waitForLease(seconds:1,attempt:{ attempts += 1; return attempts },
+    busy:{$0 < 3},cancelled:{false})
+precondition(acquired == 3 && attempts == 3)
+attempts = 0
+let exhausted: Int? = TactoMode.waitForLease(seconds:0,attempt:{ attempts += 1; return 0 },
+    busy:{$0 == 0},cancelled:{false})
+precondition(exhausted == 0 && attempts == 1)
+let cancelled: Int? = TactoMode.waitForLease(seconds:10,attempt:{0},busy:{$0 == 0},cancelled:{true})
+precondition(cancelled == nil)
 precondition(TactoMode.send(pair[0],["step":1]))
 precondition(TactoMode.send(pair[0],["step":2]))
 precondition(TactoMode.receive(pair[1])?["step"] as? Int == 1)

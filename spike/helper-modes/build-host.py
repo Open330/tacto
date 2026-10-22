@@ -11,7 +11,7 @@ AGENT = 'ai.callabo.tacto.prototype.agent'
 SERVICE = 'ai.callabo.tacto.prototype.resident'
 
 
-def build(output, identity):
+def build(output, identity, idle_seconds=120):
     app = Path(output).absolute() / 'TactoModes.app'
     if app.exists():
         raise SystemExit('Output exists; unregister the previous host before replacing it')
@@ -31,7 +31,7 @@ def build(output, identity):
         'CFBundlePackageType': 'APPL', 'CFBundleVersion': '1', 'LSUIElement': True}))
     (agents / (AGENT + '.plist')).write_bytes(plistlib.dumps({
         'Label': AGENT, 'BundleProgram': 'Contents/Resources/Tacto Helper.app/Contents/MacOS/TactoHelper',
-        'ProgramArguments': ['TactoHelper', '--resident-agent', '--mode-idle', '120'],
+        'ProgramArguments': ['TactoHelper', '--resident-agent', '--mode-idle', str(idle_seconds)],
         'MachServices': {SERVICE: True}, 'ProcessType': 'Interactive',
         'AssociatedBundleIdentifiers': ['ai.callabo.tacto.prototype.host']}))
     subprocess.run(['codesign', '--force', '--sign', identity, '--options', 'runtime', '--timestamp=none',
@@ -44,7 +44,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True)
     parser.add_argument('--identity', default=os.environ.get('TACTO_SIGN_IDENTITY'))
+    parser.add_argument('--idle-seconds', type=int, default=120, choices=range(1, 601), metavar='1..600')
     args = parser.parse_args()
     if not args.identity:
         parser.error('--identity or TACTO_SIGN_IDENTITY is required')
-    build(args.output, args.identity)
+    build(args.output, args.identity, args.idle_seconds)
