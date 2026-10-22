@@ -7,33 +7,43 @@ from tacto.open_url import open_url
 
 
 class Backend:
-    def __init__(self, problem=None):
-        self.problem, self.opened, self.time = problem, [], 0
+    """LaunchServices answers on a later run-loop turn: `answer` is what it says."""
+    def __init__(self, problem=None, answer='accepted'):
+        self.problem, self.opened, self.time, self.answer = problem, [], 0, answer
+        self.request = None
     def session_problem(self): return self.problem
     def resolve(self, bundle): return '/Applications/Safari.app' if bundle == 'com.apple.Safari' else None
     def open_url(self, url, path):
-        self.opened.append((url, path)); return {'error': None}
-    def pump(self, seconds): self.time += seconds
+        self.opened.append((url, path)); self.request = {'state': 'pending'}
+        return self.request
+    def pump(self, seconds):
+        self.time += seconds
+        if self.request is not None and self.answer:
+            self.request['state'] = self.answer
+
+
+def window(index, url, focused):
+    return (f'{index} Window  Title: "Page", Identifier: "w{index}"' + (' [focused]' if focused else '') + '\n'
+            f'  {index + 1} WebArea  Title: "Page", URL: {json.dumps(url)}')
 
 
 def page(url):
-    return ('0 Window  Title: "Page", Identifier: "SafariWindow?IsSecure=true&UUID=F94CC087-2879-417A-9D6D-2A317F3981BE" [focused]\n'
-            f'  2 WebArea  Title: "Page", URL: {json.dumps(url)}')
+    return window(0, url, True)
 
 
 class Browser:
-    def __init__(self, backend, shows):
-        self.backend, self.shows = backend, shows
+    def __init__(self, backend, shows, before='https://old.example/', behind=None):
+        self.backend, self.shows, self.before, self.behind = backend, shows, before, behind
     def observe(self, target):
-        if not self.backend.opened:
-            return {'type': 'observation', 'obs_id': 'o', 'tree': page('https://old.example/')}
-        return {'type': 'observation', 'obs_id': 'o', 'tree': page(self.shows)}
+        front = page(self.shows if self.backend.opened else self.before)
+        tree = front + ('\n' + window(9, self.behind, False) if self.behind else '')
+        return {'type': 'observation', 'obs_id': 'o', 'tree': tree}
 
 
 class OpenURLTests(unittest.TestCase):
-    def run_open(self, url, shows=None, backend=None, **kwargs):
+    def run_open(self, url, shows=None, backend=None, browser_kwargs=None, **kwargs):
         b = backend or Backend()
-        driver = Browser(b, shows) if shows is not None else None
+        driver = Browser(b, shows, **(browser_kwargs or {})) if shows is not None else None
         return open_url(url, driver=driver, backend=b, clock=lambda: b.time, sleep=lambda s: None, **kwargs), b
 
     def test_the_page_is_confirmed_by_its_web_area(self):
@@ -45,6 +55,24 @@ class OpenURLTests(unittest.TestCase):
         r, b = self.run_open('https://example.com/a', shows='https://example.com/login')
         self.assertEqual(('page_not_shown', 'unknown', False), (r['error'], r['effect'], r['loaded_verified']))
         self.assertEqual(1, len(b.opened))
+
+    def test_a_matching_window_behind_does_not_hide_a_redirect_in_front(self):
+        r, b = self.run_open('https://example.com/', shows='https://example.com/login',
+                             browser_kwargs={'behind': 'https://example.com/'})
+        self.assertEqual(('page_not_shown', False), (r['error'], r['loaded_verified']))
+        self.assertEqual(1, len(b.opened))
+
+    def test_a_page_already_in_front_is_present_not_newly_loaded(self):
+        r, b = self.run_open('https://example.com/', shows='https://example.com/',
+                             browser_kwargs={'before': 'https://example.com/'})
+        self.assertEqual(('url_opened', False, True), (r['type'], r['loaded_verified'], r['already_open']))
+
+    def test_a_late_failure_or_no_answer_is_never_a_success(self):
+        r, b = self.run_open('https://example.com/', shows='https://example.com/',
+                             backend=Backend(answer='error'), browser_kwargs={'before': 'https://example.com/'})
+        self.assertEqual(('open_failed', 1), (r['error'], len(b.opened)))
+        r, b = self.run_open('https://example.com/', shows='https://example.com/', backend=Backend(answer=None))
+        self.assertEqual(('open_unconfirmed', 'unknown', 1), (r['error'], r['effect'], len(b.opened)))
 
     def test_without_an_observer_it_says_only_dispatched(self):
         r, b = self.run_open('https://example.com/')
