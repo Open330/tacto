@@ -34,6 +34,13 @@ helper follows the existing per-command semantics. Optional mode diagnostics on 
 requested/effective route and helper PID, so a fallback must not be counted as
 a fast-mode benchmark sample.
 
+The launcher caches the build digest across commands in private temporary
+storage (at most 64 entries), keyed by device, inode, size and nanosecond
+modification time, with change time as an additional invalidation guard. A file
+replacement or metadata change requires a fresh digest. An unavailable or
+malformed cache falls back to hashing; it never authorizes a peer. The helper
+always hashes its own executable and signing/build checks remain unchanged.
+
 The mode is opt-in. In a one-Mac development comparison (20-command medians,
 same signed launcher), per-command apps/observe took 488/503 ms and warm took
 244/281 ms. These are command startup/observation timings, not end-to-end task

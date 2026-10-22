@@ -8,7 +8,7 @@ SDK=$(/bin/ls -d /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk | /usr/bin
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp tacto.swift "$STAGE/main.swift"
-"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" ../SigningPolicy.swift ../HelperModeProtocol.swift ../RuntimeStatus.swift HelperModeClient.swift -o "$STAGE/tacto"
+"$SWIFTC" -O -sdk "$SDK" "$STAGE/main.swift" ../SigningPolicy.swift ../HelperModeProtocol.swift ../RuntimeStatus.swift HelperModeClient.swift BuildKeyCache.swift -o "$STAGE/tacto"
 tacto_select_identity
 tacto_sign "$STAGE/tacto" "$TACTO_LAUNCHER_ID"
 tacto_warn_team_change tacto "$STAGE/tacto"

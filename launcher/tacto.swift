@@ -976,7 +976,7 @@ var helperStartError = "helper_unavailable"
     let mode = settings.mode
     requestedHelperMode = mode
     guard mode == "warm" else { return startHelper() }
-    guard let key = TactoMode.buildKey(helperApp.appendingPathComponent("Contents/MacOS/TactoHelper")) else {
+    guard let key = TactoMode.cachedBuildKey(helperApp.appendingPathComponent("Contents/MacOS/TactoHelper")) else {
         modeDiagnostic(mode,"per_command","missing_build"); return startHelper()
     }
     helperStartError = "helper_unavailable"
