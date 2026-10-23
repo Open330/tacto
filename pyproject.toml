@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tacto-runtime"
-version = "0.1.0"
+version = "1.0.0"
 description = "Tacto — reusable computer use for Claude, Codex and agent-authored flows"
 classifiers = [
     "Programming Language :: Python :: 3",
