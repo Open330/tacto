@@ -1,38 +1,182 @@
 "use strict";
 
 (() => {
-  const demos = {
-    replay: {
-      status: "VERIFIED REPLAY",
-      total: "모델 호출 0회",
-      lines: [
-        ["01", "새 관찰에서 입력 필드 확인", ""],
-        ["02", "매개변수로 입력 · 보너스 상태 확인", ""],
-        ["03", "검토 → 계산 → 완료", ""],
-        ["check", "결과 조건 검증 완료", "good"],
-      ],
+  const script = document.currentScript;
+  // User-visible strings follow <html lang>; Korean is the default page.
+  const messages = {
+    ko: {
+      copyLabel: "복사할 명령",
+      copied: "복사했습니다. 터미널 또는 에이전트에 붙여넣으세요.",
+      copyFailed: "자동 복사가 불가능합니다. 명령을 직접 선택해 복사하세요.",
+      play: "영상 재생",
+      playLabel: (name) => `영상 재생: ${name}`,
+      defaultVideo: "실행 예제",
+      rotationStop: "자동 넘김 멈추기",
+      rotationStart: "자동 넘김 시작하기",
+      exampleCount: (count) => `${count}개 사례를 표시합니다.`,
+      flowResult: (item) => `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`,
+      flowStep: (step, total, name) => `단계 ${step} / ${total} · ${name}`,
+      demos: {
+        replay: {
+          status: "VERIFIED REPLAY",
+          total: "모델 호출 0회",
+          lines: [
+            ["01", "새 관찰에서 입력 필드 확인", ""],
+            ["02", "매개변수로 입력 · 보너스 상태 확인", ""],
+            ["03", "검토 → 계산 → 완료", ""],
+            ["check", "결과 조건 검증 완료", "good"],
+          ],
+        },
+        repair: {
+          status: "CHECKED CONTINUATION",
+          total: "설명용 예시 · 수리 1회",
+          lines: [
+            ["01", "계산 버튼의 선택자 변경 감지", "warn"],
+            ["02", "실패 단계와 후보만 에이전트에 전달", ""],
+            ["03", "현재 상태와 수리 후보 검증", ""],
+            ["check", "남은 단계부터 재개 · 앞 단계 유지", "good"],
+          ],
+        },
+        stop: {
+          status: "STOPPED · NO RESEND",
+          total: "불확실한 완료는 재전송 금지",
+          lines: [
+            ["01", "완료 요청 후 결과 확인 실패", "warn"],
+            ["02", "이미 처리됐을 가능성 확인", ""],
+            ["03", "같은 요청을 다시 보내지 않음", ""],
+            ["stop", "작업 중단 · 현재 상태 검토 필요", "warn"],
+          ],
+        },
+      },
+      workflows: {
+        triage: {
+          title: "다음 회의 전에, 검토할 이슈만 모아두세요.",
+          request: "“이번 주 열린 버그를 찾아 이전 목록과 비교하고, 새로 확인할 이슈를 정리해줘.”",
+          steps: [["GitHub", "대상 저장소에서 열린 버그 검색"], ["이전 검토 목록", "이미 검토한 항목과 새 항목 대조"], ["검토용 목록", "이슈 링크·댓글 수·확인할 점 정리"]],
+          result: "다음 회의에서 바로 열어볼 이슈 목록. 우선순위와 담당자는 사람이 결정합니다.",
+          repeat: "저장소와 조회 조건을 바꿔 같은 점검 절차를 재사용하는 설계입니다.",
+          evidence: "github", kind: "실제 웹사이트 · GitHub", label: "실제 녹화: 검색·필터·정렬 단계",
+          scope: "열린 버그를 댓글순으로 정렬하고 결과 25개를 확인했습니다. 이전 목록 대조·검토 목록 생성은 이 영상에 포함되지 않습니다.",
+        },
+        expenses: {
+          title: "월말마다, 증빙을 찾는 일부터 반복하지 않도록.",
+          request: "“이번 달 증빙 파일을 모아 정산표와 대조하고, 빠진 항목과 중복 후보를 표시해줘.”",
+          steps: [["브라우저 · 다운로드", "지정한 서비스에서 증빙 파일 수집"], ["Finder · 스프레드시트", "날짜·거래처·금액을 정산표와 대조"], ["검토용 폴더", "누락·중복 후보와 원본 파일 연결"]],
+          result: "원본을 찾아볼 수 있는 정산 검토표. 불분명한 금액·중복 후보는 검토 대상으로 남깁니다.",
+          repeat: "대상 월과 증빙 폴더를 바꿔 재사용하는 설계입니다. 자동 제출은 포함하지 않습니다.",
+          evidence: "finder", kind: "실제 Mac 앱 · Finder", label: "실제 녹화: 파일 목록 정렬 단계",
+          scope: "촬영용 폴더의 파일 5개를 종류·이름으로 정렬했습니다. 증빙 다운로드·정보 추출·정산표 대조는 아직 검증하지 않았습니다.",
+        },
+        support: {
+          title: "문의 내용과 주문 화면을 오가는 시간을 줄이세요.",
+          request: "“배송 문의를 분류하고 주문 상태를 확인한 다음, 답변 초안을 검토할 수 있게 준비해줘.”",
+          steps: [["문의함", "배송·교환 등 요청 내용 분류"], ["주문 관리 화면", "주문 번호와 현재 처리 상태 대조"], ["답변 초안", "고객 언어로 답변 준비 · 전송 전 검토"]],
+          result: "주문 근거가 연결된 답변 초안. 주문이 일치하지 않거나 정책 판단이 필요하면 검토 대상으로 남깁니다.",
+          repeat: "새 문의 묶음에 같은 확인 절차를 적용하는 설계입니다. 고객에게 자동 전송하는 기능을 시연한 것은 아닙니다.",
+          evidence: "translate", kind: "실제 웹사이트 · Google Translate", label: "실제 녹화: 번역 입력·결과 확인 단계",
+          scope: "영어 예문 입력 뒤 한국어 결과를 확인했습니다. 전송 단계의 완료 증명은 미확정이며, 문의함·주문 조회·답장 저장은 검증하지 않았습니다.",
+        },
+        backoffice: {
+          title: "여러 행을 옮겨 적는 일에도, 확인 절차를 함께.",
+          request: "“검토된 CSV의 항목을 관리자 화면에 입력하고, 저장된 값이 원본과 같은지 확인해줘.”",
+          steps: [["CSV · 스프레드시트", "필수 값·중복 항목을 먼저 확인"], ["관리자 화면", "각 행의 값을 대응하는 입력란에 등록"], ["저장 결과", "원본과 대조 · 실패한 행은 별도 표시"]],
+          result: "행별 처리 결과와 확인이 필요한 항목. 저장 여부가 불분명한 행은 재등록 전에 상태부터 검토합니다.",
+          repeat: "입력 파일을 바꿔 같은 필드 매핑을 재사용하는 설계입니다. 실제 서비스별 연동 검증은 별도로 필요합니다.",
+          evidence: "form", kind: "공개 테스트 사이트 · Selenium", label: "테스트 녹화: 입력란·선택 항목 조작",
+          scope: "공개 테스트 폼의 입력·선택 조작만 촬영했습니다. 제출하지 않았으며 실제 관리자 서비스·CSV 연계·일괄 저장 완료를 증명하지 않습니다.",
+        },
+      },
     },
-    repair: {
-      status: "CHECKED CONTINUATION",
-      total: "설명용 예시 · 수리 1회",
-      lines: [
-        ["01", "계산 버튼의 선택자 변경 감지", "warn"],
-        ["02", "실패 단계와 후보만 에이전트에 전달", ""],
-        ["03", "현재 상태와 수리 후보 검증", ""],
-        ["check", "남은 단계부터 재개 · 앞 단계 유지", "good"],
-      ],
-    },
-    stop: {
-      status: "STOPPED · NO RESEND",
-      total: "불확실한 완료는 재전송 금지",
-      lines: [
-        ["01", "완료 요청 후 결과 확인 실패", "warn"],
-        ["02", "이미 처리됐을 가능성 확인", ""],
-        ["03", "같은 요청을 다시 보내지 않음", ""],
-        ["stop", "작업 중단 · 현재 상태 검토 필요", "warn"],
-      ],
+    en: {
+      copyLabel: "Command to copy",
+      copied: "Copied. Paste it into your terminal or agent.",
+      copyFailed: "Automatic copy is unavailable. Select the command and copy it manually.",
+      play: "Play video",
+      playLabel: (name) => `Play video: ${name}`,
+      defaultVideo: "Run example",
+      rotationStop: "Pause auto-advance",
+      rotationStart: "Start auto-advance",
+      exampleCount: (count) => `Showing ${count} ${count === 1 ? "example" : "examples"}.`,
+      flowResult: (item) => `Result verified in the recording: ${item.left} + ${item.right} = ${item.result}`,
+      flowStep: (step, total, name) => `Step ${step} / ${total} · ${name}`,
+      demos: {
+        replay: {
+          status: "VERIFIED REPLAY",
+          total: "0 model calls",
+          lines: [
+            ["01", "Locate input fields in a fresh observation", ""],
+            ["02", "Enter parameters · check bonus state", ""],
+            ["03", "Review → calculate → complete", ""],
+            ["check", "Result conditions verified", "good"],
+          ],
+        },
+        repair: {
+          status: "CHECKED CONTINUATION",
+          total: "Illustrative example · 1 repair",
+          lines: [
+            ["01", "Detect a changed selector on the calculate button", "warn"],
+            ["02", "Send only the failed step and candidates to the agent", ""],
+            ["03", "Verify the current state and repair candidate", ""],
+            ["check", "Resume from the remaining steps · earlier steps kept", "good"],
+          ],
+        },
+        stop: {
+          status: "STOPPED · NO RESEND",
+          total: "No resend on uncertain completion",
+          lines: [
+            ["01", "Result check failed after the completion request", "warn"],
+            ["02", "Check whether it may already have been processed", ""],
+            ["03", "Do not send the same request again", ""],
+            ["stop", "Task stopped · current state needs review", "warn"],
+          ],
+        },
+      },
+      workflows: {
+        triage: {
+          title: "Before the next meeting, gather just the issues to review.",
+          request: "“Find this week’s open bugs, compare them with the previous list, and summarize the new issues to check.”",
+          steps: [["GitHub", "Search open bugs in the target repository"], ["Previous review list", "Compare already-reviewed items with new ones"], ["Review list", "List issue links, comment counts and points to check"]],
+          result: "An issue list ready to open at the next meeting. People decide priorities and owners.",
+          repeat: "Designed to reuse the same review procedure with a different repository and query.",
+          evidence: "github", kind: "Real website · GitHub", label: "Actual recording: search, filter and sort steps",
+          scope: "Sorted open bugs by comments and verified 25 results. Comparing with the previous list and building the review list are not part of this recording.",
+        },
+        expenses: {
+          title: "Stop starting every month-end by hunting for receipts.",
+          request: "“Collect this month’s receipt files, compare them with the expense sheet, and flag missing items and possible duplicates.”",
+          steps: [["Browser · Downloads", "Collect receipt files from the specified services"], ["Finder · Spreadsheet", "Compare date, vendor and amount with the expense sheet"], ["Review folder", "Link missing or duplicate candidates to the original files"]],
+          result: "An expense review sheet with links back to the originals. Unclear amounts and possible duplicates are left for review.",
+          repeat: "Designed to be reused with a different month and receipt folder. Automatic submission is not included.",
+          evidence: "finder", kind: "Real Mac app · Finder", label: "Actual recording: file list sorting step",
+          scope: "Sorted five files in a folder made for the recording by kind and name. Downloading receipts, extracting details and comparing with the expense sheet are not yet verified.",
+        },
+        support: {
+          title: "Spend less time switching between inquiries and order screens.",
+          request: "“Categorize the shipping inquiries, check each order’s status, then prepare reply drafts for review.”",
+          steps: [["Inbox", "Categorize requests such as shipping or exchanges"], ["Order management", "Match order numbers with their current status"], ["Reply draft", "Prepare replies in the customer’s language · review before sending"]],
+          result: "Reply drafts linked to order evidence. Mismatched orders or cases needing a policy call are left for review.",
+          repeat: "Designed to apply the same checks to a new batch of inquiries. Automatic sending to customers was not demonstrated.",
+          evidence: "translate", kind: "Real website · Google Translate", label: "Actual recording: translation input and result check",
+          scope: "Entered an English sample sentence and checked the Korean result. Proof that the input step completed is inconclusive; the inbox, order lookup and saving replies were not verified.",
+        },
+        backoffice: {
+          title: "Copying many rows? Bring a verification step along.",
+          request: "“Enter the items from the reviewed CSV into the admin screen and check that the saved values match the source.”",
+          steps: [["CSV · Spreadsheet", "Check required values and duplicates first"], ["Admin screen", "Enter each row’s values into the matching fields"], ["Saved results", "Compare with the source · flag failed rows separately"]],
+          result: "Per-row results and items that need checking. Rows whose save status is unclear are reviewed before re-entry.",
+          repeat: "Designed to reuse the same field mapping with a different input file. Integration with each real service must be verified separately.",
+          evidence: "form", kind: "Public test site · Selenium", label: "Test recording: operating input fields and options",
+          scope: "Only input and selection on a public test form were recorded. It was not submitted, and this does not prove a real admin service, CSV integration or completed bulk save.",
+        },
+      },
     },
   };
+  const lang = document.documentElement.lang.toLowerCase().split("-")[0];
+  const t = messages[lang] || messages.ko;
+  // Resolve the icon sprite next to this script so pages in subfolders (/en/) work.
+  const iconSprite = new URL("assets/ui-icons.svg", script?.src || document.baseURI).href;
+
+  const demos = t.demos;
 
   const tabs = [...document.querySelectorAll("[data-demo]")];
   const panel = document.getElementById("demo-panel");
@@ -59,7 +203,7 @@
             "http://www.w3.org/2000/svg",
             "use",
           );
-          use.setAttribute("href", `assets/ui-icons.svg#${number}`);
+          use.setAttribute("href", `${iconSprite}#${number}`);
           svg.append(use);
           label.append(svg);
         } else {
@@ -139,7 +283,7 @@
     const area = document.createElement("textarea");
     area.value = text;
     area.className = "clipboard-fallback";
-    area.setAttribute("aria-label", "복사할 명령");
+    area.setAttribute("aria-label", t.copyLabel);
     document.body.append(area);
     try {
       area.focus({ preventScroll: true });
@@ -160,9 +304,9 @@
       const target = document.getElementById(button.dataset.copy);
       try {
         await copyText(target.innerText.trim());
-        toast("복사했습니다. 터미널 또는 에이전트에 붙여넣으세요.");
+        toast(t.copied);
       } catch {
-        toast("자동 복사가 불가능합니다. 명령을 직접 선택해 복사하세요.");
+        toast(t.copyFailed);
       } finally {
         button.focus({ preventScroll: true });
       }
@@ -181,10 +325,13 @@
     start.className = "video-start";
     start.setAttribute(
       "aria-label",
-      `영상 재생: ${video.getAttribute("aria-label") || "실행 예제"}`,
+      t.playLabel(video.getAttribute("aria-label") || t.defaultVideo),
     );
     start.innerHTML =
-      '<svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="assets/ui-icons.svg#play"></use></svg><span>영상 재생</span>';
+      `<svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="${iconSprite}#play"></use></svg>`;
+    const startText = document.createElement("span");
+    startText.textContent = t.play;
+    start.append(startText);
     shell.append(start);
     video.controls = false;
     video.addEventListener("play", () => {
@@ -207,44 +354,7 @@
   // individual actions. Switching scenarios never starts video playback.
   const carousel = document.getElementById("task-carousel");
   if (carousel) {
-    const workflows = {
-      triage: {
-        title: "다음 회의 전에, 검토할 이슈만 모아두세요.",
-        request: "“이번 주 열린 버그를 찾아 이전 목록과 비교하고, 새로 확인할 이슈를 정리해줘.”",
-        steps: [["GitHub", "대상 저장소에서 열린 버그 검색"], ["이전 검토 목록", "이미 검토한 항목과 새 항목 대조"], ["검토용 목록", "이슈 링크·댓글 수·확인할 점 정리"]],
-        result: "다음 회의에서 바로 열어볼 이슈 목록. 우선순위와 담당자는 사람이 결정합니다.",
-        repeat: "저장소와 조회 조건을 바꿔 같은 점검 절차를 재사용하는 설계입니다.",
-        evidence: "github", kind: "실제 웹사이트 · GitHub", label: "실제 녹화: 검색·필터·정렬 단계",
-        scope: "열린 버그를 댓글순으로 정렬하고 결과 25개를 확인했습니다. 이전 목록 대조·검토 목록 생성은 이 영상에 포함되지 않습니다.",
-      },
-      expenses: {
-        title: "월말마다, 증빙을 찾는 일부터 반복하지 않도록.",
-        request: "“이번 달 증빙 파일을 모아 정산표와 대조하고, 빠진 항목과 중복 후보를 표시해줘.”",
-        steps: [["브라우저 · 다운로드", "지정한 서비스에서 증빙 파일 수집"], ["Finder · 스프레드시트", "날짜·거래처·금액을 정산표와 대조"], ["검토용 폴더", "누락·중복 후보와 원본 파일 연결"]],
-        result: "원본을 찾아볼 수 있는 정산 검토표. 불분명한 금액·중복 후보는 검토 대상으로 남깁니다.",
-        repeat: "대상 월과 증빙 폴더를 바꿔 재사용하는 설계입니다. 자동 제출은 포함하지 않습니다.",
-        evidence: "finder", kind: "실제 Mac 앱 · Finder", label: "실제 녹화: 파일 목록 정렬 단계",
-        scope: "촬영용 폴더의 파일 5개를 종류·이름으로 정렬했습니다. 증빙 다운로드·정보 추출·정산표 대조는 아직 검증하지 않았습니다.",
-      },
-      support: {
-        title: "문의 내용과 주문 화면을 오가는 시간을 줄이세요.",
-        request: "“배송 문의를 분류하고 주문 상태를 확인한 다음, 답변 초안을 검토할 수 있게 준비해줘.”",
-        steps: [["문의함", "배송·교환 등 요청 내용 분류"], ["주문 관리 화면", "주문 번호와 현재 처리 상태 대조"], ["답변 초안", "고객 언어로 답변 준비 · 전송 전 검토"]],
-        result: "주문 근거가 연결된 답변 초안. 주문이 일치하지 않거나 정책 판단이 필요하면 검토 대상으로 남깁니다.",
-        repeat: "새 문의 묶음에 같은 확인 절차를 적용하는 설계입니다. 고객에게 자동 전송하는 기능을 시연한 것은 아닙니다.",
-        evidence: "translate", kind: "실제 웹사이트 · Google Translate", label: "실제 녹화: 번역 입력·결과 확인 단계",
-        scope: "영어 예문 입력 뒤 한국어 결과를 확인했습니다. 전송 단계의 완료 증명은 미확정이며, 문의함·주문 조회·답장 저장은 검증하지 않았습니다.",
-      },
-      backoffice: {
-        title: "여러 행을 옮겨 적는 일에도, 확인 절차를 함께.",
-        request: "“검토된 CSV의 항목을 관리자 화면에 입력하고, 저장된 값이 원본과 같은지 확인해줘.”",
-        steps: [["CSV · 스프레드시트", "필수 값·중복 항목을 먼저 확인"], ["관리자 화면", "각 행의 값을 대응하는 입력란에 등록"], ["저장 결과", "원본과 대조 · 실패한 행은 별도 표시"]],
-        result: "행별 처리 결과와 확인이 필요한 항목. 저장 여부가 불분명한 행은 재등록 전에 상태부터 검토합니다.",
-        repeat: "입력 파일을 바꿔 같은 필드 매핑을 재사용하는 설계입니다. 실제 서비스별 연동 검증은 별도로 필요합니다.",
-        evidence: "form", kind: "공개 테스트 사이트 · Selenium", label: "테스트 녹화: 입력란·선택 항목 조작",
-        scope: "공개 테스트 폼의 입력·선택 조작만 촬영했습니다. 제출하지 않았으며 실제 관리자 서비스·CSV 연계·일괄 저장 완료를 증명하지 않습니다.",
-      },
-    };
+    const workflows = t.workflows;
     const video = carousel.querySelector("video");
     const start = carousel.querySelector(".video-start");
     const choices = [...carousel.querySelectorAll("[data-workflow]")];
@@ -253,7 +363,7 @@
     const wideScreen = window.matchMedia("(min-width: 901px)");
     let index = 0, rotating = !motion.matches && wideScreen.matches, hovering = false, timer;
     const updateRotation = () => {
-      rotation.textContent = rotating ? "자동 넘김 멈추기" : "자동 넘김 시작하기";
+      rotation.textContent = rotating ? t.rotationStop : t.rotationStart;
       clearTimeout(timer);
       if (rotating && !hovering && !document.hidden && video.paused &&
           (!carousel.contains(document.activeElement) || document.activeElement === rotation)) {
@@ -273,7 +383,7 @@
       video.querySelector("a").href = recording.querySelector("source").src;
       video.src = recording.querySelector("source").src;
       start.hidden = false;
-      start.setAttribute("aria-label", `영상 재생: ${recording.getAttribute("aria-label")}`);
+      start.setAttribute("aria-label", t.playLabel(recording.getAttribute("aria-label")));
       for (const [id, value] of Object.entries({
         "workflow-title": item.title, "workflow-request": item.request,
         "workflow-result": item.result, "workflow-repeat": item.repeat,
@@ -332,7 +442,7 @@
           if (card.hidden) card.querySelector("video")?.pause();
         });
         document.querySelector("#example-count").textContent =
-          `${cases.filter((card) => !card.hidden).length}개 사례를 표시합니다.`;
+          t.exampleCount(cases.filter((card) => !card.hidden).length);
       });
     });
   }
@@ -396,7 +506,7 @@
       document.getElementById("flow-right").textContent = item.right;
       document.getElementById("flow-result").textContent = item.result;
       nodes.forEach(node => node.removeAttribute("data-state"));
-      status.textContent = `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`;
+      status.textContent = t.flowResult(item);
       choices.forEach(button => button.setAttribute("aria-pressed", String(button.dataset.flowCase === name)));
     }
     choices.forEach(button => {
@@ -414,10 +524,10 @@
         });
         if (index === nodes.length) {
           const item = flowCases[selected];
-          status.textContent = `녹화에서 확인한 결과: ${item.left} + ${item.right} = ${item.result}`;
+          status.textContent = t.flowResult(item);
           flowWalk.disabled = false; return;
         }
-        status.textContent = `단계 ${index + 1} / ${nodes.length} · ${nodes[index].querySelector("strong").textContent}`;
+        status.textContent = t.flowStep(index + 1, nodes.length, nodes[index].querySelector("strong").textContent);
         timer = setTimeout(() => step(index + 1), 550);
       }
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) step(nodes.length);

@@ -22,6 +22,9 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <title>Tacto — 에이전트의 앱 조작을 재사용하세요.</title>
+    <link rel="alternate" hreflang="ko" href="https://open330.github.io/tacto/" />
+    <link rel="alternate" hreflang="en" href="https://open330.github.io/tacto/en/" />
+    <link rel="alternate" hreflang="x-default" href="https://open330.github.io/tacto/" />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="style.css" />
     <script defer src="app.js"></script>
@@ -55,20 +58,26 @@
             <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
         ></a>
       </nav>
-      <a
-        class="nav-github"
-        href="https://github.com/Open330/tacto"
-        target="_blank"
-        rel="noopener noreferrer"
-        >GitHub
-        <svg
-          class="ui-icon"
-          aria-hidden="true"
-          focusable="false"
-          viewBox="0 0 24 24"
-        >
-          <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
-      ></a>
+      <div class="header-actions">
+        <a
+          class="nav-github"
+          href="https://github.com/Open330/tacto"
+          target="_blank"
+          rel="noopener noreferrer"
+          >GitHub
+          <svg
+            class="ui-icon"
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <use href="assets/ui-icons.svg#arrow-up-right"></use></svg
+        ></a>
+        <div class="lang-switch" role="group" aria-label="언어 선택">
+          <a href="./" hreflang="ko" lang="ko" aria-current="page">한국어</a
+          ><a href="./en/" hreflang="en" lang="en">English</a>
+        </div>
+      </div>
     </header>
     <main id="main" tabindex="-1">
       <section class="hero wrap">
