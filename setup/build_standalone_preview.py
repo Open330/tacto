@@ -255,7 +255,7 @@ def build(output, identity):
             'CFBundleDisplayName':'Tacto','CFBundleName':'Tacto',
             'CFBundleIconFile':'tacto-app.icns',
             'CFBundleExecutable':'TactoSetup','CFBundleIdentifier':'ai.callabo.tacto.setup.standalone.preview',
-            'CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1',
+            'CFBundlePackageType':'APPL','CFBundleShortVersionString':'1.0.0','CFBundleVersion':'1',
             'LSUIElement':True,
             'LSMinimumSystemVersion':platform.mac_ver()[0]}))
         (resources/'runtime.json').write_text(json.dumps({'bundledRoot':'runtime'}))
