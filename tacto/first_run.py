@@ -109,6 +109,12 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
     # Share replay's transport/malformed-read handling; never retry an input
     # because a later observation failed.
     before = _replay_observation(driver.observe, TARGET, 'tree_full', require_window=False, window_identity=True)
+    if before.get('error') in ('window_list_unavailable', 'no_window_content'):
+        focused = (activate or activate_app)(TARGET)
+        recovery.append('activate_before_observation')
+        if focused.get('foreground_verified'):
+            before = _replay_observation(driver.observe, TARGET, 'tree_full',
+                                         require_window=False, window_identity=True)
     if before.get('type') != 'observation' or before.get('truncated'):
         return result('failed', 'observe', error=before.get('error', 'incomplete_observation'))
     try:
