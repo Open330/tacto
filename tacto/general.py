@@ -908,6 +908,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 if probed:
                     c = {**c, "line": probed}
             action = {"name": a["do"], "element_index": c["element_index"]}
+            if (url := safety.navigation_url(action, c['line'])) is not None:
+                if 'expect.attribute.url' not in capabilities:
+                    res.why = '링크 목적지를 검증할 수 없는 실행기입니다. Tacto를 업데이트해 주세요.'
+                    res.visits.append(visit)
+                    return res
+                expect.update(attribute='URL', label=url)
             if c.get("via_child"):
                 # The row has no name of its own to check; its text was
                 # checked when it was found again (below), against a fresh

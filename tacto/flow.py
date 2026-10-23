@@ -329,7 +329,7 @@ class Selector:
     # selector on that element stopped matching the moment the observation
     # started naming actions.
     _ATTR_KEYS = ("Title", "Description", "Value", "Help", "Identifier",
-                  "Placeholder", "Subrole", "Secondary Actions", "Document")
+                  "Placeholder", "Subrole", "Secondary Actions", "Document", "URL")
 
     # Suffixes after ';' that are known to be live state rather than identity.
     # An allowlist, not a general rule: treating everything after a ';' as
@@ -362,8 +362,9 @@ class Selector:
         if key=='Document':
             from .document_label import document_attribute
             return document_attribute(line)
-        from .document_label import window_attributes
+        from .document_label import window_attributes, link_attributes
         window=window_attributes(line)
+        if window is None:window=link_attributes(line)
         if window is not None:return _norm(window[key]) if key in window else None
         others = "|".join(k for k in cls._ATTR_KEYS if k != key)
         m = re.search(rf"{key}:[ \t]*(.*?)"
@@ -2729,6 +2730,10 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                     if label is not None:
                         claim.update(attribute=key, label=label)
                         break
+                if (url := safety.navigation_url(payload, line)) is not None:
+                    if 'expect.attribute.url' not in getattr(driver, 'capabilities', ()):
+                        return {'type':'error','error':'link_url_verification_unavailable','effect':'not_started'}
+                    claim.update(attribute='URL', label=url)
                 if step.require_enabled and step.action != "prepare_window":
                     claim["enabled"] = True
             if (flow.target == "com.apple.Safari" and payload.get("name") == "press_key"

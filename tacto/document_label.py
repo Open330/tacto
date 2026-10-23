@@ -49,6 +49,12 @@ def web_area_attributes(line):
     return parsed[0] if parsed is not None else None
 
 
+def link_attributes(line):
+    """Read an observed link URL without accepting attributes forged in its title."""
+    parsed=_parse_window(line,'Link',_KEYS+'|URL')
+    return parsed[0] if parsed is not None else None
+
+
 def window_flag(line, flag):
     """Read status outside quoted values; retain legacy human tree support."""
     parsed=_parse_window(line)

@@ -181,7 +181,7 @@ struct ObservationNodeSnapshot {
     init?(_ element: AXUIElement) {
         let names = [kAXRoleAttribute as String] + labelAttrs +
             [kAXEnabledAttribute as String, kAXSelectedAttribute as String,
-             kAXChildrenAttribute as String, "AXDocument"]
+             kAXChildrenAttribute as String, "AXDocument", "AXURL"]
         var raw: CFArray?
         guard AXUIElementCopyMultipleAttributeValues(element, names as CFArray,
                 AXCopyMultipleAttributeOptions(rawValue: 0), &raw) == .success,
@@ -317,7 +317,7 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
     if snapshot == nil { metrics?.packetFallbacks += 1 }
     let role = snapshot.map { $0.string(kAXRoleAttribute as String) ?? "?" }
         ?? str(el, kAXRoleAttribute as String) ?? "?"
-    let quoteValues = role == kAXWindowRole as String || role == "AXWebArea"
+    let quoteValues = role == kAXWindowRole as String || role == "AXWebArea" || role == "AXLink"
     var text = snapshot?.label(role:role,quoteValues:quoteValues)
         ?? label(el,quoteValues:quoteValues)
     // A window says which file it shows, so an agent can name that file
@@ -331,7 +331,8 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
             text += (text.isEmpty ? "" : ", ") + "Document: \(encoded)"
         }
     }
-    if role == "AXWebArea", let url = attr(el, "AXURL") as? URL {
+    if ["AXWebArea", "AXLink"].contains(role),
+       let url = (snapshot?.value("AXURL") as? URL) ?? (attr(el, "AXURL") as? URL) {
         let doc = url.absoluteString
         if doc.count <= 2048,
               doc.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil,
@@ -1627,6 +1628,12 @@ func mismatch(_ expect: [String: Any], element: AXUIElement?, pid p: pid_t) -> S
             return "대상이 달라졌습니다 (기대 \(wantRole), 지금 \(role.isEmpty ? "?" : role))"
         }
     }
+    if expect["attribute"] as? String == "URL", let expectedURL = expect["label"] as? String {
+        guard let url = attr(el, "AXURL") as? URL, url.absoluteString == expectedURL else {
+            return "Link destination changed or unavailable"
+        }
+        return nil
+    }
     if let wantLabel = expect["label"] as? String {
         // Read the attribute off the element, not out of a rendered line: the
         // caller says WHICH attribute its label came from, so the comparison
@@ -2331,7 +2338,10 @@ func prepareBackgroundWindow(_ obsID: String, _ target: String, _ element: AXUIE
                 }
                 try scope.ready()
             }, pointClick: point != nil, windowInput: windowInput, elementClicks: elementClicks, submitKey: submitKey,
-            finalTransition: transition, headroomDiagnostic: { dispatchHeadroom = $0 })
+            finalTransition: transition, headroomDiagnostic: { dispatchHeadroom = $0 },
+            foregroundClickFocus: { previous, focused in
+                try requireNativeForegroundClickFocus(previous, focused, scope: scope)
+            })
         }
         return diagnosed(["type":"acted", "action":drag != nil ? "drag" : elementClicks == 2 ? "double_click" : elementClicks == 1 ? "click" : windowInput != nil ? "window_input" : point != nil ? "click_point" : key == nil ? "prepare_window" : "press_key", "obs_id":obsID,
                 "input_route":drag != nil ? "window_bound_drag" : submitKey ? "window_bound_submit_key" : elementClicks == 2 ? "window_bound_double_click" : elementClicks == 1 ? "window_bound_element_click" : windowInput != nil ? "window_input" : point != nil ? "window_bound_mouse" : key == nil ? "window_prepare" : "window_key", "mechanism":"pid_window_events",
@@ -4990,7 +5000,7 @@ let experimentalForegroundCapabilities: [String] = []
 let helperCapabilities: [String] = [
     "observe.reveal",
     "observe", "act", "probe", "selection", "menu_state", "menu_items",
-    "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "observe.subrole", "expect.enabled",
+    "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "expect.attribute.url", "observe.subrole", "expect.enabled",
     "expect.no_modal", "expect.selection",
     "effect",                       // errors say whether an effect is possible
     "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",

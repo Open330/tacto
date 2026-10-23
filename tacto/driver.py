@@ -656,7 +656,7 @@ class Driver:
         "observe", "act", "probe", "selection",
         "evidence.document_text", "evidence.visual",
         "evidence.document_text.path_selector", "observe.document_token",
-        "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "observe.subrole", "expect.enabled",
+        "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "expect.attribute.url", "observe.subrole", "expect.enabled",
         "expect.no_modal", "expect.selection",
         "effect",
         "action.click", "action.set_value", "action.type_text", "action.read",
@@ -1725,6 +1725,11 @@ class Driver:
                 role = role[2:]
             if role != want_role:
                 return f"대상이 달라졌습니다 (기대 {want_role}, 지금 {role or '?'})"
+        if expect.get('attribute') == 'URL' and isinstance(expect.get('label'), str):
+            got = _attr(el, 'AXURL')
+            absolute = getattr(got, 'absoluteString', None)
+            value = absolute() if callable(absolute) else str(got) if got is not None else None
+            return '' if value == expect['label'] else 'Link destination changed or unavailable'
         if expect.get('attribute') == 'Subrole' and isinstance(expect.get('label'), str):
             # Dispatch checks the actual attribute even when the renderer keeps
             # an existing named element's label unchanged for compatibility.

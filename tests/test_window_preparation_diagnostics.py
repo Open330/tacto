@@ -108,6 +108,7 @@ func captureNativePopupWindowBinding(_ el:AXUIElement,_ popup:AXUIElement,_ pid:
  return NativeWindowBinding()
 }
 func requireNativeWindowTarget(_ b: NativeWindowBinding, scope: NativeWindowReadScope) throws {}
+func requireNativeForegroundClickFocus(_ b: NativeWindowBinding,_ focused:AXUIElement?,scope:NativeWindowReadScope) throws {}
 func requireNativeKeyTarget(_ b: NativeWindowBinding, element: Bool, scope: NativeWindowReadScope) throws {}
 func requireNativeSubmitTarget(_ b: NativeWindowBinding, scope: NativeWindowReadScope) throws {}
 func validateNativeWindowBinding(_ b: NativeWindowBinding, scope: NativeWindowReadScope) throws {}
@@ -122,7 +123,8 @@ func dispatchNativeWindowPreparation(_ b: NativeWindowBinding, deadline: Double,
  routing: ((NativeWindowBinding, Bool) throws -> Void)?, preflight: (() throws -> Void)?,
  pointClick: Bool, windowInput: NativeOpaqueWindowInput?, elementClicks: Int, submitKey: Bool,
  finalTransition: ((_ checkpoint: () throws -> Void) throws -> Void)?,
- headroomDiagnostic: (([String:Any])->Void)? = nil) throws -> DispatchResult {
+ headroomDiagnostic: (([String:Any])->Void)? = nil,
+ foregroundClickFocus: ((NativeWindowBinding,AXUIElement?) throws -> Void)? = nil) throws -> DispatchResult {
  dispatched += 1
  let focusReasons = ["focus_missing":"user focus unavailable",
                      "foreground_changed":"user foreground changed",

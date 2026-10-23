@@ -127,6 +127,26 @@ func requireNativeWindowTarget(_ binding: NativeWindowBinding, scope: NativeWind
     }
 }
 
+/// Keep a foreground click inside its observed window, even when that click
+/// changes keyboard focus or replaces a browser document on mouseUp.
+func requireNativeForegroundClickFocus(_ binding: NativeWindowBinding, _ focused: AXUIElement?,
+                                       scope: NativeWindowReadScope) throws {
+    // Full modality/readiness checks already run before each event. This
+    // receiving check needs only the pinned window/focus, not another tree walk.
+    let app = AXUIElementCreateApplication(binding.pid)
+    let window = try windowInputElement(windowInputAttribute(app, kAXFocusedWindowAttribute, scope: scope))
+    guard CFEqual(window, binding.window),
+          nativeProcessStartIdentity(binding.pid) == binding.processStart,
+          try windowInputCGFrame(binding.windowID, binding.pid) == binding.windowBounds else {
+        throw NativeWindowInputError.refused("foreground click window moved or disappeared")
+    }
+    if let focused {
+        guard CFEqual(try windowInputAncestor(focused, binding.pid, scope: scope), binding.window) else {
+            throw NativeWindowInputError.refused("foreground click focus left the bound window")
+        }
+    }
+}
+
 func requireNativeKeyTarget(_ binding: NativeWindowBinding, element: Bool,
                             scope: NativeWindowReadScope) throws {
     try nativeRequireWindowReady(binding.window, binding.pid, scope: scope)

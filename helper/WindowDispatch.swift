@@ -94,7 +94,8 @@ func dispatchNativeWindowPreparation(
     preflight: (() throws -> Void)? = nil, pointClick: Bool = false,
     windowInput: NativeOpaqueWindowInput? = nil, elementClicks: Int = 0,
     submitKey: Bool = false, finalTransition: ((_ checkpoint: () throws -> Void) throws -> Void)? = nil,
-    headroomDiagnostic: (([String: Any]) -> Void)? = nil
+    headroomDiagnostic: (([String: Any]) -> Void)? = nil,
+    foregroundClickFocus: ((NativeWindowBinding, AXUIElement?) throws -> Void)? = nil
 ) throws -> NativeWindowPreparation {
     var attempted = 0
     var validationSeconds = 0.0, routingSeconds = 0.0, inputSeconds = 0.0, contextSeconds = 0.0
@@ -165,8 +166,27 @@ func dispatchNativeWindowPreparation(
         }
         try validated(); try ready()
         let initial = try observedInput()
-        guard initial.foreground != binding.pid else {
+        // A single element click can address the already-frontmost window.
+        // Other preparation/key/opaque routes retain their background contract.
+        let foregroundClick = initial.foreground == binding.pid && elementClicks == 1
+            && finalTransition == nil && foregroundClickFocus != nil
+        guard initial.foreground != binding.pid || foregroundClick else {
             throw NativeWindowInputError.refused("background window preparation requires a background process")
+        }
+        if foregroundClick { try foregroundClickFocus?(binding, initial.focused); try ready() }
+        var expectedInput = initial
+        func acceptClickFocus(_ before: NativeUserInputState, _ after: NativeUserInputState) throws {
+            if before.matches(after) {
+                if foregroundClick { try foregroundClickFocus?(binding, after.focused) }
+                return
+            }
+            guard foregroundClick, before.foreground == after.foreground,
+                  before.pointer == after.pointer else {
+                throw NativeWindowInputError.refused("user input state changed during input: " + before.differences(after).joined(separator: ","))
+            }
+            // A click may focus a row or load another tab in the SAME window.
+            // Never accept an unreadable focus or a move to another window.
+            try foregroundClickFocus?(binding, after.focused)
         }
         var owners: [NSEvent] = [], events: [CGEvent] = []
         if let input = windowInput {
@@ -224,8 +244,8 @@ func dispatchNativeWindowPreparation(
                 if number == 0 { try preflight?(); try ready() }
                 try routed(number == 0); try ready()
                 let before = try observedInput()
-                guard initial.matches(before) else {
-                    throw NativeWindowInputError.refused("user input state changed before input: " + initial.differences(before).joined(separator: ","))
+                guard expectedInput.matches(before) else {
+                    throw NativeWindowInputError.refused("user input state changed before input: " + expectedInput.differences(before).joined(separator: ","))
                 }
                 try ready()
                 if number == 0 {
@@ -260,8 +280,13 @@ func dispatchNativeWindowPreparation(
                 try post(event, binding.pid)
                 try ready()
                 let after = try observedInput()
-                guard before.matches(after) else {
-                    throw NativeWindowInputError.refused("user input state changed during input: " + before.differences(after).joined(separator: ","))
+                try acceptClickFocus(before, after)
+                if foregroundClick {
+                    try ready()
+                    expectedInput = after
+                    // mouseUp completes the bound pair. Navigation may have
+                    // destroyed its old element; replay must observe the result.
+                    if number == events.count - 1 { continue }
                 }
                 // A committed submit is expected to change the window, its
                 // focus or the element itself; there is nothing left to post,
@@ -285,8 +310,8 @@ func dispatchNativeWindowPreparation(
                 try validated(); try ready()
                 try routed(false); try ready()
                 let confirmed = try observedInput()
-                guard before.matches(confirmed) else {
-                    throw NativeWindowInputError.refused("user input state changed during validation: " + before.differences(confirmed).joined(separator: ","))
+                guard expectedInput.matches(confirmed) else {
+                    throw NativeWindowInputError.refused("user input state changed during validation: " + expectedInput.differences(confirmed).joined(separator: ","))
                 }
                 try ready()
             }

@@ -28,3 +28,8 @@ A redirect to another URL does not count as the requested destination. For a
 newly authorized navigation, include address-editing preparation in the flow.
 See [URL confirmation](../docs/native-window-input.md#safari-url-confirmation)
 for the receiving evidence and window identity rules.
+
+Observed GitHub support-ticket, issue and pull-request detail links may carry a
+quoted `URL`. Tacto pins that URL again at dispatch, so verbs in the record
+subject do not turn reading the record into a delete/send action. Missing or
+changed URLs are not treated as verified navigation.

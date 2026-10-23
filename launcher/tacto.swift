@@ -190,7 +190,7 @@ let expectKeys: Set<String> = ["role", "label", "attribute", "enabled", "value",
 // Which attribute a label was read from, so the check compares that one
 // exactly instead of searching a rendered line for a substring.
 let expectAttributes: Set<String> = ["Title", "Description", "Value", "Help",
-                                     "Identifier", "Placeholder", "Subrole"]
+                                     "Identifier", "Placeholder", "Subrole", "URL"]
 
 // The only keys that may be asked for. Spelled out rather than parsed from a
 // modifier grammar: a grammar is how `cmd+q` becomes reachable by spelling.

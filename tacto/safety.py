@@ -68,6 +68,39 @@ _STORED_EN = ("account", "mail", "message", "file", "photo", "history", "data")
 _STORED_KO = ("계정", "메일", "메시지", "파일", "사진", "기록")
 
 
+def navigation_url(action: dict, target_line: str) -> str | None:
+    """Recognize observed record-detail URLs, not verbs inside record titles.
+
+    Only canonical HTTPS detail routes are recognized. Buttons, missing URLs,
+    query-driven commands and arbitrary links keep their normal classification.
+    Callers pin this exact URL again at dispatch.
+    """
+    if action.get('name') != 'click':
+        return None
+    from urllib.parse import urlsplit
+    from .document_label import link_attributes
+    fields = link_attributes(target_line)
+    if fields is None or not isinstance(url := fields.get('URL'), str):
+        return None
+    if any(ord(c) <= 32 or ord(c) == 127 for c in url):
+        return None
+    try:
+        parts = urlsplit(url)
+        if (parts.scheme != 'https' or parts.username is not None
+                or parts.password is not None or parts.port not in (None, 443)
+                or parts.query or parts.fragment):
+            return None
+    except ValueError:
+        return None
+    if parts.hostname in ('help.github.com', 'support.github.com'):
+        route = r'/ticket/(?:personal|organization)/[0-9]+/[0-9]+/?'
+    elif parts.hostname == 'github.com':
+        route = r'/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/[0-9]+/?'
+    else:
+        return None
+    return url if re.fullmatch(route, parts.path) else None
+
+
 def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
              is_submit=False) -> tuple[str, str]:
     """Return (risk_class, reason).
@@ -91,6 +124,9 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
         return merge(parent, selected), parent_reason + '; selected option: ' + selected_reason
     low = target_line.lower()
     raw = target_line   # Korean matched case-sensitively on the original text
+
+    if not is_submit and navigation_url(action, target_line) is not None:
+        return 'none', 'observed record-detail navigation'
 
     # Observation-like / pure navigation never gates.
     if name in ("scroll",):
@@ -288,6 +324,8 @@ def effects_of(action: dict, target_line: str = "", *, target: str = "") -> tupl
         if combined - {'read', 'write_ephemeral'}:
             combined -= {'read', 'write_ephemeral'}
         return combined, parent_reason + '; 선택 항목: ' + selected_reason
+    if navigation_url(action, target_line) is not None:
+        return {'write_ephemeral'}, 'observed record-detail navigation'
     low, raw = target_line.lower(), target_line
     if name == "menu":
         path = action.get("path")

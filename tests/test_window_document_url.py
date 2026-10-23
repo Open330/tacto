@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from tacto.document_label import document_attribute, quote_value
+from tacto.document_label import document_attribute, quote_value, link_attributes
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,7 +71,7 @@ func render()->String {
 var rows:[[String:Any]]=[]
 for packet in [true,false] {
  packets=packet
- for role in ["AXWebArea","AXWindow","AXButton"] {
+ for role in ["AXWebArea","AXLink","AXWindow","AXButton"] {
   for (index,value) in cases.enumerated() {
    for nativeURL in [true,false] {
     data=[1:["AXRole":role as CFString,"AXTitle":title as CFString,
@@ -108,13 +108,15 @@ print(String(data:try! JSONSerialization.data(withJSONObject:["rows":rows,"neste
         for row in result['rows']:
             role, index, tree = row['role'], row['case'], row['tree']
             with self.subTest(packet=row['packet'], role=role, case=index, native=row['native_url']):
-                if role == 'AXWebArea':
-                    expected = ('0 WebArea  Title: ' + quote_value(title) +
+                if role in ('AXWebArea','AXLink'):
+                    expected = ('0 '+role[2:]+'  Title: ' + quote_value(title) +
                                 ', Description: ' + quote_value(title + ', suffix'))
                     if row['native_url'] and index < 3:
                         expected += ', URL: ' + quote_value(cases[index])
                     self.assertEqual(expected, tree)
                     self.assertIsNone(document_attribute(tree))
+                    if role == 'AXLink':
+                        self.assertEqual(cases[index] if row['native_url'] and index<3 else None,link_attributes(tree).get('URL'))
                 elif role == 'AXWindow':
                     self.assertEqual('0 Window  Title: ' + quote_value(title) +
                                      ', Description: ' + quote_value(title + ', suffix') +
