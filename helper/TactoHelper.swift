@@ -1086,9 +1086,21 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         return ["type":"error", "error":"document_snapshot_unavailable", "effect":"not_started"]
     }
     if documentToken == nil && !["ok", "no_value"].contains(windowListing.status) {
-        return ["type":"error","error":"window_list_unavailable","target":target,
+        var reply: [String: Any] = ["type":"error","error":"window_list_unavailable","target":target,
                 "detail":"앱의 창 목록을 읽지 못했습니다. 창이 없다고 판단하지 않고 중단합니다.",
                 "window_listing_diagnostic":windowListing.metadata]
+        // The window server can say whether the app really has windows on
+        // screen. When it does and accessibility lists none, the app itself
+        // has stopped answering accessibility (a long-running Safari,
+        // 2026-10-23: System Events failed the same way; restarting Safari
+        // fixed it). Say so, instead of leaving an unknown cause.
+        let onScreen = onScreenWindowCount(p)
+        reply["onscreen_window_count"] = onScreen
+        if let onScreen, onScreen > 0 {
+            reply["reason"] = "app_accessibility_unresponsive"
+            reply["hint"] = "화면에는 이 앱의 창이 \(onScreen)개 있지만 앱이 손쉬운 사용에 창 목록을 내주지 않습니다. 저장하지 않은 작업이 없는지 사용자에게 확인한 뒤 앱을 다시 시작하면 대개 해결됩니다."
+        }
+        return reply
     }
     if windows.isEmpty && requireWindow {
         return ["type": "error", "error": "no_window_content", "target": target,
@@ -1530,6 +1542,16 @@ func selectTableRow(_ el: AXUIElement, deadline: Double) -> [String: Any]? {
         row = table
     }
     return nil
+}
+
+/// Normal-layer windows the window server shows on screen for this process,
+/// or nil when the list cannot be read. Owner and layer need no screen
+/// recording grant; titles are not read.
+func onScreenWindowCount(_ pid: pid_t) -> Int? {
+    guard let entries = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] else { return nil }
+    return entries.filter { ($0[kCGWindowOwnerPID as String] as? Int).map { pid_t($0) } == pid
+                            && ($0[kCGWindowLayer as String] as? Int) == 0 }.count
 }
 
 /// Everything this app currently has selected and focused, as one short

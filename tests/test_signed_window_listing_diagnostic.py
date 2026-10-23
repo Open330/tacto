@@ -57,7 +57,7 @@ class WindowDiagnosticContractTests(unittest.TestCase):
         gate_begin=source.index('    if documentToken == nil && !["ok", "no_value"]')
         gate_end=source.index('    // Reading another app',gate_begin)
         gate=source[gate_begin:gate_end]
-        actual+='\nfunc observationGate(_ windows:[AXUIElement],_ windowListing:WindowListingDiagnostic,_ requireWindow:Bool)->[String:Any] {\nlet documentToken:String?=nil;let target="owned"\n'+gate+'return ["type":"observation"]\n}\n'
+        actual+='\nfunc observationGate(_ windows:[AXUIElement],_ windowListing:WindowListingDiagnostic,_ requireWindow:Bool)->[String:Any] {\nlet documentToken:String?=nil;let target="owned";let p:pid_t=1\n'+gate+'return ["type":"observation"]\n}\n'
         support=r'''
 import Foundation
 import ApplicationServices
@@ -66,6 +66,7 @@ var failedRoles:Set<pid_t>=[]
 var listError=AXError.success
 var listNil=false
 func node(_ pid:pid_t)->AXUIElement { AXUIElementCreateApplication(pid) }
+func onScreenWindowCount(_ pid:pid_t)->Int? { nil }
 func id(_ element:AXUIElement)->pid_t { var pid:pid_t=0; _=AXUIElementGetPid(element,&pid);return pid }
 func AXUIElementCopyAttributeValue(_ node:AXUIElement,_ key:CFString,_ out:UnsafeMutablePointer<CFTypeRef?>)->AXError {
  if key as String=="AXWindows" {

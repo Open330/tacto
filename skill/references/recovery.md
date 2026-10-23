@@ -69,6 +69,10 @@ for interpreting these refusals and the effect of earlier actions.
   waits can re-observe classified transient AX failures within their original
   deadline. If the error remains, report its closed diagnostic and permission
   check result; do not claim a user action will resolve an unknown cause.
+  With `reason: app_accessibility_unresponsive` the cause is known: the window
+  server shows the app's windows (`onscreen_window_count`) but the app answers
+  accessibility with none. Restarting that app usually fixes it; ask the person
+  first, since quitting can lose unsaved work.
 - For `no_window_content`, use the reported `reason`. `screen_locked` requires
   the person to unlock; report it and stop screen actions. Never try to unlock.
 - `app_hidden`: the current backend already attempts one bounded unhide without
