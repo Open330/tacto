@@ -167,13 +167,13 @@ Apple Silicon용 **Tacto.app과 DMG의 Developer ID 서명·Apple 공증·Gateke
 DMG를 다운로드했다면 `Tacto.app`을 `Applications`로 드래그한 뒤 앱의 시작 안내를 따릅니다.
 이 방식에는 사용자의 개발용 인증서나 소스 빌드가 필요하지 않습니다.
 
-현재 **비공개 정식 출시 후보**이며 아직 정식 안정 버전이 아닙니다. 정식 출시는 새 사용자 설치·권한 복구·제한 베타의 사람 확인이 필요하며, GitHub 과거 참조·캐시 정리도 남아 있습니다.
+현재 **정식 출시 후보**이며 아직 승인된 정식 안정 버전이 아닙니다. 정식 출시 전에 사람이 직접 하는 새 설치, 권한 해제·재부여 3회, 제한 베타([안내](docs/beta-participant-guide.md))가 남아 있습니다.
 
 설정 후 **첫 작업 시작**을 누르면 설치된 Claude Code·Codex를 감지해 새 CLI 대화를 엽니다. 명령 하나로 TextEdit 실행·새 문서 생성·환영 문구 입력과 확인을 처리하며, 내부 모델 호출은 없습니다. 에이전트 CLI 자체의 최초 신뢰·로그인 확인은 나타날 수 있습니다.
 
-Tacto는 Dock 아이콘 없이 메뉴 막대에서 실행됩니다. 설정 창을 닫아도 백그라운드에 남으며, 메뉴 막대 아이콘에서 설정을 다시 열거나 종료할 수 있습니다. [Preview 7 검증](docs/release-readiness.md#2026-10-19-preview-7-release).
+Tacto는 Dock 아이콘 없이 메뉴 막대에서 실행됩니다. 설정 창을 닫아도 백그라운드에 남으며, 메뉴 막대 아이콘에서 설정을 다시 열거나 종료할 수 있습니다.
 
-현재 저장소와 다운로드는 GitHub 접근 권한이 필요합니다. 빌드 Mac에서 설치·권한·Claude/Codex 연결과 같은 서명 팀의 앱 업데이트를 확인했습니다. 새 Mac 설치·다른 macOS 버전·정식 출시용 실제 작업과 베타 검증은 남아 있습니다. Windows·Intel Mac 빌드는 제공하지 않습니다.
+Mac 3대에서 설치·권한·Claude/Codex 연결·업데이트를 확인했고, 두 번째 Mac에서 새 Claude Code·Codex 대화가 Finder 첫 작업을 완료했습니다. 다른 macOS 버전, 사람이 직접 하는 새 설치와 베타 검증은 남아 있습니다. Windows·Intel Mac 빌드는 제공하지 않습니다.
 기존 개발용 서명에서의 실제 앱 검증은 Finder·Safari 40회 성공, TextEdit 저장은 사용자가 앱을 앞으로 가져온 뒤 재시도 20/20 성공입니다.
 최초 저장 실패 20회도 유지하며, 이 결과를 새 DMG의 무인 실행 성공으로 간주하지 않습니다.
 [출시 검증 현황](docs/release-readiness.md) · [설치 범위와 제한](docs/installation.md)
