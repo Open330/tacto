@@ -193,6 +193,16 @@ class FirstRunTests(unittest.TestCase):
         activate.assert_called_once_with('com.apple.TextEdit')
         self.assertEqual(3, execute.call_count)
 
+    def test_initial_identity_observation_is_recovered_by_presenting_the_requested_app(self):
+        ok = SimpleNamespace(ok=True, log=[])
+        result, execute, activate = self.recovery_case(
+            [dict(type='error', error='window_list_unavailable'), observation(OLD),
+             observation(OLD+NEW), observation(OLD+DONE)], [ok, ok])
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(['activate_before_observation'], result['recovery_steps'])
+        self.assertEqual(2, execute.call_count)
+        activate.assert_called_once_with('com.apple.TextEdit')
+
     def test_startup_picker_uses_observed_new_document_button_instead_of_disabled_menu(self):
         for title in ('New Document', '새로운 문서', '새 문서'):
             with self.subTest(title=title):
