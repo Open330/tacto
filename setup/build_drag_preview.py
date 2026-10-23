@@ -76,15 +76,15 @@ def build(app,output):
             verify_app(copied)
             (stage/'Applications').symlink_to('/Applications',target_is_directory=True)
             (stage/'먼저 읽어주세요.txt').write_text(
-                'Tacto 개발 미리보기\n\n'
-                '1. Tacto.app을 Applications 폴더로 옮기세요.\n'
-                '2. Applications에 옮긴 Tacto를 여세요.\n'
-                '3. 시작 화면 안내에 따라 필요한 권한과 명령·스킬 연결을 설정하세요.\n\n'
-                '권한은 macOS 설정에서 사용자가 직접 허용해야 합니다.\n'
-                '현재 빌드 Mac에서 확인한 개발 미리보기입니다. 서명·공증 결과와 지원 범위는 릴리스 안내를 확인하세요. 새 Mac 설치 실증은 별도 확인이 필요합니다.\n',encoding='utf-8')
+                'Tacto 설치 · Install Tacto\n\n'
+                '1. Tacto.app을 Applications 폴더로 옮기세요. / Drag Tacto.app to Applications.\n'
+                '2. Applications에 옮긴 Tacto를 여세요. / Open Tacto from Applications.\n'
+                '3. 시작 화면 안내에 따라 권한과 명령·스킬 연결을 설정하세요. / Follow the setup screen for permissions and the command/skill links.\n\n'
+                '권한은 macOS 시스템 설정에서 직접 허용합니다. / You grant permissions yourself in System Settings.\n'
+                '버전별 변경 사항과 검증 결과는 GitHub 릴리스 안내를 확인하세요. / See the GitHub release notes for changes and validation.\n',encoding='utf-8')
             image=base/'payload.dmg'
             run(['/usr/bin/hdiutil','create','-srcfolder',str(stage),'-format','UDZO',
-                 '-volname','Tacto Preview','-nospotlight',str(image)])
+                 '-volname','Tacto','-nospotlight',str(image)])
             run(['/usr/bin/hdiutil','verify',str(image)])
             if app_manifest(app)!=before:raise RuntimeError('source_app_changed')
             with image.open('rb') as source:shutil.copyfileobj(source,sink,8*1024*1024)
