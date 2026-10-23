@@ -116,14 +116,14 @@ class SafetyContract:
         bad = []
         for e in self.effects:
             if e not in EFFECTS:
-                bad.append(f"unknown effect {e!r}")
+                bad.append(f"unknown effect {e!r} (use one of: {', '.join(sorted(EFFECTS))})")
         for d in self.data_classes:
             if d not in DATA_CLASSES:
-                bad.append(f"unknown data_class {d!r}")
+                bad.append(f"unknown data_class {d!r} (use one of: {', '.join(sorted(DATA_CLASSES))})")
         if self.reversibility not in REVERSIBILITY:
-            bad.append(f"unknown reversibility {self.reversibility!r}")
+            bad.append(f"unknown reversibility {self.reversibility!r} (use one of: {', '.join(sorted(REVERSIBILITY))})")
         if self.resource.scope not in RESOURCE_SCOPES:
-            bad.append(f"unknown resource scope {self.resource.scope!r}")
+            bad.append(f"unknown resource scope {self.resource.scope!r} (use one of: {', '.join(sorted(RESOURCE_SCOPES))})")
         if self.destination.kind not in ("none", "same_app", "same_origin", "third_party"):
             bad.append(f"unknown destination kind {self.destination.kind!r}")
         for ev in self.evidence:
