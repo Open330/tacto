@@ -1491,6 +1491,38 @@ func selectListItem(_ el: AXUIElement, deadline: Double) -> [String: Any]? {
     return nil
 }
 
+/// The table counterpart of `selectListItem`: the row (the element or one of
+/// its two nearest ancestors) of an outline or table whose selected rows can
+/// be set, judged only by reading the selection back. Used only after the
+/// pointer route refused without sending anything.
+func selectTableRow(_ el: AXUIElement, deadline: Double) -> [String: Any]? {
+    var row = el
+    for _ in 0..<3 {
+        guard let parent = attr(row, kAXParentAttribute as String) else { return nil }
+        let table = parent as! AXUIElement
+        if str(row, kAXRoleAttribute as String) == kAXRowRole as String,
+           [kAXOutlineRole as String, kAXTableRole as String].contains(str(table, kAXRoleAttribute as String) ?? "") {
+            var settable: DarwinBoolean = false
+            guard AXUIElementIsAttributeSettable(table, kAXSelectedRowsAttribute as CFString, &settable) == .success,
+                  settable.boolValue else { return nil }
+            guard !abortState.isStopped, ProcessInfo.processInfo.systemUptime < deadline else {
+                return ["type": "error", "error": "input_cancelled_or_expired", "effect": "not_started"]
+            }
+            let error = AXUIElementSetAttributeValue(table, kAXSelectedRowsAttribute as CFString, [row] as CFArray)
+            Thread.sleep(forTimeInterval: 0.1)
+            let now = (attr(table, kAXSelectedRowsAttribute as String) as? [AXUIElement]) ?? []
+            guard now.count == 1, CFEqual(now[0], row) else {
+                return ["type": "error", "error": "action_failed", "effect": "unknown",
+                        "input_route": "ax_row_selection", "detail": "row selection did not read back (\(error.rawValue))"]
+            }
+            return ["type": "acted", "input_route": "ax_row_selection", "selection_read_back": true,
+                    "note": "selected through the table; observe again"]
+        }
+        row = table
+    }
+    return nil
+}
+
 /// Everything this app currently has selected and focused, as one short
 /// string. Two or three attribute reads on the front window — deliberately not
 /// a tree walk, since the point is that confirming a target costs about a
@@ -2964,7 +2996,17 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         }
         if listed == .success, let names = advertised as? [String],
            !names.contains(kAXPressAction as String) {
-            return pointerClick()
+            // A row the pointer route refused before sending anything (the app
+            // in front, or too many windows to validate in time — rc.2's
+            // Finder runs, 2026-10-23) can still be selected through its table.
+            let pointer = pointerClick()
+            if pointer["type"] as? String == "error", pointer["effect"] as? String == "not_started",
+               (pointer["posted_or_attempted_events"] as? Int ?? 0) == 0, savePanelToken == nil,
+               var selected = selectTableRow(el, deadline: deadline) {
+                selected["pointer_refusal"] = pointer["detail"] ?? pointer["error"]
+                return selected.merging(["action": name, "obs_id": obsID]) { a, _ in a }
+            }
+            return pointer
         }
         if let token = savePanelToken,
            let refusal = validateSavePanelDispatch(obsID, target, action, token, deadline: deadline) {

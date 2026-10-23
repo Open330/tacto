@@ -25,6 +25,19 @@ class ListSelectionSourceTests(unittest.TestCase):
         self.assertLess(selected, click.index('return pointerClick()'))
         self.assertIn('!names.contains(kAXPressAction as String), savePanelToken == nil,', click)
 
+    def test_a_row_is_selected_through_its_table_only_after_the_pointer_sent_nothing(self):
+        route = self.source[self.source.index('func selectTableRow('):self.source.index('/// Everything this app currently has selected')]
+        self.assertIn('AXUIElementIsAttributeSettable(table, kAXSelectedRowsAttribute', route)
+        set_at = route.index('AXUIElementSetAttributeValue(table, kAXSelectedRowsAttribute')
+        self.assertLess(set_at, route.index('guard now.count == 1, CFEqual(now[0], row)'))
+        self.assertIn('abortState.isStopped', route[:set_at])
+        click = self.source[self.source.index('    case "click":'):self.source.index('    case "set_value":')]
+        fallback = click[click.index('let pointer = pointerClick()'):]
+        fallback = fallback[:fallback.index('return pointer')]
+        for condition in ('pointer["effect"] as? String == "not_started"',
+                          '(pointer["posted_or_attempted_events"] as? Int ?? 0) == 0', 'savePanelToken == nil'):
+            self.assertIn(condition, fallback)
+
     def test_observation_marks_items_a_list_holds_selected(self):
         walk = self.source[self.source.index('func walk(_ el: AXUIElement'):self.source.index('// MARK: - Session state')]
         self.assertIn('let selected = selectedByParent ||', walk)
