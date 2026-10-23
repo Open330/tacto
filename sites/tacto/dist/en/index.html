@@ -1,0 +1,1562 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; media-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
+    <meta name="theme-color" content="#fafaf9" />
+    <meta
+      name="description"
+      content="Let Claude and Codex read app screens, press buttons and enter information on your behalf. Connect computer use with Tacto and reuse your workflows."
+    />
+    <meta property="og:title" content="Tacto — Your agent’s execution layer." />
+    <meta property="og:description" content="Let your agent use your apps." />
+    <meta property="og:image" content="https://open330.github.io/tacto/assets/tacto-og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:url" content="https://open330.github.io/tacto/en/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <title>Tacto — Reuse what your agent does in your apps.</title>
+    <link rel="alternate" hreflang="ko" href="https://open330.github.io/tacto/" />
+    <link rel="alternate" hreflang="en" href="https://open330.github.io/tacto/en/" />
+    <link rel="alternate" hreflang="x-default" href="https://open330.github.io/tacto/" />
+    <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="../style.css" />
+    <script defer src="../app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="header">
+      <a class="brand" href="#"
+        ><img
+          class="brand-wordmark"
+          src="../assets/tacto-wordmark.svg"
+          alt="Tacto"
+          width="108"
+          height="32"
+          decoding="async"
+        /><span class="brand-divider" aria-hidden="true">/</span
+        ><span class="brand-note" aria-hidden="true"
+          >THE EXECUTION LAYER</span
+        ></a
+      >
+      <nav aria-label="Main menu">
+        <a href="#app">Activity</a><a href="#evidence">Benchmarks</a
+        ><a href="#start"
+          >Get started
+          <svg
+            class="ui-icon"
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+        ></a>
+      </nav>
+      <div class="header-actions">
+        <a
+          class="nav-github"
+          href="https://github.com/Open330/tacto"
+          target="_blank"
+          rel="noopener noreferrer"
+          >GitHub
+          <svg
+            class="ui-icon"
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+        ></a>
+        <div class="lang-switch" role="group" aria-label="Language">
+          <a href="../" hreflang="ko" lang="ko">한국어</a
+          ><a href="./" hreflang="en" lang="en" aria-current="page">English</a>
+        </div>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      <section class="hero wrap">
+        <div class="hero-copy">
+          <a class="release-pill" href="https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.4"><span class="signal"></span> TACTO 1.0.0 RC4 <span>Release candidate</span><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#arrow-up-right"></use></svg></a>
+          <h1>Let your agent<br /><span>use your apps.</span></h1>
+          <p class="hero-description">It clicks, types and checks the result.<br />Build a task once, then run it again as is.</p>
+          <div class="hero-actions">
+            <a class="button primary" href="#start">Get Tacto for Mac <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#arrow-up-right"></use></svg></a>
+            <a class="button secondary" href="#how">See how it works <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#arrow-down"></use></svg></a>
+          </div>
+          <div class="compatibility"><span>WORKS WITH</span><b><img class="agent-icon" src="../assets/claude-icon.png" width="24" height="24" alt="" />Claude</b><b><img class="agent-icon" src="../assets/codex-icon.png" width="24" height="24" alt="" />Codex</b></div>
+          <p class="platform-note">macOS · Apple Silicon · Runs locally</p>
+          <a class="activity-promise" href="#app">See what your agent did in the activity history <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#arrow-down"></use></svg></a>
+        </div>
+        <figure class="hero-film">
+          <div class="film-heading"><span class="film-dot"></span><span>TACTO IN ACTION</span><span>GitHub / Browser</span></div>
+          <video controls playsinline preload="none" poster="../assets/demos/browser-github-poster.png" width="1280" height="800" aria-label="Actual Tacto run: searching and sorting GitHub bugs">
+            <source src="../assets/demos/browser-github.mp4" type="video/mp4" />
+            <track kind="captions" src="../assets/demos/browser-github.en.vtt" srclang="en" label="English" default />
+            <a href="../assets/demos/browser-github.mp4">Download the recording</a>
+          </video>
+          <figcaption><div><strong>“Show me open bugs, most commented first.”</strong><span>Search · filter · sort on the real GitHub</span></div><span class="film-evidence">Recording of an actual run</span></figcaption>
+          <p class="film-note">Recorded in a separate Chromium · includes an illustrative guide pointer</p>
+        </figure>
+      </section>
+      <section class="principles wrap" aria-label="How Tacto works">
+        <div><span>01 / CONNECT</span><h2>With the agent you already use.</h2><p>Connect Claude or Codex and reuse the same Flow.</p></div>
+        <div><span>02 / REPLAY</span><h2>Next time, only the new values.</h2><p>Normal deterministic replay of a saved Flow makes no model calls.</p></div>
+        <div><span>03 / REPAIR</span><h2>Judgment only where it’s needed.</h2><p>Supported selector failures are reviewed and repaired from the failed step.</p></div>
+        <div><span>04 / VISIBILITY</span><h2>Every access at a glance.</h2><p>See the apps, actions and outcomes accessed through Tacto in the activity history.</p></div>
+      </section>
+      <section class="app-showcase wrap" id="app">
+        <div class="app-showcase-copy"><div class="section-label">SEE WHAT YOUR AGENT DID</div><h2>See for yourself<br />what your agent did.</h2><p>Which apps it accessed, and what it did there.<br />Review accesses made through Tacto as a timeline inside the app.</p><ul><li>Apps accessed, with each step’s action, outcome and time</li><li>Find runs that failed or whose completion was not confirmed</li><li>Turn logging on or off and keep records for 7, 30 or 90 days</li></ul><span class="app-local-note">Records stay on this Mac. Screen content, input values, prompts and internal agent reasoning are excluded.</span></div>
+        <figure><a class="app-image-link" href="../assets/tacto-activity.png" target="_blank" rel="noopener" aria-label="View the activity history app screen at full size"><img src="../assets/tacto-activity.png" width="2120" height="1400" loading="lazy" decoding="async" alt="Tacto app preview loaded with 38 actual saved activity records, showing a list of runs alongside the actions, outcomes and times of a selected TextEdit task." /></a><figcaption><a href="../assets/tacto-activity.png" target="_blank" rel="noopener">View full size</a> · 38 actual activity records · App preview</figcaption></figure>
+      </section>
+      <section class="intro wrap" id="how">
+        <div class="section-label">REUSABLE FLOW</div>
+        <div class="intro-heading"><h2>Make it once.<br />Next time, just the inputs.</h2><p>The saved Flow handles the repetition.<br />The agent steps back in only where judgment is needed.</p></div>
+        <div class="flow-explorer graph-explorer" aria-labelledby="flow-explorer-title">
+          <div class="graph-toolbar"><div><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#workflow"></use></svg><strong id="flow-explorer-title">Calculator · Reusable Flow</strong><span>6 actual steps</span></div><div class="graph-input-picker" role="group" aria-label="Choose calculator Flow inputs"><span>Inputs</span><button type="button" disabled data-flow-case="first" aria-pressed="true">7 + 8</button><button type="button" disabled data-flow-case="second" aria-pressed="false">3 + 9</button></div><button type="button" disabled id="flow-walk"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#play"></use></svg>Walk through the Flow</button></div>
+          <div class="flow-canvas" id="flow-canvas" role="group" aria-label="How first authoring, saved Flow replay and exception handling connect">
+            <svg class="flow-edges" aria-hidden="true" focusable="false"><defs><marker id="edge-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="context-stroke" stroke-width="1.5" /></marker></defs><g id="flow-edge-paths"></g></svg>
+            <div class="graph-node graph-agent" id="graph-agent"><span class="graph-kicker">Once at first · uses a model</span><div class="graph-node-heading"><span class="flow-provider-icons"><img src="../assets/claude-icon.png" width="21" height="21" alt="Claude" /><img src="../assets/codex-icon.png" width="21" height="21" alt="Codex" /></span><strong>Agent authors the Flow</strong></div><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-saved" id="graph-saved"><span class="graph-kicker">Saved · same procedure next time</span><strong>calculator-reusable</strong><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-bottom" aria-hidden="true"></span></div>
+            <div class="graph-replay-label"><span class="graph-live-dot" aria-hidden="true"></span><strong>From then on, Flow replay</strong><span>Normal deterministic replay · 0 model calls</span></div>
+            <div class="graph-node graph-step" id="graph-step-0" data-flow-node><span class="graph-kicker">01 · Reset</span><strong>Clear existing input</strong><span class="graph-value">C / AC</span><span class="graph-port port-top" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-1" data-flow-node><span class="graph-kicker">02 · Check state</span><strong>Confirm initial value</strong><span class="graph-value">0</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-2" data-flow-node><span class="graph-kicker">03 · Input</span><strong>First number</strong><span class="graph-value" id="flow-left">7</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-3" data-flow-node><span class="graph-kicker">04 · Choose operation</span><strong>Add</strong><span class="graph-value">+</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span><span class="graph-port port-bottom" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step" id="graph-step-4" data-flow-node><span class="graph-kicker">05 · Input</span><strong>Second number</strong><span class="graph-value" id="flow-right">8</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-out" aria-hidden="true"></span></div>
+            <div class="graph-node graph-step graph-result" id="graph-step-5" data-flow-node><span class="graph-kicker">06 · Verify result</span><strong>Matches expected value</strong><span class="graph-value" id="flow-result">15</span><span class="graph-port port-in" aria-hidden="true"></span><span class="graph-port port-bottom" aria-hidden="true"></span></div>
+            <div class="graph-node graph-repair" id="graph-repair"><span class="graph-kicker">If a button changes · development version</span><strong>Agent repairs only that step</strong><span>Replay continues after verification</span><span class="graph-port port-top" aria-hidden="true"></span></div>
+            <div class="graph-node graph-stop" id="graph-stop"><span class="graph-kicker">If completion can’t be confirmed</span><strong>Stop · no resend</strong><span class="graph-port port-top" aria-hidden="true"></span></div>
+            <div class="graph-legend"><span><i></i> First authoring</span><span><i></i> Normal replay</span><span><i></i> Exception path</span></div>
+          </div>
+          <div class="graph-inspector"><span id="flow-preview-status" role="status" aria-live="polite">Result verified in the recording: 7 + 8 = 15</span><div><a href="#example-calculator">Watch the recording <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#arrow-down"></use></svg></a><a href="../assets/calculator-reusable.flow.json" download>Original Flow JSON <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="../assets/ui-icons.svg#arrow-up-right"></use></svg></a></div></div>
+          <p class="graph-disclosure">An illustrative canvas based on the actual Calculator Flow. The authoring and repair paths and step highlights are illustrative; this page does not run a Mac app or a model. <a href="#faq">Repair scope</a></p>
+        </div>
+      </section>
+      <section class="evidence-section" id="evidence">
+        <div class="wrap">
+          <div class="evidence-heading">
+            <div>
+              <div class="section-label">TACTO vs OAI/SKY</div>
+              <h2>Same task,<br />two ways to run it.</h2>
+            </div>
+            <p>
+              Compared with Codex’s computer use (OAI/Sky).
+              Three independent fresh-conversation pairs ran with the same requested model, reasoning effort and initial app state.
+            </p>
+          </div>
+          <div class="metric-grid">
+            <div>
+              <span>LESS TOTAL INPUT</span><b>53.5<small>%</small></b>
+              <p>Total input reduction across 3 fresh-conversation pairs</p>
+            </div>
+            <div>
+              <span>LESS NON-CACHED INPUT</span><b>56.3<small>%</small></b>
+              <p>Input reduction excluding cache reads</p>
+            </div>
+            <div>
+              <span>SHORTER OBSERVED TIME</span><b>8.8<small>%</small></b>
+              <p>Reduction in total time over 3 runs · single sample</p>
+            </div>
+          </div>
+          <div class="benchmark-comparison">
+            <div class="benchmark-chart" aria-labelledby="token-chart-title">
+              <div class="benchmark-chart-top"><h3 id="token-chart-title">Total input tokens</h3><span>Including cache reads · sum of 3 runs</span></div>
+              <div class="benchmark-bar-row"><div class="benchmark-bar-label"><span>OAI/Sky</span><strong>433,312</strong></div><div class="benchmark-track"><div class="benchmark-bar sky-bar"></div></div></div>
+              <div class="benchmark-bar-row"><div class="benchmark-bar-label"><span>Tacto</span><strong>201,447</strong></div><div class="benchmark-track"><div class="benchmark-bar tacto-bar"></div></div></div>
+              <p class="benchmark-chart-note">Output tokens were nearly identical.<br />Tacto 1,605 · OAI/Sky 1,604</p>
+            </div>
+            <div class="benchmark-table">              <div class="table-scroll">
+                <table>
+                  <caption>
+                    Includes first authoring, execution and final response · sum of 3 pairs (time is the mean)
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Metric</th>
+                      <th scope="col">Tacto</th>
+                      <th scope="col">OAI/Sky</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">Successful tasks</th>
+                      <td>3/3</td>
+                      <td>3/3</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Mean time</th>
+                      <td>42.10 sec</td>
+                      <td>46.17 sec</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Total input</th>
+                      <td>201,447</td>
+                      <td>433,312</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Input excluding cache reads</th>
+                      <td>22,119</td>
+                      <td>50,592</td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Output</th>
+                      <td>1,605</td>
+                      <td>1,604</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+</div>
+          </div>
+          <p class="benchmark-scope"><strong>Scope</strong> 2026-10-14 · our own AppKit test app · one pair each for bonus on, bonus off and a changed button. Both succeeded 3/3. OAI/Sky was faster in one case. These are observations from a small sample, not a re-measurement of the current release or a comparison of overall app performance or billing.</p>
+          <details class="methodology">
+            <summary>
+              Full measurement conditions and results
+              <svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="../assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <div class="methodology-content">
+              <p>
+                2026-10-14 · Codex CLI 0.161.0 · requested model gpt-6.1-sol · medium
+                · independent fresh conversations · our own AppKit test app. One pair
+                each for bonus on, bonus off and a changed button; all succeeded.
+                Includes first authoring, execution and the final response; excludes test setup time.
+              </p>
+              <p>
+                Tacto’s total time was 8.8% shorter, but Sky was faster with the
+                bonus off. The actual serving model, server cache and billing were
+                not verified. This was not a ten-replay comparison.
+              </p>
+              <a href="../assets/benchmark-summary.json" download
+                >Download the measurement summary JSON
+                <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+            </div>
+          </details>
+          <div class="replay-distinction"><div><span>REPLAY IS A SEPARATE ADVANTAGE</span><h3>Normal replay of a saved Flow: 0 model calls.</h3></div><p>The figures above compare first-time authoring and execution. A matched comparison replaying OAI/Sky’s reusable script and a Tacto Flow ten times each has not been measured yet.</p></div>
+          <div class="complex-proof">
+            <svg
+              class="ui-icon proof-icon"
+              aria-hidden="true"
+              focusable="false"
+              viewBox="0 0 24 24"
+            >
+              <use href="../assets/ui-icons.svg#workflow"></use>
+            </svg>
+            <div>
+              <strong>An 11-step complex Flow was verified too.</strong>
+              <p>
+                13/13 normal jobs completed · 5/5 expected stops · two buttons
+                repaired in one job. These are results in our own test app, not a
+                success rate across real business apps.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="onboarding wrap" id="start">
+        <div class="section-label">GET STARTED</div>
+        <div class="onboarding-heading">
+          <h2>Move the app,<br />connect your agent.</h2>
+          <p>
+            Tacto 1.0.0-rc.4 is a release-candidate DMG for Apple Silicon,
+            currently in stable-release qualification. Anyone can download it;
+            it was verified on macOS 27.0.1 · Apple Silicon.
+          </p>
+          <div>
+            <a class="button primary" href="https://github.com/Open330/tacto/releases/download/v1.0.0-rc.4/Tacto-1.0.0-rc.4-arm64.dmg"
+              >Download Tacto for Mac
+              <svg
+                class="ui-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+            ></a>
+          </div>
+        </div>
+        <div
+          class="agent-picker"
+          role="group"
+          aria-label="Choose your agent"
+        >
+          <button
+            type="button"
+            disabled
+            data-agent="Claude"
+            class="selected"
+            aria-pressed="true"
+          >
+            <img
+              class="agent-icon"
+              src="../assets/claude-icon.png"
+              width="24"
+              height="24"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            Claude</button
+          ><button
+            type="button"
+            disabled
+            data-agent="Codex"
+            aria-pressed="false"
+          >
+            <img
+              class="agent-icon"
+              src="../assets/codex-icon.png"
+              width="24"
+              height="24"
+              alt=""
+              aria-hidden="true"
+              decoding="async"
+            />
+            Codex</button
+          ><span>The Tacto runtime and Flow format are the same for both.</span>
+        </div>
+        <ol class="onboarding-steps">
+          <li>
+            <span class="step-number">01</span>
+            <div>
+              <h3>Install the Tacto app</h3>
+              <p>
+                Open the DMG, drag Tacto into the Applications folder, then open
+                Tacto from Applications. If you open it directly inside the read-only
+                DMG, it will ask you to move it first.
+              </p>
+              <a href="https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.4" target="_blank" rel="noopener noreferrer"
+                >Tacto release candidate notes
+                <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+              <details>
+                <summary>For developers: build from source</summary>
+                <p>
+                  Requires Python 3.11+, uv, Xcode Command Line Tools and an
+                  Apple-issued code-signing certificate. The DMG is recommended for regular use.
+                </p>
+                <div class="install-command">
+                  <button
+                    type="button"
+                    disabled
+                    class="icon-button"
+                    data-copy="install-command"
+                  >
+                    Copy
+                  </button>
+                  <pre><code id="install-command">git clone https://github.com/Open330/tacto.git
+cd tacto
+uv sync
+./build.sh
+./skill/install.sh</code></pre>
+                </div>
+                <a
+                  href="https://github.com/Open330/tacto/blob/main/docs/installation.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >Installation requirements and signing setup
+                  <svg
+                  class="ui-icon"
+                  aria-hidden="true"
+                  focusable="false"
+                  viewBox="0 0 24 24"
+                >
+                  <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+              ></a>
+              </details>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <div>
+              <h3>Turn on two macOS permissions</h3>
+              <p>
+                In the Tacto window, under <span lang="ko">‘1. Mac 권한’</span> (Mac permissions), press
+                <span lang="ko">‘설정 열기’</span> (Open Settings) for each item and follow the guide beside it:
+                allow app control for <strong>Tacto Helper</strong> and screen recording
+                for <strong>Tacto</strong>. If you are switching from Preview 8 or earlier,
+                grant each permission again to the new Tacto app. After connecting your
+                agent in step 3, you can also check from the terminal with the command below.
+              </p>
+              <div class="inline-command">
+                <code id="doctor-command">~/.local/bin/tacto doctor</code
+                ><button
+                  type="button"
+                  disabled
+                  class="icon-button"
+                  data-copy="doctor-command"
+                  aria-label="Copy the permission check command"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <div>
+              <h3>Connect <span id="agent-label">Claude</span> and get started</h3>
+              <p>
+                Once both permissions are on, press <span lang="ko">‘에이전트에 연결’</span> (Connect to agent)
+                in the Tacto window to connect the command and skill to Claude Code and
+                Codex. Then send the request below in a new conversation. Feel free to
+                swap in the app and task you actually need.
+              </p>
+              <div class="prompt-card">
+                <p id="agent-prompt">
+                  Use the Tacto skill to calculate 12 × 34 in Calculator and verify the result.
+                  Save it as a parameterized Flow so I can run it again with different inputs.
+                </p>
+                <button
+                  type="button"
+                  disabled
+                  class="icon-button"
+                  data-copy="agent-prompt"
+                >
+                  Copy request
+                  <svg
+                    class="ui-icon"
+                    aria-hidden="true"
+                    focusable="false"
+                    viewBox="0 0 24 24"
+                  >
+                    <use href="../assets/ui-icons.svg#arrow-up-right"></use>
+                  </svg>
+                </button>
+              </div>
+              <p class="small-note">
+                If your agent cannot find the skill, restart its conversation session and
+                check the <span lang="ko">‘2. 에이전트 연결’</span> (Agent connection) status in the Tacto window.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+      <section class="faq wrap" id="faq">
+        <div>
+          <div class="section-label">GOOD TO KNOW</div>
+          <h2>Frequently asked questions.</h2>
+        </div>
+        <div class="faq-items">
+          <details>
+            <summary>
+              Can I use both Claude and Codex?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="../assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              Yes. The install script connects the skill and the Tacto command for both
+              agents. Saved Flows are not tied to a model. In the development version, the
+              automatic selector repair CLI option is <code>--auto-repair codex</code>, and
+              the automatic repair provider is Codex.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Is there really no model cost?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="../assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              Normal deterministic replay does not call a model. First authoring,
+              judgment steps included in the plan, and supported failures after automatic
+              repair is enabled do use the model. It does not mean the cost of the app or
+              the execution environment is zero.
+            </p>
+          </details>
+          <details>
+            <summary>
+              What happens if the screen changes?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="../assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              Tacto finds the target again from a fresh observation. Supported
+              static-selector failures can be repaired with a short candidate packet and
+              resumed after a verified checkpoint. It stops if a value, state or target has
+              changed, or if the outcome is uncertain. Automatic resume that needs an earlier
+              capture, every UI change and crash recovery are not supported.
+            </p>
+          </details>
+          <details>
+            <summary>
+              Is installation just one download?<svg
+                class="ui-icon disclosure-icon"
+                aria-hidden="true"
+                focusable="false"
+                viewBox="0 0 24 24"
+              >
+                <use href="../assets/ui-icons.svg#plus"></use>
+              </svg>
+            </summary>
+            <p>
+              Almost. Move the Developer ID–signed and notarized DMG’s app into
+              Applications and open it, turn on two macOS permissions, then connect your
+              agent in the app. This is currently a release candidate, verified on macOS
+              27.0.1 · Apple Silicon. Intel Mac and Windows builds are not provided. Installing
+              only the Python wheel does not give you the signed macOS helper. Current status:
+              release candidate, not yet the stable release.
+            </p>
+          </details>
+        </div>
+      </section>
+      <section class="workflow-library wrap" id="workflow-library" aria-labelledby="workflow-heading">
+        <div class="section-label">BUILT FOR YOUR WORK</div>
+        <div class="workflow-heading"><h2 id="workflow-heading">For recurring work,<br />a Flow you can reuse.</h2><p>Start with the work you want to hand off.<br />See each scenario’s design alongside actual recorded runs.</p></div>
+        <div class="workflow-studio" id="task-carousel" aria-label="Recurring work scenarios" aria-roledescription="carousel">
+          <div class="workflow-rail" role="group" aria-label="Choose a work scenario">
+            <button type="button" disabled data-workflow="triage" aria-pressed="true"><span class="workflow-number">01 / ENGINEERING</span><strong>Weekly issue review</strong><span>Scattered issues into a review queue</span></button>
+            <button type="button" disabled data-workflow="expenses" aria-pressed="false"><span class="workflow-number">02 / FINANCE</span><strong>Month-end receipts</strong><span>From collecting files to checking gaps and duplicates</span></button>
+            <button type="button" disabled data-workflow="support" aria-pressed="false"><span class="workflow-number">03 / CUSTOMER OPS</span><strong>Customer inquiry review</strong><span>Order checks and reply drafts in one Flow</span></button>
+            <button type="button" disabled data-workflow="backoffice" aria-pressed="false"><span class="workflow-number">04 / OPERATIONS</span><strong>Back-office data entry</strong><span>Row-by-row entry, checked against saved results</span></button>
+          </div>
+          <div class="workflow-content">
+            <div class="carousel-toolbar" hidden><span class="carousel-position">Workflow design <span id="carousel-count">1 / 4</span></span><button type="button" id="carousel-rotation">Pause auto-advance</button></div>
+            <div class="workflow-narrative">
+            <div class="scenario-status">Scenario design · full run not verified</div>
+            <h3 id="workflow-title">Before the next meeting, gather just the issues to review.</h3>
+            <p class="workflow-request" id="workflow-request">“Find this week’s open bugs, compare them with the previous list, and summarize the new issues to check.”</p>
+            <ol class="workflow-steps" id="workflow-steps">
+              <li><span>GitHub</span><strong>Search open bugs in the target repository</strong></li>
+              <li><span>Previous review list</span><strong>Compare already-reviewed items with new ones</strong></li>
+              <li><span>Review list</span><strong>List issue links, comment counts and points to check</strong></li>
+            </ol>
+            <div class="workflow-result"><span>Expected result</span><p id="workflow-result">An issue list ready to open at the next meeting. People decide priorities and owners.</p></div>
+            <div class="workflow-repeat"><span>Next run</span><p id="workflow-repeat">Designed to reuse the same review procedure with a different repository and query.</p></div>
+            </div>
+            <div class="workflow-recording">
+              <figure class="hero-real-media">
+                <video controls playsinline preload="none" poster="../assets/demos/browser-github-poster.png" width="1280" height="800" aria-label="Actual GitHub run: open-bug filter · sorted by comments">
+                  <source src="../assets/demos/browser-github.mp4" type="video/mp4" />
+                  <track kind="captions" src="../assets/demos/browser-github.en.vtt" srclang="en" label="English" default />
+                  <a href="../assets/demos/browser-github.mp4">Download the recording</a>
+                </video>
+                <figcaption><span class="recording-badge" id="carousel-evidence-kind">Real website · GitHub</span><strong id="carousel-title">Actual recording: search, filter and sort steps</strong><p id="carousel-description">Sorted open bugs by comments and verified 25 results. Comparing with the previous list and building the review list are not part of this recording.</p><a id="carousel-detail" href="#example-github">See verification scope and originals</a></figcaption>
+              </figure>
+            </div>
+            <div class="carousel-navigation" hidden><p>Recordings include a guide pointer. Web recordings were captured in a separate Chromium.</p><div class="carousel-arrows"><button type="button" id="carousel-prev" aria-label="Previous scenario">Previous</button><button type="button" id="carousel-next" aria-label="Next scenario">Next</button></div></div>
+          </div>
+        </div>
+        <p class="scenario-note">The scenarios above are design examples of how Tacto could be used. Recordings verify only the operations shown; they do not prove account connections, cross-app handoffs or completion of the whole task.</p>
+      </section>
+      <section
+        class="use-cases wrap"
+        id="use-cases"
+        aria-labelledby="use-cases-title"
+      >
+        <div class="section-label">REAL APPS. REAL ACTIONS.</div>
+        <div class="cases-heading">
+          <h2 id="use-cases-title">
+            Less talk,<br />real runs.
+          </h2>
+          <p>
+            From Mac apps to the browser. See the actual actions and verified results in each recording.
+          </p>
+        </div>
+        <div class="browser-examples" id="browser-examples">
+          <div class="recordings-heading" id="recordings">
+            <span class="evidence-tag"
+              >10 recordings · 8 real apps or sites + 2 public test sites</span
+            >
+            <h3>
+              Start with apps you know.
+            </h3>
+            <p>
+              Tasks performed outside our own test app. The request sentences are
+              illustrative; the recordings show authored Flows actually executing.
+            </p>
+          </div>
+          <div
+            class="example-filters"
+            role="group"
+            aria-label="Example type"
+            hidden
+          >
+            <button type="button" data-example-filter="all" aria-pressed="true">
+              All 10</button
+            ><button
+              type="button"
+              data-example-filter="native"
+              aria-pressed="false"
+            >
+              Mac apps 3</button
+            ><button
+              type="button"
+              data-example-filter="web"
+              aria-pressed="false"
+            >
+              Real web 5</button
+            ><button
+              type="button"
+              data-example-filter="test"
+              aria-pressed="false"
+            >
+              Public tests 2
+            </button>
+          </div>
+          <p id="example-count" class="recording-caption" role="status">
+            Showing 10 examples.
+          </p>
+          <div class="browser-recording-grid">
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-textedit"
+              data-category="native"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">01 · Docs</span
+                ><span class="evidence-tag">Real Mac app · TextEdit</span>
+              </div>
+              <h4>Write a note,<br />then verify what was saved.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/native-textedit-poster.png"
+                width="1312"
+                height="844"
+                aria-label="Actual TextEdit run: document matches disk contents"
+              >
+                <source
+                  src="../assets/demos/native-textedit.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/native-textedit.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/native-textedit.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 10 sec · Mac window capture · includes guide pointer
+              </p>
+<p class="case-result">Document matches disk contents</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>“Write and save notes for the workshop prep.”</blockquote>
+              <p>
+                Typed the notes into a dedicated document, then a separate Save replay
+                verified that the document matched the contents on disk.
+              </p>
+
+              <p class="recording-caption">
+                A separate step was needed to confirm the save after typing, and the
+                saved-state check passed. This run did not complete end to end on its own.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/native-textedit-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="raw-recording"
+                href="../assets/demos/native-textedit-raw.mp4"
+                target="_blank"
+                rel="noopener"
+                >Video without pointer</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-finder"
+              data-category="native"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">02 · Files</span
+                ><span class="evidence-tag">Real Mac app · Finder</span>
+              </div>
+              <h4>Sort files by kind,<br />then by name.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/native-finder-poster.png"
+                width="1520"
+                height="870"
+                aria-label="Actual Finder run: sort by kind → sort by name · 5 files"
+              >
+                <source src="../assets/demos/native-finder.mp4" type="video/mp4" />
+                <track
+                  kind="captions"
+                  src="../assets/demos/native-finder.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/native-finder.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 8 sec · Mac window capture · includes guide pointer
+              </p>
+<p class="case-result">Sort by kind → sort by name · 5 files</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Show this folder by kind, then sort it by name at the end.”
+              </blockquote>
+              <p>
+                Operated the Kind and Name headers in the real Finder and verified
+                ascending name order and five files.
+              </p>
+
+              <p class="recording-caption">
+                A folder containing only files made for the recording. Nothing was
+                moved or deleted, and the personal sidebar and path are excluded from the video.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/native-finder-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture with personal areas excluded</a
+              ><a
+                class="raw-recording"
+                href="../assets/demos/native-finder-raw.mp4"
+                target="_blank"
+                rel="noopener"
+                >Video without pointer</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-translate"
+              data-category="web"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">03 · Language</span
+                ><span class="evidence-tag"
+                  >Real website · Google Translate</span
+                >
+              </div>
+              <h4>A short English sentence,<br />checked in Korean.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-translate-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual Google Translate run: English input · Korean result shown"
+              >
+                <source
+                  src="../assets/demos/browser-translate.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-translate.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-translate.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 7 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">English input · Korean result shown</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>“Translate ‘Hello. Thank you.’ into Korean.”</blockquote>
+              <p>
+                Entered the sentence in Google Translate’s actual input box and verified
+                the Korean result <span lang="ko">“안녕하세요. 감사합니다.”</span>
+              </p>
+
+              <p class="recording-caption">
+                A synthetic example sentence is sent to Google. Proof that the input step
+                completed is inconclusive; the Korean output was checked separately. This is
+                not an evaluation of overall translation quality.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-translate-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://translate.google.com/"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-github"
+              data-category="web"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">04 · Work</span
+                ><span class="evidence-tag">Real website · GitHub</span>
+              </div>
+              <h4>Only the open bugs,<br />most commented first.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-github-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual GitHub run: open-bug filter · sorted by comments"
+              >
+                <source
+                  src="../assets/demos/browser-github.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-github.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-github.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 9 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">Open-bug filter · sorted by comments</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Show me open bugs in VS Code, most commented first.”
+              </blockquote>
+              <p>
+                Applied an open-bug, comments-descending query to the microsoft/vscode
+                issue list and verified the URL, search value and 25 results.
+              </p>
+
+              <p class="recording-caption">
+                The public repository was only read. No issue, comment or sign-in was
+                made, and the list reflects its state at recording time.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-github-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://github.com/microsoft/vscode/issues"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-units"
+              data-category="web"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">05 · Everyday</span
+                ><span class="evidence-tag"
+                  >Real website · UnitConverters.net</span
+                >
+              </div>
+              <h4>Meters to feet,<br />checked against the math.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-units-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual UnitConverters.net run: 3.5 m → 11.482939633 ft"
+              >
+                <source src="../assets/demos/browser-units.mp4" type="video/mp4" />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-units.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-units.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 9 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">3.5 m → 11.482939633 ft</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>“Convert 3.5 meters to feet.”</blockquote>
+              <p>
+                Selected the input value and output unit to get 11.482939633 ft, then
+                compared it with the separate calculation 3.5 ÷ 0.3048.
+              </p>
+
+              <p class="recording-caption">
+                Run on a real conversion site. After input, the output unit is selected
+                to confirm that the site updated its calculation.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-units-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://www.unitconverters.net/length-converter.html"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-markdown"
+              data-category="web"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">06 · Docs</span
+                ><span class="evidence-tag"
+                  >Real website · Markdown Live Preview</span
+                >
+              </div>
+              <h4>Turn the top of a document<br />into a weekend plan.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-markdown-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual Markdown Live Preview run: headings, lists and bold text rendered"
+              >
+                <source
+                  src="../assets/demos/browser-markdown.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-markdown.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-markdown.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 18 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">Headings, lists and bold text rendered</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Change the top of the existing sample into a weekend plan and check the formatting.”
+              </blockquote>
+              <p>
+                Edited the opening of the sample in the real editor and verified that the
+                plan’s title, subheading, two lists and bold text rendered.
+              </p>
+
+              <p class="recording-caption">
+                A partial edit; the rest of the default sample content remains. The whole
+                document was not replaced, saved or exported to PDF.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-markdown-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://markdownlivepreview.com/"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-wikipedia"
+              data-category="web"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">07 · Info</span
+                ><span class="evidence-tag">Real website · Wikipedia</span>
+              </div>
+              <h4>Look it up,<br />jump to the right section.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-wikipedia-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual Wikipedia run: search the Seoul article · go to History"
+              >
+                <source
+                  src="../assets/demos/browser-wikipedia.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-wikipedia.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-wikipedia.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 14 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">Search the Seoul article · go to History</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Search Wikipedia for Seoul and open the History section.”
+              </blockquote>
+              <p>
+                Searched for Seoul, moved to the History section, and verified the final
+                URL and the heading shown on screen.
+              </p>
+
+              <p class="recording-caption">A real public article, no sign-in.</p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-wikipedia-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://en.wikipedia.org/wiki/Seoul"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-calculator"
+              data-category="native"
+              data-real="true"
+            >
+              <div class="case-top">
+                <span class="case-number">08 · Math</span
+                ><span class="evidence-tag">Real Mac app · Calculator</span>
+              </div>
+              <h4>Same calculation steps,<br />different inputs.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/calculator-guided-poster.png"
+                width="460"
+                height="816"
+                aria-label="Actual Calculator run: 7 + 8 = 15 · reused 3 + 9 = 12"
+              >
+                <source
+                  src="../assets/demos/calculator-guided.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/calculator.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/calculator-guided.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 14 sec · Mac window capture · includes guide pointer
+              </p>
+<p class="case-result">7 + 8 = 15 · reused 3 + 9 = 12</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Calculate 7 plus 8. Next time, 3 plus 9 with the same Flow.”
+              </blockquote>
+              <p>
+                Operated the buttons of the real macOS Calculator and verified 15 and 12.
+                The second task changed only the inputs of the same Flow.
+              </p>
+
+              <p class="recording-caption">
+                An existing real recording, edited only to trim the wait between the two tasks.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/calculator-result.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-shopping"
+              data-category="test"
+              data-real="false"
+            >
+              <div class="case-top">
+                <span class="case-number">09 · Test</span
+                ><span class="evidence-tag"
+                  >Public test site · Books to Scrape</span
+                >
+              </div>
+              <h4>Pick from a category,<br />check price and stock.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-shopping-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual Books to Scrape run: book detail · fictional price and stock"
+              >
+                <source
+                  src="../assets/demos/browser-shopping.mp4"
+                  type="video/mp4"
+                />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-shopping.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-shopping.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 9 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">Book detail · fictional price and stock</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Check this book’s price and stock in the travel books category.”
+              </blockquote>
+              <p>
+                Opened the specified book in the Travel category and verified the £49.43
+                price and 15 in stock.
+              </p>
+
+              <p class="recording-caption">
+                A fictional product on a public shopping test site. Not a real price or
+                purchase.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-shopping-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://books.toscrape.com/"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+            <article
+              class="recorded-case browser-case everyday-case"
+              id="example-form"
+              data-category="test"
+              data-real="false"
+            >
+              <div class="case-top">
+                <span class="case-number">10 · Test</span
+                ><span class="evidence-tag">Public test site · Selenium</span>
+              </div>
+              <h4>Fill in several fields,<br />review before submitting.</h4>
+              <video
+                controls
+                playsinline
+                preload="none"
+                poster="../assets/demos/browser-form-poster.png"
+                width="1280"
+                height="800"
+                aria-label="Actual Selenium run: four text, date and option values verified"
+              >
+                <source src="../assets/demos/browser-form.mp4" type="video/mp4" />
+                <track
+                  kind="captions"
+                  src="../assets/demos/browser-form.en.vtt"
+                  srclang="en"
+                  label="English"
+                  default
+                />
+                <a href="../assets/demos/browser-form.mp4">Download video</a>
+              </video>
+              <p class="recording-caption">
+                About 13 sec · separate Chromium · includes guide pointer
+              </p>
+<p class="case-result">Four text, date and option values verified</p>
+              <details class="case-details"><summary>Actions and verification scope</summary>
+              <blockquote>
+                “Fill in the message, date and option, and show me before submitting.”
+              </blockquote>
+              <p>
+                Entered four values (text, message, the date 2026-10-20 and option Two)
+                and verified each one.
+              </p>
+
+              <p class="recording-caption">
+                A public test form. Submit was not pressed and no registration was
+                completed.
+              </p>
+              <a
+                class="case-source"
+                href="../assets/demos/browser-form-original.png"
+                target="_blank"
+                rel="noopener"
+                >Actual capture without pointer</a
+              ><a
+                class="browser-source"
+                href="https://www.selenium.dev/selenium/web/web-form.html"
+                target="_blank"
+                rel="noopener"
+                >Open the recorded site</a
+              >
+              </details>
+            </article>
+          </div>
+          <p class="browser-path-note">
+            Browser examples use a separate Chromium session opened by the Python API.
+            Connecting to your own Chrome or Safari tabs is out of scope. Mac examples use
+            the real TextEdit, Finder and Calculator. None of the examples completed a
+            sign-in, payment or external post.
+          </p>
+          <p class="pointer-disclosure">
+            Pointers, click marks and highlights are illustrative guides, not
+            recordings of the system cursor. Web recordings are actual viewport video;
+            Mac recordings are chronological window captures. They include capture
+            delays and a held final frame, so they cannot be used to compare run times.
+          </p>
+          <a
+            class="browser-source"
+            href="../assets/demos/browser-examples.json"
+            download
+            >Browser run conditions, results and file hashes</a
+          ><a
+            class="browser-source"
+            href="../assets/demos/native-everyday-examples.json"
+            download
+            >TextEdit and Finder run conditions, results and file hashes</a
+          >
+        </div>
+        <details class="recording-method fixture-example">
+          <summary>
+            Our own app for separate verification: an 11-step Flow reused 5 times
+          </summary>
+          <article class="recorded-case">
+            <div class="case-top">
+              <span class="case-number">02</span
+              ><span class="evidence-tag">Our own native test app</span>
+            </div>
+            <h3>Input, calculate, review,<br />five jobs in a row.</h3>
+            <video
+              controls
+              playsinline
+              preload="none"
+              poster="../assets/demos/workflow-guided-poster.png"
+              width="1220"
+              height="1004"
+              aria-label="Actual recording of an 11-step Flow running 5 times with different inputs in our own macOS test app"
+            >
+              <source src="../assets/demos/workflow-guided.mp4" type="video/mp4" />
+              <track
+                kind="captions"
+                src="../assets/demos/workflow-replay.en.vtt"
+                srclang="en"
+                label="English"
+                default
+              />
+              <a href="../assets/demos/workflow-replay.mp4"
+                >Download the repeated-job video</a
+              >
+            </video>
+            <p class="recording-caption">
+              About 17 sec · actual window capture + guide pointer · chronological playback, speed unchanged
+            </p>
+            <blockquote>
+              “Enter these five jobs in the same order and verify the calculated results.”
+            </blockquote>
+            <p>
+              Replayed 11 steps: field input, option selection, review, calculation,
+              result comparison and completion check. The results were 89, 34, 62, 79 and
+              108, and it was separately verified that each job left exactly one completion record.
+            </p>
+            <p class="recording-caption">
+              A test app built for recording, not a commercial business app. Normal
+              replay made 0 model calls; first-authoring cost is separate.
+            </p>
+            <a
+              class="raw-recording"
+              href="../assets/demos/workflow-replay.mp4"
+              target="_blank"
+              rel="noopener"
+              >Watch the original video without pointer</a
+            >
+            <a
+              class="case-source"
+              href="../assets/demos/workflow-result.png"
+              target="_blank"
+              rel="noopener"
+              >View the original screenshot of the actual result</a
+            >
+          </article>
+          <p>
+            Only this recording uses our own test app. It is separate from the 10
+            everyday examples above and does not indicate a success rate for general business apps.
+          </p>
+        </details>
+        <div class="application-note">
+          <h3>How do I apply this to my work?</h3>
+          <p>
+            Start with tasks like creating documents from set content, entering many
+            records into the same form, or checking results after input. Complete and
+            verify one case in the app you use first, then save the steps to repeat as a
+            Flow. Compatibility with each business app needs to be checked individually.
+          </p>
+          <a href="#start">Prepare a first task in your app</a>
+        </div>
+      </section>
+      <section class="demo-section" id="demo">
+        <div class="wrap demo-layout">
+          <div>
+            <div class="section-label">EXPLORE THE EXECUTION MODEL</div>
+            <h2>Same task.<br />Different inputs.<br /><em>One Flow.</em></h2>
+            <p>
+              The examples below illustrate normal replay, a changed button and an
+              uncertain result, as verified in the test app.
+            </p>
+            <div
+              class="demo-controls"
+              role="tablist"
+              aria-label="Choose an execution example"
+            >
+              <button
+                type="button"
+                disabled
+                class="demo-tab selected"
+                data-demo="replay"
+                id="demo-tab-replay"
+                role="tab"
+                aria-controls="demo-panel"
+                aria-selected="true"
+                tabindex="0"
+              >
+                Normal replay</button
+              ><button
+                type="button"
+                disabled
+                class="demo-tab"
+                data-demo="repair"
+                id="demo-tab-repair"
+                role="tab"
+                aria-controls="demo-panel"
+                aria-selected="false"
+                tabindex="-1"
+              >
+                Changed button</button
+              ><button
+                type="button"
+                disabled
+                class="demo-tab"
+                data-demo="stop"
+                id="demo-tab-stop"
+                role="tab"
+                aria-controls="demo-panel"
+                aria-selected="false"
+                tabindex="-1"
+              >
+                Uncertain result
+              </button>
+            </div>
+            <p class="demo-caption">
+              An illustrative interactive example. It does not run a real app or a
+              model. batch and automatic repair refer to the development checkout.
+            </p>
+          </div>
+          <div
+            class="terminal"
+            id="demo-panel"
+            role="tabpanel"
+            aria-labelledby="demo-tab-replay"
+            tabindex="0"
+          >
+            <div class="terminal-bar">
+              <div class="window-dots"><i></i><i></i><i></i></div>
+              <span>tacto / reusable-workflow</span
+              ><button
+                type="button"
+                disabled
+                class="icon-button"
+                data-copy="demo-command"
+                aria-label="Copy the example command"
+              >
+                Copy
+              </button>
+            </div>
+            <div class="terminal-body">
+              <div class="command">
+                <span>$</span
+                ><code id="demo-command"
+                  >tacto batch template.json --helper --auto-repair codex &lt;
+                  jobs.jsonl</code
+                >
+              </div>
+              <div id="demo-lines" class="terminal-lines" aria-live="polite">
+                <div>
+                  <span class="line-number">01</span
+                  ><span>Locate input fields in a fresh observation</span>
+                </div>
+                <div>
+                  <span class="line-number">02</span
+                  ><span>Enter parameters · check bonus state</span>
+                </div>
+                <div>
+                  <span class="line-number">03</span
+                  ><span>Review → calculate → complete</span>
+                </div>
+                <div>
+                  <span class="line-number"
+                    ><svg
+                      class="ui-icon"
+                      aria-hidden="true"
+                      focusable="false"
+                      viewBox="0 0 24 24"
+                    >
+                      <use href="../assets/ui-icons.svg#check"></use></svg></span
+                  ><span class="good">Result conditions verified</span>
+                </div>
+              </div>
+              <div class="terminal-total">
+                <span id="demo-status">VERIFIED REPLAY</span
+                ><b id="demo-total">0 model calls</b>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="final-cta wrap">
+        <div class="section-label">TEACH ONCE. KEEP GOING.</div>
+        <h2>Hand off the repetition.<br /><span>Move on to what’s next.</span></h2>
+        <a class="button primary" href="#start"
+          >Get started with Tacto
+          <svg
+            class="ui-icon"
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg></a
+        ><a
+          class="text-link"
+          href="https://github.com/Open330/tacto"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Browse the source
+          <svg
+            class="ui-icon"
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+        ></a>
+      </section>
+      <noscript
+        ><p class="wrap noscript-note">
+          Installation steps and the normal run example are available without
+          JavaScript. Select and copy commands manually.
+        </p></noscript
+      >
+    </main>
+    <footer class="wrap footer">
+      <a class="brand" href="#"
+        ><img
+          class="brand-wordmark"
+          src="../assets/tacto-wordmark.svg"
+          alt="Tacto"
+          width="108"
+          height="32"
+          decoding="async"
+        /><span class="brand-divider" aria-hidden="true">/</span
+        ><span class="brand-note" aria-hidden="true"
+          >TEACH ONCE. REPLAY AT RUNTIME.</span
+        ></a
+      >
+      <div>
+        <span>Release candidate · macOS native · Reusable flows</span
+        ><a
+          href="https://github.com/Open330/tacto"
+          target="_blank"
+          rel="noopener noreferrer"
+          >GitHub
+          <svg
+            class="ui-icon"
+            aria-hidden="true"
+            focusable="false"
+            viewBox="0 0 24 24"
+          >
+            <use href="../assets/ui-icons.svg#arrow-up-right"></use></svg
+        ></a>
+      </div>
+    </footer>
+    <div class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:02.255
+Open the Selenium public test form.
+
+00:00:02.255 --> 00:00:03.746
+Fill in the text field.
+
+00:00:03.746 --> 00:00:05.235
+Enter the date.
+
+00:00:05.235 --> 00:00:06.704
+Fill in the message.
+
+00:00:06.704 --> 00:00:08.181
+Choose Two from the select menu.
+
+00:00:08.181 --> 00:00:12.720
+Review the entered values. The form is not submitted.

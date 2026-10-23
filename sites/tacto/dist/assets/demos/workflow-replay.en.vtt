@@ -1,0 +1,16 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:04.045
+1/5 · Input 17 × 5, bonus 5, discount 1 → result 89
+
+00:00:04.045 --> 00:00:06.815
+2/5 · Input 18 × 2, bonus 0, discount 2 → result 34
+
+00:00:06.815 --> 00:00:09.538
+3/5 · Input 19 × 3, bonus 5, discount 0 → result 62
+
+00:00:09.538 --> 00:00:12.231
+4/5 · Input 20 × 4, bonus 0, discount 1 → result 79
+
+00:00:12.231 --> 00:00:17.417
+5/5 · Input 21 × 5, bonus 5, discount 2 → result 108

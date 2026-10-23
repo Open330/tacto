@@ -847,7 +847,7 @@ func forgetPin() {
 /// caller is offered `open_select` instead, and the only menu read here is the
 /// one this helper opened, found again by the identity it was pinned under
 /// rather than by being whichever menu happens to be up.
-func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [String: Any] {
+func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String, candidates: [Int]? = nil) -> [String: Any] {
     // Another app's screen says nothing about the menu we left standing over
     // here, so it is neither consulted nor thrown away: as far as THIS
     // observation is concerned, every popup in it is closed (peer review).
@@ -870,7 +870,10 @@ func customSelects(_ p: pid_t, _ elements: [AXUIElement], obsID: String) -> [Str
         pending = nil
     }
     var out: [String: Any] = [:]
-    for (i, el) in elements.enumerated() {
+    // The walk already knows every element's role; asking each one again
+    // cost two seconds in a crowded Finder (2,500 elements, rc.4 faults).
+    for i in candidates ?? Array(elements.indices) where i >= 0 && i < elements.count {
+        let el = elements[i]
         let role = str(el, kAXRoleAttribute as String) ?? ""
         guard ["AXPopUpButton", "AXComboBox"].contains(role) else { continue }
         if role=="AXComboBox",case .unknown=comboBoxContainerState(el,p) {
@@ -1185,7 +1188,12 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     // Reading only; nothing here opens a menu. A closed popup reports
     // no options because it HAS none until it is opened.
     let selectsStart = DispatchTime.now().uptimeNanoseconds
-    reply["custom_selects"] = customSelects(p, elements, obsID: obsID)
+    let selectLines = lines.joined(separator: "\n").split(separator: "\n").compactMap { line -> Int? in
+        let words = line.split(separator: " ", maxSplits: 2)
+        guard words.count >= 2, ["PopUpButton", "ComboBox"].contains(String(words[1])) else { return nil }
+        return Int(words[0])
+    }
+    reply["custom_selects"] = customSelects(p, elements, obsID: obsID, candidates: selectLines)
     reply["observation_timing_ms"] = ["window_listing":listingMs, "indicator":indicatorMs, "walk":walkMs,
         "packets":Int(metrics.packetNanos / 1_000_000),
         "secondary_actions":Int(metrics.secondaryActionNanos / 1_000_000),
