@@ -1493,8 +1493,9 @@ func selectListItem(_ el: AXUIElement, deadline: Double) -> [String: Any]? {
 
 /// The table counterpart of `selectListItem`: the row (the element or one of
 /// its two nearest ancestors) of an outline or table whose selected rows can
-/// be set, judged only by reading the selection back. Used only after the
-/// pointer route refused without sending anything.
+/// be set, judged only by reading the selection back. Finder selects rows
+/// directly, without spending the input budget on a pointer readiness walk.
+/// Other apps use this only after the pointer refused without sending input.
 func selectTableRow(_ el: AXUIElement, deadline: Double) -> [String: Any]? {
     var row = el
     for _ in 0..<3 {
@@ -2992,6 +2993,14 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         if listed == .success, let names = advertised as? [String],
            !names.contains(kAXPressAction as String), savePanelToken == nil,
            let selected = selectListItem(el, deadline: deadline) {
+            return selected.merging(["action": name, "obs_id": obsID]) { a, _ in a }
+        }
+        // Finder row clicks mean selection. Use the table's semantic operation
+        // first: a crowded-window readiness walk can consume the entire shared
+        // deadline, leaving no time for a fallback even though it sent no input.
+        if target.lowercased() == "com.apple.finder", listed == .success,
+           let names = advertised as? [String], !names.contains(kAXPressAction as String),
+           savePanelToken == nil, let selected = selectTableRow(el, deadline: deadline) {
             return selected.merging(["action": name, "obs_id": obsID]) { a, _ in a }
         }
         if listed == .success, let names = advertised as? [String],
