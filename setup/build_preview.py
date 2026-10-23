@@ -41,7 +41,7 @@ def build(output: Path):
             "CFBundleDisplayName": "Tacto", "CFBundleName": "Tacto",
             "CFBundleIconFile": "tacto-app.icns",
             "CFBundleExecutable": "TactoSetup", "CFBundleIdentifier": "ai.callabo.tacto.setup.preview",
-            "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.0",
+            "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "1.0.0",
             "LSUIElement": True,
             "LSMinimumSystemVersion": "13.0",
         }))

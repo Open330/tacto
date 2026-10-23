@@ -29,9 +29,9 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def release_version(tag):
-    match=re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-preview\.([1-9][0-9]*))?',tag)
+    match=re.fullmatch(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:preview|rc)\.([1-9][0-9]*))?',tag)
     if not match:
-        raise ValueError('expected vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-preview.N')
+        raise ValueError('expected vMAJOR.MINOR.PATCH, vMAJOR.MINOR.PATCH-preview.N or vMAJOR.MINOR.PATCH-rc.N')
     return '.'.join(match.groups()[:3]),match.group(4)
 
 
@@ -126,7 +126,7 @@ def baseline_identity(metadata):
     """Identify the selected baseline, without claiming its publication status."""
     tag=metadata.get('TactoReleaseTag',metadata.get('release_tag'))
     commit=metadata.get('TactoSourceCommit',metadata.get('workspace_commit'))
-    if not isinstance(tag,str) or not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-preview\.[0-9]+)?',tag):
+    if not isinstance(tag,str) or not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-(?:preview|rc)\.[0-9]+)?',tag):
         tag=None
     if not isinstance(commit,str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',commit):
         commit=None
@@ -234,7 +234,7 @@ def build(output,identity,tag,*,baseline=None,initial_distribution=False,removal
     info=plistlib.loads(info_path.read_bytes())
     info.update(CFBundleShortVersionString=version,
                 CFBundleVersion=preview_number or subprocess.check_output(['git','rev-list','--count','HEAD'],cwd=ROOT,text=True).strip(),
-                TactoReleaseTag=tag,TactoBuildVariant='preview.'+preview_number if preview_number else 'release',
+                TactoReleaseTag=tag,TactoBuildVariant=tag.split('-',1)[1] if preview_number else 'release',
                 TactoSourceCommit=before['workspace_commit'],TactoOnboardingSourceDigest=before['digest'])
     info_path.write_bytes(plistlib.dumps(info))
 
