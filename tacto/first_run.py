@@ -112,7 +112,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
     if before.get('type') != 'observation' or before.get('truncated'):
         return result('failed', 'observe', error=before.get('error', 'incomplete_observation'))
     try:
-        owner, old, old_ids = _windows(before)
+        owner, old, _ = _windows(before)
     except ValueError as exc:
         return result('failed', 'observe', error=str(exc))
     # No store lookup: a corrupt/modified user recipe cannot redefine the
@@ -168,7 +168,13 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
         new_ids = set(windows) - set(old)
         if after_owner != owner:
             return result('failed', 'new_document_identity', error='application_identity_changed')
-        if len(new_ids) == 1 and set(old).issubset(windows):
+        if len(new_ids) == 1:
+            break
+        focused_new = [wid for wid in new_ids if windows[wid]['focused']
+                       and not windows[wid]['attrs'].get('Document')]
+        if len(focused_new) == 1:
+            new_ids = set(focused_new)
+            recovery.append('use_focused_new_document')
             break
         if len(new_ids) > 1 or identity_read == 7:
             return result('failed', 'new_document_identity' if created.ok else 'new_document',
@@ -179,8 +185,6 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
                           missing_existing_document_count=len(set(old) - set(windows)))
         time.sleep(0.1)
     new_id = next(iter(new_ids))
-    if new_id in old_ids:
-        return result('failed', 'new_document_identity', error='new_window_not_unique')
     window = windows[new_id]
     attrs, focused = window['attrs'], window['focused']
     title = attrs.get('Title')
