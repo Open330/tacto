@@ -118,7 +118,7 @@ class FirstRunTests(unittest.TestCase):
         self.assertEqual('text_verified', r['status'])
 
     def test_unowned_or_nonempty_or_unfocused_document_is_not_written(self):
-        cases = [OLD, NEW, OLD+NEW.replace('[focused]', ''),
+        cases = [OLD, OLD+NEW.replace('[focused]', ''),
                  OLD+NEW.replace('TextArea  Identifier:', 'TextArea  Value: USER INPUT, Identifier:'),
                  OLD+NEW.replace('"Untitled"', '"Untitled", Document: "/owned/Other.txt"'),
                  OLD+NEW+NEW]
@@ -128,6 +128,26 @@ class FirstRunTests(unittest.TestCase):
                 self.assertEqual('failed', r['status'])
                 self.assertEqual(1, execute.call_count)
                 self.assertIs(False, r['repeat_write'])
+
+    def test_an_old_window_closing_does_not_block_the_verified_new_document(self):
+        result, _, execute = self.run_case(after=NEW, final=DONE)
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(102, result['window_id'])
+        self.assertEqual(2, execute.call_count)
+
+    def test_startup_picker_window_can_become_a_new_document(self):
+        picker = observation(OLD+'2 Window  Title: "Open" [focused]\n  3 Button  Title: New Document\n')
+        result, _, execute = self.run_case(before=picker)
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(2, execute.call_count)
+
+    def test_only_focused_new_document_is_used_when_multiple_blank_windows_appear(self):
+        extra = '4 Window  Title: "Untitled 2"\n  5 TextArea  Identifier: First Text View\n'
+        result, _, execute = self.run_case(after=OLD+NEW+extra, final=OLD+DONE+extra)
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual('Untitled', result['window_title'])
+        self.assertEqual(['use_focused_new_document'], result['recovery_steps'])
+        self.assertEqual(2, execute.call_count)
 
     def test_missing_or_truncated_observation_and_failed_new_stop_before_writing(self):
         for before in [dict(type='error', error='target_not_found'), observation(OLD, truncated=True)]:
