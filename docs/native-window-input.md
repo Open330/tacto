@@ -753,3 +753,14 @@ that Open Location… > set URL > confirm completes for an exact destination,
 and that an HTTP 302 to another URL stays unverified without resending the
 confirmation. The original window Identifier changed its IsSecure flag during
 an HTTPS load while its UUID stayed the same.
+
+## Finder 행 선택: 포인터 준비 전에 표 선택 (개발 소스)
+
+Finder에서 `AXPress`가 없는 행은 표의 settable `AXSelectedRows`로 먼저
+선택하고 정확히 한 행이 선택됐는지 읽어 확인한다. 저장 패널에서는 사용하지
+않는다. 다른 앱은 포인터가 입력을 보내기 전에 거부된 경우에만 기존 표 선택
+경로를 사용한다. 선택 결과가 불확실하면 포인터로 다시 누르지 않는다.
+
+rc.3의 다중 창 전경 시험에서는 포인터 준비가 공통 제한 시간을 소진해 표 선택을
+시작하지 못했다. 이 개발 소스 수정은 그 준비 과정을 Finder 행 선택에서 생략한다.
+이미 게시된 rc.3 앱·DMG에는 포함되지 않으며 새 서명 후보의 실기 검증이 필요하다.
