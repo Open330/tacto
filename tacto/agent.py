@@ -693,6 +693,13 @@ class Agent:
             if decision.risk == "blocked":
                 blocked.append(f"{what} — 무슨 일이 일어날지 확정할 수 없어 실행하지 않습니다")
                 continue
+            if st.binding is None and (st.selector is not None or st.params):
+                # A hand-written step names its control but carries no pin;
+                # bind consent to exactly what it names (flow._binding_from_step).
+                from dataclasses import replace as _replace
+                from .flow import _binding_from_step
+                st = _replace(st, binding=_binding_from_step(None, st.selector, st.action, st.params))
+                flow.steps[i] = st
             if st.binding is None:
                 # Consent is bound to a described action; with nothing to bind
                 # it to, approving would authorize "step i" rather than the

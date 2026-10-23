@@ -1556,6 +1556,28 @@ def _payload_digest(params: dict) -> str:
         _json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:32]
 
 
+def _binding_from_step(target, sel, action, params):
+    """Pin consent to the action a hand-written step describes.
+
+    A step that needs approval and carries no `binding` was unapprovable even
+    when its selector named the control exactly ("Create GitHub App for ...",
+    2026-10-23): model-authored steps derive this pin, files did not. The pin
+    is taken from the step itself, so replay re-checks the same role, labels,
+    operation and payload right before acting; templated pins are rendered
+    per run like an authored step's.
+    """
+    ident = sel.identifier if sel is not None else None
+    return ContextBinding(
+        bundle_id=target,
+        role=sel.role if sel is not None else None,
+        subrole=sel.subrole if sel is not None else None,
+        identifier=(ident[0] if isinstance(ident, list) and ident else ident),
+        title=sel.title if sel is not None else None, desc=sel.desc if sel is not None else None,
+        value=sel.value if sel is not None else None,
+        ancestor=sel.ancestor if sel is not None else None,
+        operation=action, params_digest=pin_params(params) if params else None)
+
+
 def pin_params(params: dict) -> str:
     """Pin a step's parameters into its ContextBinding while authoring it.
 
