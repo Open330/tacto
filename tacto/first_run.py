@@ -1,7 +1,7 @@
 """One fixed, model-free first task; input verification is not a Save receipt."""
 import time
 import math
-from .app_launch import launch_app, present_app
+from .app_launch import launch_app, present_app, activate_app
 from .document_label import window_attributes, window_flag
 from .flow import Flow, Step, Selector, Postcondition, replay, pin_params, _replay_observation
 from .contract import SafetyContract, Resource, ContextBinding
@@ -54,11 +54,51 @@ def _windows(observation):
     return (pid, start), documents, set(mapping.values())
 
 
-def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
+def _creation_problem(created):
+    """Keep the actual closed error code, without echoing document/menu text."""
+    import re
+    for row in created.log:
+        if row.get('status') not in ('error', 'gated', 'unverified'):
+            continue
+        detail = row.get('detail')
+        detail = detail if isinstance(detail, dict) else {}
+        code = row.get('error') or detail.get('error')
+        code = code if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_]{0,80}', code) else 'new_document_not_verified'
+        effect = row.get('effect', detail.get('effect', 'unknown'))
+        if row.get('stage') == 'initial_observe' and not getattr(created, 'events', []):
+            effect = 'not_started'
+        return dict(error=code, effect=effect)
+    return dict(error='new_document_not_verified', effect='unknown')
+
+
+def _new_document_route(tree):
+    """TextEdit's startup picker can disable File > New but offers this button."""
+    matches = []
+    for title in ('New Document', '새로운 문서', '새 문서'):
+        field = Selector(role='Button', title=title, in_focused_window=True)
+        try:
+            field.resolve(tree)
+        except LookupError:
+            continue
+        matches.append(field)
+    if len(matches) != 1:
+        return textedit_new_document(), 'foreground_new_menu'
+    return Flow(name='tacto_first_run_new_document', target=TARGET, steps=[
+        Step('click', matches[0], postcondition=Postcondition(
+            field=Selector(role='TextArea', identifier='First Text View'), contains='TextArea'),
+            safety=SafetyContract(effects=['write_ephemeral'], reversibility='reversible',
+                                  resource=Resource(object_type='new first-run document', scope='entry')))
+    ]), 'new_document_button'
+
+
+def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, activate=None):
     started = time.monotonic()
+    recovery = []
     def result(status, stage, **extra):
         if status == 'failed':
             extra.setdefault('repeat_write', False)
+        if recovery:
+            extra['recovery_steps'] = list(recovery)
         return dict(type='first_run', status=status, stage=stage,
                     seconds=round(time.monotonic() - started, 3),
                     model_calls=0, save_command_sent=False, **extra)
@@ -78,14 +118,47 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
     # No store lookup: a corrupt/modified user recipe cannot redefine the
     # onboarding task. The canonical library flow uses the normal policy.
     created = execute(driver, textedit_new_document())
-    if not created.ok:
-        return result('failed', 'new_document', error='new_document_not_verified')
+    pending_after = None
+    problem = _creation_problem(created)
+    if not created.ok and problem['error'] in ('aborted_by_user', 'screen_locked'):
+        return result('failed', 'new_document', error=problem['error'])
+    if (not created.ok and problem['effect'] == 'not_started'
+            and problem['error'] in ('action_failed', 'menu_state_unavailable', 'target_seen_in_front',
+                                      'window_list_unavailable', 'no_window_content', 'observation_unavailable')
+            and not getattr(created, 'events', [])):
+        # Foregrounding the requested first-task app is part of doing the task,
+        # not a new question for the person. No New input was delivered yet.
+        focused = (activate or activate_app)(TARGET)
+        recovery.append('activate_textedit')
+        if focused.get('foreground_verified'):
+            pending_after = _replay_observation(driver.observe, TARGET, 'tree_full',
+                                                require_window=False, window_identity=True)
+            try:
+                focused_owner, focused_windows, _ = _windows(pending_after)
+            except (ValueError, KeyError, TypeError):
+                focused_owner, focused_windows = None, {}
+            if focused_owner == owner and not (set(focused_windows) - set(old)):
+                route, name = _new_document_route(pending_after['tree'])
+                created = execute(driver, route)
+                recovery.append(name)
+                problem = _creation_problem(created)
+                pending_after = None
+        else:
+            return result('failed', 'new_document', error=problem['error'],
+                          effect='not_started', recovery_error=focused.get('error', 'activation_failed'))
     # The New menu's generic postcondition can see an EXISTING text area
     # before TextEdit publishes its new window. Settle by reading only; never
     # resend New or a write in response to delayed AX window creation.
     for identity_read in range(8):
-        after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
+        after = pending_after if pending_after is not None else _replay_observation(
+            driver.observe, TARGET, 'tree_full', window_identity=True)
+        pending_after = None
         if after.get('type') != 'observation' or after.get('truncated'):
+            if after.get('error') in ('window_list_unavailable', 'no_window_content') and identity_read < 7:
+                if 'wait_for_document_observation' not in recovery:
+                    recovery.append('wait_for_document_observation')
+                time.sleep(0.1)
+                continue
             return result('failed', 'new_document_identity',
                           error=after.get('error', 'incomplete_observation'), repeat_write=False)
         try:
@@ -98,7 +171,8 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
         if len(new_ids) == 1 and set(old).issubset(windows):
             break
         if len(new_ids) > 1 or identity_read == 7:
-            return result('failed', 'new_document_identity', error='new_window_not_unique',
+            return result('failed', 'new_document_identity' if created.ok else 'new_document',
+                          error='new_window_not_unique' if created.ok else problem['error'],
                           identity_reads=identity_read + 1,
                           before_document_count=len(old), after_document_count=len(windows),
                           new_document_count=len(new_ids),
@@ -110,8 +184,21 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
     window = windows[new_id]
     attrs, focused = window['attrs'], window['focused']
     title = attrs.get('Title')
-    if not title or attrs.get('Document') or not focused:
+    if not title or attrs.get('Document'):
         return result('failed', 'new_document_identity', error='new_document_not_blank_and_focused')
+    if not focused:
+        focused_result = (activate or activate_app)(TARGET, window=title, driver=driver)
+        recovery.append('focus_created_document')
+        after = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
+        try:
+            focused_owner, focused_windows, _ = _windows(after)
+            window = focused_windows[new_id]
+            attrs = window['attrs']
+        except (ValueError, KeyError, TypeError):
+            return result('failed', 'new_document_identity', error='new_document_focus_not_verified')
+        if (not focused_result.get('foreground_verified') or not window['focused']
+                or focused_owner != owner or attrs.get('Document') or attrs.get('Title') != title):
+            return result('failed', 'new_document_identity', error='new_document_focus_not_verified')
     field = Selector(role='TextArea', identifier='First Text View', ancestor=title,
                      in_focused_window=True)
     # An empty AXValue may be omitted from the textual tree. Match exactly
@@ -147,7 +234,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
                and failures[0].get('detail') == 'missing_typed_host_commit_evidence')
     if not written.ok and not allowed:
         return result('failed', 'write', error=failures[0].get('error', 'write_failed') if failures else 'write_failed',
-                      repeat_write=False)
+                      repeat_write=False, target=TARGET, window_title=title, window_id=new_id)
     fresh = _replay_observation(driver.observe, TARGET, 'tree_full', window_identity=True)
     try:
         fresh_owner, fresh_windows, _ = _windows(fresh)
@@ -159,7 +246,8 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None):
                                  attribute='Value', equals=TEXT.replace('\n', '\\n'))
     if (fresh.get('type') != 'observation' or fresh.get('truncated') or fresh_owner != owner
             or verified_window is None or not visible_text.check(verified_window['tree'])):
-        return result('failed', 'verify', error=fresh.get('error', 'text_not_verified'), repeat_write=False)
+        return result('failed', 'verify', error=fresh.get('error', 'text_not_verified'), repeat_write=False,
+                      target=TARGET, window_title=title, window_id=new_id)
     title = verified_window['attrs'].get('Title')
     # This fixed welcome task explicitly presents its result. Ordinary flows
     # and launch_app retain their background behavior. Presentation failure

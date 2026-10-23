@@ -385,10 +385,11 @@ final class Setup: NSObject, NSApplicationDelegate, NSWindowDelegate {
         \(firstRunShellQuote(launcher)) first-run --helper --yes
         이 명령이 꺼진 TextEdit 실행, 새 문서 생성, 두 줄 입력, 새 관찰로 확인하고 TextEdit 결과를 앞으로 표시하는 것까지 처리합니다. 기존 문서를 수정하거나 저장 명령을 실행하지 않습니다. --yes는 이 고정된 첫 작업의 새 문서 입력을 승인합니다.
         빠른 실행 지침:
-        1. 별도 스킬·문서·예제 탐색이나 Flow JSON 작성 없이 위 명령을 바로 실행하세요. compile/do, osascript, AppleScript, JXA, open -a 등 다른 경로는 사용하지 마세요.
+        1. 첫 시도는 별도 스킬·문서·예제 탐색 없이 위 명령을 바로 실행하세요. 실패하면 복구에 필요한 명령이나 Flow를 사용해 목표를 완료하세요.
         2. 도구가 실행 세션 ID를 반환하면 같은 세션에서 완료를 기다리세요. 명령을 다시 보내면 문서가 중복될 수 있으니 재실행하지 마세요.
-        3. 최종 JSON의 status가 text_verified이면 두 줄의 화면 입력이 확인된 것입니다. presentation_skipped=true는 사용자 설정에 따라 백그라운드로 완료한 것입니다. foreground_verified=true이면 결과 문서가 앞으로 표시된 것도 확인된 것입니다. presentation_skipped가 true가 아닌데 foreground_verified=false이면 입력은 완료됐으나 표시를 확인하지 못했다고 알리고 입력을 반복하지 마세요. 사용자에게 짧게 완료를 알리세요. persistent_commit_verified=false는 저장을 증명하지 않았다는 뜻이며, 저장이나 수리를 시도할 이유가 아닙니다.
-        4. 실패하면 stage와 error를 보고하고 멈추세요. 문서나 입력이 일부 만들어졌을 수 있으므로 다른 도구로 우회하거나 반복하지 마세요. 로그인·OS 권한 등 사용자 확인이 필요하면 그 요청만 알려주세요.
+        3. status=text_verified는 두 줄 입력 확인, foreground_verified=true는 결과 표시 확인입니다. 입력은 됐지만 결과가 뒤에 있다면 반환된 window_title로 TextEdit 창을 앞으로 가져오세요. persistent_commit_verified=false는 저장하지 않았다는 뜻이며 이 작업에 저장은 필요 없습니다. 완료 후 짧게 알리세요.
+        4. 실패하면 stage·error·recovery_steps를 확인하고 현재 TextEdit 상태를 관찰해 같은 작업을 계속 해결하세요. launch·observe·new_document·new_document_identity·authorize 단계는 텍스트 입력 전입니다. TextEdit을 앞으로 가져오거나 파일 선택 창의 ‘새 문서’ 버튼을 사용하고, 필요하면 첫 명령을 한 번 다시 실행하거나 Tacto Flow로 새 문서 생성과 입력을 완료하세요. 별도 확인을 받으려고 멈출 필요는 없습니다.
+        5. write·verify 단계에서 실패했다면 반환된 window_title·window_id와 새 관찰로 해당 문서 내용을 확인하세요. 문구가 이미 들어갔다면 결과를 검증하고 앞으로 보여주고, 빠진 내용은 새로 만든 해당 문서에서 완성하세요. 로그인·OS 권한은 실제 오류가 그 문제를 명시할 때만 요청하세요. 복구 가능한 메뉴·창 오류를 사용자에게 떠넘기지 마세요.
         """
     }
     var permissionDetails = false
