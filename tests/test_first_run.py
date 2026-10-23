@@ -22,6 +22,9 @@ class FirstRunTests(unittest.TestCase):
         presenter = patch('tacto.first_run.present_app', return_value=dict(foreground_verified=False, error='test_not_presented'))
         self.presenter = presenter.start()
         self.addCleanup(presenter.stop)
+        activation = patch('tacto.first_run.activate_app', return_value=dict(foreground_verified=False))
+        self.activation = activation.start()
+        self.addCleanup(activation.stop)
 
     def test_verified_result_is_presented_and_same_window_is_observed_again(self):
         self.presenter.return_value = dict(foreground_verified=True)
@@ -130,8 +133,113 @@ class FirstRunTests(unittest.TestCase):
         for before in [dict(type='error', error='target_not_found'), observation(OLD, truncated=True)]:
             r, _, execute = self.run_case(before=before)
             self.assertEqual('failed', r['status']); execute.assert_not_called()
-        r, _, execute = self.run_case(create_ok=False)
+        r, _, execute = self.run_case(create_ok=False, after=OLD)
         self.assertEqual('new_document', r['stage']); self.assertEqual(1, execute.call_count)
+
+    def recovery_case(self, reads, creation, *, activate=None):
+        driver = Mock()
+        driver.observe.side_effect = reads
+        execute = Mock(side_effect=creation)
+        activate = activate or Mock(return_value=dict(foreground_verified=True))
+        with patch('tacto.first_run.time.sleep'):
+            result = run_first_task(driver, launch=lambda _:dict(type='app_launch'),
+                                    execute=execute, activate=activate)
+        return result, execute, activate
+
+    @staticmethod
+    def refused_new():
+        return SimpleNamespace(ok=False, events=[], log=[dict(status='error',
+            detail=dict(error='action_failed', effect='not_started', needs_foreground=True))])
+
+    def test_disabled_background_new_is_activated_and_completed_without_a_question(self):
+        ok = SimpleNamespace(ok=True, log=[])
+        result, execute, activate = self.recovery_case(
+            [observation(OLD), observation(OLD), observation(OLD+NEW), observation(OLD+DONE)],
+            [self.refused_new(), ok, ok])
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(['activate_textedit', 'foreground_new_menu'], result['recovery_steps'])
+        activate.assert_called_once_with('com.apple.TextEdit')
+        self.assertEqual(['menu', 'menu', 'set_value'],
+                         [c.args[1].steps[0].action for c in execute.call_args_list])
+
+    def test_initial_background_window_read_failure_is_recovered_before_any_new_input(self):
+        failed = SimpleNamespace(ok=False, events=[], log=[dict(status='error',
+            stage='initial_observe', detail=dict(type='error', error='window_list_unavailable'))])
+        ok = SimpleNamespace(ok=True, log=[])
+        result, execute, activate = self.recovery_case(
+            [observation(OLD), observation(OLD), observation(OLD+NEW), observation(OLD+DONE)],
+            [failed, ok, ok])
+        self.assertEqual('text_verified', result['status'])
+        activate.assert_called_once_with('com.apple.TextEdit')
+        self.assertEqual(3, execute.call_count)
+
+    def test_startup_picker_uses_observed_new_document_button_instead_of_disabled_menu(self):
+        for title in ('New Document', '새로운 문서', '새 문서'):
+            with self.subTest(title=title):
+                picker = observation(OLD+'4 Window  Title: "Open" [focused]\n  5 Button  Title: '+title+'\n')
+                ok = SimpleNamespace(ok=True, log=[])
+                result, execute, _ = self.recovery_case(
+                    [picker, picker, observation(OLD+NEW), observation(OLD+DONE)],
+                    [self.refused_new(), ok, ok])
+                self.assertEqual('text_verified', result['status'])
+                self.assertEqual(['menu', 'click', 'set_value'],
+                                 [c.args[1].steps[0].action for c in execute.call_args_list])
+                self.assertEqual(title, execute.call_args_list[1].args[1].steps[0].selector.title)
+
+    def test_activation_created_a_document_is_reused_without_another_new_command(self):
+        ok = SimpleNamespace(ok=True, log=[])
+        result, execute, _ = self.recovery_case(
+            [observation(OLD), observation(OLD+NEW), observation(OLD+DONE)],
+            [self.refused_new(), ok])
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(['menu', 'set_value'], [c.args[1].steps[0].action for c in execute.call_args_list])
+
+    def test_new_document_verification_error_does_not_discard_an_observed_new_window(self):
+        creation = SimpleNamespace(ok=False, events=[dict(state='dispatched')],
+            log=[dict(status='error', error='postcondition_timeout')])
+        result, execute, activate = self.recovery_case(
+            [observation(OLD), observation(OLD+NEW), observation(OLD+DONE)],
+            [creation, SimpleNamespace(ok=True, log=[])])
+        self.assertEqual('text_verified', result['status'])
+        activate.assert_not_called()
+        self.assertEqual(2, execute.call_count)
+
+    def test_transient_new_window_read_is_retried_without_repeating_creation(self):
+        ok = SimpleNamespace(ok=True, log=[])
+        result, execute, _ = self.recovery_case(
+            [observation(OLD), dict(type='error', error='window_list_unavailable'),
+             observation(OLD+NEW), observation(OLD+DONE)], [ok, ok])
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(['wait_for_document_observation'], result['recovery_steps'])
+        self.assertEqual(2, execute.call_count)
+
+    def test_created_document_is_focused_automatically_before_writing(self):
+        ok = SimpleNamespace(ok=True, log=[])
+        result, execute, activate = self.recovery_case(
+            [observation(OLD), observation(OLD+NEW.replace('[focused]', '')),
+             observation(OLD+NEW), observation(OLD+DONE)], [ok, ok])
+        self.assertEqual('text_verified', result['status'])
+        self.assertEqual(['focus_created_document'], result['recovery_steps'])
+        self.assertEqual('Untitled', activate.call_args.kwargs['window'])
+        self.assertEqual(2, execute.call_count)
+
+    def test_actual_creation_error_is_preserved_and_unknown_input_is_not_repeated(self):
+        failed = SimpleNamespace(ok=False, events=[dict(state='unknown')],
+            log=[dict(status='error', detail=dict(error='action_failed', effect='unknown',
+                                                 detail='PRIVATE document contents'))])
+        result, execute, activate = self.recovery_case(
+            [observation(OLD)]*9, [failed])
+        self.assertEqual(('new_document', 'action_failed'), (result['stage'], result['error']))
+        self.assertNotIn('PRIVATE', str(result))
+        self.assertEqual(1, execute.call_count)
+        activate.assert_not_called()
+
+    def test_person_stop_is_respected_even_if_a_new_window_has_appeared(self):
+        stopped = SimpleNamespace(ok=False, events=[], log=[dict(status='error', error='aborted_by_user')])
+        result, execute, activate = self.recovery_case([observation(OLD)], [stopped])
+        self.assertEqual('aborted_by_user', result['error'])
+        self.assertEqual(1, execute.call_count)
+        activate.assert_not_called()
 
     def test_failed_write_or_verification_is_never_repeated(self):
         for options in [dict(write_error='identity_changed'), dict(final=OLD+NEW),

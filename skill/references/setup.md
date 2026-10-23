@@ -97,8 +97,9 @@ then observe again. This starts an installed app through LaunchServices without
 AppleScript or new automation permissions. A successful launch confirms a running
 process; a window may still need `reopen_window` or the app's New menu.
 For the fixed welcome task, `tacto first-run --helper --yes` handles launch,
-new document, fixed text and fresh text verification in one command. Do not
-author a Flow or retry a partially completed welcome task.
+new document, fixed text and fresh text verification in one command, including
+foreground and startup-picker recovery. Use its actual error and recovery
+receipt for diagnosis; a creation failure alone is not a login/permission issue.
 
 Before writing a recipe, look for one. Tacto ships recipes for common tasks, and
 replaying one costs nothing:
