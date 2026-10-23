@@ -294,7 +294,7 @@ Check `tacto --help` for your checkout. Use the signed launcher for native work 
 ---
 
 **Tacto** · Local execution. Reusable computer use.<br>
-Release candidate · Proprietary license
+Release candidate · [MIT License](LICENSE)
 
 
 <details>

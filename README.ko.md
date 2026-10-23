@@ -349,7 +349,7 @@ macOS 설정의 **빠른 실행(helper 유지)**을 켜면 다음 작업의 시�
 ---
 
 **Tacto** · Local execution. Reusable computer use.<br>
-Release candidate · Proprietary license
+Release candidate · [MIT License](LICENSE)
 
 
 <details>
