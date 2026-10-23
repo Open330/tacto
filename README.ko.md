@@ -258,7 +258,7 @@ Python wheel만으로는 서명된 macOS 런처·helper를 사용할 수 없습�
 
 ## 먼저 흐름을 살펴보세요
 
-[온보딩 랜딩페이지](sites/tacto/README.md)에서 재생·수리·중단 예시와 설치 안내를 제공합니다.
+[온보딩 랜딩페이지](https://open330.github.io/tacto/)([소스](sites/tacto/README.md))에서 재생·수리·중단 예시와 설치 안내를 제공합니다.
 실제 앱이나 모델을 실행하지 않는 인터랙티브 소개입니다.
 
 ```sh

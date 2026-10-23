@@ -202,7 +202,7 @@ This is a small sample. Tacto was slower in one case; it is not universally fast
 
 ## Explore the onboarding site
 
-The [local landing page](sites/tacto/README.md) introduces replay, repair, and stopping. Its interactive walkthrough does not execute real apps or models.
+The [landing page](https://open330.github.io/tacto/) ([source](sites/tacto/README.md)) introduces replay, repair, and stopping. Its interactive walkthrough does not execute real apps or models.
 
 ```sh
 python3 sites/tacto/serve.py
