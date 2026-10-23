@@ -20,7 +20,7 @@ class DistributionBuildTests(unittest.TestCase):
     def test_release_tags_are_closed(self):
         self.assertEqual(('0.1.0','15'),release_version('v0.1.0-preview.15'))
         self.assertEqual(('1.0.0',None),release_version('v1.0.0'))
-        self.assertEqual(('1.0.0','1'),release_version('v1.0.0-rc.4'))
+        self.assertEqual(('1.0.0','4'),release_version('v1.0.0-rc.4'))
         for tag in ('main','../v0.1.0','v0.1.0-preview.0','v0.1.0-preview.01','v0.1.0; echo bad',
                     'v1.0.0-rc.0','v1.0.0-rc.01','v1.0.0-beta.1','v1.0.0-rc.4; echo bad'):
             with self.subTest(tag=tag),self.assertRaises(ValueError):release_version(tag)
@@ -250,7 +250,7 @@ class DistributionInventoryTests(unittest.TestCase):
             sealed=json.loads((output/'Contents/Resources/first-run-source.json').read_text())
             info=distribution.plistlib.loads((output/'Contents/Info.plist').read_bytes())
             self.assertEqual('1.0.0',info['CFBundleShortVersionString'])
-            self.assertEqual('1',info['CFBundleVersion'])
+            self.assertEqual('4',info['CFBundleVersion'])
             self.assertEqual('rc.4',info['TactoBuildVariant'])
             self.assertEqual('v1.0.0-rc.4',sealed['release_tag'])
             self.assertEqual(report['distribution_inventory'],sealed['distribution_inventory'])
