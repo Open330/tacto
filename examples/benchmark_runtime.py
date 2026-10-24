@@ -6,6 +6,21 @@ import subprocess
 from pathlib import Path
 
 
+def codex_config_evidence():
+    """Hash the profile inherited by the agent, without reading auth or values."""
+    configured = os.environ.get('CODEX_HOME')
+    home = Path(configured).expanduser() if configured else Path.home()/'.codex'
+    if not home.is_absolute():
+        raise ValueError('CODEX_HOME must be absolute for reproducible comparison')
+    home = home.resolve()
+    config = home/'config.toml'
+    exists = config.is_file()
+    return {'home':str(home),'home_source':'CODEX_HOME' if configured else 'default',
+            'config_path':str(config),'exists':exists,
+            'sha256':hashlib.sha256(config.read_bytes()).hexdigest() if exists else None,
+            'scope':'profile config.toml only; not auth, global instructions, remote settings or serving model'}
+
+
 def runtime_evidence(launcher):
     selected=Path(launcher).expanduser()
     if not selected.is_absolute():

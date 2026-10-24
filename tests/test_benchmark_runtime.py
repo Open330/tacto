@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from unittest.mock import patch
-from examples.benchmark_runtime import runtime_evidence, guide_evidence, guide_runtime_compatibility
+from examples.benchmark_runtime import runtime_evidence, guide_evidence, guide_runtime_compatibility, codex_config_evidence
 from examples.benchmark_matched_conditions import main
 from examples.repeat_benchmark import prompt
 
@@ -16,6 +16,29 @@ class BenchmarkRuntimeTests(unittest.TestCase):
                      '.venv/lib/python3.11/site-packages/tacto/__init__.py']:
             p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('owned fixture');p.chmod(0o700)
         return root/'launcher/tacto'
+
+    def test_config_evidence_tracks_the_inherited_profile_not_default_home(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);profile=root/'profile';profile.mkdir()
+            config=profile/'config.toml';config.write_text('model="owned-example"\n')
+            with patch.dict('os.environ',{'CODEX_HOME':str(profile)}):
+                before=codex_config_evidence()
+                self.assertEqual(str(config.resolve()),before['config_path'])
+                self.assertEqual('CODEX_HOME',before['home_source'])
+                self.assertEqual(hashlib.sha256(config.read_bytes()).hexdigest(),before['sha256'])
+                self.assertNotIn('owned-example',json.dumps(before))
+                config.write_text('model="changed"\n')
+                self.assertNotEqual(before,codex_config_evidence())
+
+    def test_config_absence_and_relative_home_are_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict('os.environ',{'CODEX_HOME':tmp}):
+                result=codex_config_evidence()
+                self.assertFalse(result['exists']);self.assertIsNone(result['sha256'])
+            with patch.dict('os.environ',{'CODEX_HOME':'relative-profile'}):
+                with self.assertRaisesRegex(ValueError,'absolute'):
+                    codex_config_evidence()
 
     def test_symlink_records_resolved_runtime_and_changed_executed_source(self):
         with tempfile.TemporaryDirectory() as tmp:

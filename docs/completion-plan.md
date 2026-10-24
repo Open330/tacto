@@ -1054,3 +1054,18 @@ Sky 도구 접근, 실제 serving model 또는 동일 조건 비교 완료를 �
 다음 검증은 peer의 현재 창 입력 수정과 충돌하지 않는 GUI 구간을 확보한 뒤
 설치본을 고정한 실제 비교를 실행하는 것이다. G0~G10의 실앱·다중 백본·입력
 보존·인과적 완료 증거 기준은 위 원래 범위를 유지하며 아직 전체 완료가 아니다.
+
+### 실제 프로필 및 Sky 도구 환경 확인
+
+비교가 `CODEX_HOME`을 상속하면서 기본 `~/.codex/config.toml`만 기록하던
+오류를 수정했다. 이제 실제 프로필의 config 경로·존재 여부·SHA256과 실행
+전후 동일성을 기록한다. 값과 인증파일은 읽거나 보고서에 저장하지 않는다.
+설정 변경 시 작업 oracle이 통과해도 동일 조건 판정은 false다. config 파일의
+해시는 전역 지침·원격 설정·실제 serving model의 동일성을 증명하지 않는다.
+
+`reviews/goal-resume-20261024-profile-preflight/preflight.json`은 이 프로필
+기록을 포함한 사전 점검이다. 별도 실제 Codex 세션의
+`reviews/goal-resume-20261024-sky-environment/agent/stdout.jsonl`에서는
+node_repl/js로 @oai/sky를 import하고 target=mac을 확인했다. 앱 관찰·입력은
+하지 않았다. 16.19초, CLI가 보고한 input55533/cache47616/new7917/output233이며
+과제 벤치마크나 실제 청구 비용의 증거가 아니다. 보고된 serving model은 없다.

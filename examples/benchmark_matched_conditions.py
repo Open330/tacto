@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import statistics
 import sys
@@ -9,7 +10,7 @@ import uuid
 
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 from examples.benchmark_agent import run_agent
-from examples.benchmark_runtime import runtime_evidence, agent_evidence, runtime_aliases, guide_evidence, guide_runtime_compatibility
+from examples.benchmark_runtime import runtime_evidence, agent_evidence, runtime_aliases, guide_evidence, guide_runtime_compatibility, codex_config_evidence
 from examples.repeat_benchmark import Fixture, build, jobs, prompt, source_manifest, write, SKY_GUIDE
 
 
@@ -117,6 +118,7 @@ def main():
             write(base/'preflight.json',{'ready':False,'runtime':runtime,'selected_guide':selected_guide,
                   'compatibility':compatibility,'model_calls':0,'fixture_started':False})
             raise SystemExit(2)
+        config_before=codex_config_evidence()
         before=manifest(args.launcher,selected_guide['path'])
         agent=agent_evidence(Path.home()/'.local/bin/codex')
         aliases=runtime_aliases(runtime)
@@ -126,10 +128,9 @@ def main():
     except (OSError,ValueError) as exc:
         write(base/'preflight.json',{'ready':False,'error':str(exc),'model_calls':0,'fixture_started':False})
         raise SystemExit(2)
-    write(base/'preflight.json',{'ready':True,'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'source_manifest':before,'model_calls':0,'fixture_started':False})
+    write(base/'preflight.json',{'ready':True,'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'agent_config':config_before,'source_manifest':before,'model_calls':0,'fixture_started':False})
     if args.preflight_only:return
-    config=Path.home()/'.codex/config.toml'
-    config_hash=hashlib.sha256(config.read_bytes()).hexdigest()
+    config_hash=config_before['sha256']
     target='ai.callabo.tacto.matched.'+uuid.uuid4().hex[:8]
     app=build(base,target);rows=[]
     cases=[('bonus_on',jobs()[0],False),('bonus_off',jobs()[1],False),('renamed_button',jobs()[6],True)]
@@ -158,7 +159,7 @@ def main():
                         'error_class':type(exc).__name__,'usage':None,
                         'cost_known':False,'task_success_verified':False},
                     'unattempted_arms':len(schedule)*2-len(rows)-1,
-                    'source_before':before,'source_stable':None,
+                    'source_before':before,'source_stable':None,'agent_config_before':config_before,
                     'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
                     'limits':['interrupted arm usage and task outcome unknown; completed rows are partial evidence',
                               'source stability and complete paired conditions not verified']})
@@ -169,7 +170,8 @@ def main():
                 'input':row['usage'].get('total_input_tokens'),'new_input':row['usage'].get('new_input_tokens')}),flush=True)
     after=manifest(args.launcher,selected_guide['path']);summary=aggregate(rows)
     initial_matched=all(all(rows[i]['initial_state'][k]==rows[i+1]['initial_state'][k] for k in INITIAL_KEYS_COMPARED) for i in range(0,len(rows),2))
-    same_config=hashlib.sha256(config.read_bytes()).hexdigest()==config_hash
+    config_after=codex_config_evidence()
+    same_config=config_before==config_after
     passed=(len(rows)==len(schedule)*2 and all(r['exit']==0 and r['oracle']['passed'] and r['oracle']['single_commit']
                                 and not r['oracle']['active'] for r in rows))
     write(base/'report.json',{'passed':passed,'rows':rows,'summary':summary,'source_before':before,'source_after':after,
@@ -180,7 +182,7 @@ def main():
         'comparison_limits':['actual serving model, hidden context and full foreground/caret equivalence unverified'],
         'requested_conditions_matched':before==after and same_config and initial_matched,
         'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'selected_cases':args.cases,'repetitions':args.reps,'initial_states_matched':initial_matched,'config_sha256':config_hash,
-        'config_stable':same_config,'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
+        'config_stable':same_config,'agent_config_before':config_before,'agent_config_after':config_after,'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
         'comparison_scope':'fresh independent sessions; a fresh owned fixture process and data directory per arm; same app build/task/default tools, timeout/model/settings; counterbalanced order',
         'limits':[f'selected case pairs, {args.reps} sample(s) per case','actual serving model and billing unverified',
             'server cache and global instructions not cleared','not Flow replay or scripted Sky reuse comparison',

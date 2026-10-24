@@ -93,7 +93,8 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
             (home/'.codex').mkdir(); (home/'.codex/config.toml').write_text('model="x"\n')
             out = Path(tmp)/'out'
             argv = ['benchmark', '--output', str(out), '--launcher', str(home/'launcher')]
-            with patch.object(module.sys, 'argv', argv), \
+            with patch.dict(module.os.environ, {}, clear=True), \
+                 patch.object(module.sys, 'argv', argv), \
                  patch.object(module.Path, 'home', return_value=home), \
                  patch.object(module, 'runtime_evidence', return_value={'skill': '/skill'}), \
                  patch.object(module, 'guide_evidence', return_value={'path': '/skill'}), \
@@ -136,6 +137,19 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
             self.assertEqual(0, row['fixture_isolation']['exit_code'])
         self.assertEqual(6, len({row['fixture_isolation']['pid'] for row in report['rows']}))
         self.assertEqual(12, report['summary']['tacto']['observed_usage_all_attempts']['new_input_tokens']['sum'])
+
+    def test_config_change_during_arms_disqualifies_matched_conditions(self):
+        def agent(name):
+            if name == '01-sky':
+                (Path.home()/'.codex/config.toml').write_text('model="changed"\n')
+        events, fixtures, report, error = self.run_main(agent=agent)
+        self.assertIsNone(error)
+        self.assertTrue(report['passed'])  # task oracles, not comparability
+        self.assertFalse(report['config_stable'])
+        self.assertFalse(report['requested_conditions_matched'])
+        self.assertFalse(report['comparison_eligible'])
+        self.assertNotEqual(report['agent_config_before']['sha256'],
+                            report['agent_config_after']['sha256'])
 
     def test_agent_failure_still_closes_that_arms_fixture_and_stops(self):
         def agent(name):
