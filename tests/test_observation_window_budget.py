@@ -169,6 +169,7 @@ func attr(_ node: Int, _ key: String) -> Any? {
  return key == "AXEnabled" ? true : false
 }
 func secondaryActionsOf(_ node: Int) -> [String] { [] }
+var readSecondaryActions = true
 func documentURLSyntaxPath(_ text: String) -> String? { nil }
 func quotedLabelValue(_ text: String) -> String? { nil }
 ''' + walker + '''

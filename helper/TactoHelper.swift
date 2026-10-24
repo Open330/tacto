@@ -153,7 +153,14 @@ let labelNames = ["Title", "Description", "Value", "Help",
 let secondaryActions = ["AXShowMenu", "AXIncrement", "AXDecrement",
                         "AXConfirm", "AXCancel"]
 
+/// Off while walking windows other than the front one: each read is one IPC
+/// round trip, and in a crowded Finder (2,500 elements) they cost ~3 s per
+/// observation. The list is only a hint in the tree; `secondary_action`
+/// checks the element's actions itself when it runs.
+var readSecondaryActions = true
+
 func secondaryActionsOf(_ el: AXUIElement) -> [String] {
+    guard readSecondaryActions else { return [] }
     var names: CFArray?
     guard AXUIElementCopyActionNames(el, &names) == .success,
           let offered = names as? [String] else { return [] }
@@ -1136,7 +1143,14 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     var blocks: [[String]] = []
     var frontiers: [[(AXUIElement, Int)]] = []
     var partial: [Bool] = []
+    let front = windows.prefix(windowCount).map {
+        (attr($0, "AXMain") as? Bool) == true || (attr($0, "AXFocused") as? Bool) == true
+    }
+    // With no front window known, every window keeps its hints.
+    let hinted = front.contains(true) ? front : front.map { _ in true }
+    defer { readSecondaryActions = true }
     for (position, w) in windows.prefix(windowCount).enumerated() {
+        readSecondaryActions = hinted[position]
         var block: [String] = []
         var pending: [(AXUIElement, Int)] = []
         var windowTruncated = false
@@ -1152,6 +1166,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         var block = blocks[position]
         var unfinished: [(AXUIElement, Int)] = []
         var windowTruncated = partial[position]
+        readSecondaryActions = hinted[position]
         for (node, depth) in pending {
             walk(node, depth: depth, out: &block, elements: &elements,
                  visited: &visited, truncated: &windowTruncated,

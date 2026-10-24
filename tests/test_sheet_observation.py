@@ -99,6 +99,7 @@ func attr(_ el: Int, _ key: String) -> Any? {
 }
 func label(_ el: Int, quoteValues: Bool) -> String { [0:"Title: Work",2:"Title: Cancel"][el] ?? "" }
 func secondaryActionsOf(_ el: Int) -> [String] { [] }
+var readSecondaryActions = true
 func documentURLSyntaxPath(_ value: String) -> String? { nil }
 func quotedLabelValue(_ value: String) -> String? { nil }
 '''
