@@ -4408,6 +4408,18 @@ def scenario_signed_menu_readiness():
     return True
 
 
+def _native_recovery_failure_summary(report):
+    """Separate task completion from input-audit failure, without raw UI state."""
+    if type(report) is not dict:report={}
+    checked=_navigation_failure_summary(report)
+    result={key:checked[key] for key in ('passed','error_class','owned_child_reaped','input_audit_status')}
+    for key in ('source_subset_stable','task_oracle_passed','parent_task_oracle_passed',
+                'multi_app_saved_state_verified','expected_stop_verified'):
+        value=report.get(key)
+        result[key]=value if type(value) is bool else None
+    return result
+
+
 def scenario_signed_native_recovery(*, repeated=False, exhaust_budget=False, interleave_textedit=False,
                                     interleave_disconnect=False, interleave_parent_change=False):
     """Actual owned twelve-stage native workflow, interrupted by a sheet."""
@@ -4426,8 +4438,7 @@ def scenario_signed_native_recovery(*, repeated=False, exhaust_budget=False, int
     if interleave_parent_change:options['interleave_parent_change'] = True
     report = probe["main"](InheritedHelperDriver(), output,**options)
     print("  signed native recovery report: " + str(output))
-    summary = {key:report.get(key) for key in ('passed','error_class','owned_child_reaped','source_subset_stable')}
-    assert report.get("passed"), json.dumps(summary,ensure_ascii=False)
+    assert report.get("passed"), json.dumps(_native_recovery_failure_summary(report),ensure_ascii=False)
     assert report.get('stages')==(24 if repeated else 12), 'recovery stage scope mismatch'
     assert report.get('recovery_budget')==(1 if exhaust_budget or not repeated else 3), 'recovery budget scope mismatch'
     assert report.get('expected_budget_exhaustion') is exhaust_budget, 'recovery stop scope mismatch'

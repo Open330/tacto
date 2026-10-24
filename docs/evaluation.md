@@ -452,3 +452,14 @@ A smaller cap or a failed receiving/dispatch check stays a failed task even if
 the model found the label. Candidate/context reads and validation retries share
 the request limit. An eight-request harness failure is not repaired by increasing
 that limit without recording a new cohort.
+
+### Native recovery failure summaries
+
+A native recovery task can reach all receiving stages and verify child saved
+states while its input-preservation audit reports CHANGED or INCONCLUSIVE.
+The overall scenario still fails. Its bounded exception summary now includes
+`task_oracle_passed`, `multi_app_saved_state_verified`, `input_audit_status`,
+source-subset stability and child cleanup, so this is distinguishable from a
+failed parent operation. Raw window text, input samples and provider messages
+remain in private evidence, not the exception. A task oracle is not a proof of
+unchanged user input or causal producer attribution.

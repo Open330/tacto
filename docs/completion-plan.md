@@ -1124,3 +1124,34 @@ Flow 자체에 scope가 보존되는 것은 아니므로 scoped replay argv를 �
 세부 원본·시간·한계는 [비교 기록](benchmark-records.md)의 해당 절을 본다.
 다음 우선순위는 최종 안내의 독립 반복 측정, 다른 실제 앱/백본의 select·시각·
 장기 복구 및 저장/전송의 인과 증거 검증이다. 전체 목표는 계속 활성 상태다.
+
+## 2026-10-24 후속: 다중 백본·시각·장기 복구의 실제 확인
+
+공증용 Vault 세션 갱신은 대기 상태다. rc.7 고정 소스3790c18과 빌드/회귀
+증빙을 바꾸거나 Vault 상태를 반복 확인하지 않고 별도 source-runtime 검증을
+수행했다. 아래 원본의 private digest 목록은
+`reviews/goal-resume-20261024-capability-audit/evidence.json`에 있다.
+
+| 항목 | 실제 확인 | 전체 판정과 미검증 |
+|---|---|---|
+| G4 Claude envelope | signed launcher 경로, 보고 모델claude-opus-5-5, 정확한 JSON응답, 총입력609/출력17,2.43초. cache생성607·uncached2를 분리 | 이 단일 응답 검사는 PASS. CLI 표시비용USD0.005204는 list estimate이고 실제 청구가 아님. cancellation_supported=false, 원격 취소 미보장 |
+| G1/G2 Claude 큰 선택 목록 | 실제131항목 ComboBox에서 Choice127/index130/count1/closed. 모델8요청, host o200k_base 예산2500 내 최대1977토큰 | 전체FAIL: input audit CHANGED. source subset불변. serving tokenizer/전체CLI context예산을 증명하지 않음 |
+| G6/G7 장기 다중앱 | native24단계 accepted24·Cancel3·Other0,8/14/20단계의 실제TextEdit 저장상태3회와 문서정리 완료, 모델0 | task_oracle=true이나 전체FAIL: input audit CHANGED. 저장상태 일치는 어느writer가 썼는지의 인과 증거가 아님 |
+| G5 Codex 시각 입력 | AX밖 소유AppKit canvas의 목표 클릭·Right·정확A😀한글 수신, 다른창입력0. 실제이미지모델2요청, 소유child회수 | 전체FAIL: input audit CHANGED. source subset불변. 일반사용자앱/동시사용자입력 보존 검증으로 승격하지 않음 |
+
+이 세 native 과제에서 작업 결과와 별개로 전경·포커스 변화가 관측됐으므로
+실패를 지우거나 입력 보존을 통과로 바꾸지 않았다. 장기 복구의 변화는 원래
+전경 프로세스 종료/설정앱 전경 전환과 함께 나타났으나, 원인을 Tacto 또는
+사용자에게 귀속할 증거는 없다. sample gap·미관측 구간도 원본에 유지한다.
+조용한 환경에서의 입력 보존 검증은 남아 있다.
+
+장기 복구 실패의 기존 짧은 메시지는 passed=false/error_class=null만 보여
+작업 실패와 입력 감사 실패를 구분하지 못했다. 요약에 task_oracle·저장상태·
+input_audit_status를 추가하고, 전체 실패와 개인정보 비노출을 유지했다.
+관련15개 단위/대역 검사가 통과했다. 이 요약 개선은 원본의 FAIL을 PASS로
+바꾸지 않으며 rc.7 고정 배포본에 소급 포함하지 않는다.
+
+june-mba는 rc.6 설치와 콘솔 연결을 읽기 전용으로 확인했지만 확인한4개
+통상 소스 위치에는 평가checkout이 없었다. 원격에 평가환경을 몰래 설치하거나
+권한을 변경하지 않았다. 이미 실행한 source시험을 원격/새사용자 시험으로
+표기하지 않는다. 전체 G0~G10 완료 기준은 유지한다.

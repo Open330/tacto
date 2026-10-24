@@ -51,3 +51,40 @@ class NavigationEvaluationSummaryTests(unittest.TestCase):
         self.assertIsNone(summary['error_class']);self.assertEqual(summary['input_audit_status'],'unknown')
         self.assertEqual(summary['provider_error_codes'],[])
         self.assertNotIn('PRIVATE',json.dumps(summary))
+
+
+class NativeRecoverySummaryTests(unittest.TestCase):
+    def test_completed_task_with_changed_input_stays_failed_and_explains_both(self):
+        module=load()
+        report={'passed':False,'error_class':None,'task_oracle_passed':True,
+                'parent_task_oracle_passed':True,'multi_app_saved_state_verified':True,
+                'source_subset_stable':True,'owned_child_reaped':True,
+                'input_audit':{'status':'CHANGED','raw_report':'PRIVATE_FOCUS'},
+                'final':{'text':'PRIVATE_DOCUMENT'}}
+        with tempfile.TemporaryDirectory() as directory:
+            module.__file__=str(Path(directory)/'examples/eval.py')
+            with patch('runpy.run_path',return_value={'main':Mock(return_value=report)}), \
+                 patch('tacto.helper.InheritedHelperDriver') as driver, \
+                 contextlib.redirect_stdout(io.StringIO()) as stdout, \
+                 self.assertRaises(AssertionError) as failure:
+                driver.available.return_value=True
+                module.scenario_signed_native_recovery_multi_app()
+            summary=json.loads(str(failure.exception))
+            self.assertFalse(summary['passed'])
+            self.assertTrue(summary['task_oracle_passed'])
+            self.assertTrue(summary['multi_app_saved_state_verified'])
+            self.assertEqual('CHANGED',summary['input_audit_status'])
+            self.assertTrue(summary['source_subset_stable'])
+            self.assertNotIn('PRIVATE',stdout.getvalue()+str(failure.exception))
+
+    def test_uncertain_metadata_does_not_become_completion_or_leak_messages(self):
+        module=load()
+        summary=module._native_recovery_failure_summary({'passed':1,'task_oracle_passed':'yes',
+            'source_subset_stable':[],'error_class':'PRIVATE ERROR MESSAGE',
+            'input_audit':{'status':'PRIVATE_UNKNOWN'},'final':{'text':'PRIVATE'}})
+        self.assertIsNone(summary['passed'])
+        self.assertIsNone(summary['task_oracle_passed'])
+        self.assertIsNone(summary['source_subset_stable'])
+        self.assertIsNone(summary['error_class'])
+        self.assertEqual('unknown',summary['input_audit_status'])
+        self.assertNotIn('PRIVATE',json.dumps(summary))
