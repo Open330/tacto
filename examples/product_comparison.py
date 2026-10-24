@@ -1646,6 +1646,8 @@ def main(argv=None) -> int:
             # by the worker. Anonymous pipes are non-inheritable/close_fds.
             forwarded = ['--only', selected_task, '--reps', str(args.reps),
                          '--timeout', str(args.timeout), '--arms', *args.arms]
+            if args.cold_start:
+                forwarded.append('--cold-start')
             if args.sky_skill_file:
                 forwarded += ['--sky-skill-file', _SKY_SKILL_FILE]
             if args.agent_executable:
