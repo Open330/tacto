@@ -96,6 +96,17 @@ SCREEN_LOCKED_HINT = ('화면이 잠겨 있습니다 — 잠금이 풀리면 화
                       '(화면 보호기·정책 잠금까지 막는 보장은 없음).')
 
 
+# macOS can keep listing a live app whose process identifier it reports as -1
+# (a long-running Safari, 2026-10-25). Nothing can be launched into, activated
+# or observed through that entry; quitting and reopening the app clears it.
+PROCESS_UNAVAILABLE_HINT = ('macOS가 이 앱의 프로세스 번호를 알려주지 않습니다(pid -1). '
+                            '저장하지 않은 작업을 확인한 뒤 앱을 종료했다가 다시 열면 해결됩니다.')
+
+
+def _process_unavailable(apps):
+    return any(type(app.get('pid')) is not int or app['pid'] <= 0 for app in apps)
+
+
 def _session_problem(backend):
     probe = getattr(backend, 'session_problem', None)
     if callable(probe):
@@ -160,6 +171,9 @@ def launch_app(target, *, backend=None, timeout=10, clock=time.monotonic):
         request = None
         while True:
             apps = backend.running(target)
+            if _process_unavailable(apps):
+                return dict(error('application_process_unavailable', 'unknown' if started else 'not_started'),
+                            hint=PROCESS_UNAVAILABLE_HINT)
             if len(apps) > 1 or (apps and apps[0]['path'] != path):
                 return error('application_identity_ambiguous', 'unknown' if started else 'not_started')
             if apps and apps[0]['ready']:
@@ -293,6 +307,8 @@ def activate_app(target, *, window=None, driver=None, backend=None,
         if path is None:
             return error('application_not_installed')
         apps = [app for app in backend.running(target) if app['path'] == path]
+        if _process_unavailable(apps):
+            return error('application_process_unavailable', hint=PROCESS_UNAVAILABLE_HINT)
         if not apps:
             return error('application_not_running', hint=f'tacto launch {target} --helper')
         if len(apps) > 1:

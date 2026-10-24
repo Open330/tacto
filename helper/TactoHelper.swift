@@ -1053,14 +1053,25 @@ func pid(forBundle bundle: String) -> pid_t? {
     // precedence, so unrelated localized names need not be read on that path.
     // No cached PID or alternative registry ordering is used.
     let apps = NSWorkspace.shared.runningApplications
-    let byBundle = apps.filter { $0.bundleIdentifier?.lowercased() == want }
+    // A live app can be listed with processIdentifier -1; it is not a target.
+    let byBundle = apps.filter { $0.bundleIdentifier?.lowercased() == want && $0.processIdentifier > 0 }
     if !byBundle.isEmpty {
         let regular = byBundle.filter { $0.activationPolicy == .regular }
         return (regular.first ?? byBundle.first)?.processIdentifier
     }
     // A name never means a background agent; a bundle id is explicit and may.
     return apps.first { $0.localizedName?.lowercased() == want
-        && $0.activationPolicy == .regular }?.processIdentifier
+        && $0.activationPolicy == .regular && $0.processIdentifier > 0 }?.processIdentifier
+}
+
+/// The app is listed as running, but only with an unusable process
+/// identifier (-1). Said apart from "not running": quitting and reopening it
+/// is what clears this state.
+func bundleProcessUnavailable(_ bundle: String) -> Bool {
+    let want = bundle.lowercased()
+    return NSWorkspace.shared.runningApplications.contains {
+        $0.bundleIdentifier?.lowercased() == want && $0.processIdentifier <= 0 && !$0.isTerminated
+    }
 }
 
 func observe(_ target: String, requireWindow: Bool = true, documentToken: String? = nil, windowIdentity: Bool = false, reveal: [String]? = nil) -> [String: Any] {
@@ -1068,6 +1079,11 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         let gui = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         if gui.isEmpty {
             return ["type": "error", "error": "gui_session_unavailable", "target": target]
+        }
+        if bundleProcessUnavailable(target) {
+            return ["type": "error", "error": "application_process_unavailable", "target": target,
+                    "effect": "not_started",
+                    "hint": "macOS가 이 앱의 프로세스 번호를 알려주지 않습니다(pid -1). 저장하지 않은 작업을 확인한 뒤 앱을 종료했다가 다시 열면 해결됩니다."]
         }
         return ["type": "error", "error": "target_not_found", "target": target]
     }
@@ -1154,13 +1170,21 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
         var block: [String] = []
         var pending: [(AXUIElement, Int)] = []
         var windowTruncated = false
-        let windowBudget = (maxTreeNodes - visited) / (windowCount - position)
+        // The front window is where the person works: with many windows an
+        // equal share left it ~86 nodes in a 29-window Finder (rc.7), so a
+        // column view's files fell outside the tree. It gets at least half of
+        // what remains; later windows still share the rest for their roots.
+        let share = (maxTreeNodes - visited) / (windowCount - position)
+        let windowBudget = front.contains(true) && front[position]
+            ? max(share, (maxTreeNodes - visited) / 2) : share
         walk(w, depth: 0, out: &block, elements: &elements,
              visited: &visited, truncated: &windowTruncated,
              nodeLimit: visited + windowBudget, deferred: { pending.append(($0, $1)) },metrics:metrics,reveal:revealScan)
         blocks.append(block); frontiers.append(pending); partial.append(windowTruncated)
     }
-    for position in 0..<windowCount where visited < maxTreeNodes {
+    // Leftover budget resumes the front window first.
+    let resumeOrder = (0..<windowCount).filter { front[$0] } + (0..<windowCount).filter { !front[$0] }
+    for position in resumeOrder where visited < maxTreeNodes {
         let pending = frontiers[position]
         frontiers[position] = []
         var block = blocks[position]

@@ -218,3 +218,12 @@ print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FrontWindowBudgetSourceTests(unittest.TestCase):
+    def test_front_window_gets_half_the_remaining_budget_and_resumes_first(self):
+        source = (ROOT / 'helper/TactoHelper.swift').read_text()
+        loop = source[source.index('    let front = windows.prefix(windowCount)'):source.index('        // Mark the frontmost window')]
+        self.assertIn('max(share, (maxTreeNodes - visited) / 2) : share', loop)
+        self.assertIn('let resumeOrder = (0..<windowCount).filter { front[$0] } + (0..<windowCount).filter { !front[$0] }', loop)
+        self.assertIn('for position in resumeOrder where visited < maxTreeNodes', loop)

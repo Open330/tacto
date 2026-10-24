@@ -35,6 +35,7 @@ Inspect the verified/unverified result before requesting another compile.
 | `window_list_unavailable` | AX window-list or role data could not be read reliably; this does not establish that a window is absent. Use the diagnostic guidance below |
 | `no_window_content` | no accessible window was observed; inspect the reported `reason` and follow the window diagnostics below. This alone does not prove screen lock or require a user handoff |
 | `screen_locked` | the Mac's screen is locked: nothing behind it can be read, launched or brought forward until it is unlocked; continue the screen steps after that. Before long unattended or remote work, `tacto keep-awake --minutes N` prevents the idle display and system sleep that commonly lead to the lock; it does not prevent a screen-saver, manual or policy lock (`--stop` ends it) |
+| `application_process_unavailable` | macOS lists the app as running but reports its process identifier as -1, so nothing can be launched into, activated or observed. Quit and reopen the app (check for unsaved work first), then continue |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
 ### When a menu needs the app in front
