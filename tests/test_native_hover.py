@@ -157,6 +157,18 @@ r = dispatchPointerHover(pid: 42, path: [CGPoint(x: 10, y: 10)], duration: 0.1, 
         move: { cursor = $0; moves.append($0); return true },
         frame: { frameValue }, owner: { _ in 42 }, now: { clock }, sleep: { clock += $0 }))
 precondition(r["error"] as? String == "person_moved_pointer" && r["effect"] as? String == "not_started", "\(r)")
+// A location that reports our own previous step for a moment is not the
+// person: a multi-point path must still complete and restore.
+var lagging = 0
+moves = []; clock = 0; cursor = CGPoint(x: 500, y: 500); frameValue.origin.x = 100
+r = dispatchPointerHover(pid: 42, path: [CGPoint(x: 10, y: 10), CGPoint(x: 150, y: 10)], duration: 0.2, hold: 0.2,
+    deadline: 5, stopped: { false }, context: {}, io: PointerHoverIO(
+        location: {
+            if lagging > 0, moves.count >= 2 { lagging -= 1; return moves[moves.count - 2] }
+            return cursor },
+        move: { cursor = $0; moves.append($0); lagging = 2; return true },
+        frame: { frameValue }, owner: { _ in 42 }, now: { clock }, sleep: { clock += $0 }))
+precondition(r["type"] as? String == "acted" && r["pointer_restored"] as? Bool == true, "lagging location: \(r)")
 // Refused before any movement.
 for (path, duration, hold, deadline, stopped) in [
         ([CGPoint(x: 300, y: 10)], 0.1, 1.0, 5.0, false),      // outside the window

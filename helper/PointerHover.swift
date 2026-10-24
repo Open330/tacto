@@ -106,13 +106,27 @@ func dispatchPointerHover(pid: pid_t, path: [CGPoint], duration: Double, hold: D
         }
         moved += 1
         last = point
+        // The window server can report a posted move a moment late. Let the
+        // location catch up with our own target (briefly) so the next check
+        // compares against where the cursor is, not where it was one step ago;
+        // anything else still reads as the person at that check.
+        let settleUntil = io.now() + 0.05
+        while let here = io.location(), hypot(here.x - point.x, here.y - point.y) > pointerHoverTolerance,
+              io.now() < settleUntil {
+            io.sleep(0.005)
+        }
     }
     func restore() -> Bool {
         guard let original, moved > 0, !personMoved, !locationLost, !personTookOver() else { return false }
         guard io.move(original) else { return false }
         moved += 1
-        guard let here = io.location() else { return false }
-        return hypot(here.x - original.x, here.y - original.y) <= pointerHoverTolerance
+        let settleUntil = io.now() + 0.05
+        while true {
+            guard let here = io.location() else { return false }
+            if hypot(here.x - original.x, here.y - original.y) <= pointerHoverTolerance { return true }
+            guard io.now() < settleUntil else { return false }
+            io.sleep(0.005)
+        }
     }
     do {
         guard !path.isEmpty, path.count <= 13, duration.isFinite, duration >= 0, duration <= 2,
