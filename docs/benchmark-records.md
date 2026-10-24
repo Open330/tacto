@@ -756,3 +756,95 @@ uv run python -m examples.benchmark_matched_conditions --output <새 디렉터�
 - claude provider
 - 실제 과금, serving model 동일성(모델 보고 없음), 서버 cache 상태
 - matched 비교 반복
+
+## 2026-10-24: 새 독립 세션의 Tacto / Sky 3과제
+
+`reviews/goal-resume-20261024-matched-actual/report.json` 및
+`independent-audit.json`, 각 arm의 private `stdout.jsonl`이 원본이다.
+고정한 설치 런타임은 rc.6이며, 요청 모델 `gpt-6.1-sol`, reasoning `medium`,
+180초 제한, 각 실행 새 ephemeral 에이전트·빈 작업 폴더·새 fixture process와
+데이터 폴더를 사용했다. bonus on/off/renamed-button 각 1쌍, 순서는 Tacto/Sky,
+Sky/Tacto,Tacto/Sky다. fixture 설정 시간은 제외하고 에이전트의 안내 읽기와
+작성·실행 시간은 포함한다. Flow 재사용 벤치마크가 아니다.
+
+| 과제 | Tacto 결과·초·새 입력 | Sky 결과·초·새 입력 |
+|---|---|---|
+| bonus_on | 성공 · 29.11 · 6,676 | 성공 · 34.48 · 18,273 |
+| bonus_off | 성공 · 22.47 · 10,523 | 성공 · 72.89 · 17,117 |
+| renamed_button | 성공 · 25.42 · 6,048 | 성공 · 28.03 · 8,996 |
+| 합계 | 3/3 · 77.00 · 23,247 | 3/3 · 135.40 · 44,386 |
+
+입력 전체/cache/new/output 합계는 Tacto 207,567/184,320/23,247/1,564,
+Sky 412,514/368,128/44,386/1,764다. 새 입력은 CLI 입력 전체에서 cache-read를
+뺀 값이며 청구액이 아니다. 중단·실패한 task arm은 없고 각 fixture는 oracle의
+정확한 결과·단일 commit·비활성 상태 확인 후 종료했다. source subset·선택한
+런타임·guide·실제 CODEX_HOME config·초기 fixture 값은 전후 동일했다.
+
+각 Tacto arm은 완료된 고유 tool item ID 기준 shell2회, 각 Sky arm은 shell1회와
+node_repl/js5회였다. 이는 API 내부 dispatch 수나 동일한 복잡도의 호출 수라는
+뜻은 아니다. 관측 차이는 여러 관찰·입력을 한 Flow/세션에 묶는 방식과 함께
+나타났으나, 이 표본만으로 토큰·시간 차이의 원인이나 범용 우위를 확정하지 않는다.
+공통으로 프로필의 지원하지 않는 설정 2개 경고가 CLI stream에 있었고 작업 실패로
+집계하지 않았다. 사용자 프로필 설정은 변경하지 않았다.
+
+**엄격한 제품 비교 판정은 제외(`comparison_eligible=false`)다.** 실제 serving
+model은 stream에 보고되지 않았고, 숨은 context·서버 cache·모든 foreground/caret
+동등성·동시 사용자 입력 보존·실제 과금은 검증하지 않았다. 요청 조건 일치는 true,
+실제 task oracle 양쪽3/3이라는 범위를 구분한다. 각 과제1회인 소유 fixture 결과를
+실제 사용자 앱·다중 백본의 일반 성공률이나 안정적인 속도/비용 절감률로 쓰지 않는다.
+
+### 실제 Calculator → TextEdit 과제 (별도 cohort)
+
+`reviews/2026-10-24/product-comparison-20261024-225521.jsonl`은 서명된
+소스 checkout fixture worker로 준비·검증하고, 독립 cold-start Codex 세션이
+실제 앱을 조작한 기록이다. 설치 rc.6의 exact-DMG 실기 기록은 아니다.
+두 arm 모두 Calculator 표시437과 소유 TextEdit 문서 본문437을 독립 확인했고
+소유 문서 정리를 완료했다. 명시 Save는 요구하지 않았다.
+
+| arm | 결과 | 시간 | 전체 입력 / cache / 새 입력 / 출력 |
+|---|---|---:|---|
+| Tacto | 성공 | 106.3초 | 471,439 / 435,968 / 35,471 / 1,761 |
+| Sky | 성공 | 26.1초 | 99,350 / 89,856 / 9,494 / 530 |
+
+양쪽 source subset은 안정적이었고 cold-start 요청과 새 빈 작업 폴더 증거가
+있다. 그러나 실제 serving model/책임 경계는 검증하지 못했고 Tacto 실행 동안
+시험 앱·설정·로그인 창 사이 전경 변경7건이 관측돼, 누가 변경했는지나 동시
+입력 보존을 증명하지 않는다. 양쪽 comparison_eligible=false, 전체 명령 exit2를
+유지한다. 단일 과제이며 모델은 공통 상속 프로필의 CLI default 요청이었다.
+앞의 고정 모델 fixture 비교와 합산하거나 일반 성능 우위로 해석하지 않는다.
+
+Tacto의 완료된 고유 도구 item은 tacto7/기타shell7이었다(legacy calls 합계28은
+started/completed 중복이며 고유14개 집계와 구분한다).
+문서 범위 작업이 run 경로로 라우팅되면서 안내 여러 개와 긴 native-window-input
+문서를 읽었고, description 대신 desc를 써야 하는 JSON 오류도 수정했다.
+이 흐름의 입력 부담을 줄이기 위해 document-scoped session 및 필요한 안내를
+같이 반환하는 경로를 구현·검증한다. 이 기록은 변경 전 실패·비효율 증거로
+보존하며, 개선 구현만으로 속도 향상이 입증됐다고 하지 않는다.
+
+### document session 소스 기능 검증과 새 모델 시행
+
+`reviews/goal-resume-20261024-document-session-native/report.json`은 새
+`session --document`를 서명된 소스 실행기로 시험한 기록이다. 소유 TextEdit
+문서 입력·독립 본문 확인과 정리를 완료했다. 모델0회, 실제 Save 요청 없음,
+0.90초이며 persistent commit receipt가 없으므로 session exit1/commit_unverified를
+유지했다. 본문 일치와 저장·생산자 인과 증거를 분리한다.
+
+새 스킬/런타임을 명시한 별도 실제 Codex 시행
+`reviews/goal-resume-20261024-chain-source-guide/report.json`에서도 Calculator437와
+소유 TextEdit437을 확인하고 정리했다. 84.98초, input236607/cache210816/
+new25791/output1624, serving model 미보고·청구 미검증이다. 소스·선택 런타임·
+안내 subtree는 전후 동일했다. 고정 모델 요청은 gpt-6.1-sol/medium이고 앞의
+CLI-default 시행과 조건·런타임이 달라,106.3초와의 차이를 개선 효과로 확정하지
+않는다. 동일한 Sky arm을 새 소스로 다시 실행한 비교도 아니다.
+
+첫 문서 시도는 selector 없는 set_value가 범위 검사에서 not_started로 거부됐다.
+이후 입력의 commit_unverified와 본문437 재관찰을 로그에 보존한다. stdin Flow
+자체와 독립 receiving counter를 기록하지 않은 시행이므로 정확한 전체 입력
+횟수·사용자 동시 입력 보존을 증명하지 않는다. 이 발견에 따라 생성 가이드의
+read 예제에도 이름 있는 selector를 넣어, edit로 바꾸더라도 selector를 유지하도록
+수정하고 생성 예제의 실제 replay/대상 index/저장 미검증 유지 테스트를 추가했다.
+이 최종 안내 수정 뒤의 실제 모델 속도는 아직 재측정하지 않았다.
+
+새 스킬의 command_flags 선언과 isolated help 검사는 소스 런타임의
+session --document를 확인하고, 이를 제공하지 않는 설치 rc.6와는 호환되지 않음을
+정확히 반환한다. 이 구현·안내는 아직 새 설치본으로 배포하지 않았다.

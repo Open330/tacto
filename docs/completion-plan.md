@@ -2,6 +2,30 @@
 
 > 제품·측정 라벨·식별자는 현재 Tacto 이름으로 정규화했습니다. 당시 측정 수치와 성공·실패는 유지하며, 새 서명 배포를 검증했다는 뜻은 아닙니다.
 
+## 2026-10-24 현재 상태 감사
+
+아래 2026-10-10 감사와 후속 기록은 당시 사실로 보존한다. 현재 제품명은
+Tacto다. rc.6 배포 완료는 전체 computer-use 목표의 완료와 구분한다.
+
+| 범위 | 현재 증거 | 아직 필요한 완료 증거 / 우선순위 |
+|---|---|---|
+| select·후보 paging | native/HTML/custom 옵션과 token-budget paging 구현·소유 fixture 평가가 아래 이력에 있음 | 실제 앱·큰 선택 목록·변경/실패·지원 백본 반복, serving tokenizer/context 한도 구분. P1 |
+| 메뉴·키보드·입력 보존 | rc.6 실제 앱 재검 60/60, 최초 59/60의 TextEdit Save 비활성 거부도 유지 | 배경 앱 제한·실제 동시 사용자 입력의 결과를 별도 검증. helper 창 입력 후속 수정은 peer 진행 중이며 미배포/미검증 부분을 완료로 계산하지 않음. P0 |
+| provider 응답·취소·비용 | 공통 envelope/로컬 자식 정리 구현, 새 Codex 실제6세션 usage 기록 | 다른 지원 백본 반복, 원격 취소·청구 중단/실제 비용·serving model 증거. CLI token 보고와 청구를 구분. P1 |
+| 접근성 밖 시각 정보 | 소유 opaque/canvas receiving·실제 이미지 모델 이력 | 다양한 실제 앱의 시각 과제와 독립 결과 검증·백본 반복. 캡처/입력 전송만으로 완료하지 않음. P1 |
+| 장기 작업·복구 | rc.6 exact-DMG fault12/12와 native/browser 장기 fixture 이력 | 실제 앱 장기 연결 중단 후 재개, 완료 prefix·불확실 저장/전송 중복 없는 실제 연속 실행. P1 |
+| 저장·전송 인과 증거 | exact saved-state·producer·독립 inbox receipt 구현 및 아래 범위별 검증 | 일반 앱의 Save 인과 증거와 실제 수신자·본문·새 message identity의 전송 확인. 상태 일치를 생산자 인과 증거로 승격하지 않음. P0 |
+| 대표 실제 작업·동일 조건 비교 | rc.6 native60 및 새 Tacto/Sky 3개 fixture 과제 실제 시행, 조건/환경 원본 보존 | 다중 실제 앱·다중 백본·반복 수 확대. serving model/숨은 context/동시 foreground-caret 동등성 미검증은 비교 제외로 유지. P1 |
+| 설치·최종 보고 | rc.6 공증·산출물12·세 Mac exact-bundle 설치·실제 rollback·게시첨부5개 대조 완료 | 새 사용자 DMG 설치·권한3회·제한베타는 사람 확인. 전체 목표 최종보고는 위 범위를 모두 감사한 뒤 작성. P1 |
+
+rc.6 원본은 `reviews/tacto-rc6-20261023/RC6-REPORT.md`(별도 rc.6 worktree)에,
+공개 범위는 [rc.6 VALIDATION](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.6)에
+있다. 실제 앱 첫 묶음59/60, 부하 저하 후 별도 새60/60을 합쳐 최초 실패를
+지우지 않는다. 아래 오래된 '설치 미완료'·'다음 CLI scope 구현' 등은 당시 기록이며
+현재 기능 상태는 코드와 이 감사 및 최신 실행 기록을 함께 본다.
+
+## 2026-10-10 감사와 후속 이력
+
 2026-10-10 감사. 기존 장기 목표 G0~G10의 최신 작업 계획이다. G0~G10의 원래 범위와 완료 기준을
 유지한다. 이전의 특정 fixture 성공 또는 14/14 결과로 전체 완료를 선언하지
 않는다. 비교·URL 감사 기준 소스는 401f960이며, 창 timeout 분기 검사는
@@ -1069,3 +1093,34 @@ Sky 도구 접근, 실제 serving model 또는 동일 조건 비교 완료를 �
 node_repl/js로 @oai/sky를 import하고 target=mac을 확인했다. 앱 관찰·입력은
 하지 않았다. 16.19초, CLI가 보고한 input55533/cache47616/new7917/output233이며
 과제 벤치마크나 실제 청구 비용의 증거가 아니다. 보고된 serving model은 없다.
+
+### 새 독립 실제 모델 비교 완료 범위
+
+2026-10-24 rc.6 설치본을 사용한 bonus on/off/버튼 이름 변경의 3쌍에서
+Tacto3/3·Sky3/3의 정확한 결과·단일 commit을 확인했다. 총시간77.00/135.40초,
+CLI 새 입력 합계23,247/44,386이며 세부 조건과 한계는
+[비교 기록](benchmark-records.md)의 새 절에 있다. 실제 serving model·숨은
+context·완전한 입력 상태 동등성 미검증으로 comparison_eligible=false를 유지한다.
+
+실제 앱 비교의 외부 worker 진입에서 cold-start 옵션이 누락되는 회귀도
+실패 테스트로 재현해 수정했다(관련31건 통과). rc.6 설치 wheel은 개발용 fixture를
+포함하지 않아 worker 연결이 'fixture는 wheel에 포함되지 않음'으로 종료됐다.
+이를 제품 task 실패나 모델 호출로 세지 않는다. 별도 서명된 소스 checkout
+worker의 메타데이터 연결은 통과했고 실제 두 앱 과제를 별도 cohort로 실행한다.
+이 경로의 결과를 rc.6 exact-DMG qualification과 혼동하지 않는다.
+
+### 실제 앱 병목에 근거한 document-scoped session
+
+실제 두 앱 과제는 양쪽 성공했으나 Tacto106.3초/Sky26.1초였고, Tacto는 여러
+안내·긴 내부 문서·JSON 수정 경로를 거쳤다. 전경 변경·책임 경계 미검증으로
+엄격 비교 제외는 유지한다. 이 발견에서 session --document 경로를 구현했다.
+기존 DocumentScopedDriver를 첫 관찰 전 한 번만 연결하고, 모든 관찰/재생이
+같은 토큰을 쓰며 실패 시 전체 앱으로 넓히거나 다시 pin하지 않는다. 저장한
+Flow 자체에 scope가 보존되는 것은 아니므로 scoped replay argv를 별도 반환한다.
+
+모의 replay/가이드 예제·실제 서명 소스/TextEdit 본문 검증과 독립 리뷰를 수행했다.
+새 안내/소스의 실제 모델 과제도 성공했으나 최종 selector 안내 수정 후 시간은
+재측정하지 않았다. 속도·토큰 개선을 확정하거나 rc.6 배포 완료로 표기하지 않는다.
+세부 원본·시간·한계는 [비교 기록](benchmark-records.md)의 해당 절을 본다.
+다음 우선순위는 최종 안내의 독립 반복 측정, 다른 실제 앱/백본의 select·시각·
+장기 복구 및 저장/전송의 인과 증거 검증이다. 전체 목표는 계속 활성 상태다.
