@@ -143,9 +143,26 @@ def main():
             own_prompt=prompt(job,target,arm,launcher=args.launcher,tacto_guide=selected_guide['path'])
             if args.profile and arm=='tacto':
                 own_prompt+=' Profiling: include --timings on your tacto session command; preserve timing output.'
-            row=run_arm(app,base,pair,arm,job,changed,lambda:run_agent('codex',own_prompt,base/f'{pair:02d}-{arm}',
-                timeout=args.timeout,model=args.model,reasoning_effort=args.reasoning_effort,
-                **({'profile':True} if args.profile else {})))
+            try:
+                row=run_arm(app,base,pair,arm,job,changed,lambda:run_agent('codex',own_prompt,base/f'{pair:02d}-{arm}',
+                    timeout=args.timeout,model=args.model,reasoning_effort=args.reasoning_effort,
+                    **({'profile':True} if args.profile else {})))
+            except BaseException as exc:
+                # A crash/interrupt is an attempted arm, not a zero-cost skip.
+                # Preserve completed arms even when setup/oracle/cleanup failed.
+                # Do not publish exception text: providers may include private data.
+                write(base/'report.json',{'passed':False,'aborted':True,
+                    'comparison_eligible':False,'rows':rows,'summary':aggregate(rows),
+                    'completed_arms':len(rows),'expected_arms':len(schedule)*2,
+                    'interrupted_arm':{'pair':pair,'arm':arm,'case':case,'rep':rep,
+                        'error_class':type(exc).__name__,'usage':None,
+                        'cost_known':False,'task_success_verified':False},
+                    'unattempted_arms':len(schedule)*2-len(rows)-1,
+                    'source_before':before,'source_stable':None,
+                    'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
+                    'limits':['interrupted arm usage and task outcome unknown; completed rows are partial evidence',
+                              'source stability and complete paired conditions not verified']})
+                raise
             row.update(arm=arm,case=case,pair=pair,rep=rep,job=job)
             rows.append(row);write(base/'progress.json',{'rows':rows})
             print(json.dumps({'pair':pair,'arm':arm,'passed':row['oracle']['passed'],'seconds':row['seconds'],

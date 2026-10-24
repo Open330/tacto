@@ -1036,3 +1036,21 @@ Muxa req_18dd2b9f73eeaeb0_80 및 req_18dd2bd0e99e15e8_81 리뷰의 P1/P2는
 없었다. 다음 실제 기능 격차는 installed CLI의 path-scoped 문서 관측/실행이다.
 Python API의 document_path/token 지원을 CLI 사용자가 안전하게 활용할 수
 있도록 연결하고 재평가한다. 전체 G0~G10 완료 기준을 유지한다.
+
+## G8/G9 비교 중단 증거 보존 (2026-10-24)
+
+현재 설치본을 지정한 `benchmark_matched_conditions.py --preflight-only`가
+통과했다. 비공개 원본은 `reviews/goal-resume-20261024-preflight/preflight.json`이다.
+이는 런타임·안내·실행 파일의 사전 조건 검사이며 실제 모델 호출·GUI 실행,
+Sky 도구 접근, 실제 serving model 또는 동일 조건 비교 완료를 증명하지 않는다.
+
+비교의 agent/setup/oracle/cleanup 예외나 사용자 인터럽트가 최종 보고서를
+남기지 않는 격차를 수정했다. 이제 완료된 arm·관측 usage와 중단된 arm·미시도
+개수를 별도로 남기고, 중단 arm의 usage/cost와 source 안정성은 unknown으로
+표시한다. 부분 결과를 전체 비교 성공 또는 비용0으로 승격하지 않는다.
+예외 본문은 개인정보를 포함할 수 있어 저장하지 않고 예외 종류만 기록한다.
+관련 검사는 실제 모델·GUI 없이 orchestration 대역으로 실행한다.
+
+다음 검증은 peer의 현재 창 입력 수정과 충돌하지 않는 GUI 구간을 확보한 뒤
+설치본을 고정한 실제 비교를 실행하는 것이다. G0~G10의 실앱·다중 백본·입력
+보존·인과적 완료 증거 기준은 위 원래 범위를 유지하며 아직 전체 완료가 아니다.

@@ -108,7 +108,7 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
                 try:
                     module.main()
                     error = None
-                except Exception as exc:
+                except BaseException as exc:
                     error = exc
             report = json.loads((out/'report.json').read_text()) if (out/'report.json').exists() else None
         return events, fixtures, report, error
@@ -146,7 +146,28 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
         self.assertEqual(2, len(fixtures))
         self.assertTrue(all(f.process.poll() == 0 for f in fixtures))
         self.assertEqual(('close', 'fixture-01-sky'), events[-1])
-        self.assertIsNone(report)
+        self.assertFalse(report['passed'])
+        self.assertTrue(report['aborted'])
+        self.assertFalse(report['comparison_eligible'])
+        self.assertEqual(1, report['completed_arms'])
+        self.assertEqual(4, report['unattempted_arms'])
+        self.assertEqual('sky', report['interrupted_arm']['arm'])
+        self.assertIsNone(report['interrupted_arm']['usage'])
+        self.assertFalse(report['interrupted_arm']['cost_known'])
+        self.assertEqual(10, report['summary']['tacto']['observed_usage_all_attempts']['total_input_tokens']['sum'])
+        self.assertNotIn('provider crashed', json.dumps(report))
+
+    def test_interrupt_keeps_partial_evidence_without_claiming_zero_cost(self):
+        def agent(name):
+            raise KeyboardInterrupt()
+        events, fixtures, report, error = self.run_main(agent=agent)
+        self.assertIsInstance(error, KeyboardInterrupt)
+        self.assertEqual(0, fixtures[0].process.poll())
+        self.assertEqual(0, report['completed_arms'])
+        self.assertEqual(5, report['unattempted_arms'])
+        self.assertEqual('KeyboardInterrupt', report['interrupted_arm']['error_class'])
+        self.assertIsNone(report['source_stable'])
+        self.assertIsNone(report['interrupted_arm']['usage'])
 
     def test_a_fixture_that_survives_close_or_shared_history_is_refused(self):
         events, fixtures, report, error = self.run_main(survive_close=True)
