@@ -175,6 +175,22 @@ func dispatchNativeWindowPreparation(
         }
         if foregroundClick { try foregroundClickFocus?(binding, initial.focused); try ready() }
         var expectedInput = initial
+        // An app in front moves focus to what was clicked a moment AFTER the
+        // mouseDown is posted (an outline view, 2026-10-24). Reading once at
+        // once took that late, legitimate change for the person's input and
+        // stopped between mouseDown and mouseUp. Read until two reads agree
+        // (bounded); foreground and pointer are still required unchanged.
+        func settledInput() throws -> NativeUserInputState {
+            var last = try observedInput()
+            for _ in 0..<10 {
+                try ready()
+                Thread.sleep(forTimeInterval: 0.01)
+                let next = try observedInput()
+                if last.matches(next) { return next }
+                last = next
+            }
+            return last
+        }
         func acceptClickFocus(_ before: NativeUserInputState, _ after: NativeUserInputState) throws {
             if before.matches(after) {
                 if foregroundClick { try foregroundClickFocus?(binding, after.focused) }
@@ -279,7 +295,7 @@ func dispatchNativeWindowPreparation(
                 attempted += 1 // A failed post cannot establish no effect.
                 try post(event, binding.pid)
                 try ready()
-                let after = try observedInput()
+                let after = try foregroundClick ? settledInput() : observedInput()
                 try acceptClickFocus(before, after)
                 if foregroundClick {
                     try ready()

@@ -276,3 +276,45 @@ print("SWIFT_WINDOW_DISPATCH_PASS")
             result = subprocess.run([str(binary)], capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout.strip(), 'SWIFT_WINDOW_DISPATCH_PASS')
+
+
+class ForegroundLateFocusTests(unittest.TestCase):
+    def test_focus_that_moves_after_mouse_down_completes_the_click(self):
+        harness = r'''import Foundation
+import AppKit
+import ApplicationServices
+let element=AXUIElementCreateApplication(10001),window=AXUIElementCreateApplication(10002)
+let before=AXUIElementCreateApplication(10003),clicked=AXUIElementCreateApplication(10004)
+let binding=NativeWindowBinding(element:element,window:window,pid:42,processStart:10,
+ windowID:17,windowBounds:CGRect(x:100,y:200,width:300,height:200),
+ elementBounds:CGRect(x:110,y:230,width:100,height:40),point:CGPoint(x:160,y:250))
+// The app moves focus to the clicked view one read after mouseDown, as an
+// outline view in front does; the person changes nothing.
+for (mode, lateReads) in [("late_focus", 1), ("person_moves_pointer", 0)] {
+ var posted=0,readsAfterDown=0
+ do {
+  let result=try dispatchNativeWindowPreparation(binding,deadline:100,stopped:{false},context:{},now:{0},
+   readInput:{_ in
+    if posted==0 { return NativeUserInputState(foreground:42,pointer:.zero,focused:before) }
+    readsAfterDown+=1
+    let pointer = mode=="person_moves_pointer" ? CGPoint(x:9,y:9) : CGPoint.zero
+    return NativeUserInputState(foreground:42,pointer:pointer,focused:readsAfterDown>lateReads ? clicked:before)},
+   validate:{_ in},post:{event,pid in posted+=1},
+   routing:{_,_ in},elementClicks:1,foregroundClickFocus:{_,_ in})
+  precondition(mode=="late_focus" && result.posted==2, "\(mode) \(result)")
+ } catch let failure as NativeWindowDispatchFailure {
+  precondition(mode=="person_moves_pointer" && failure.attempted==1, "\(mode) \(failure)")
+ } catch { fatalError("unexpected failure: \(error)") }
+}
+print("SWIFT_LATE_FOCUS_PASS")
+'''
+        with tempfile.TemporaryDirectory(prefix='tacto-late-focus-') as directory:
+            source,binary=Path(directory)/'main.swift',Path(directory)/'check'
+            source.write_text(harness)
+            built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
+                str(ROOT/'helper/WindowInput.swift'),str(ROOT/'helper/WindowDispatch.swift'),
+                str(ROOT/'helper/FrontmostProcess.swift'),'-o',str(binary)],capture_output=True,text=True,timeout=90)
+            self.assertEqual(0,built.returncode,built.stderr)
+            result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=10)
+            self.assertEqual(0,result.returncode,result.stderr)
+            self.assertEqual('SWIFT_LATE_FOCUS_PASS',result.stdout.strip())
