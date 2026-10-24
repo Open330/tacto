@@ -25,7 +25,7 @@ class LockedScreenTests(unittest.TestCase):
             b = LockedBackend('screen_locked')
             r = call(b)
             self.assertEqual('screen_locked', r['error'])
-            self.assertIn('잠금을 풀지 않습니다', r['hint'])
+            self.assertIn('잠금이 풀리면', r['hint'])
             self.assertEqual((0, 0), (b.starts, b.activations))
 
     def test_no_console_session_stays_its_own_error(self):

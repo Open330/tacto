@@ -14,7 +14,7 @@ class NativeLaunchBackend:
         return self.session_problem() is None
 
     def session_problem(self):
-        """None, 'screen_locked' (a person must unlock), or 'gui_session_unavailable'."""
+        """None, 'screen_locked' (unlocked before screen steps continue), or 'gui_session_unavailable'."""
         from .session import lock_state
         state = lock_state()
         if state.get('on_console') is not True:
@@ -91,7 +91,7 @@ class NativePresentationBackend(NativeLaunchBackend):
 # A locked screen is a person's to unlock: Tacto never unlocks it, and nothing
 # behind it can be read or brought forward (tacto/session.py). Said plainly, so
 # an agent hands off instead of asking for a window to be shown.
-SCREEN_LOCKED_HINT = ('화면이 잠겨 있습니다 — 사람이 암호로 잠금을 풀어야 합니다. Tacto는 잠금을 풀지 않습니다. '
+SCREEN_LOCKED_HINT = ('화면이 잠겨 있습니다 — 잠금이 풀리면 화면 작업을 이어서 하세요. '
                       '긴 원격 작업 전에는 `tacto keep-awake`로 화면·시스템 잠자기를 막아 둘 수 있습니다 '
                       '(화면 보호기·정책 잠금까지 막는 보장은 없음).')
 

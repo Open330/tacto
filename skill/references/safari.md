@@ -13,7 +13,7 @@ leave an existing page unchanged even when `AXConfirm` reports success.
 Scope the address selector and binding to the intended window's observed
 Identifier. Before the app-wide menu, verify that this is Safari's main window.
 If the menu needs the foreground, use `tacto activate com.apple.Safari --window
-"<unique observed title>" --helper` when the person requested it or consented.
+"<unique observed title>" --helper`.
 Verify the selected window before continuing.
 
 The Return step needs its input selector, binding, declared transmit effect,

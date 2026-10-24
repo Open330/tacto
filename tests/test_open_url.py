@@ -85,7 +85,7 @@ class OpenURLTests(unittest.TestCase):
                 self.assertEqual(('invalid_url', []), (r['error'], b.opened))
         r, b = self.run_open('https://example.com/', backend=Backend('screen_locked'))
         self.assertEqual(('screen_locked', []), (r['error'], b.opened))
-        self.assertIn('잠금을 풀지 않습니다', r['hint'])
+        self.assertIn('잠금이 풀리면', r['hint'])
         r, b = self.run_open('https://example.com/', browser='com.example.NotInstalled')
         self.assertEqual(('application_not_installed', []), (r['error'], b.opened))
 

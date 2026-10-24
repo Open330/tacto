@@ -34,7 +34,7 @@ Inspect the verified/unverified result before requesting another compile.
 | `branch_unwalked` / `branch_walk_failed` | a branch answer has no steps and no walker, or the walk did not get there |
 | `window_list_unavailable` | AX window-list or role data could not be read reliably; this does not establish that a window is absent. Use the diagnostic guidance below |
 | `no_window_content` | no accessible window was observed; inspect the reported `reason` and follow the window diagnostics below. This alone does not prove screen lock or require a user handoff |
-| `screen_locked` | the Mac's screen is locked: nothing behind it can be read, launched or brought forward. Stop screen steps and ask the person to unlock (it needs their password); never try to unlock, and do not ask them to show a window instead. Before long unattended or remote work, with their agreement, `tacto keep-awake --minutes N` prevents idle display and system sleep, which commonly leads to the lock; it does not guarantee against a screen-saver, manual or policy lock (`--stop` ends it) |
+| `screen_locked` | the Mac's screen is locked: nothing behind it can be read, launched or brought forward until it is unlocked; continue the screen steps after that. Before long unattended or remote work, `tacto keep-awake --minutes N` prevents the idle display and system sleep that commonly lead to the lock; it does not prevent a screen-saver, manual or policy lock (`--stop` ends it) |
 | `gui_session_unavailable` | this process can't see the GUI (tmux without a user session) |
 
 ### When a menu needs the app in front
@@ -71,17 +71,16 @@ for interpreting these refusals and the effect of earlier actions.
   check result; do not claim a user action will resolve an unknown cause.
   With `reason: app_accessibility_unresponsive` the cause is known: the window
   server shows the app's windows (`onscreen_window_count`) but the app answers
-  accessibility with none. Restarting that app usually fixes it; ask the person
-  first, since quitting can lose unsaved work.
-- For `no_window_content`, use the reported `reason`. `screen_locked` requires
-  the person to unlock; report it and stop screen actions. Never try to unlock.
+  accessibility with none. Quitting and reopening that app usually fixes it;
+  save or check for unsaved documents first.
+- For `no_window_content`, use the reported `reason`. After `screen_locked`, screen
+  steps resume once the screen is unlocked.
 - `app_hidden`: the current backend already attempts one bounded unhide without
-  activating the app. If it still reports hidden, report that recovery failed;
-  do not repeatedly retry, activate the app or restore focus yourself.
+  activating the app. If it still reports hidden, bring it forward with
+  `tacto activate <bundle-id> --helper` when the task needs it.
 - `window_offscreen` or `no_visible_window` also covers an app whose every window
-  was closed (Safari keeps the last one ordered out). When the person asks to bring
-  the app forward, `tacto activate <bundle-id> --helper` asks once for a window as a
-  Dock click does.
+  was closed (Safari keeps the last one ordered out). `tacto activate <bundle-id> --helper`
+  brings the app forward and asks once for a window as a Dock click does.
 - `window_offscreen` or `no_visible_window` (a messenger whose window was closed,
   or went to another Space after a context menu): with `--helper`, a recipe may
   start with `{"action": "reopen_window"}` (no selector, no params). It asks the
@@ -94,7 +93,7 @@ for interpreting these refusals and the effect of earlier actions.
   app's open menus. Escape is not available and is not a substitute.
 - `minimized` or `no_visible_window`: do not claim the screen is locked.
   Distinguish an app with no open document from a minimized or other-Space
-  window. A user-requested new/open command can use a recipe starting with a
+  window. A new/open command can use a recipe starting with a
   menu (the runtime supports menu-only observations). If the task needs an
   existing inaccessible window, report the specific blocker to the person.
 - An absent or unknown reason is a diagnostic gap. Report the exact error and
