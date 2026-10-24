@@ -1,3 +1,10 @@
+# Pointer preparation and native input details
+
+Ordinary named AX button presses and text edits do not need pointer preparation
+or the implementation history linked below. Use the session's guide and current
+observation first. Read this reference when an actual pointer/background
+preparation or element-bound keyboard action is needed.
+
 **Background pointer clicks can be ignored.** An app-focused window need not
 be an AppKit key window. In the owned signed fixture, controls that declined
 first-mouse input received no content click even though the helper posted both
@@ -7,7 +14,8 @@ again before choosing the click. Keep the click's actual task postcondition;
 `acted`/posted counts do not prove receipt. If a click was already possibly
 sent, inspect its effect instead of preparing and blindly clicking again.
 AXPress and pointer fallback are different routes; this measurement does not
-establish the same failure for AXPress. See [window input](../docs/native-window-input.md).
+establish the same failure for AXPress. The detailed [window input implementation record](../docs/native-window-input.md)
+is for diagnosing a preparation/receiving failure; it is not a prerequisite for ordinary clicks.
 
 **Is a menu command available right now?** `tacto menu-state <bundle-id> <Menu>
 <Item> --helper` reads it without pressing anything. A background app often

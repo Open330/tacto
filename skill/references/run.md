@@ -1,13 +1,15 @@
 # Ordinary observe/run
 
-Use this path for document scope, interactive approval, judgment, journals,
+Use this path for interactive approval, judgment, journals,
 or tools without interactive stdin. Resolve the signed command and observe
 in one tool call:
 
 `tacto observe <bundle-id> --helper --json`
 
-For TextEdit document scope add `--document /absolute/path`; read
-[documents](documents.md) for pinning and save evidence.
+With interactive stdin, TextEdit scope also works in `session` with
+`--document /absolute/path --guide`; it supplies the needed schema and observation
+together. For this noninteractive run path add `--document /absolute/path`.
+Read [documents](documents.md) when saving or inspecting attachment evidence.
 
 After observing, read [authoring](authoring.md) only if writing a new flow.
 Write the JSON file and run it in the same tool call:

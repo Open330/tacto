@@ -106,6 +106,18 @@ class BenchmarkRuntimeTests(unittest.TestCase):
             self.assertEqual(str((root/'.venv/bin/python').resolve()),probe.call_args.args[0][0])
             self.assertNotIn('--helper',probe.call_args.args[0])
 
+    def test_old_session_without_document_flag_is_not_compatible_with_new_guide(self):
+        from subprocess import CompletedProcess
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);entry=self.runtime(root)
+            (root/'skill/runtime-requirements.json').write_text('{"schema":1,"command_help":["session"],"command_flags":{"session":["--document"]}}')
+            for flags,expected in [({},False),({'session':['--documentary']},False),
+                                   ({'session':'--document'},False),({'session':['--document']},True)]:
+                with patch('examples.benchmark_runtime.subprocess.run',return_value=CompletedProcess([],0,json.dumps({'supported':['session'],'flags':flags}),'')):
+                    result=guide_runtime_compatibility(runtime_evidence(entry),guide_evidence(root/'skill/SKILL.md'))
+                self.assertEqual(expected,result['compatible'])
+                self.assertEqual({} if expected else {'session':['--document']},result['missing_flags'])
+
     def test_nonobject_requirements_are_rejected_before_a_probe(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);entry=self.runtime(root)

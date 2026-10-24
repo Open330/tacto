@@ -93,6 +93,7 @@ def guide_runtime_compatibility(runtime, guide):
     requirements, not proof that every sentence of a legacy guide is compatible.
     """
     import json
+    import re
     spec=Path(guide['path']).parent/'runtime-requirements.json'
     if not spec.exists():
         return {'compatible':True,'declared_requirements':False,'commands':[],
@@ -103,20 +104,39 @@ def guide_runtime_compatibility(runtime, guide):
     if (requirement.get('schema')!=1 or not isinstance(commands,list)
             or not all(isinstance(c,str) and c in ('session','batch','repair') for c in commands)):
         raise ValueError('unsupported guide runtime requirements')
-    probe='''import importlib.util,json
+    required_flags=requirement.get('command_flags',{})
+    if (not isinstance(required_flags,dict) or any(
+            command not in commands or not isinstance(flags,list) or
+            not all(isinstance(flag,str) and re.fullmatch(r'--[a-z][a-z0-9-]*',flag) for flag in flags)
+            for command,flags in required_flags.items())):
+        raise ValueError('unsupported guide command flags')
+    probe=r'''import importlib.util,json,re
 spec=importlib.util.find_spec('tacto.command_help')
 if spec is None: print(json.dumps({'supported':[]}))
 else:
  from tacto.command_help import command_help
- print(json.dumps({'supported':[c for c in COMMANDS if isinstance(command_help(c,['--help']),str)]}))
+ help_text={c:command_help(c,['--help']) for c in COMMANDS}
+ print(json.dumps({'supported':[c for c,h in help_text.items() if isinstance(h,str)],
+                   'flags':{c:sorted(set(re.findall(r'(?<![\w-])--[a-z][a-z0-9-]*',h))) for c,h in help_text.items() if isinstance(h,str)}}))
 '''.replace('COMMANDS',repr(commands))
     process=subprocess.run([str(Path(runtime['runtime_root'])/'.venv/bin/python'),'-I','-B','-c',probe],
                            capture_output=True,text=True,timeout=15)
-    supported=[]
+    supported=[];available_flags={}
     if process.returncode==0:
-        try:supported=json.loads(process.stdout).get('supported',[])
+        try:
+            reply=json.loads(process.stdout)
+            candidate=reply.get('supported',[])
+            if isinstance(candidate,list) and all(isinstance(c,str) for c in candidate):supported=candidate
+            candidate=reply.get('flags',{})
+            if isinstance(candidate,dict):available_flags=candidate
         except (ValueError,AttributeError):pass
     missing=[command for command in commands if command not in supported]
-    return {'compatible':not missing,'declared_requirements':True,'commands':commands,
-            'missing_commands':missing,'probe_exit':process.returncode,
+    missing_flags={}
+    for command,flags in required_flags.items():
+        available=available_flags.get(command,[])
+        if not isinstance(available,list) or not all(isinstance(f,str) for f in available):available=[]
+        absent=[flag for flag in flags if flag not in available]
+        if absent:missing_flags[command]=absent
+    return {'compatible':not missing and not missing_flags,'declared_requirements':True,'commands':commands,
+            'missing_commands':missing,'missing_flags':missing_flags,'probe_exit':process.returncode,
             'scope':'isolated runtime command-help probe only; no GUI/helper/model or task execution'}

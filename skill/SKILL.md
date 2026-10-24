@@ -35,6 +35,10 @@ Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto 
   `write_stdin` with `yield_time_ms: 5000`, so short replays can finish without
   another model/status round. If still running, poll that same session; never
   resend the flow. Prefer the guide's compact click format.
+- **Edit/read one exact TextEdit document:** start a TextEdit session with
+  `--document /absolute/path --guide`. It returns the scoped observation and
+  minimal schema together; no separate authoring/native-input manual is needed.
+  For an actual Save or attachment task, read [documents](references/documents.md).
 - **Safari URL navigation:** read [Safari](references/safari.md) for address
   editing and verification of the loaded page before authoring the flow.
 - **Drag a slider, text selection or canvas:** read [drag](references/drag.md).
@@ -42,7 +46,7 @@ Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto 
   read [hover](references/hover.md).
 - **Save/parameterize:** when repeated tasks need a template, read
   [reuse](references/reuse.md) only.
-- **Document scope, approval, judgment, or no interactive tools:** read
+- **Approval, judgment, or no interactive tools:** read
   [run mode](references/run.md) instead of starting a session.
 - **Unavailable command or permission error:** [setup](references/setup.md).
 - **Requested app not running:** `tacto launch <bundle-id> --helper`, then observe

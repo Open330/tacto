@@ -119,7 +119,7 @@ representation, so policy, bindings and result verification are unchanged.
 
 ### One-flow signed session
 
-`tacto session <bundle-id> --helper [--timings] [--idle-timeout 1..600]` observes,
+`tacto session <bundle-id> --helper [--document /absolute/path] [--timings] [--idle-timeout 1..600]` observes,
 prints `TACTO_SESSION_READY`, accepts one minified newline-terminated Flow JSON
 record on stdin, replays on that signed connection, and exits. Input is bounded
 to1 MiB and the default input deadline is90 seconds. Replay refreshes the
@@ -132,8 +132,12 @@ line limits are temporarily disabled on this invocation's terminal and restored
 on success or cancellation. Invalid flows, target mismatches, model-judgment
 steps and idle expiry end the session before input. The session does not read
 stdin as approval; ordinary user-intent policy and host receipts still apply.
-Use ordinary `run` for document scope, explicit/interactive approval, provider
-judgment and restart journals. No daemon or shared external socket is created.
+For one TextEdit file add `--document /absolute/path --guide`; this pins it once
+on the same connection and never widens after a failed observation. Saved Flow
+files do not retain this scope: use the returned `TACTO_FLOW_SCOPE` replay argv
+with `--document` each time. Visible text does not prove Save or persistence.
+Use ordinary `run` for explicit/interactive approval, provider judgment and
+restart journals. No daemon or shared external socket is created.
 
 `absent_role="Sheet"`는 관측한 노드의 정확한 역할 토큰을 비교합니다(`AXSheet`도 허용).
 `Sheet1`·`Spreadsheet` 같은 제목이나 값은 시트로 계산하지 않습니다. 기존 `absent`는

@@ -99,9 +99,16 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
     windows = sys.platform == "win32"
     helper = [] if windows else ['--helper']
     usage = ('usage: session <app.exe | pid:N> [--guide] [--timings] [--idle-timeout 1..600]' if windows
-             else 'usage: session <bundle-id> --helper [--guide] [--timings] [--idle-timeout 1..600]')
+             else 'usage: session <bundle-id> --helper [--document /absolute/path] [--guide] [--timings] [--idle-timeout 1..600]')
     timeout = 90
     save_path = None
+    document = None
+    if '--document' in args:
+        index = args.index('--document')
+        if (windows or args.count('--document') != 1 or index+1 >= len(args)
+                or not os.path.isabs(args[index+1]) or '\0' in args[index+1]):
+            emit('session_document: --document needs one absolute TextEdit path');return 2
+        document = args[index+1];del args[index:index+2]
     if '--save' in args:
         index = args.index('--save')
         if args.count('--save') != 1 or index+1 >= len(args) or args[index+1].startswith('-'):
@@ -126,11 +133,22 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
         emit(usage)
         return 2
     target = targets[0]
+    if document is not None and target != 'com.apple.TextEdit':
+        emit('document_scope_unavailable: --document requires com.apple.TextEdit');return 2
     driver = None
     started = time.monotonic()
     timing = {}
     try:
         driver = make_driver(list(helper))
+        if document is not None:
+            from .document_scope import DocumentScopedDriver, DocumentScopeUnavailable
+            try:
+                driver = DocumentScopedDriver(driver, target, document)
+            except DocumentScopeUnavailable as exc:
+                from .pin_diagnostic import format_pin_diagnostic
+                diagnostic = format_pin_diagnostic(exc.pin_reason)
+                if diagnostic is not None:emit(diagnostic)
+                emit('document_scope_unavailable: ' + str(exc));return 1
         observation = driver.observe(target, 'tree_full')
         timing['observation_ready_seconds'] = time.monotonic() - started
         if observation.get('type') != 'observation':
@@ -142,7 +160,7 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
             with flow_input_mode(stdin.fileno()):
                 if '--guide' in args or '--reuse-guide' in args:
                     from .command_help import session_guide
-                    emit(session_guide(target, reusable='--reuse-guide' in args))
+                    emit(session_guide(target, reusable='--reuse-guide' in args, document=document))
                 emit(json.dumps(observation, ensure_ascii=False))
                 emit('TACTO_SESSION_READY send one compact Flow JSON line, then newline; target=' + target)
                 timing['input_ready_seconds'] = time.monotonic() - started
@@ -184,6 +202,11 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
             except OSError:
                 emit('session_save_failed: UI task completed; file not saved. Do not replay the task.');return 1
             emit('TACTO_FLOW_SAVED ' + save_path)
+            if document is not None:
+                emit('TACTO_FLOW_SCOPE ' + json.dumps({
+                    'document':document, 'scope_stored_in_flow':False,
+                    'replay_argv':['tacto','run',save_path,'--helper','--document',document],
+                }, ensure_ascii=False))
         return result
     finally:
         if driver is not None:

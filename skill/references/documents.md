@@ -1,3 +1,15 @@
+# TextEdit text and Save
+
+For a requested body edit/read in a known file, start
+`tacto session com.apple.TextEdit --helper --document /absolute/path --guide`.
+Use its scoped observation and schema; one JSON flow completes this session.
+No native-input implementation document is needed for ordinary AX text edits.
+An edit returning `commit_unverified` may already have changed the text: read
+that same document to verify the body, without repeating the edit. Text is not
+proof of a Save. Saved Flow files do not retain this invocation's read scope;
+use the returned `TACTO_FLOW_SCOPE` replay argv including `--document`.
+For older runtimes without this session flag, use observe/run with `--document`.
+
 **To save a TextEdit document that already has a file, replay the built-in
 `textedit_save`** — `tacto replay textedit_save -p document=/abs/path/name.txt
 -p name=name.txt --helper --document /abs/path/name.txt --yes`. The absolute path is on the window's line in

@@ -47,7 +47,7 @@ def calculator_example(*, compact=True):
 
 
 
-def session_guide(target, *, reusable=False):
+def session_guide(target, *, reusable=False, document=None):
     """Trusted authoring instructions; never derived from UI content."""
     template = {
         "schema": 2, "name": "task", "target": target,
@@ -66,6 +66,24 @@ def session_guide(target, *, reusable=False):
             'the second also has "equals":"0". Clear removes the operand; next reset clears the expression. '
             'Add observed digit/operator/Equals identifiers. Digit checks include the expression '
             '(e.g. "2 × 3"); final Equals checks the computed result. '
+        )
+    if document is not None:
+        template['selector_defaults'] = {'role':'TextArea','identifier':'First Text View','ancestor':document}
+        template['check_defaults']['field'] = dict(template['selector_defaults'])
+        template['safety_defaults'] = {'effects':['read'],'reversibility':'reversible',
+                                       'resource':{'object_type':'document','scope':'item'}}
+        template['steps'] = [{'action':'read','selector':{'identifier':'First Text View'},'postcondition':{'equals':'<requested text>'},'answers':True}]
+        details += (
+            'Only this TextEdit document is pinned for this connection; no app-wide fallback or token reuse in another command. '
+            'For a requested edit keep selector:{"identifier":"First Text View"}, use action:set_value, params:{"value":"<requested text>"}, '
+            'postcondition:{"equals":"<requested text>"}; safety:{"effects":["write_persistent"],'
+            '"evidence":[{"source":"user_intent","field":"asked","value":"<actual user request>","covers":["write_persistent"]}]}. '
+            'Quote the actual edit request; do not invent coverage. '
+            'Use selector keys identifier/title/desc, not description. '
+            'An edit can return commit_unverified after input: observe the same document to check its text; do not retype just to remove that status. '
+            'Visible text is not a Save or persistence receipt. Use run/replay for a saved-state task requiring the built-in Save adapter. '
+            'A saved Flow file does not store this read scope: later run/replay must include --document with the intended path; omitting it reads the app windows. '
+            'TACTO_FLOW_SCOPE returns the scoped replay argv after --save. '
         )
     if reusable:
         details += (
@@ -116,11 +134,11 @@ def command_help(command, args):
         )
     if command == "session":
         text = (
-            "usage: tacto session <bundle-id> --helper [--guide | --reuse-guide] [--save /absolute/new.json] [--timings] [--idle-timeout 1..600]\n"
+            "usage: tacto session <bundle-id> --helper [--document /absolute/path] [--guide | --reuse-guide] [--save /absolute/new.json] [--timings] [--idle-timeout 1..600]\n"
             "exec_command tty=true, yield_time_ms=1000; wait for observation and\n"
             "TACTO_SESSION_READY. write_stdin: one compact Flow JSON line + newline, yield_time_ms=5000.\n"
-            "Poll the same session. One flow then exit. Use run for document scope,\n"
-            "approval or judgment. Schema example: tacto session --help --example."
+            "Poll the same session. One flow then exit. --document pins one TextEdit file.\n"
+            "Use run for approval or judgment. Schema example: tacto session --help --example."
         )
     elif command == "run":
         text = (

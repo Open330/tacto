@@ -1,6 +1,6 @@
 # One-flow session
 
-`tacto session <bundle-id> --helper [--guide] [--timings] [--idle-timeout 1..600]`
+`tacto session <bundle-id> --helper [--document /absolute/path] [--guide] [--timings] [--idle-timeout 1..600]`
 observes one app, reads one newline-terminated Flow JSON record from stdin,
 replays it on the same signed connection, and exits. The default input wait is
 90 seconds. The input record is bounded to 1 MiB. EOF, cancellation, invalid
@@ -24,8 +24,8 @@ not exported for use by another invocation; no daemon, shared socket, or
 permission change is introduced.
 
 This version accepts deterministic flows only; `decide` and `visual` are
-refused. It does not read stdin as approval or accept `--yes`, document scope,
-provider flags or a restart journal. Use the ordinary `run`/`replay` route for
+refused. It does not read stdin as approval or accept `--yes`, provider flags
+or a restart journal. Use the ordinary `run`/`replay` route for
 those workflows. Existing user-intent authorization and host completion
 receipts are still evaluated by the normal replay engine. Close or interrupt an
 idle session if abandoning the task; it also expires on its input deadline.
@@ -46,3 +46,11 @@ and transport delays; it is not a measure of model inference alone.
 Reusable save: read [reuse](reuse.md) only when a saved parameterized template
 is needed. `--reuse-guide --save /absolute/new.json` executes once and saves
 the unbound template after success; do not replay a completed task to save it.
+
+For an exact TextEdit file, add `--document /absolute/path --guide`. The same
+connection pins that file once before printing its scoped observation. All later
+observations use the same native token; a lost/changed token ends the flow without
+repinning or reading the rest of the app. The guide includes the text selector
+and edit/read schema; implementation history is not needed for ordinary edits.
+Text verification is not Save evidence. Saved Flow files do not store this read
+scope: use the `TACTO_FLOW_SCOPE` replay argv with `--document` on each invocation.
