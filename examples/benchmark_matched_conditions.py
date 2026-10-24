@@ -1,4 +1,4 @@
-"""Fresh paired TACTO/Sky runs under fixed requested model and initial fixture state."""
+"""Fresh independent Tacto/Sky runs; cross-backbone trials remain explicitly unmatched."""
 import argparse
 import hashlib
 import json
@@ -14,7 +14,7 @@ from examples.benchmark_runtime import runtime_evidence, agent_evidence, runtime
 from examples.repeat_benchmark import Fixture, build, jobs, prompt, source_manifest, write, SKY_GUIDE
 
 
-def manifest(launcher=None, tacto_guide=None):
+def manifest(launcher=None, tacto_guide=None, *, tacto_provider="codex"):
     result={"checkout/"+k:v for k,v in source_manifest(include_binaries=False).items()}
     if launcher is not None:
         result.update({"selected_runtime/"+k:v for k,v in runtime_evidence(launcher)["files"].items()})
@@ -23,6 +23,8 @@ def manifest(launcher=None, tacto_guide=None):
     if tacto_guide is not None:
         result.update({'selected_guide/'+key:value for key,value in guide_evidence(tacto_guide)['files'].items()})
     result['agent_executable']=agent_evidence(Path.home()/'.local/bin/codex')['sha256']
+    if tacto_provider != 'codex':
+        result['tacto_agent_executable']=agent_evidence(Path.home()/'.local/bin'/tacto_provider)['sha256']
     result['sky_guide']=hashlib.sha256(SKY_GUIDE.read_bytes()).hexdigest()
     return result
 
@@ -97,6 +99,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--output',required=True)
     p.add_argument('--model',default='gpt-6.1-sol');p.add_argument('--reasoning-effort',default='medium')
     p.add_argument('--timeout',type=int,default=240)
+    p.add_argument('--tacto-provider',choices=('codex','claude'),default='codex',help='Tacto agent backbone; Sky always uses Codex. Claude trials are cross-backbone, not matched-model comparisons.')
     p.add_argument('--launcher',default=str(Path.home()/'.local/bin/tacto'))
     p.add_argument('--tacto-guide',help='Explicit absolute SKILL.md override; runtime unchanged; guide subtree is hashed')
     p.add_argument('--cases',nargs='+',choices=['bonus_on','bonus_off','renamed_button'],default=['bonus_on','bonus_off','renamed_button'])
@@ -119,16 +122,19 @@ def main():
                   'compatibility':compatibility,'model_calls':0,'fixture_started':False})
             raise SystemExit(2)
         config_before=codex_config_evidence()
-        before=manifest(args.launcher,selected_guide['path'])
+        before=manifest(args.launcher,selected_guide['path'],tacto_provider=args.tacto_provider)
         agent=agent_evidence(Path.home()/'.local/bin/codex')
+        tacto_agent=agent if args.tacto_provider=='codex' else agent_evidence(Path.home()/'.local/bin'/args.tacto_provider)
         aliases=runtime_aliases(runtime)
-        for executable in ('codex',):
+        for executable in set(('codex',args.tacto_provider)):
             path=Path.home()/'.local/bin'/executable
             if not path.is_file():raise ValueError('agent executable missing: '+executable)
     except (OSError,ValueError) as exc:
         write(base/'preflight.json',{'ready':False,'error':str(exc),'model_calls':0,'fixture_started':False})
         raise SystemExit(2)
-    write(base/'preflight.json',{'ready':True,'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'agent_config':config_before,'source_manifest':before,'model_calls':0,'fixture_started':False})
+    write(base/'preflight.json',{'ready':True,'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'agent_config':config_before,'tacto_provider':args.tacto_provider,'tacto_agent':tacto_agent,'requested_backbones_matched':args.tacto_provider=='codex','source_manifest':before,'model_calls':0,'fixture_started':False})
+    requested_models={'tacto':args.model if args.tacto_provider=='codex' else 'CLI default','sky':args.model}
+    requested_efforts={'tacto':args.reasoning_effort if args.tacto_provider=='codex' else None,'sky':args.reasoning_effort}
     if args.preflight_only:return
     config_hash=config_before['sha256']
     target='ai.callabo.tacto.matched.'+uuid.uuid4().hex[:8]
@@ -142,33 +148,38 @@ def main():
         for arm in (('tacto','sky') if pair%2 else ('sky','tacto')):
             job=dict(values,job=f'P{pair:02d}')
             own_prompt=prompt(job,target,arm,launcher=args.launcher,tacto_guide=selected_guide['path'])
-            if args.profile and arm=='tacto':
+            if args.profile and arm=='tacto' and args.tacto_provider=='codex':
                 own_prompt+=' Profiling: include --timings on your tacto session command; preserve timing output.'
+            provider=args.tacto_provider if arm=='tacto' else 'codex'
+            settings={'model':args.model,'reasoning_effort':args.reasoning_effort} if provider=='codex' else {}
             try:
-                row=run_arm(app,base,pair,arm,job,changed,lambda:run_agent('codex',own_prompt,base/f'{pair:02d}-{arm}',
-                    timeout=args.timeout,model=args.model,reasoning_effort=args.reasoning_effort,
-                    **({'profile':True} if args.profile else {})))
+                row=run_arm(app,base,pair,arm,job,changed,lambda:run_agent(provider,own_prompt,base/f'{pair:02d}-{arm}',
+                    timeout=args.timeout,**settings,**({'profile':True} if args.profile and provider=='codex' else {})))
             except BaseException as exc:
                 # A crash/interrupt is an attempted arm, not a zero-cost skip.
                 # Preserve completed arms even when setup/oracle/cleanup failed.
                 # Do not publish exception text: providers may include private data.
                 write(base/'report.json',{'passed':False,'aborted':True,
-                    'comparison_eligible':False,'rows':rows,'summary':aggregate(rows),
+                    'comparison_eligible':False,'requested_conditions_matched':False,
+                    'requested_backbones_matched':args.tacto_provider=='codex','tacto_provider':args.tacto_provider,'tacto_agent':tacto_agent,
+                    'rows':rows,'summary':aggregate(rows),
                     'completed_arms':len(rows),'expected_arms':len(schedule)*2,
                     'interrupted_arm':{'pair':pair,'arm':arm,'case':case,'rep':rep,
-                        'error_class':type(exc).__name__,'usage':None,
+                        'error_class':type(exc).__name__,'usage':None,'requested_provider':provider,
                         'cost_known':False,'task_success_verified':False},
                     'unattempted_arms':len(schedule)*2-len(rows)-1,
                     'source_before':before,'source_stable':None,'agent_config_before':config_before,
-                    'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
+                    'requested_model':args.model if args.tacto_provider=='codex' else None,'requested_reasoning_effort':args.reasoning_effort if args.tacto_provider=='codex' else None,
+                    'requested_models':requested_models,'requested_reasoning_efforts':requested_efforts,
                     'limits':['interrupted arm usage and task outcome unknown; completed rows are partial evidence',
                               'source stability and complete paired conditions not verified']})
                 raise
-            row.update(arm=arm,case=case,pair=pair,rep=rep,job=job)
+            row.update(arm=arm,case=case,pair=pair,rep=rep,job=job,requested_provider=provider,
+                       profiling_status=('enabled' if provider=='codex' else 'unsupported_for_provider') if args.profile else 'not_requested')
             rows.append(row);write(base/'progress.json',{'rows':rows})
             print(json.dumps({'pair':pair,'arm':arm,'passed':row['oracle']['passed'],'seconds':row['seconds'],
                 'input':row['usage'].get('total_input_tokens'),'new_input':row['usage'].get('new_input_tokens')}),flush=True)
-    after=manifest(args.launcher,selected_guide['path']);summary=aggregate(rows)
+    after=manifest(args.launcher,selected_guide['path'],tacto_provider=args.tacto_provider);summary=aggregate(rows)
     initial_matched=all(all(rows[i]['initial_state'][k]==rows[i+1]['initial_state'][k] for k in INITIAL_KEYS_COMPARED) for i in range(0,len(rows),2))
     config_after=codex_config_evidence()
     same_config=config_before==config_after
@@ -179,13 +190,16 @@ def main():
         'fixture_isolation':{'process_per_arm':True,'data_directory_per_arm':True,
             'previous_fixture_ended_before_next':all(type(r['fixture_isolation']['exit_code']) is int for r in rows),
             'initial_state_keys_compared':list(INITIAL_KEYS_COMPARED),'initial_state_keys_excluded':[]},
-        'comparison_limits':['actual serving model, hidden context and full foreground/caret equivalence unverified'],
-        'requested_conditions_matched':before==after and same_config and initial_matched,
+        'comparison_limits':['actual serving model, hidden context and full foreground/caret equivalence unverified',
+                             'provider-reported token units differ across tokenizers; normalized counters do not imply interchangeable units or billed cost savings'],
+        'requested_conditions_matched':before==after and same_config and initial_matched and args.tacto_provider=='codex',
+        'requested_backbones_matched':args.tacto_provider=='codex','tacto_provider':args.tacto_provider,'tacto_agent':tacto_agent,
         'runtime':runtime,'runtime_aliases':aliases,'agent':agent,'selected_guide':selected_guide,'compatibility':compatibility,'selected_cases':args.cases,'repetitions':args.reps,'initial_states_matched':initial_matched,'config_sha256':config_hash,
-        'config_stable':same_config,'agent_config_before':config_before,'agent_config_after':config_after,'requested_model':args.model,'requested_reasoning_effort':args.reasoning_effort,
-        'comparison_scope':'fresh independent sessions; a fresh owned fixture process and data directory per arm; same app build/task/default tools, timeout/model/settings; counterbalanced order',
+        'config_stable':same_config,'agent_config_before':config_before,'agent_config_after':config_after,'requested_model':args.model if args.tacto_provider=='codex' else None,'requested_reasoning_effort':args.reasoning_effort if args.tacto_provider=='codex' else None,
+                    'requested_models':requested_models,'requested_reasoning_efforts':requested_efforts,
+        'comparison_scope':'fresh independent sessions; a fresh owned fixture process/data directory per arm; same app build/task/timeout; counterbalanced order. Model/CLI tools/settings differ when tacto-provider=claude.',
         'limits':[f'selected case pairs, {args.reps} sample(s) per case','actual serving model and billing unverified',
-            'server cache and global instructions not cleared','not Flow replay or scripted Sky reuse comparison',
+            'server cache and global instructions not cleared','Claude uses its CLI default model/settings and Bash-based tools; its settings equivalence is not verified' if args.tacto_provider=='claude' else 'both arms requested the same Codex model/settings','not Flow replay or scripted Sky reuse comparison',
             'fixture setup excluded; all agent instruction reading/authoring/execution included']})
     print(str(base/'report.json'),flush=True)
 

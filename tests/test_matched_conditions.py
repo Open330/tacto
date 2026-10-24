@@ -52,7 +52,7 @@ class MatchedConditionsTests(unittest.TestCase):
 class FreshFixtureOrchestrationTests(unittest.TestCase):
     """main() with every outside effect faked: no app build, UI, provider or install."""
 
-    def run_main(self, *, agent=None, state=None, survive_close=False):
+    def run_main(self, *, agent=None, state=None, survive_close=False, extra_args=(), with_claude=True):
         import examples.benchmark_matched_conditions as module
         events, fixtures = [], []
         class Process:
@@ -82,7 +82,7 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
                 if not survive_close:
                     self.process.code = 0
         def run_agent(provider, prompt, workdir, **kwargs):
-            events.append(('agent', Path(workdir).name))
+            events.append(('agent', Path(workdir).name, provider, kwargs))
             if agent:
                 agent(Path(workdir).name)
             return {'exit': 0, 'seconds': 1.0, 'usage': {'total_input_tokens': 10, 'new_input_tokens': 4,
@@ -90,9 +90,10 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)/'home'
             (home/'.local/bin').mkdir(parents=True); (home/'.local/bin/codex').write_text('')
+            if with_claude:(home/'.local/bin/claude').write_text('')
             (home/'.codex').mkdir(); (home/'.codex/config.toml').write_text('model="x"\n')
             out = Path(tmp)/'out'
-            argv = ['benchmark', '--output', str(out), '--launcher', str(home/'launcher')]
+            argv = ['benchmark', '--output', str(out), '--launcher', str(home/'launcher'),*extra_args]
             with patch.dict(module.os.environ, {}, clear=True), \
                  patch.object(module.sys, 'argv', argv), \
                  patch.object(module.Path, 'home', return_value=home), \
@@ -137,6 +138,48 @@ class FreshFixtureOrchestrationTests(unittest.TestCase):
             self.assertEqual(0, row['fixture_isolation']['exit_code'])
         self.assertEqual(6, len({row['fixture_isolation']['pid'] for row in report['rows']}))
         self.assertEqual(12, report['summary']['tacto']['observed_usage_all_attempts']['new_input_tokens']['sum'])
+
+    def test_claude_tacto_uses_its_own_cli_without_codex_model_flags(self):
+        events,fixtures,report,error=self.run_main(extra_args=['--tacto-provider','claude','--profile'])
+        self.assertIsNone(error)
+        self.assertTrue(report['passed'])
+        self.assertFalse(report['requested_backbones_matched'])
+        self.assertIsNone(report['requested_model'])
+        self.assertEqual({'tacto':'CLI default','sky':'gpt-6.1-sol'},report['requested_models'])
+        self.assertFalse(report['requested_conditions_matched'])
+        self.assertFalse(report['comparison_eligible'])
+        calls=[e for e in events if e[0]=='agent']
+        self.assertEqual(6,len(calls))
+        for _,name,provider,kwargs in calls:
+            if name.endswith('tacto'):
+                self.assertEqual('claude',provider)
+                self.assertNotIn('model',kwargs);self.assertNotIn('reasoning_effort',kwargs)
+                self.assertNotIn('profile',kwargs)
+            else:
+                self.assertEqual('codex',provider)
+                self.assertEqual('gpt-6.1-sol',kwargs['model'])
+                self.assertEqual('medium',kwargs['reasoning_effort'])
+                self.assertTrue(kwargs['profile'])
+        self.assertTrue(all(row['profiling_status']==('unsupported_for_provider' if row['arm']=='tacto' else 'enabled') for row in report['rows']))
+        self.assertEqual(['claude','codex','codex','claude','claude','codex'],
+                         [row['requested_provider'] for row in report['rows']])
+
+    def test_aborted_claude_trial_keeps_backbone_mismatch_metadata(self):
+        def agent(name):raise RuntimeError('PRIVATE failure')
+        _,_,report,error=self.run_main(agent=agent,extra_args=['--tacto-provider','claude'])
+        self.assertIsInstance(error,RuntimeError)
+        self.assertTrue(report['aborted'])
+        self.assertFalse(report['requested_conditions_matched'])
+        self.assertFalse(report['requested_backbones_matched'])
+        self.assertEqual('claude',report['tacto_provider'])
+        self.assertEqual('claude',report['interrupted_arm']['requested_provider'])
+        self.assertEqual('CLI default',report['requested_models']['tacto'])
+        self.assertNotIn('PRIVATE',json.dumps(report))
+
+    def test_missing_claude_does_not_start_fixture_or_agent(self):
+        events,fixtures,report,error=self.run_main(extra_args=['--tacto-provider','claude'],with_claude=False)
+        self.assertIsInstance(error,SystemExit)
+        self.assertEqual([],events);self.assertEqual([],fixtures);self.assertIsNone(report)
 
     def test_config_change_during_arms_disqualifies_matched_conditions(self):
         def agent(name):

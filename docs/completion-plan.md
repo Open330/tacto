@@ -1155,3 +1155,35 @@ june-mba는 rc.6 설치와 콘솔 연결을 읽기 전용으로 확인했지만 
 통상 소스 위치에는 평가checkout이 없었다. 원격에 평가환경을 몰래 설치하거나
 권한을 변경하지 않았다. 이미 실행한 source시험을 원격/새사용자 시험으로
 표기하지 않는다. 전체 G0~G10 완료 기준은 유지한다.
+
+## 2026-10-24 후속: 인과적 재개와 Claude 에이전트 비교 경로
+
+`reviews/goal-resume-20261024-causal-recovery/evidence.json`과 해당
+requirements-source-index는 현재 관련 구현·검사 파일 및 원본 해시를 기록한다.
+파일 존재를 완료 증거로 쓰지 않는다. 실제 signed producer worker 재시작에서
+첫 worker exit17 뒤 둘째 worker exit0, 원래 journal 보존, 인과영수증 확인,
+새 native 입력1회(count0→1)를 확인했다. native_causal_continuation_verified=true
+이지만 input audit CHANGED로 전체FAIL을 유지한다. 일반앱/명시TextEdit Save의
+생산자 증명이 아니며 rc.7 exact-DMG 결과도 아니다.
+
+비교 도구에 `--tacto-provider claude`를 추가했다. 기존 기본값은 Codex이며
+Sky는 항상 Codex다. Claude에는 Codex 전용 모델·effort 플래그를 보내지 않는다.
+백본·모델 요청은 arm별 기록하고 Claude모드는 requested_backbones_matched=false,
+requested_conditions_matched=false,comparison_eligible=false다. 중단 보고서에도
+같은 불일치를 남긴다. provider별 토큰 단위/추정비용을 동일 청구 단위로 비교하지
+않는다. 현재 타이밍 파서는 Codex용이므로 Claude에는 미지원/unknown을 기록하고
+도구 시간이0이었다고 만들지 않는다. 관련25개 비조작 검사가 통과했다.
+
+Claude 비교 preflight는 실행 파일/안내 점검만 통과했으며 GUI·모델0회였다.
+별도 실제 Claude Code CLI 비조작 요청은 조직 구독 접근 비활성의 합성 API 오류로
+exit1이었다. 앞서 통과한 signed 단일요청 경로와 다르다. 원본은
+`reviews/goal-resume-20261024-claude-agent-route/agent/stdout.jsonl`, 닫힌 진단은
+failure-classification.json이다. hook이 init 앞에 오는 실제 frame을 처리하고
+organization_access_disabled만 보고하며 계정 오류 본문은 공개하지 않는다.
+이를 task 성공·모델 비용 절감·전체 Claude 사용 불가로 해석하지 않는다.
+
+다음 실제 GUI 검증은 사용 가능한 조용한 환경에 대한 사용자 답을 기다린다.
+현재 Mac에서는 서로 다른 작업의 전경 변화가 관측됐고 원격의 확인한4개 경로에는
+평가 소스가 없었다. 임의의 권한 변경/설치나 같은 실패의 무의미한 재실행을 하지
+않는다. rc.7은 공식 Vault 세션 갱신을 기다리며 고정 빌드/회귀 증빙을 재사용할
+준비가 됐다. 이 때문에 전체 목표 완료를 선언하지 않는다.

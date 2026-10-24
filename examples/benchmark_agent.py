@@ -40,6 +40,41 @@ def usage_from_stream(provider, stream):
             'raw_usage':u}
 
 
+def reported_agent_failure(provider, stream):
+    """Closed diagnostics for failed tool-using CLI streams, never raw messages."""
+    if provider!='claude' or not isinstance(stream,str) or len(stream.encode('utf-8'))>8*1024*1024:
+        return None
+    try:
+        events=[json.loads(line) for line in stream.splitlines() if line.strip()]
+        if not events or any(type(event) is not dict for event in events):return None
+        init=[e for e in events if e.get('type')=='system' and e.get('subtype')=='init']
+        result=[e for e in events if e.get('type')=='result']
+        assistant=[e for e in events if e.get('type')=='assistant']
+        if len(init)!=1 or len(result)!=1 or len(assistant)!=1:return None
+        end=result[0];item=assistant[0];session=init[0].get('session_id')
+        if (not isinstance(session,str) or not session or end is not events[-1]
+                or end.get('session_id')!=session or item.get('session_id')!=session
+                or end.get('is_error') is not True or item.get('is_api_error_message') is not True
+                or item.get('parent_tool_use_id') is not None):return None
+        # Observed startup hooks may precede init, then exactly one synthetic
+        # assistant and result follow. This categorizes an API refusal; it does
+        # not attest what startup hooks themselves did.
+        first=events.index(init[0])
+        if events[first:] != [init[0],item,end]:return None
+        if any(e.get('type')!='system' or e.get('subtype') not in ('hook_started','hook_response')
+               for e in events[:first]):return None
+        message=item.get('message',{})
+        if type(message) is not dict or message.get('role')!='assistant':return None
+        content=message.get('content')
+        if (type(content) is not list or len(content)!=1 or type(content[0]) is not dict
+                or content[0].get('type')!='text'):return None
+        text=content[0].get('text')
+        if (isinstance(text,str) and text.startswith('Your organization has disabled Claude subscription access for Claude Code')
+                and end.get('result')==text):return 'organization_access_disabled'
+    except (ValueError,TypeError,RecursionError):pass
+    return None
+
+
 def codex_turn_delta(usage, previous=None):
     """CLI0.161.0 resume reports session totals (verified against own rollout).
 
@@ -93,7 +128,7 @@ def run_agent(provider, prompt, directory, timeout=240, *, resume=None, workspac
             argv[-1:-1]=['-c','model_reasoning_effort='+json.dumps(reasoning_effort)]
     start=time.monotonic();error=None;stdout=stderr=''
     timeline=None
-    if profile:
+    if profile and provider=='codex':
         from examples.agent_timeline import AgentTimeline
         timeline=AgentTimeline(start)
     try:
@@ -118,12 +153,18 @@ def run_agent(provider, prompt, directory, timeout=240, *, resume=None, workspac
             if event.get('type')=='thread.started':identity=event.get('thread_id')
             if event.get('type')=='system' and event.get('subtype')=='init':identity=event.get('session_id')
     except (ValueError,TypeError):pass
+    if error is None and code not in (None,0):
+        error=reported_agent_failure(provider,stdout) or 'agent_nonzero_exit'
     result={'provider':provider,'seconds':time.monotonic()-start,'exit':code,'error':error,
             'usage':usage,'trace_directory':str(directory),'fresh_workspace':not bool(resume),
             'history_supplied':bool(resume),'session_id':identity,'requested_model':model or 'CLI default','requested_reasoning_effort':reasoning_effort,
             'environment_parity_verified':False}
     if timeline is not None:
         result['profile']=timeline.finish(result['seconds'],stdout)
+    elif profile:
+        result['profile']={'status':'unsupported_for_provider','provider':provider,
+                           'completed_tool_union_seconds':None,
+                           'outside_completed_tool_spans_seconds':None,'incomplete_tools':None}
     path=directory/'agent.json';path.write_text(json.dumps(result,indent=2));path.chmod(0o600)
     if temporary:temporary.cleanup()
     return result

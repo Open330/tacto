@@ -848,3 +848,21 @@ read 예제에도 이름 있는 selector를 넣어, edit로 바꾸더라도 sele
 새 스킬의 command_flags 선언과 isolated help 검사는 소스 런타임의
 session --document를 확인하고, 이를 제공하지 않는 설치 rc.6와는 호환되지 않음을
 정확히 반환한다. 이 구현·안내는 아직 새 설치본으로 배포하지 않았다.
+
+### Claude Code Tacto arm (prepared, no GUI result claimed)
+
+`examples/benchmark_matched_conditions.py --tacto-provider claude` keeps the
+same owned-fixture process/data isolation and alternating arm order, but runs
+the Tacto arm through Claude Code and the Sky arm through Codex. This is a
+cross-backbone descriptive trial, not a matched-model comparison. The default
+remains Codex for both arms. Per-arm requested model/provider is persisted,
+including aborted runs. Claude settings/global context are not attested, and
+provider tokenizers/CLI counters are not interchangeable billing units.
+`--profile` records Claude tool timing as unsupported/unknown, never zero.
+
+The actual new-mode preflight passed without starting a fixture/model. A separate
+non-UI tool-using Claude CLI probe exited1 with a synthetic
+organization_access_disabled error; zero reported usage on that failed request
+is not a completed-task cost saving. The signed tool-free Claude request earlier
+in this record succeeded through a different route. No Claude/Sky GUI success
+rate or paired timing is invented for this prepared mode.
