@@ -89,6 +89,10 @@ for interpreting these refusals and the effect of earlier actions.
   it, like a Dock click minus the activation. The reply says whether the app
   was observed in front (`activated_target`); verify the window with a
   postcondition. If the app does not reopen a window, report that.
+- `menu_bar_app`: the app runs from a menu bar icon (an accessory app) and has
+  no window open. Tacto cannot click menu bar icons, and `reopen_window` or
+  `activate` does not open its panel, so do not retry them. Ask the person to
+  click the app's menu bar icon, then observe again.
 - A context menu left open (after `secondary_action` AXShowMenu): close it with
   `{"action": "close_menu"}` (with `--helper`), which sends AXCancel to the
   app's open menus. Escape is not available and is not a substitute.
