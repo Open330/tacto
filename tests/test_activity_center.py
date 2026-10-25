@@ -43,6 +43,15 @@ let partial=records.first{!$0.complete}!
 assert(!partial.damaged && !partial.steps[0].ended)
 let boolEnd=Data("{\"schema\":1,\"event\":\"command_start\",\"command\":\"observe\"}\n{\"schema\":1,\"event\":\"command_end\",\"exit_code\":false}\n".utf8)
 assert(!store.parse(boolEnd,url:root,modified:Date()).complete)
+func retried(_ exit:Int) -> ActivityRecord {
+  let rows = "{\"schema\":1,\"event\":\"command_start\",\"command\":\"activate\"}\n"
+    + "{\"schema\":1,\"event\":\"access_start\",\"operation\":\"observe\"}\n"
+    + "{\"schema\":1,\"event\":\"access_end\",\"operation\":\"observe\",\"type\":\"error\",\"error\":\"no_window_content\"}\n"
+    + "{\"schema\":1,\"event\":\"command_end\",\"exit_code\":\(exit)}\n"
+  return store.parse(Data(rows.utf8),url:root,modified:Date())
+}
+assert(retried(0).steps[0].outcome=="다시 확인")
+assert(retried(1).steps[0].outcome=="실패")
 let future=Data("{\"schema\":2,\"event\":\"command_end\",\"exit_code\":0}\n".utf8)
 assert(store.parse(future,url:root,modified:Date()).damaged)
 assert(TactoPreferences(["retention_days":7.0]).retentionDays==30)

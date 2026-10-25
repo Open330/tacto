@@ -188,6 +188,13 @@ final class ActivityStore {
             default: break
             }
         }
+        // activate and other waits re-read a window that is still opening; in a
+        // run that succeeded those reads are retries, not failures to show in red.
+        if record.complete && !record.failed {
+            for i in record.steps.indices where record.steps[i].outcome == "실패" && record.steps[i].operation != "act" {
+                record.steps[i].outcome = "다시 확인"
+            }
+        }
         return record
     }
     func deleteRecords() throws {
