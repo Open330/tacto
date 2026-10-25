@@ -97,11 +97,20 @@ class WindowAbsenceTests(unittest.TestCase):
                            ('truncated', True), ('tree', '0 Window Title: Reappeared')]:
             fresh = windowless(); fresh[key] = value; cases.append(fresh)
         fresh = windowless(); fresh.pop('window_listing_diagnostic'); cases.append(fresh)
-        fresh = windowless(); fresh['window_listing_diagnostic']['raw_count'] = 1; cases.append(fresh)
+        for key in ('role_window_count', 'role_unavailable_count', 'role_transient_count', 'filtered_count'):
+            fresh = windowless(); fresh['window_listing_diagnostic'].update({'raw_count': 1, key: 1}); cases.append(fresh)
         for fresh in cases:
             failed = unavailable()
             self.assertIs(failed, reobserve_closed_window(Mock(return_value=fresh), TARGET,
                                                          Postcondition(absent_role='Window'), failed))
+
+    def test_a_listed_entry_that_is_not_a_window_does_not_count(self):
+        # Finder keeps its desktop in the window list after its last window
+        # closes: raw_count 1, every role read, none of them AXWindow (rc.8).
+        failed = unavailable(); failed['window_listing_diagnostic']['raw_count'] = 1
+        fresh = windowless(); fresh['window_listing_diagnostic']['raw_count'] = 1
+        verified = reobserve_closed_window(Mock(return_value=fresh), TARGET, Postcondition(absent_role='Window'), failed)
+        self.assertEqual('ax_window_list_empty', verified.get('verification_evidence'))
 
     def test_fresh_read_failure_is_preserved(self):
         error = dict(type='error', error='aborted_by_user')

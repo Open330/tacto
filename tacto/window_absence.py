@@ -2,13 +2,20 @@
 
 
 def _empty_window_list(reply):
+    """Every listed entry's role was read and none is a window.
+
+    Finder keeps its desktop in the app's window list after its last window
+    closes (raw_count 1, role_window_count 0, rc.8): an entry whose role was
+    read and is not AXWindow is not a window, so it does not count.
+    """
     diagnostic = reply.get('window_listing_diagnostic')
     if not isinstance(diagnostic, dict):
         return False
     return (diagnostic.get('status') == 'ok'
             and type(diagnostic.get('version')) is int and diagnostic['version'] == 1
+            and type(diagnostic.get('raw_count')) is int and diagnostic['raw_count'] >= 0
             and all(type(diagnostic.get(key)) is int and diagnostic[key] == 0
-                    for key in ('ax_error', 'raw_count', 'role_window_count',
+                    for key in ('ax_error', 'role_window_count',
                                 'role_transient_count', 'role_unavailable_count',
                                 'filtered_count', 'badge_count')))
 
