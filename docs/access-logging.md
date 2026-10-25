@@ -29,7 +29,10 @@ not require navigating that folder.
 
 Each CLI invocation has one JSONL file with ordered command/access start and end
 records, target bundle identifiers, operation/action names, outcome codes and
-elapsed time. First-task results also include the stage, failure document counts,
+elapsed time. A failed `run` or `session` adds a `task_result` with a closed
+failure code and stage (for example `invalid_flow`/`load` or
+`step_not_authorized`/`authorize`), so the history names why it failed instead
+of only showing the exit code. First-task results also include the stage, failure document counts,
 and whether foreground presentation was verified. A missing end record means an
 interrupted or unknown outcome; it never authorizes repeating an input.
 

@@ -125,6 +125,36 @@ class AccessLogTests(unittest.TestCase):
             inner.act.assert_called_once()
             log.finish(0); log.close()
 
+    def test_a_failed_run_names_its_reason_without_free_text(self):
+        # 29 of 50 failed receipts on 2026-10-24..25 ended with exit 1 and no
+        # code, so the history said only "failed".
+        from tacto import cli
+        with tempfile.TemporaryDirectory() as folder, \
+             patch('tacto.access_log.log_directory', return_value=Path(folder)/'Tacto/Logs'), \
+             contextlib.redirect_stderr(io.StringIO()):
+            flow = Path(folder)/'flow.json'
+            flow.write_text('{"SECRET": ')
+            self.assertEqual(2, cli.main(['run', str(flow)]))
+            rows = [json.loads(line) for line in
+                    next((Path(folder)/'Tacto/Logs').glob('*.jsonl')).read_text().splitlines()]
+        result = next(r for r in rows if r['event'] == 'task_result')
+        self.assertEqual(('failed', 'invalid_flow', 'load'), (result['status'], result['error'], result['stage']))
+        self.assertNotIn('SECRET', json.dumps(rows))
+        self.assertEqual(2, rows[-1]['exit_code'])
+
+    def test_record_failure_keeps_only_closed_codes(self):
+        from tacto.access_log import record_failure
+        with tempfile.TemporaryDirectory() as folder:
+            log = AccessLog('run', root=Path(folder)/'Logs')
+            token = current.set(log)
+            try:
+                record_failure('Selector "SECRET" missing', 'replay')
+            finally:
+                current.reset(token)
+                log.close()
+            row = json.loads(log.path.read_text().splitlines()[-1])
+        self.assertEqual(('unknown_failure', 'replay'), (row['error'], row['stage']))
+
     def test_cli_logs_lists_without_screen_or_new_log(self):
         from tacto import cli
         with tempfile.TemporaryDirectory() as folder, \

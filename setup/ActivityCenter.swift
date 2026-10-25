@@ -238,7 +238,14 @@ private func activityErrorMessage(_ code: String) -> String {
      "new_document_not_empty":"새 문서가 비어 있지 않아 입력을 멈췄어요.",
      "application_identity_changed":"대상 앱이 바뀌어 작업을 멈췄어요.",
      "text_not_verified":"입력 결과를 확인하지 못했어요.",
-     "action_failed":"요청한 동작을 완료하지 못했어요."][code] ?? ("오류 코드: " + String(code.prefix(120)))
+     "action_failed":"요청한 동작을 완료하지 못했어요.",
+     "step_not_authorized":"승인되지 않은 단계가 있어 실행하지 않았어요.",
+     "invalid_flow":"작업 내용(flow)을 읽지 못해 실행하지 않았어요.",
+     "invalid_parameters":"작업에 필요한 값이 빠져 실행하지 않았어요.",
+     "session_invalid_flow":"받은 작업 내용(flow)이 올바르지 않아 실행하지 않았어요.",
+     "session_input_timeout":"작업 내용을 기다리다 시간이 지나 끝냈어요.",
+     "session_target_mismatch":"작업 대상 앱이 연결한 앱과 달라 실행하지 않았어요.",
+     "unknown_failure":"작업이 실패했어요. 원인 코드는 기록되지 않았어요."][code] ?? ("오류 코드: " + String(code.prefix(120)))
 }
 
 private func activityLabel(_ text: String, _ size: CGFloat = 13, _ weight: NSFont.Weight = .regular, secondary: Bool = false) -> NSTextField {

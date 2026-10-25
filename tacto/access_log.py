@@ -162,6 +162,19 @@ class AccessLog:
                 pass
 
 
+def record_failure(error, stage=None):
+    """Name why a run failed, so the history shows a reason and not only an exit code.
+
+    Only closed codes reach the receipt; free text (selectors, typed values,
+    detail strings) never does.
+    """
+    log = current.get()
+    if log is not None:
+        if not (isinstance(error, str) and _CODE.fullmatch(error)):
+            error = 'unknown_failure'
+        log.task_result({'status': 'failed', 'error': error, 'stage': stage})
+
+
 class AccessLoggingDriver:
     """Transparent transport wrapper. No argument bodies or returned UI text."""
     def __init__(self, inner, log):
