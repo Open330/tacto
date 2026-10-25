@@ -251,18 +251,28 @@ def _why_no_window(pid: int, lock: dict) -> tuple[str, str]:
         return ("screen_locked",
                 "화면이 잠겨 있습니다 — 잠긴 화면에서는 어떤 앱의 창도 읽을 수 없습니다. "
                 "잠금을 풀면 다시 볼 수 있어요. (screen locked)")
+    menu_bar_app = False
     try:
         from AppKit import NSRunningApplication
         app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
         if app is not None and app.isHidden():
             return ("app_hidden",
                     "앱이 가려져(숨김) 있습니다 — Dock에서 앱을 눌러 다시 보이게 해 주세요. (app hidden)")
+        menu_bar_app = app is not None and app.activationPolicy() == 1   # accessory
     except Exception:
         pass
     windows = _attr(AXUIElementCreateApplication(pid), "AXWindows") or []
     if windows and all(_attr(w, "AXMinimized") is True for w in windows):
         return ("minimized",
                 "앱의 창이 모두 최소화돼 있습니다 — Dock에서 창을 다시 열어 주세요. (minimized)")
+    # A menu bar app keeps its closed panel ordered out, so it used to land in
+    # window_offscreen below and be told to reopen_window/activate, which never
+    # shows its panel (BarShelf, five identical failed runs on 2026-10-25).
+    if menu_bar_app:
+        return ("menu_bar_app",
+                "메뉴바 앱이라 열린 창이 없습니다 — 이 앱은 메뉴바 아이콘을 눌러 여는데, Tacto는 메뉴바 "
+                "아이콘을 누를 수 없고 reopen_window·activate 로도 창이 열리지 않습니다. 사람이 메뉴바 "
+                "아이콘을 눌러 패널을 연 뒤 다시 observe 해 주세요. (menu bar app)")
     # A window the window server still holds but does not show: closed to
     # the background (ordered out) or on another Space — the two cannot be
     # told apart from here (KakaoTalk after a context menu, 2026-10-10).

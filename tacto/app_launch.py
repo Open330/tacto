@@ -244,7 +244,8 @@ def _show_a_window(driver, backend, target, path, clock, sleep, *, already_opene
     seen = present()
     if seen is True:
         return True
-    if seen not in ('no_window', 'no_window_content', 'window_offscreen', 'no_visible_window', 'minimized'):
+    if seen not in ('no_window', 'no_window_content', 'window_offscreen', 'no_visible_window',
+                    'menu_bar_app', 'minimized'):
         return seen if seen in ('screen_locked', 'app_hidden') else 'window_observation_unavailable'
     if not already_opened:
         try:

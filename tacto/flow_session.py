@@ -6,6 +6,7 @@ import sys
 import time
 from contextlib import contextmanager
 
+from .access_log import record_failure
 from .flow import Flow, every_step
 
 
@@ -170,12 +171,15 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
             # A flow may contain personal text. Do not echo malformed input or
             # decoder excerpts; invalid input ends this session before acting.
             from .flow_errors import feedback
+            record_failure('session_input_timeout' if isinstance(exc, TimeoutError) else 'session_invalid_flow', 'load')
             emit('session_invalid_flow: ' + feedback(exc))
             return 2
         if flow.target != target:
+            record_failure('session_target_mismatch', 'load')
             emit('session_target_mismatch')
             return 2
         if any(step.action in ('decide', 'visual') for step in every_step(flow.steps)):
+            record_failure('session_requires_deterministic_flow', 'load')
             emit('session_requires_deterministic_flow; use run for model judgment')
             return 2
         template = flow.to_json(compact=True)
@@ -183,9 +187,11 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
             try:
                 flow = flow.bind()
             except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+                record_failure('session_invalid_parameters', 'load')
                 emit('session_invalid_parameters: provide params defaults for every {{name}}; session accepts no -p flags')
                 return 2
         if flow.target != target:
+            record_failure('session_target_mismatch', 'load')
             emit('session_target_mismatch')
             return 2
         # A session is one operation, not a daemon or a source of reusable
@@ -200,6 +206,7 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
             try:
                 write_private(save_path, template, overwrite=False)
             except OSError:
+                record_failure('session_save_failed', 'save')
                 emit('session_save_failed: UI task completed; file not saved. Do not replay the task.');return 1
             emit('TACTO_FLOW_SAVED ' + save_path)
             if document is not None:

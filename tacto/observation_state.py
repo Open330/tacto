@@ -22,7 +22,7 @@ def retryable_observation_error(reply):
                 and diagnostic['role_transient_count']==diagnostic['role_unavailable_count'])))
     if (not isinstance(reply, dict) or reply.get('type') != 'error'
             or reply.get('error') != 'no_window_content'
-            or reply.get('reason') not in (None, 'no_visible_window', 'window_offscreen')):
+            or reply.get('reason') not in (None, 'no_visible_window', 'window_offscreen', 'menu_bar_app')):
         return False
     lock = reply.get('lock')
     return lock is None or (isinstance(lock, dict) and lock.get('locked') is False)

@@ -37,7 +37,7 @@ def reobserve_closed_window(observe, target, post, failed):
     lock = failed.get('lock')
     if (failed.get('type') != 'error' or failed.get('error') != 'no_window_content'
             or failed.get('target') != target
-            or failed.get('reason') not in ('no_visible_window', 'window_offscreen')
+            or failed.get('reason') not in ('no_visible_window', 'window_offscreen', 'menu_bar_app')
             or not isinstance(lock, dict) or lock.get('locked') is not False
             or lock.get('on_console') is not True or lock.get('login_done') is not True
             or not _empty_window_list(failed)):

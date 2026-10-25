@@ -9,9 +9,10 @@ from unittest.mock import patch
 
 
 class NoWindowReasonTests(unittest.TestCase):
-    def why(self, lock, hidden=False, windows=()):
+    def why(self, lock, hidden=False, windows=(), policy=0):
         from tacto import driver
-        app = type("App", (), {"isHidden": lambda self: hidden})()
+        app = type("App", (), {"isHidden": lambda self: hidden,
+                               "activationPolicy": lambda self: policy})()
         fake = type("NSRunningApplication", (), {
             "runningApplicationWithProcessIdentifier_": staticmethod(lambda pid: app)})
         with patch("AppKit.NSRunningApplication", fake), \
@@ -45,6 +46,18 @@ class NoWindowReasonTests(unittest.TestCase):
             with patch.object(Quartz, "CGWindowListCopyWindowInfo", return_value=[info]):
                 self.assertEqual("no_visible_window", self.why({"locked": False})[0])
 
+    def test_a_menu_bar_app_is_not_sent_to_reopen_its_panel(self):
+        # BarShelf: accessory app, closed 500x500 panel still held offscreen.
+        import Quartz
+        panel = [{"kCGWindowOwnerPID": 1, "kCGWindowLayer": 0, "kCGWindowIsOnscreen": False,
+                  "kCGWindowBounds": {"Height": 500}}]
+        with patch.object(Quartz, "CGWindowListCopyWindowInfo", return_value=panel):
+            reason, detail = self.why({"locked": False}, policy=1)
+        self.assertEqual("menu_bar_app", reason)
+        self.assertIn("메뉴바 아이콘", detail)
+        self.assertEqual("app_hidden", self.why({"locked": False}, hidden=True, policy=1)[0])
+        self.assertEqual("minimized", self.why({"locked": False}, windows=[True], policy=1)[0])
+
     def test_a_bare_helper_reply_is_explained_the_same_way(self):
         from tacto import helper
         d = object.__new__(helper.HelperDriver)
@@ -63,7 +76,7 @@ class NoWindowReasonTests(unittest.TestCase):
         self.assertIn("references/recovery.md", entry)
         skill = (root / "references/recovery.md").read_text()
         for reason in ("screen_locked", "app_hidden", "minimized", "no_visible_window",
-                       "window_offscreen"):
+                       "window_offscreen", "menu_bar_app"):
             self.assertIn(reason, skill)
 
 

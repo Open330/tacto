@@ -493,11 +493,15 @@ def _run_flow(flow, argv, walked: bool = False, *, _driver=None, _confirm=None, 
     confirmer = _confirmer(argv) if _confirm is None else _confirm
     approvals, blocked = agent.authorize(flow, ask=confirmer)
     if blocked:
+        from .access_log import record_failure
+        record_failure('step_not_authorized', 'authorize')
         print("\n".join(blocked))
         return 1
     try:
         hooks = agent.commit_adapter_hooks(agent.commit_adapter_for(flow))
     except Exception as exc:
+        from .access_log import record_failure
+        record_failure('commit_adapter_unavailable', 'prepare')
         print(f"저장 결과 검증 준비 실패: {exc}")
         return 1
     if _on_result is not None:
@@ -569,6 +573,8 @@ def _run_flow(flow, argv, walked: bool = False, *, _driver=None, _confirm=None, 
         print("done" + (f" — 결과: {shown}" if shown else ""))
     else:
         last = result.log[-1] if result.log else {}
+        from .access_log import record_failure
+        record_failure(last.get('error') or 'flow_failed', last.get('stage'))
         saved_state = any(e.get('saved_state_verified') for e in getattr(result,'events',()))
         if last.get('detail') == 'saved_state_does_not_confirm_dispatch':
             print('unverified — 저장된 파일 내용은 확인했지만 저장 요청의 실행 여부는 확인하지 못했습니다.\n'
@@ -1282,6 +1288,8 @@ def _dispatch_command(cmd, rest):
             # The author is a model reading this output; a traceback buries
             # the one line that says which field is wrong.
             from .flow_errors import feedback
+            from .access_log import record_failure
+            record_failure('invalid_flow', 'load')
             print("invalid_flow: " + feedback(exc), file=sys.stderr)
             return 2
         walked = bool(flow.intents)
@@ -1291,6 +1299,8 @@ def _dispatch_command(cmd, rest):
             try:
                 flow = flow.bind(**params)
             except (ValueError, TypeError, KeyError, ArithmeticError):
+                from .access_log import record_failure
+                record_failure('invalid_parameters', 'load')
                 print('invalid_parameters: provide defaults in params or -p name=value; placeholders use {{name}}', file=sys.stderr)
                 return 2
         return _run_flow(flow, rest, walked=walked)
