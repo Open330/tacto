@@ -204,7 +204,11 @@ def _for_effect(effect: str, c: SafetyContract, data: set) -> Decision:
     if effect == "credential":
         return Decision("handoff", "credential material — the user enters it")
     if effect == "system_config":
-        return Decision("handoff", "changes OS/security configuration")
+        # Approvable like any consequential step: granting Tacto's own
+        # screen-recording permission in System Settings was refused outright
+        # as a handoff (2026-10-25), though the person had asked for it.
+        # Credentials stay with the person; a settings click does not.
+        return Decision("confirm", "changes OS/security configuration")
     if effect == "financial":
         # Never below confirm on the user's own say-so alone: money moving is
         # the case where "the request mentioned it" is not enough. The
