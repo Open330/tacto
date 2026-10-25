@@ -205,5 +205,11 @@ class DragCaptureTests(unittest.TestCase):
             self.assertEqual(json.loads(output.getvalue())['pixel_to_point'],{'x':0.5,'y':0.5})
             self.assertEqual(path.stat().st_mode&0o777,0o600)
             self.assertEqual(path.read_bytes(),b'private png')
-            with contextlib.redirect_stdout(io.StringIO()):self.assertEqual(capture_main(argv,driver),1)
+            with contextlib.redirect_stdout(io.StringIO()),patch('tacto.access_log.record_failure') as failed:
+                self.assertEqual(capture_main(argv,driver),1)
             self.assertEqual(path.read_bytes(),b'private png')
+            failed.assert_called_once_with('output_exists','capture')
+            driver.observe.return_value={'type':'observation','obs_id':'obs','tree':'0 Window Title: "A"\n1 Window Title: "B"'}
+            with contextlib.redirect_stdout(io.StringIO()),patch('tacto.access_log.record_failure') as failed:
+                self.assertEqual(capture_main(['fixture','--helper','--output',str(Path(directory)/'other.png')],driver),1)
+            failed.assert_called_once_with('window_missing_or_ambiguous','select_window')

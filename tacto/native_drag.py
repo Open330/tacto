@@ -122,6 +122,7 @@ def capture_main(argv, driver):
     from pathlib import Path
     from .native_visual_actions import capture_window
     from .flow import Selector
+    from .access_log import record_failure
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('target')
     parser.add_argument('--helper',action='store_true',required=True)
@@ -136,6 +137,7 @@ def capture_main(argv, driver):
                  [int(match.group(1)) for line in obs['tree'].splitlines()
                   if (match:=re.match(r'^(\d+) Window(?:\s|$)',line))])
         if len(indices)!=1:
+            record_failure('window_missing_or_ambiguous','select_window')
             print(json.dumps({'error':'window_missing_or_ambiguous','detail':'specify --window with an exact observed title'}));return 1
         image=capture_window(driver,obs['obs_id'],args.target,window_index=indices[0])
         # Do not overwrite an existing user's image or follow a destination symlink.
@@ -151,5 +153,6 @@ def capture_main(argv, driver):
     except (OSError, RuntimeError, TimeoutError, ValueError) as error:
         result={'error':'window_capture_failed','effect':'not_started','exception':type(error).__name__}
         if re.fullmatch(r'[a-z_]+(?::[a-z_]+)?',str(error)):result['detail']=str(error)
+        record_failure('output_exists' if isinstance(error,FileExistsError) else 'window_capture_failed','capture')
         print(json.dumps(result))
         return 1

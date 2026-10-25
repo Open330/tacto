@@ -252,6 +252,9 @@ private func activityErrorMessage(_ code: String) -> String {
      "session_invalid_flow":"받은 작업 내용(flow)이 올바르지 않아 실행하지 않았어요.",
      "session_input_timeout":"작업 내용을 기다리다 시간이 지나 끝냈어요.",
      "session_target_mismatch":"작업 대상 앱이 연결한 앱과 달라 실행하지 않았어요.",
+     "window_missing_or_ambiguous":"캡처할 창을 하나로 정하지 못했어요.",
+     "window_capture_failed":"창을 캡처하지 못했어요.",
+     "output_exists":"저장할 파일이 이미 있어 덮어쓰지 않았어요.",
      "unknown_failure":"작업이 실패했어요. 원인 코드는 기록되지 않았어요."][code] ?? ("오류 코드: " + String(code.prefix(120)))
 }
 
