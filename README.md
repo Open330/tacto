@@ -15,7 +15,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.<br>
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.6) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.8) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -115,9 +115,9 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 ## Get started
 
-**1.0.0-rc.6 release candidate for Apple Silicon Macs on macOS 27.0.1.**
+**1.0.0-rc.8 release candidate for Apple Silicon Macs on macOS 27.0.1.**
 
-[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.6). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Version 1.0.0-rc.6 identifies apps that stop answering accessibility queries, speeds up observation of crowded windows, and derives consent for hand-written risky steps from their target controls. It retains first-task recovery without blanket stop-on-failure instructions. This candidate requires fresh qualification. Optional faster startup keeps the helper ready between commands. It is off by default; enable it in settings when needed. One persistent menu shows settings and task status, and task banners remain optional. Browse operation timelines and configure logging and retention in the app. Grant two permissions on first run: **Tacto Helper** (app control) and **Tacto** (screen recording).
+[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.8). Both **Tacto.app and the DMG passed Developer ID signing, Apple notarization, ticket validation, and Gatekeeper checks**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Version 1.0.0-rc.8 settles focus after foreground clicks and pointer location after hover, prioritizes the front window in crowded observations, reports unavailable app processes clearly, and offers a document-scoped session with its minimal guide. It retains first-task recovery and concise failure diagnostics without blanket hand-off instructions. This candidate requires fresh qualification. Optional faster startup keeps the helper ready between commands. It is off by default; enable it in settings when needed. One persistent menu shows settings and task status, and task banners remain optional. Browse operation timelines and configure logging and retention in the app. Grant two permissions on first run: **Tacto Helper** (app control) and **Tacto** (screen recording).
 
 This is a **release candidate, not yet the approved stable release**. Stable qualification still needs a person-run fresh install, three permission revocation/regrant cycles and a limited beta ([guide](docs/beta-participant-guide.md)).
 
