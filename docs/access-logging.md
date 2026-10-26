@@ -43,7 +43,7 @@ automatic access receipts. There is no automatic upload. Detailed screen/action
 traces remain an explicit separate `--trace` option on do/run/replay; review a
 trace before sharing it because it contains screen data.
 
-The development `auth fill`/`auth login` route records credential input and
+The `auth fill`/`auth login` route records credential input and
 submit operation outcomes, never Vault values or response bodies. Full-screen
 tracing is unavailable on this credential route. Delegation files contain only
 selectors, provider/item references, scope and expiry; local credential values

@@ -1,12 +1,12 @@
 # Python API
 
-개발 중인 Vault 위임 로그인은 `CredentialStore`에 앱·사이트·Vault item과
+Vault 위임 로그인은 `CredentialStore`에 앱·사이트·Vault item과
 `fill`/`login` 수준을 한 번 등록하고 `run_login(store, name, driver)`로 실행한다.
 비밀값을 Flow 매개변수로 넘기지 않는다. CLI는 `tacto auth login NAME --helper`이며,
 SDK의 `BrowserDriver`는 호출자가 유지하는 브라우저 context에서 `target: "page"`를
 사용할 수 있다. CLI는 별도 임시 브라우저를 만들지 않고 실제 앱을 조작한다.
 설정·스키마·결과 코드는 [위임 로그인 안내](../skill/references/credentials.md)에 있다.
-이 기능은 rc.9 배포 파일에는 포함되지 않는다.
+이 기능은 rc.10부터 제공한다.
 
 CLI `tacto observe <app> --helper --json`은 backend 응답 전체를 JSON으로 출력한다.
 기본 text 출력의 focused-window 요약을 적용하지 않으며 `custom_selects`의
