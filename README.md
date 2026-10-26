@@ -73,6 +73,12 @@ Records stay on this Mac. Settings control automatic logging and 7/30/90-day
 retention. Screen content, input values, prompts and internal agent reasoning
 are excluded. [Activity history and settings](docs/access-logging.md).
 
+**In development:** agents can use a reusable, site/app-scoped credential
+delegation to fill fields or complete login from macOS Keychain or an already
+authenticated Bitwarden Vault. Values go directly to the signed helper;
+the agent receives only the result. This source feature is not included in
+the rc.9 download. [Credential setup and delegation levels](skill/references/credentials.md).
+
 <a id="how-it-works"></a>
 
 ## Make it once. Use it again.

@@ -563,7 +563,14 @@ class HelperDriver:
         return out
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
+            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False, credential_origin=None):
+        if credential_origin is not None:
+            if (not isinstance(credential_origin,str) or len(credential_origin)>2048
+                    or action.get('name') not in ('set_value','click','read')
+                    or type(action.get('element_index')) is not int
+                    or risk_class!='preapproved' or approved is not True
+                    or 'action.credential_input' not in getattr(self,'capabilities',())):
+                return {'type':'error','error':'credential_scope_unavailable','effect':'not_started'}
         if action.get('name') == 'open_select':
             from .protocol import native_opening_parameters_problem
             problem = native_opening_parameters_problem(action)
@@ -640,6 +647,8 @@ class HelperDriver:
                     "risk_class": risk_class}
         msg = {"type": "act", "obs_id": obs_id, "target": target,
                "action": action}
+        if credential_origin is not None:
+            msg['credential_origin'] = credential_origin
         if save_panel_token is not None:
             msg['save_panel_token'] = save_panel_token
         if action.get('name') in ('click_point', 'drag', 'hover', 'vroid_drag', 'vroid_focus'):
@@ -664,6 +673,17 @@ class HelperDriver:
         if r.get("type") == "acted":
             self._last_action_at = time.monotonic()
         return r
+
+    def credential_input(self,obs_id,target,element_index,value,*,expected_origin=None,check_only=False):
+        action={'name':'read' if check_only else 'set_value','element_index':element_index}
+        if not check_only:action['value']=value
+        r=self.act(obs_id,target,action,risk_class='preapproved',approved=True,
+                   credential_origin=expected_origin or '')
+        return {'type':'credential_ready'} if check_only and r.get('type')=='acted' else r
+
+    def credential_submit(self,obs_id,target,element_index,*,expected_origin=None):
+        return self.act(obs_id,target,{'name':'click','element_index':element_index},
+            risk_class='preapproved',approved=True,credential_origin=expected_origin or '')
 
     def probe(self, obs_id, target, element_index):
         return self._send({"type": "probe", "obs_id": obs_id, "target": target,
@@ -934,7 +954,7 @@ class HelperDriver:
 # The L2 surface is transport-independent: observe/act/wait_until only need a
 # `_send`, so the inherited-socket driver borrows the spawn driver's
 # implementations rather than keeping a second copy in step with the first.
-for _name in ("identity", "list_targets", "observe", "act", "probe",
+for _name in ("identity", "list_targets", "observe", "act", "credential_input", "credential_submit", "probe",
               "selection", "menu_state", "menu_items", "document_text", "document_window_status", "document_rtf_export", "document_attachment_metadata", "save_panel", "capture",
               "wait_until"):
     impl = getattr(HelperDriver, _name)

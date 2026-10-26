@@ -713,6 +713,7 @@ name = "tacto-runtime"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "ada-url" },
     { name = "comtypes", marker = "sys_platform == 'win32'" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
@@ -724,7 +725,6 @@ native-visual = [
     { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
 ]
 web = [
-    { name = "ada-url" },
     { name = "playwright" },
 ]
 
@@ -735,7 +735,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ada-url", marker = "extra == 'web'", specifier = ">=1.32,<2" },
+    { name = "ada-url", specifier = ">=1.32,<2" },
     { name = "comtypes", marker = "sys_platform == 'win32'", specifier = ">=1.4,<2" },
     { name = "playwright", marker = "extra == 'web'", specifier = ">=1.40" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'", specifier = ">=10.0" },

@@ -21,6 +21,13 @@ Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto 
 
 ## Choose the current stage
 
+- **Login or credential entry:** use an existing `tacto auth login <grant> --helper`
+  delegation; it obtains values from the local Keychain or an already authenticated
+  Bitwarden Vault without exposing them to the agent. For first setup, fill-only
+  access, or `credential_delegation_required`, read [credentials](references/credentials.md).
+  `run --yes` approves a task; the reusable credential delegation identifies its
+  Vault item, app/site and allowed operation. Do not describe delegated login as
+  impossible or ask the user to type credentials when a matching grant exists.
 - **Existing flow:** `tacto list`, `tacto show <name>`, then
   `tacto replay <name> --helper`. Do not read authoring guides.
 - **Same saved flow more than once:** `tacto batch <name> --helper` instead

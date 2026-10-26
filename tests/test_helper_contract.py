@@ -1023,6 +1023,8 @@ SIGNED_HELPER_ONLY = frozenset({
     "select_option.strict_parameters",
     # Stable native window IDs are an opt-in signed-helper observation.
     "observe.window_identity",
+    # Live app/frame-origin checks on the signed credential transport.
+    "action.credential_input",
 })
 
 

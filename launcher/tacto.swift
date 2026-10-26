@@ -174,7 +174,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
+let topLevelKeys: Set<String> = ["credential_origin", "save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
                                  "require_window", "window_identity", "reveal", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
                                  "document_token", "document_path", "max_utf16_units", "timeout_seconds",
@@ -293,6 +293,13 @@ func vetted(_ msg: [String: Any]) -> String? {
                 return "invalid image model"
             }
         }
+    }
+    if let raw = msg["credential_origin"] {
+        guard type == "act", let origin = raw as? String, origin.utf8.count <= 2048,
+              let action = msg["action"] as? [String:Any],
+              ["set_value","click","read"].contains(action["name"] as? String ?? ""),
+              let index = action["element_index"], isInt(index),
+              ((index as? NSNumber)?.intValue ?? -1) >= 0 else { return "invalid credential scope" }
     }
     if msg["window_input_authorized"] != nil || (msg["action"] as? [String:Any])?["name"] as? String == "window_input" {
         guard type == "act", (msg["action"] as? [String:Any])?["name"] as? String == "window_input",
@@ -803,7 +810,7 @@ func writeJSONLine(_ fd: Int32, _ obj: [String: Any]) {
 // MARK: - Environment
 
 let allowedEnv = ["HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
-                  "SSL_CERT_FILE", "TERM"]
+                  "SSL_CERT_FILE", "TERM", "BW_SESSION"]
 var env: [String: String] = [:]
 let inherited = ProcessInfo.processInfo.environment
 for key in allowedEnv { if let v = inherited[key] { env[key] = v } }

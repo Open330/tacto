@@ -1,6 +1,7 @@
 """Tacto — reusable computer use.
 
 Usage:
+  tacto auth --help       # vault-backed delegated filling and login
   tacto doctor            # check/guide permissions
   tacto apps              # list running apps (GUI session check)
   tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
@@ -609,6 +610,10 @@ def _main(argv=None):
     if help_text is not None:
         print(help_text)
         return 0
+
+    if cmd == 'auth':
+        from .credential_cli import main as credential_main
+        return credential_main(rest,driver_factory=_make_driver)
 
     # Wheels do not include source-only evaluator fixtures. Report that before
     # importing native GUI dependencies, which an isolated install may lack.

@@ -16,6 +16,8 @@ classifiers = [
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    # Canonical web-origin matching for vault-backed native browser login.
+    "ada-url>=1.32,<2",
     # Core computer-use = the OS accessibility layer. The browser is driven as
     # just another app through this — no separate browser-automation stack.
     "pyobjc-framework-ApplicationServices>=10.0; sys_platform == 'darwin'",
@@ -28,7 +30,7 @@ dependencies = [
 [project.optional-dependencies]
 # Optional headless/programmatic web backend (tacto/browser.py). NOT needed for
 # computer use of the user's real browser, which the AX driver already handles.
-web = ["playwright>=1.40", "ada-url>=1.32,<2"]
+web = ["playwright>=1.40"]
 native-visual = ["pyobjc-framework-ScreenCaptureKit>=10.0; sys_platform == 'darwin'"]
 
 [dependency-groups]

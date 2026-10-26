@@ -41,6 +41,7 @@ struct ActivityStep: Equatable {
     var ended = false
     var title: String {
         let names = ["observe":"앱 상태 확인", "capture":"앱 화면 확인", "ask":"모델에 판단 요청",
+                     "credential_input":"위임된 로그인 필드 확인·입력", "credential_submit":"위임된 로그인 제출",
                      "list_targets":"실행 중인 앱 확인", "document_text":"문서 내용 확인", "menu_state":"메뉴 상태 확인"]
         if operation != "act" { return names[operation] ?? "앱 정보 확인" }
         return ["set_value":"텍스트 입력", "type_text":"텍스트 입력", "menu":"메뉴 실행", "click":"버튼 클릭",
@@ -71,7 +72,7 @@ struct ActivityRecord: Equatable {
         ["first-run":"첫 작업", "observe":"앱 관찰", "run":"워크플로 실행", "replay":"워크플로 재사용",
          "do":"에이전트 작업", "session":"연속 작업", "batch":"반복 실행", "doctor":"상태 확인",
          "apps":"앱 목록 확인", "launch":"앱 열기", "capture":"화면 확인", "drag":"드래그",
-         "web-upload":"파일 첨부"][command] ?? "Tacto 실행"
+         "web-upload":"파일 첨부", "auth":"Vault 위임 로그인"][command] ?? "Tacto 실행"
     }
     var appName: String {
         ["com.apple.TextEdit":"TextEdit", "com.apple.finder":"Finder", "com.apple.calculator":"계산기",

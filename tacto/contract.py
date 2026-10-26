@@ -199,10 +199,14 @@ def _worst(decisions: list[Decision]) -> Decision:
     return max(decisions, key=lambda d: _SEVERITY[d.risk])
 
 
-def _for_effect(effect: str, c: SafetyContract, data: set) -> Decision:
+def _for_effect(effect: str, c: SafetyContract, data: set, credential_authority=None) -> Decision:
     """What ONE effect requires, judged on its own terms."""
     if effect == "credential":
-        return Decision("handoff", "credential material — the user enters it")
+        if credential_authority is not None:
+            from .credential_runtime import CredentialAuthorization
+            if isinstance(credential_authority,CredentialAuthorization) and credential_authority.authorizes(c):
+                return Decision("preapproved", "vault-delegated credential use")
+        return Decision("handoff", "credential_delegation_required: use tacto auth login <grant>")
     if effect == "system_config":
         # Approvable like any consequential step: granting Tacto's own
         # screen-recording permission in System Settings was refused outright
@@ -248,7 +252,7 @@ def _for_effect(effect: str, c: SafetyContract, data: set) -> Decision:
     return Decision("confirm", f"unclassified effect {effect!r}")
 
 
-def policy(c: SafetyContract) -> Decision:
+def policy(c: SafetyContract, *, credential_authority=None) -> Decision:
     """SafetyContract -> authorization level. Deterministic; no model, no tokens."""
     problems = c.problems()
     if problems:
@@ -264,11 +268,10 @@ def policy(c: SafetyContract) -> Decision:
                                    "cannot describe the action well enough to run it")
 
     eff, data = set(c.effects), set(c.data_classes)
-    # A credential in the DATA is as much the user's to enter as one in the
-    # effects; this used to be checked only alongside the effect.
-    decisions = [_for_effect(e, c, data) for e in sorted(eff)]
+    # Credential data and credential effects use the same scoped delegation.
+    decisions = [_for_effect(e, c, data, credential_authority) for e in sorted(eff)]
     if "credential" in data:
-        decisions.append(Decision("handoff", "credential material — the user enters it"))
+        decisions.append(_for_effect("credential",c,data,credential_authority))
     if not decisions:                      # `problems()` already rejects this
         return Decision("blocked", "no effects stated")
     decision = _worst(decisions)

@@ -2692,6 +2692,57 @@ func confirmSafariAddress(_ obsID:String, _ target:String, _ el:AXUIElement, _ p
     return nil
 }
 
+// MARK: - Delegated credential origin guard
+func credentialURLOrigin(_ raw:String) -> String? {
+    guard let c=URLComponents(string:raw), let scheme=c.scheme?.lowercased(),
+          ["https","http"].contains(scheme), c.user==nil, c.password==nil,
+          let rawHost=c.url?.host, !rawHost.isEmpty else {return nil}
+    let host=rawHost.lowercased()
+    let ipv4=host.split(separator:".").compactMap{UInt8($0)}
+    if scheme=="http" && host != "localhost" && host != "[::1]" && host != "::1"
+        && !(ipv4.count==4 && ipv4.first==127) {return nil}
+    let h=host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+    let port=c.port.flatMap{($0==443 && scheme=="https" || $0==80 && scheme=="http") ? nil : ":\($0)"} ?? ""
+    return "\(scheme)://\(h)\(port)"
+}
+
+func credentialPathAllowed(_ path:[(String,String?)], origin:String) -> Bool {
+    var seen=false
+    guard origin.isEmpty || credentialURLOrigin(origin)==origin else {return false}
+    for (role,url) in path {
+        if role=="AXWebArea" {
+            guard !origin.isEmpty, let url=url, credentialURLOrigin(url)==origin else {return false}
+            seen=true
+        }
+        if role=="AXWindow" {return origin.isEmpty ? !seen : seen}
+    }
+    return false
+}
+
+func credentialElementAllowed(_ element:AXUIElement,pid:pid_t,origin:String,write:Bool) -> Bool {
+    var path:[(String,String?)]=[];var current=element
+    for depth in 0..<64 {
+        var owner:pid_t=0
+        guard AXUIElementGetPid(current,&owner) == .success, owner==pid,
+              AXUIElementSetMessagingTimeout(current,0.25) == .success else {return false}
+        let timeoutNode=current
+        defer {_ = AXUIElementSetMessagingTimeout(timeoutNode,0)}
+        guard let role=str(current,kAXRoleAttribute as String) else {return false}
+        if depth==0 && write && !["AXTextField","AXTextArea","AXComboBox","AXSearchField"].contains(role) {return false}
+        var url:String?=nil
+        if role=="AXWebArea" {
+            if let value=attr(current,"AXURL") as? URL {url=value.absoluteString}
+            else {url=str(current,"AXURL")}
+        }
+        path.append((role,url))
+        if role=="AXWindow" {return credentialPathAllowed(path,origin:origin)}
+        guard let parent=attr(current,kAXParentAttribute as String), CFGetTypeID(parent)==AXUIElementGetTypeID() else {return false}
+        current=parent as! AXUIElement
+    }
+    return false
+}
+// MARK: - End delegated credential origin guard
+
 func nativeOpeningParametersProblem(_ action:[String:Any]) -> String? {
     if action.keys.contains("opening_action") {
         guard let requested=action["opening_action"] as? String,
@@ -2712,10 +2763,11 @@ func nativeSelectionParametersProblem(_ action: [String: Any]) -> String? {
     return nil
 }
 
+
 func act(_ obsID: String, _ target: String, _ action: [String: Any],
          expect: [String: Any]? = nil, clickDeadline: Double? = nil, coordinateAuthorized: Bool = false,
          savePanelToken: String? = nil, windowInputAuthorized: Bool = false,
-         submitAuthorized: Bool = false) -> [String: Any] {
+         submitAuthorized: Bool = false, credentialOrigin:String? = nil) -> [String: Any] {
     if action["name"] as? String == "open_select",let problem=nativeOpeningParametersProblem(action) {
         return ["type":"error","error":"invalid_selection_parameters","effect":"not_started","detail":problem]
     }
@@ -2829,6 +2881,13 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
     if let want = expect, let why = mismatch(want, element: element(), pid: p) {
         return ["type": "error", "error": "target_changed",
                 "effect": "not_started", "detail": why]
+    }
+
+    if let origin=credentialOrigin {
+        guard ["set_value","click","read"].contains(name), let selected=element(),
+              credentialElementAllowed(selected,pid:p,origin:origin,write:name=="set_value") else {
+            return ["type":"error","error":"credential_origin_mismatch","effect":"not_started"]
+        }
     }
 
     switch name {
@@ -3115,6 +3174,15 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         guard let el = element(), let v = action["value"] as? String else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started", "detail": "bad set_value"]
+        }
+        if let origin=credentialOrigin {
+            // WebKit can acknowledge AXValue on an unfocused input without
+            // retaining it when the next field gains focus. Focus this exact
+            // AX element first; no keystrokes or clipboard are involved.
+            _ = AXUIElementSetAttributeValue(el,kAXFocusedAttribute as CFString,kCFBooleanTrue)
+            guard credentialElementAllowed(el,pid:p,origin:origin,write:true) else {
+                return ["type":"error","error":"credential_origin_mismatch","effect":"not_started"]
+            }
         }
         if AXUIElementSetAttributeValue(el, kAXValueAttribute as CFString, v as CFTypeRef) != .success {
             return ["type": "error", "error": "action_failed",
@@ -5123,7 +5191,7 @@ let helperCapabilities: [String] = [
     "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "expect.attribute.url", "observe.subrole", "expect.enabled",
     "expect.no_modal", "expect.selection",
     "effect",                       // errors say whether an effect is possible
-    "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
+    "action.credential_input", "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
     "press_key.safari_address_confirm",
     "action.menu", "action.scroll", "action.secondary_action",
     // Finder only: show an existing folder without activating Finder.
@@ -6554,6 +6622,14 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                        windowIdentity: msg["window_identity"] as? Bool ?? false,
                        reveal: msg["reveal"] as? [String])
     case "act":
+        if let raw=msg["credential_origin"] {
+            guard let origin=raw as? String, origin.utf8.count<=2048,
+                  let action=msg["action"] as? [String:Any],
+                  ["set_value","click","read"].contains(action["name"] as? String ?? ""),
+                  let index=documentIsWholeNumber(action["element_index"] as Any), index.intValue>=0 else {
+                return ["type":"error","error":"credential_scope_unavailable","effect":"not_started"]
+            }
+        }
         var savePanelToken: String?
         if let raw = msg["save_panel_token"] {
             guard let token = raw as? String, !token.isEmpty, token.count <= 128 else {
@@ -6602,7 +6678,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                    msg["action"] as? [String: Any] ?? [:],
                    expect: msg["expect"] as? [String: Any], clickDeadline: clickDeadline,
                    coordinateAuthorized: coordinateAuthorized, savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized,
-                   submitAuthorized: submitAuthorized)
+                   submitAuthorized: submitAuthorized, credentialOrigin: msg["credential_origin"] as? String)
     case "readiness_preflight":
         return readinessPreflight(msg)
     case "readiness_read_cost":

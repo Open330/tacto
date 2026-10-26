@@ -151,13 +151,13 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
                 or k in ("cmd+delete", "super+delete", "cmd+backspace"):
             return "confirm", f"destructive key: {k}"
 
-    # Typing a password/OTP is transmission-adjacent -> hand off to the user.
+    # Generic plaintext flows direct credential entry to the Vault-backed route.
     if name in ("type_text", "set_value", "select_option", "select_custom_option") and into_sensitive_field:
-        return "handoff", "credential entry: user must type it"
+        return "handoff", "credential_delegation_required: use tacto auth login <grant>"
     if name in ("type_text", "set_value", "select_option", "select_custom_option") and (
             _SENSITIVE_FIELD.search(low)
             or any(k in raw for k in _SENSITIVE_FIELD_KO)):
-        return "handoff", "target looks like a credential field"
+        return "handoff", "credential_delegation_required: use tacto auth login <grant>"
 
     for rx in _H:
         if rx.search(low):

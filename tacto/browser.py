@@ -41,7 +41,7 @@ except Exception:  # pragma: no cover - import guarded so the pkg stays optional
 class BrowserDriver:
     """L2 endpoint for a web page. Mirrors driver.Driver's message surface."""
 
-    capabilities = frozenset({"action.scroll", "action.press_key", "action.select_option", "action.open_select", "action.select_custom_option", "expect.modal_scope"})
+    capabilities = frozenset({"action.credential_input","action.scroll", "action.press_key", "action.select_option", "action.open_select", "action.select_custom_option", "expect.modal_scope"})
 
     def __init__(self, headless: bool = True):
         if sync_playwright is None:
@@ -284,6 +284,40 @@ class BrowserDriver:
             return {"type": "probe", "line": self._line(element_index, live), "node": live}
         except Exception as e:
             return {"type": "error", "error": "target_missing", "effect": "not_started", "detail": str(e)}
+
+    def _credential_action(self,obs_id,target,index,value,origin_url,*,check_only=False,submit=False):
+        import os
+        from .credential_grants import origin
+        handle=None;dispatched=False
+        try:
+            if os.environ.get('PWDEBUG') or os.environ.get('DEBUG'):
+                return {'type':'error','error':'credential_debug_logging_enabled','effect':'not_started'}
+            cur=self._latest.get(target)
+            if (target!=self._target or not cur or cur['obs_id']!=obs_id
+                    or cur['document']!=self._document() or type(index) is not int
+                    or not 0<=index<len(cur['nodes'])):
+                return {'type':'error','error':'stale_observation','effect':'not_started'}
+            if not origin_url or origin(self._page.url,observed=True)!=origin_url:
+                return {'type':'error','error':'credential_origin_mismatch','effect':'not_started'}
+            handle=self._locator(cur['nodes'][index]);frame=handle.owner_frame()
+            while frame is not None:
+                if origin(frame.url,observed=True)!=origin_url:
+                    return {'type':'error','error':'credential_origin_mismatch','effect':'not_started'}
+                frame=frame.parent_frame
+            if check_only:return {'type':'credential_ready'}
+            dispatched=True
+            if submit:handle.click(timeout=4000)
+            else:handle.fill(value,timeout=4000)
+            return {'type':'acted','action':'click' if submit else 'set_value'}
+        except Exception:
+            return {'type':'error','error':'credential_browser_action_failed','effect':'unknown' if dispatched else 'not_started'}
+        finally:self._dispose(handle)
+
+    def credential_input(self,obs_id,target,element_index,value,*,expected_origin=None,check_only=False):
+        return self._credential_action(obs_id,target,element_index,value,expected_origin,check_only=check_only)
+
+    def credential_submit(self,obs_id,target,element_index,*,expected_origin=None):
+        return self._credential_action(obs_id,target,element_index,None,expected_origin,submit=True)
 
     def selection(self, target):
         import hashlib

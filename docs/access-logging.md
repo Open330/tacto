@@ -43,6 +43,13 @@ automatic access receipts. There is no automatic upload. Detailed screen/action
 traces remain an explicit separate `--trace` option on do/run/replay; review a
 trace before sharing it because it contains screen data.
 
+The development `auth fill`/`auth login` route records credential input and
+submit operation outcomes, never Vault values or response bodies. Full-screen
+tracing is unavailable on this credential route. Delegation files contain only
+selectors, provider/item references, scope and expiry; local credential values
+are stored in macOS Keychain, not in these JSON files. See
+[credential delegation](../skill/references/credentials.md).
+
 The Tacto/Logs directories are owner-only on POSIX, with 0600 files. Receipts
 are capped at approximately 1 MiB per invocation, 200 files, 20 MiB total and
 30 days by default (adjustable in the app). Cleanup occurs at the next logged invocation and only removes owned

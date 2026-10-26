@@ -14,11 +14,11 @@ import uuid
 current = ContextVar('tacto_access_log', default=None)
 COMMANDS = frozenset(('doctor', 'apps', 'launch', 'activate', 'open-url', 'keep-awake', 'first-run', 'observe', 'session', 'batch',
                       'document-attachments', 'capture', 'drag', 'vroid-drag', 'vroid-focus',
-                      'run', 'replay', 'do', 'web-upload'))
+                      'run', 'replay', 'do', 'web-upload', 'auth'))
 _NAMES = re.compile(r'^tacto-\d{8}T\d{12}Z-[0-9a-f]{32}\.jsonl$')
 _CODE = re.compile(r'^[a-z][a-z0-9_]{0,80}$')
 _BUNDLE = re.compile(r'^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$')
-_METHODS = frozenset(('observe', 'act', 'ask', 'capture', 'list_targets', 'probe', 'selection',
+_METHODS = frozenset(('credential_input','credential_submit','observe', 'act', 'ask', 'capture', 'list_targets', 'probe', 'selection',
                      'menu_state', 'menu_items', 'document_text', 'document_window_status',
                      'document_rtf_export', 'document_attachment_metadata', 'save_panel',
                      'readiness_read_cost', 'readiness_preflight'))
@@ -186,7 +186,7 @@ class AccessLoggingDriver:
             return attribute
         def call(*args, **kwargs):
             fields = {'operation': name}
-            target = (kwargs.get('target') or (args[1] if name == 'act' and len(args) > 1 else
+            target = (kwargs.get('target') or (args[1] if name in ('act','credential_input','credential_submit') and len(args) > 1 else
                       args[0] if args and name != 'ask' else None))
             if isinstance(target, str) and len(target) <= 255 and _BUNDLE.fullmatch(target):
                 fields['target'] = target
