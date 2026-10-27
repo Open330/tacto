@@ -43,6 +43,28 @@ class CredentialFlow(unittest.TestCase):
         self.assertTrue(result.ok,result.log)
         self.assertNotIn(SECRET,json.dumps(result.log));self.assertIn('[redacted]',json.dumps(result.log))
 
+    def test_protected_echo_never_reaches_decision_choices_or_repair_context(self):
+        observed=self.driver.observe
+        def echo(*args,**kwargs):
+            o=observed(*args,**kwargs)
+            if self.driver.signed:o['tree']+='  4 StaticText  Title: Echo, Value: '+SECRET+'\n'
+            return o
+        self.driver.observe=echo
+        f=self.flow();f.steps[1]=Step('read',selector=Selector(role='StaticText',title='Echo'),
+            captures=[Capture(name='visible',field=Selector(role='StaticText',title='Echo'),attribute='Value')],
+            safety=SafetyContract(effects=['read'],reversibility='reversible'))
+        f.steps.append(Step('decide',params={'question':'Which path?','choices':['{{visible}}','other'],'into':'choice'}))
+        seen=[]
+        r=replay(self.driver,f,credential_store=self.store,decide=lambda *args:seen.append(args))
+        self.assertFalse(r.ok);self.assertEqual([],seen);self.assertNotIn(SECRET,json.dumps(r.log))
+        self.driver.signed=False;f.steps[-1]=Step('read',selector=Selector(role='StaticText',title='missing'),
+            safety=SafetyContract(effects=['read'],reversibility='reversible'),on_uncertain=['target_missing'])
+        def repair(why):
+            from dataclasses import asdict
+            seen.append(asdict(why));return None
+        r=replay(self.driver,f,credential_store=self.store,escalate=repair,budget=1)
+        self.assertTrue(seen);self.assertNotIn(SECRET,json.dumps(seen));self.assertFalse(r.ok)
+
     def test_invalid_later_grant_is_found_before_prefix_input(self):
         f=self.flow();f.steps.reverse();f.steps[-1].params['grant']='absent'
         r=replay(self.driver,f,credential_store=self.store)

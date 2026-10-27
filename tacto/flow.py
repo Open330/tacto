@@ -2013,9 +2013,9 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
     # password read off the screen is not something to hand a model.
     sensitive = set(sensitive_names) | {c.name for st in every_step(flow.steps)
                                        for c in st.captures if c.sensitive}
-    if res._redact(q) != q:
+    if res._redact(q) != q or res._redact(choices) != choices:
         res.record(status="error", step=i, action="decide", error="decision_invalid",
-                   detail="the decision question contains a protected captured value")
+                   detail="the decision request contains a protected captured value")
         return False
     inputs = {k: v for k, v in captures.items()
               if k not in sensitive and res._redact(v) == v}
@@ -2104,7 +2104,7 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
     if narrate:
         narrate(f"'{choice}' 인 경우는 처음이라 화면을 보면서 이어서 할게요")
     try:
-        walked = walk(step.params["goal"], step.params["question"], choice) or {}
+        walked = walk(res._redact(step.params["goal"]), res._redact(step.params["question"]), res._redact(choice)) or {}
     except Exception as exc:
         walked = {"ok": False, "why": type(exc).__name__}
     if not walked.get("ok"):
@@ -2273,6 +2273,9 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     # Host registration is fixed for this replay and its selected branches.
     visual_scopes = dict(visual_scopes) if isinstance(visual_scopes, dict) else visual_scopes
     res = ReplayResult()
+    if escalate is not None:
+        original_escalate=escalate
+        escalate=lambda why:original_escalate(Uncertainty(**res._redact(asdict(why))))
     if narrate is not None:
         original_narrate = narrate
         narrate = lambda text: original_narrate(res._redact(text))

@@ -44,7 +44,7 @@ def run_step(driver,target,step,index,result,scopes):
         def no_ax(*args):
             raise ValueError('a visual Flow step cannot fall back to AX planning')
         with model_deadline(deadline):
-            child=run(driver,target,step.intent_text,no_ax,visual_scope=scope,
+            child=run(driver,target,result._redact(step.intent_text),no_ax,visual_scope=scope,
                 envelope=Envelope(quote=scope.label,allows=scope.effects,scope='entry'),
                 max_screens=step.params.get('max_screens',2),timeout_seconds=remaining)
     except Exception as error:
