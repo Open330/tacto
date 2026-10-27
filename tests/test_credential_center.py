@@ -64,6 +64,9 @@ for i in 0..<tabs.numberOfTabViewItems {
  try! image.representation(using:.png,properties:[:])!.write(to:output.appendingPathComponent("vault-tab-\(i).png"))
 }
 assert(center.window!.contentMinSize.height>=600)
+center.secret.stringValue="owned-unsaved-secret"
+center.windowWillClose(Notification(name:NSWindow.willCloseNotification))
+assert(center.secret.stringValue.isEmpty)
 print("native credential management, stdin-only secret, immutable review and three tab layouts passed")
 ''')
             binary=directory/'fixture'

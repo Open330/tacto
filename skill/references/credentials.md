@@ -24,6 +24,7 @@ at a protected-work boundary. The runtime checks the registered scope, logs in
 only when its success condition is absent, then continues the next Flow step on
 a fresh observation. No selector/safety contract or secret belongs on this
 host step. A missing/expired grant is caught before earlier Flow inputs run.
+Vault values are also masked in later Flow results if the app echoes them.
 
 ## App setup
 

@@ -26,7 +26,7 @@ def preflight(step,target,driver,store):
 def run_step(step,target,driver,store,result,index):
     from .credential_runtime import run_login
     preflight(step,target,driver,store)
-    outcome=run_login(store,step.params['grant'],driver)
+    outcome=run_login(store,step.params['grant'],driver,_protect=result.protect)
     # Only the closed runtime summary is attached, never its observations/values.
     result.record(status='passed' if outcome['ok'] else 'error',step=index,
                   action='authenticate',stage='authenticate',credential_result=outcome,

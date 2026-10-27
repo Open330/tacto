@@ -616,7 +616,7 @@ final class CredentialPlanDrop: NSView {
     }
 }
 
-final class CredentialCenter: NSWindowController {
+final class CredentialCenter: NSWindowController, NSWindowDelegate {
     typealias Runner = ([String],Data?) throws -> [String:Any]
     private let runner:Runner
     private let queue=DispatchQueue(label:"ai.callabo.tacto.credential-settings",qos:.userInitiated)
@@ -659,6 +659,7 @@ final class CredentialCenter: NSWindowController {
         }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:780,height:620),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
         super.init(window:window);window.title="Vault · 로그인 위임";window.isReleasedWhenClosed=false
+        window.delegate=self
         window.contentView=ActivityBackground(frame:window.contentView!.bounds)
         window.backgroundColor = .windowBackgroundColor
         window.contentMinSize=NSSize(width:740,height:600);window.center();build()
@@ -735,6 +736,7 @@ final class CredentialCenter: NSWindowController {
         for button in tabButtons {button.state=button===sender ? .on : .off}
     }
     func present() {showWindow(nil);window?.makeKeyAndOrderFront(nil);reload()}
+    func windowWillClose(_ notification:Notification) {secret.stringValue=""}
     private func call(_ args:[String],input:Data?=nil,done:@escaping([String:Any])->Void) {
         guard !busy else {return};busy=true;buttons.forEach{$0.isEnabled=false};status.stringValue="처리 중…"
         queue.async { [weak self] in

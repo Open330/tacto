@@ -3,7 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from tacto.flow import Flow,Step,Selector,Postcondition,replay
+from tacto.flow import Flow,Step,Selector,Postcondition,Capture,replay
 from tacto.contract import SafetyContract
 from tacto.credential_runtime import run_login
 from tacto.credential_grants import CredentialStore
@@ -29,6 +29,20 @@ class CredentialFlow(unittest.TestCase):
         r=replay(self.driver,flow,credential_store=self.store)
         self.assertTrue(r.ok,r.log);self.assertEqual(1,self.driver.submits)
         self.assertNotIn(SECRET,json.dumps(r.log));self.assertNotIn(SECRET,flow.to_json())
+    def test_vault_value_echoed_by_later_ui_is_redacted_from_flow_output(self):
+        observed=self.driver.observe
+        def echo(*args,**kwargs):
+            o=observed(*args,**kwargs)
+            if self.driver.signed:o['tree']+='  4 StaticText  Title: Echo, Value: '+SECRET+'\n'
+            return o
+        self.driver.observe=echo
+        f=self.flow();f.steps[1]=Step('read',selector=Selector(role='StaticText',title='Echo'),
+            captures=[Capture(name='visible',field=Selector(role='StaticText',title='Echo'),attribute='Value')],
+            safety=SafetyContract(effects=['read'],reversibility='reversible'))
+        result=replay(self.driver,f,credential_store=self.store)
+        self.assertTrue(result.ok,result.log)
+        self.assertNotIn(SECRET,json.dumps(result.log));self.assertIn('[redacted]',json.dumps(result.log))
+
     def test_invalid_later_grant_is_found_before_prefix_input(self):
         f=self.flow();f.steps.reverse();f.steps[-1].params['grant']='absent'
         r=replay(self.driver,f,credential_store=self.store)

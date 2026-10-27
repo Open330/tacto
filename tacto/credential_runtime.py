@@ -24,7 +24,7 @@ def _field(tree,selected):
     except (LookupError,ValueError):raise CredentialError('credential_target_missing') from None
 
 
-def run_login(store,name,driver,*,fill_only=False,vault_factory=vault_from,clock=time.monotonic):
+def run_login(store,name,driver,*,fill_only=False,vault_factory=vault_from,clock=time.monotonic,_protect=None):
     """Run delegated stages; only closed diagnostics leave this boundary."""
     stage='grant';dispatched=0;submitted=False;pending_submit=False;submissions=0;stage_index=0;completed=0;field=None
     try:
@@ -47,6 +47,7 @@ def run_login(store,name,driver,*,fill_only=False,vault_factory=vault_from,clock
             except Exception:raise CredentialError('vault_unavailable') from None
             if not isinstance(value,str) or not value or len(value.encode())>16384:raise CredentialError('vault_value_invalid')
             still_delegated()
+            if _protect is not None:_protect(value)
             return value
         def scoped(observation,index,expected):
             check=driver.credential_input(observation['obs_id'],target,index,None,expected_origin=expected,check_only=True)
