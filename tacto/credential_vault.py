@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 
-_PUBLIC_ERRORS=frozenset(['credential_arguments_invalid', 'credential_browser_host_required', 'credential_delegation_not_granted', 'credential_delegation_required', 'credential_driver_upgrade_required', 'credential_execution_failed', 'credential_file_permissions', 'credential_file_too_large', 'credential_file_unavailable', 'credential_fill_failed', 'credential_grant_expired', 'credential_level_requires_login', 'credential_login_unverified', 'credential_name_invalid', 'credential_observation_unavailable', 'credential_origin_invalid', 'credential_plan_invalid', 'credential_registration_invalid', 'credential_scope_mismatch', 'credential_selector_invalid', 'credential_submit_outside_scope', 'credential_submit_unverified', 'credential_target_missing', 'credential_vault_changed', 'keychain_delete_failed', 'keychain_field_invalid', 'keychain_item_unavailable', 'keychain_requires_macos', 'keychain_write_failed', 'vault_command_failed', 'vault_field_unavailable', 'vault_item_invalid', 'vault_item_mismatch', 'vault_locked', 'vault_provider_invalid', 'vault_provider_unknown', 'vault_server_mismatch', 'vault_status_invalid', 'vault_unavailable', 'vault_value_invalid', 'vault_value_not_text'])
+_PUBLIC_ERRORS=frozenset(['credential_plan_changed', 'credential_account_mismatch', 'credential_arguments_invalid', 'credential_browser_host_required', 'credential_delegation_not_granted', 'credential_delegation_required', 'credential_driver_upgrade_required', 'credential_execution_failed', 'credential_file_permissions', 'credential_file_too_large', 'credential_file_unavailable', 'credential_fill_failed', 'credential_grant_expired', 'credential_level_requires_login', 'credential_login_unverified', 'credential_name_invalid', 'credential_observation_unavailable', 'credential_origin_invalid', 'credential_plan_invalid', 'credential_registration_invalid', 'credential_scope_mismatch', 'credential_selector_invalid', 'credential_submit_outside_scope', 'credential_submit_unverified', 'credential_target_missing', 'credential_vault_changed', 'keychain_delete_failed', 'keychain_field_invalid', 'keychain_item_unavailable', 'keychain_requires_macos', 'keychain_write_failed', 'vault_command_failed', 'vault_field_unavailable', 'vault_item_invalid', 'vault_item_mismatch', 'vault_locked', 'vault_provider_invalid', 'vault_provider_unknown', 'vault_server_mismatch', 'vault_status_invalid', 'vault_unavailable', 'vault_value_invalid', 'vault_value_not_text'])
 
 
 class CredentialError(Exception):
@@ -17,6 +17,19 @@ class CredentialError(Exception):
         self.code=code if code in _PUBLIC_ERRORS else 'credential_execution_failed'
         self.effect=effect if effect in ('not_started','unknown') else 'unknown'
         super().__init__(self.code)
+
+
+def find_bitwarden():
+    """Resolve installed CLI locations without executing or changing a session."""
+    import shutil
+    found=shutil.which('bw')
+    if found:return found
+    candidates=[Path('/opt/homebrew/bin/bw'),Path('/usr/local/bin/bw'),Path.home()/'.local/bin/bw']
+    def version(path):
+        try:return tuple(int(v) for v in path.parts[-3].lstrip('v').split('.'))
+        except ValueError:return ()
+    candidates+=sorted((Path.home()/'.nvm/versions/node').glob('*/bin/bw'),key=version,reverse=True)
+    return next((str(p) for p in candidates if p.is_file() and os.access(p,os.X_OK)),None)
 
 
 def private_read(path, maximum=1024*1024):

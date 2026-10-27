@@ -239,7 +239,15 @@ private final class ActivityNavigationButton: NSButton {
 private final class ActivityDocumentStack: NSStackView { override var isFlipped: Bool { true } }
 
 private func activityErrorMessage(_ code: String) -> String {
-    ["new_window_not_unique":"새 문서 창을 하나로 확인하지 못했어요.",
+    ["credential_plan_changed":"검토한 뒤 파일 내용이 바뀌었어요. 파일을 다시 선택해 검토하세요.",
+     "credential_plan_invalid":"위임 파일 형식을 확인하세요. 에이전트가 만든 Tacto 위임 파일을 선택하세요.",
+     "credential_configuration_invalid":"설정을 읽지 못했어요. 파일과 입력 내용을 확인하세요.",
+     "credential_name_invalid":"이름에는 영문·숫자·점·밑줄·하이픈을 사용하세요.",
+     "credential_file_unavailable":"등록한 세션 파일을 읽지 못했어요. 파일 위치를 확인하세요.",
+     "credential_account_mismatch":"현재 로그인된 계정이 위임한 계정과 달라요.",
+     "credential_arguments_invalid":"설정에 필요한 항목을 확인하세요.",
+     "vault_provider_invalid":"Vault 서버 주소와 실행·세션 파일의 절대 경로를 확인하세요.",
+     "new_window_not_unique":"새 문서 창을 하나로 확인하지 못했어요.",
      "helper_unavailable":"앱 조작 연결을 사용할 수 없어요. Mac 권한·에이전트 설정을 확인하세요.",
      "target_not_found":"대상 앱을 찾지 못했어요.", "no_window_content":"아직 열린 창이 없어요.",
      "observation_unavailable":"앱 상태를 읽지 못했어요.", "aborted_by_user":"사용자가 작업을 중단했어요.",
@@ -291,6 +299,7 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
     private let retention = NSPopUpButton(frame:.zero,pullsDown:false)
     private let historyButton = ActivityNavigationButton()
     private let settingsButton = ActivityNavigationButton()
+    private var credentialCenter: CredentialCenter?
     private var allRecords: [ActivityRecord] = []
     private var filtered: [ActivityRecord] = []
     private var selected: URL?
@@ -409,7 +418,9 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         let warmControls = NSStackView(views:[warmToggle,activityLabel("사용하지 않을 때 종료",12,secondary:true),helperIdle])
         warmControls.orientation = .vertical; warmControls.alignment = .leading; warmControls.spacing = 10
         let remove = button("저장된 기록 모두 삭제…", "trash", #selector(confirmDelete))
-        let cards = [settingsCard("빠른 실행", "도우미를 잠시 유지해 다음 작업을 더 빠르게 시작합니다. 기본은 꺼짐입니다. 유휴 시간이 지나면 자동 종료하며, 환경변수로 지정한 실행 방식이 우선합니다.",warmControls),
+        let credentials = button("Vault·로그인 위임 관리", "key", #selector(openCredentials))
+        let cards = [settingsCard("로그인 위임", "Vault 연결과 앱·사이트별 위임을 관리합니다. 에이전트가 만든 위임 파일을 끌어놓고 허용 수준을 검토하세요.",credentials),
+                     settingsCard("빠른 실행", "도우미를 잠시 유지해 다음 작업을 더 빠르게 시작합니다. 기본은 꺼짐입니다. 유휴 시간이 지나면 자동 종료하며, 환경변수로 지정한 실행 방식이 우선합니다.",warmControls),
                      settingsCard("실행 기록", "접근한 앱·동작·결과·시간을 이 Mac에 저장합니다. 화면 내용·입력값·프롬프트는 기록하지 않습니다.",logToggle),
                      settingsCard("기록 보관 기간", "선택한 기간과 최대 200개·20MB 제한 안에서 다음 작업 시작 시 정리합니다.",retention),
                      settingsCard("작업 표시", "끄면 우상단 배너를 숨깁니다. 기존 Tacto 메뉴에서 작업 상태를 확인하거나 중단할 수 있고, Esc로도 중단할 수 있습니다.",bannerToggle)]
@@ -533,6 +544,10 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
         helperIdle.isEnabled = currentSettings.keepHelperWarm
         retention.selectItem(at:[7,30,90].firstIndex(of:currentSettings.retentionDays) ?? 1)
     }
+    @objc private func openCredentials() {
+        if credentialCenter == nil {credentialCenter=CredentialCenter()}
+        credentialCenter?.present()
+    }
     @objc private func saveSettings() {
         var desired = currentSettings; desired.showControlBanner = bannerToggle.state == .on
         desired.loggingEnabled = logToggle.state == .on
@@ -586,4 +601,213 @@ final class ActivityCenter: NSWindowController, NSWindowDelegate, NSTableViewDat
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat { min(380,splitView.bounds.width-300) }
     func windowDidResize(_ notification: Notification) { let record = rendered; rendered = nil; showDetail(record) }
     func windowWillClose(_ notification: Notification) { timer?.invalidate(); timer = nil }
+}
+
+// Loaded only when the person opens credential management. No credential
+// values enter command arguments, metadata previews or activity receipts.
+final class CredentialPlanDrop: NSView {
+    var receive: ((URL) -> Void)?
+    override init(frame:NSRect) { super.init(frame:frame); registerForDraggedTypes([.fileURL]) }
+    required init?(coder:NSCoder) { nil }
+    override func draggingEntered(_ sender:NSDraggingInfo) -> NSDragOperation { .copy }
+    override func performDragOperation(_ sender:NSDraggingInfo) -> Bool {
+        guard let urls=sender.draggingPasteboard.readObjects(forClasses:[NSURL.self],options:[.urlReadingFileURLsOnly:true]) as? [URL],urls.count==1 else {return false}
+        receive?(urls[0]);return true
+    }
+}
+
+final class CredentialCenter: NSWindowController {
+    typealias Runner = ([String],Data?) throws -> [String:Any]
+    private let runner:Runner
+    private let queue=DispatchQueue(label:"ai.callabo.tacto.credential-settings",qos:.userInitiated)
+    private let providerName=NSTextField(string:"")
+    private let provider=NSPopUpButton(frame:.zero,pullsDown:false)
+    private let providers=NSPopUpButton(frame:.zero,pullsDown:false)
+    private var vaults:[String:[String:Any]]=[:]
+    private let server=NSTextField(string:"")
+    private let executable=NSTextField(string:"")
+    private let sessionFile=NSTextField(string:"")
+    private let grants=NSPopUpButton(frame:.zero,pullsDown:false)
+    private let grantName=NSTextField(string:"")
+    private let level=NSPopUpButton(frame:.zero,pullsDown:false)
+    private let preview=activityLabel("에이전트가 만든 위임 파일을 선택하거나 아래로 끌어놓으세요.",13,secondary:true)
+    private let grantDetails=activityLabel("등록된 위임을 선택하면 앱·사이트·수준을 확인할 수 있습니다.",12,secondary:true)
+    private let itemName=NSTextField(string:"")
+    private let secret=NSSecureTextField(string:"")
+    private let status=activityLabel("비밀값은 표시하지 않으며 이 Mac의 Keychain 또는 연결한 Vault에 보관합니다.",12,secondary:true)
+    private var buttons:[NSButton]=[]
+    private var scopes:[String:[String:Any]]=[:]
+    private var planURL:URL?
+    private var reviewDigest:String?
+    private var busy=false
+    private var savePlan:NSButton!
+    private let tabs=NSTabView()
+    private var tabButtons:[NSButton]=[]
+
+    init(runner:Runner?=nil) {
+        let launcher=Bundle.main.resourceURL?.appendingPathComponent("runtime/launcher/tacto")
+        self.runner=runner ?? { args,input in
+            guard let launcher,FileManager.default.isExecutableFile(atPath:launcher.path) else {throw NSError(domain:"TactoCredentials",code:1)}
+            let process=Process();process.executableURL=launcher;process.arguments=["auth"]+args
+            let output=Pipe();process.standardOutput=output;process.standardError=FileHandle.nullDevice
+            let pipe=input == nil ? nil : Pipe();process.standardInput=pipe ?? FileHandle.nullDevice as Any
+            try process.run()
+            if let input,let pipe {try pipe.fileHandleForWriting.write(contentsOf:input);try pipe.fileHandleForWriting.close()}
+            let data=output.fileHandleForReading.readDataToEndOfFile();process.waitUntilExit()
+            guard data.count<=1_048_576,let result=try JSONSerialization.jsonObject(with:data) as? [String:Any] else {throw NSError(domain:"TactoCredentials",code:2)}
+            return result
+        }
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:780,height:620),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false)
+        super.init(window:window);window.title="Vault · 로그인 위임";window.isReleasedWhenClosed=false
+        window.contentView=ActivityBackground(frame:window.contentView!.bounds)
+        window.backgroundColor = .windowBackgroundColor
+        window.contentMinSize=NSSize(width:740,height:600);window.center();build()
+    }
+    required init?(coder:NSCoder) { nil }
+    private func column(_ views:[NSView])->NSStackView {
+        let stack=NSStackView(views:views);stack.orientation = .vertical;stack.alignment = .leading;stack.spacing=14
+        return stack
+    }
+    private func row(_ title:String,_ field:NSView)->NSView {
+        let label=activityLabel(title,12,.medium);label.widthAnchor.constraint(equalToConstant:130).isActive=true
+        let stack=NSStackView(views:[label,field]);stack.spacing=12
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant:430).isActive=true
+        return stack
+    }
+    private func action(_ title:String,_ selector:Selector)->NSButton {
+        let button=NSButton(title:title,target:self,action:selector);button.bezelStyle = .rounded;buttons.append(button);return button
+    }
+    private func tab(_ title:String,_ views:[NSView],_ tabs:NSTabView) {
+        let stack=column(views);stack.edgeInsets=NSEdgeInsets(top:24,left:20,bottom:20,right:20)
+        let item=NSTabViewItem(identifier:title);item.label=title;item.view=stack;tabs.addTabViewItem(item)
+        for v in views where v is NSTextField {v.widthAnchor.constraint(lessThanOrEqualTo:stack.widthAnchor,constant:-40).isActive=true}
+    }
+    private func build() {
+        provider.addItems(withTitles:["macOS Keychain","Bitwarden / Vaultwarden"])
+        provider.target=self;provider.action=#selector(providerChanged)
+        providers.target=self;providers.action=#selector(selectProvider)
+        providerName.placeholderString="예: work";server.placeholderString="https://vault.example.com"
+        executable.placeholderString="선택 사항 · bw 실행 파일의 절대 경로"
+        sessionFile.placeholderString="선택 사항 · 기존 인증 세션 파일의 절대 경로"
+        grantName.placeholderString="예: work-login";itemName.placeholderString="예: work-password"
+        level.addItems(withTitles:["파일에 지정된 수준", "입력만 허용 (제출 안 함)"])
+        tabs.tabViewType = .noTabsNoBorder;tabs.translatesAutoresizingMaskIntoConstraints=false
+        for (index,title) in ["Vault 연결","로그인 위임","로컬 인증 정보"].enumerated() {
+            let button=NSButton(title:title,target:self,action:#selector(selectTab(_:)))
+            button.tag=index;button.bezelStyle = .rounded;button.setButtonType(.pushOnPushOff)
+            button.widthAnchor.constraint(equalToConstant:180).isActive=true;button.heightAnchor.constraint(equalToConstant:32).isActive=true
+            button.state=index==0 ? .on : .off;tabButtons.append(button)
+        }
+        let navigation=NSStackView(views:tabButtons);navigation.spacing=8
+        tab("Vault 연결",[
+            activityLabel("인증 정보를 보관할 곳을 연결하세요",20,.semibold),
+            activityLabel("Vault의 잠금·로그인 상태는 유지합니다. 연결 이름은 에이전트가 위임을 만들 때 사용합니다.",12,secondary:true),
+            row("등록된 연결",providers),row("연결 이름",providerName),row("보관 방식",provider),row("Vault 서버",server),
+            row("실행 파일",NSStackView(views:[executable,action("선택…",#selector(chooseExecutable))])),
+            row("세션 파일",NSStackView(views:[sessionFile,action("선택…",#selector(chooseSession))])),action("연결 등록·수정",#selector(registerProvider))],tabs)
+        let drop=CredentialPlanDrop(frame:.zero);drop.heightAnchor.constraint(equalToConstant:62).isActive=true
+        drop.widthAnchor.constraint(equalToConstant:640).isActive=true;drop.wantsLayer=true;drop.layer?.cornerRadius=10
+        drop.layer?.borderWidth=1;drop.layer?.borderColor=NSColor.separatorColor.cgColor
+        let dropLabel=activityLabel("위임 JSON 파일을 여기에 끌어놓기",13,secondary:true)
+        drop.addSubview(dropLabel);dropLabel.translatesAutoresizingMaskIntoConstraints=false
+        NSLayoutConstraint.activate([dropLabel.centerXAnchor.constraint(equalTo:drop.centerXAnchor),dropLabel.centerYAnchor.constraint(equalTo:drop.centerYAnchor)])
+        drop.receive={ [weak self] url in self?.review(url) }
+        grants.target=self;grants.action=#selector(grantChanged)
+        let manage=NSStackView(views:[grants,action("새로고침",#selector(reload)),action("선택한 위임 취소",#selector(revoke))]);manage.spacing=10
+        savePlan=action("검토한 위임 저장",#selector(registerGrant));savePlan.isEnabled=false
+        preview.preferredMaxLayoutWidth=640;preview.maximumNumberOfLines=4
+        grantDetails.preferredMaxLayoutWidth=640;grantDetails.maximumNumberOfLines=3
+        tab("로그인 위임",[activityLabel("앱·사이트별 로그인 위임",20,.semibold),manage,grantDetails,
+            action("에이전트가 만든 위임 파일 선택…",#selector(choosePlan)),drop,preview,
+            row("위임 이름",grantName),row("허용 수준",level),savePlan],tabs)
+        tab("로컬 인증 정보",[activityLabel("이 Mac의 Keychain에 저장",20,.semibold),
+            activityLabel("에이전트에게 비밀번호를 보내지 않고 직접 저장합니다. 위임에서 이 항목 이름을 참조합니다.",12,secondary:true),
+            row("항목 이름",itemName),row("비밀값",secret),action("Keychain에 저장",#selector(storeSecret))],tabs)
+        status.maximumNumberOfLines=3;status.preferredMaxLayoutWidth=720
+        let content=window!.contentView!;content.addSubview(tabs);content.addSubview(status);content.addSubview(navigation);status.translatesAutoresizingMaskIntoConstraints=false;navigation.translatesAutoresizingMaskIntoConstraints=false
+        NSLayoutConstraint.activate([navigation.topAnchor.constraint(equalTo:content.topAnchor,constant:20),navigation.leadingAnchor.constraint(equalTo:content.leadingAnchor,constant:28),
+            tabs.topAnchor.constraint(equalTo:navigation.bottomAnchor,constant:12),tabs.leadingAnchor.constraint(equalTo:content.leadingAnchor,constant:20),tabs.trailingAnchor.constraint(equalTo:content.trailingAnchor,constant:-20),
+            tabs.bottomAnchor.constraint(equalTo:status.topAnchor,constant:-16),status.leadingAnchor.constraint(equalTo:content.leadingAnchor,constant:28),status.trailingAnchor.constraint(equalTo:content.trailingAnchor,constant:-28),status.bottomAnchor.constraint(equalTo:content.bottomAnchor,constant:-20),status.heightAnchor.constraint(equalToConstant:48)])
+        providerChanged()
+    }
+    @objc private func selectTab(_ sender:NSButton) {
+        tabs.selectTabViewItem(at:sender.tag)
+        for button in tabButtons {button.state=button===sender ? .on : .off}
+    }
+    func present() {showWindow(nil);window?.makeKeyAndOrderFront(nil);reload()}
+    private func call(_ args:[String],input:Data?=nil,done:@escaping([String:Any])->Void) {
+        guard !busy else {return};busy=true;buttons.forEach{$0.isEnabled=false};status.stringValue="처리 중…"
+        queue.async { [weak self] in
+            guard let self else {return}
+            let result=(try? self.runner(args,input)) ?? ["ok":false,"error":"credential_configuration_invalid"]
+            DispatchQueue.main.async {
+                self.busy=false;self.buttons.forEach{$0.isEnabled=true};self.savePlan.isEnabled=self.reviewDigest != nil
+                if let code=result["error"] as? String {self.status.stringValue=activityErrorMessage(code);return}
+                self.status.stringValue="완료했습니다.";done(result)
+            }
+        }
+    }
+    @objc private func providerChanged() {for field in [server,executable,sessionFile] {field.isEnabled=provider.indexOfSelectedItem==1}}
+    @objc private func selectProvider() {
+        guard let name=providers.titleOfSelectedItem,let config=vaults[name] else {providerName.stringValue="";return}
+        providerName.stringValue=name;provider.selectItem(at:config["kind"] as? String == "bitwarden" ? 1 : 0)
+        server.stringValue=config["server"] as? String ?? "";executable.stringValue=config["executable"] as? String ?? "";sessionFile.stringValue=config["session_file"] as? String ?? "";providerChanged()
+    }
+    private func choosePath(_ field:NSTextField) {
+        let picker=NSOpenPanel();picker.canChooseDirectories=false;picker.allowsMultipleSelection=false
+        picker.beginSheetModal(for:window!) {response in if response == .OK,let url=picker.url {field.stringValue=url.path}}
+    }
+    @objc private func chooseExecutable() {choosePath(executable)}
+    @objc private func chooseSession() {choosePath(sessionFile)}
+    @objc private func registerProvider() {
+        var args=["vault",providerName.stringValue]
+        if provider.indexOfSelectedItem==0 {args.append("--keychain")}
+        else {
+            args += ["--bitwarden",server.stringValue]
+            if !executable.stringValue.isEmpty {args += ["--executable",executable.stringValue]}
+            if !sessionFile.stringValue.isEmpty {args += ["--session-file",sessionFile.stringValue]}
+        }
+        call(args) { [weak self] _ in self?.status.stringValue="연결을 등록했습니다. 위임 파일에서 이 연결 이름을 사용할 수 있습니다." }
+    }
+    @objc private func choosePlan() {
+        let picker=NSOpenPanel();picker.canChooseDirectories=false;picker.allowsMultipleSelection=false;picker.allowedFileTypes=["json"]
+        picker.beginSheetModal(for:window!) { [weak self] response in if response == .OK,let url=picker.url {self?.review(url)} }
+    }
+    private func review(_ url:URL) {
+        guard !busy else {return}
+        planURL=nil;reviewDigest=nil;savePlan.isEnabled=false
+        preview.stringValue="위임 파일을 검토하는 중입니다…"
+        call(["inspect",url.path]) { [weak self] info in
+            guard let self else {return};self.planURL=url;self.reviewDigest=info["review_digest"] as? String
+            self.preview.stringValue="앱: \(info["target"] as? String ?? "")\n사이트: \(info["origin"] as? String ?? "이 앱의 기본 화면") · 수준: \(info["level"] as? String ?? "") · \(info["stages"] as? Int ?? 1)단계\n계정 확인: \((info["account_check"] as? Bool)==true ? "설정됨" : "미설정")"
+            if self.grantName.stringValue.isEmpty {self.grantName.stringValue=url.deletingPathExtension().lastPathComponent}
+            self.savePlan.isEnabled=self.reviewDigest != nil
+        }
+    }
+    @objc private func registerGrant() {
+        guard let url=planURL,let digest=reviewDigest else {return}
+        var args=["grant",grantName.stringValue,url.path,"--yes","--review-digest",digest]
+        if level.indexOfSelectedItem==1 {args.append("--fill-only")}
+        call(args) { [weak self] _ in self?.reload() }
+    }
+    @objc private func reload() {
+        call(["list","--vaults"]) { [weak self] info in
+            guard let self else {return};self.scopes=info["scopes"] as? [String:[String:Any]] ?? [:]
+            self.vaults=info["vaults"] as? [String:[String:Any]] ?? [:]
+            self.providers.removeAllItems();self.providers.addItems(withTitles:["새 연결"]+self.vaults.keys.sorted())
+            self.grants.removeAllItems();self.grants.addItems(withTitles:(info["grants"] as? [String] ?? []).sorted());self.grantChanged()
+        }
+    }
+    @objc private func grantChanged() {
+        guard let name=grants.titleOfSelectedItem,let info=scopes[name] else {grantDetails.stringValue="등록된 위임이 없습니다.";return}
+        if let code=info["error"] as? String {grantDetails.stringValue=activityErrorMessage(code);return}
+        grantDetails.stringValue="\(info["target"] as? String ?? "") · \(info["origin"] as? String ?? "기본 앱 화면")\n\(info["level"] as? String ?? "사용 불가") · 계정 확인 \((info["account_check"] as? Bool)==true ? "설정됨" : "미설정")"
+    }
+    @objc private func revoke() {guard let name=grants.titleOfSelectedItem else {return};call(["revoke",name]) { [weak self] _ in self?.reload() }}
+    @objc private func storeSecret() {
+        guard !busy else {return}
+        guard !secret.stringValue.isEmpty else {status.stringValue="저장할 비밀값을 입력하세요.";return}
+        let data=(secret.stringValue+"\n").data(using:.utf8);secret.stringValue=""
+        call(["put",itemName.stringValue],input:data) { [weak self] _ in self?.status.stringValue="Keychain에 저장했습니다. 비밀값은 에이전트에게 전달되지 않았습니다." }
+    }
 }

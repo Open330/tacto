@@ -167,10 +167,19 @@ restart journals. No daemon or shared external socket is created.
 ```python
 replay(driver, flow, approvals=None, narrate=None, escalate=None, budget=0, *,
        prepare_commit=None, after_commit=None, commit_expected=None,
-       decide=None, walk=None, confirm=None) -> ReplayResult
+       decide=None, walk=None, confirm=None, visual_scopes=None,
+       credential_store=None) -> ReplayResult
 ```
 
 기본값 그대로면 **모델을 한 번도 부르지 않습니다.** 판단은 콜백을 준 곳에서만 일어납니다.
+
+개발 브랜치(rc.10 이후)는 `Step('authenticate', params={'grant':'work-login'})`를
+지원한다. 이미 등록한 위임 이름만 저장하고 성공 후 새 관찰에서 다음 단계를
+실행한다. 이 단계에는 selector/safety/비밀값을 넣지 않는다. 기본 등록소는 로컬
+Credentials이며 SDK 테스트·호스트는 `credential_store`로 소유한 등록소를 주입할 수
+있다. 단계별 로그인과 계정 확인은 [전용 안내](../skill/references/credential-stages.md)를
+필요할 때만 읽는다. 앱의 Vault 관리 화면도 이 개발 변경에 포함되며, 기존 rc.10
+설치본에는 아직 포함되지 않는다.
 
 | 인자 | 형태 | 언제 불리나 |
 |---|---|---|

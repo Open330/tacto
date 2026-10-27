@@ -47,13 +47,29 @@ def selector(value):
 
 def normalize_plan(value):
     try:
-        if not isinstance(value,dict) or set(value)-{'target','origin','level','fields','submit','success','success_origin','minutes'}:raise ValueError()
+        if not isinstance(value,dict) or set(value)-{'target','origin','level','fields','submit','success','success_origin','minutes','stages','account','verify_seconds'}:raise ValueError()
+        if 'stages' in value:
+            rows=value['stages']
+            if not isinstance(rows,list) or not 1<=len(rows)<=8 or value.get('level','login')!='login':raise ValueError()
+            stages=[]
+            for row in rows:
+                if not isinstance(row,dict) or set(row)-{'fields','submit','success','origin','success_origin','target','level','minutes','verify_seconds'}:raise ValueError()
+                fixed={'target':value['target'],'level':'login','minutes':value.get('minutes',0),'verify_seconds':value.get('verify_seconds',10)}
+                if any(k in row and row[k]!=v for k,v in fixed.items()):raise ValueError()
+                common={k:value[k] for k in ('target','origin','minutes','verify_seconds') if k in value}
+                stages.append(normalize_plan({**common,**row,'level':'login'}))
+            result={**stages[-1],'origin':stages[0]['origin'],'fields':[f for row in stages for f in row['fields']],'stages':stages}
+            if 'fields' in value and value['fields']!=result['fields']:raise ValueError()
+            if 'account' in value:result['account']=normalize_account(value['account'])
+            return result
         target=value['target'];level=value.get('level','login')
         if not isinstance(target,str) or not (target=='page' or _BUNDLE.fullmatch(target)) or level not in ('fill','login'):raise ValueError()
         website=origin(value['origin']) if value.get('origin') else None
         if target=='page' and website is None:raise ValueError()
         minutes=value.get('minutes',0)
         if type(minutes) not in (int,float) or not math.isfinite(minutes) or minutes<0:raise ValueError()
+        seconds=value.get('verify_seconds',10)
+        if type(seconds) not in (int,float) or not math.isfinite(seconds) or not 0<seconds<=120:raise ValueError()
         fields=value['fields']
         if not isinstance(fields,list) or not 1<=len(fields)<=16:raise ValueError()
         seen=set()
@@ -73,10 +89,28 @@ def normalize_plan(value):
             if not isinstance(success['equals'],str) or not success['equals'] or len(success['equals'])>2048:raise ValueError()
         elif 'submit' in value or 'success' in value:raise ValueError()
         result=json.loads(json.dumps(value));result.update(target=target,level=level,origin=website,minutes=minutes)
+        result['verify_seconds']=seconds
         result['success_origin']=origin(value.get('success_origin') or website) if website else None
+        if 'account' in value:result['account']=normalize_account(value['account'])
         return result
     except CredentialError:raise
     except Exception:raise CredentialError('credential_plan_invalid') from None
+
+
+def normalize_account(value):
+    if (not isinstance(value,dict) or set(value)!={'field','attribute','secret'}
+            or value['attribute'] not in ('Title','Value','Description')):
+        raise CredentialError('credential_plan_invalid')
+    selector(value['field']);ref=value['secret']
+    if (not isinstance(ref,dict) or set(ref)!={'vault','item','field'}
+            or not isinstance(ref.get('vault'),str) or not _NAME.fullmatch(ref['vault'])
+            or any(not isinstance(ref[k],str) or not ref[k] or len(ref[k])>512 for k in ('item','field'))):
+        raise CredentialError('credential_plan_invalid')
+    return json.loads(json.dumps(value))
+
+
+def vault_names(plan):
+    return {f['secret']['vault'] for f in plan['fields']} | ({plan['account']['secret']['vault']} if plan.get('account') else set())
 
 
 class CredentialStore:
@@ -107,7 +141,7 @@ class CredentialStore:
         elif set(config)!={'kind'}:raise CredentialError('vault_provider_invalid')
         self._write('vault',name,config)
     def grant(self,name,plan,*,now=None):
-        plan=normalize_plan(plan);configs={f['secret']['vault']:self._read('vault',f['secret']['vault']) for f in plan['fields']}
+        plan=normalize_plan(plan);configs={name:self._read('vault',name) for name in vault_names(plan)}
         now=time.time() if now is None else now
         payload={'schema':1,'plan':plan,'created':now,'expires':now+plan['minutes']*60 if plan['minutes'] else None,
                  'vault_digest':hashlib.sha256(json.dumps(configs,sort_keys=True).encode()).hexdigest()}
@@ -117,7 +151,7 @@ class CredentialStore:
         if value.get('schema')!=1:raise CredentialError('credential_registration_invalid')
         plan=normalize_plan(value['plan']);now=time.time() if now is None else now
         if value['expires'] is not None and now>=value['expires']:raise CredentialError('credential_grant_expired')
-        configs={f['secret']['vault']:self._read('vault',f['secret']['vault']) for f in plan['fields']}
+        configs={name:self._read('vault',name) for name in vault_names(plan)}
         if value['vault_digest']!=hashlib.sha256(json.dumps(configs,sort_keys=True).encode()).hexdigest():raise CredentialError('credential_vault_changed')
         return plan,configs
     def revoke(self,name):

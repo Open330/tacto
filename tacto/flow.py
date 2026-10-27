@@ -32,7 +32,8 @@ from .protocol import Driver, ACTION_PARAMS, REVEAL_CAPABILITY
 # ACTION_PARAMS, which is what a driver may be asked to do.
 FLOW_ACTIONS = {"decide": frozenset({"question", "choices", "into", "branches", "goal",
                                      "extract_from", "compose"})}
-HOST_FLOW_ACTIONS = {'visual': frozenset({'scope', 'max_screens', 'timeout_seconds'})}
+HOST_FLOW_ACTIONS = {'visual': frozenset({'scope', 'max_screens', 'timeout_seconds'}),
+                     'authenticate': frozenset({'grant'})}
 # The same rule as a `{{name}}` template, or the answer could never be used.
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
 
@@ -1047,7 +1048,7 @@ class Flow:
                     # An explicitly supplied field replaces the entire shared
                     # field. Defaults never add a predicate to an absent check.
                     s[check] = {**deepcopy(check_defaults), **deepcopy(s[check])}
-            if defaults and s["action"] not in FLOW_ACTIONS:
+            if defaults and s["action"] not in (*FLOW_ACTIONS, 'authenticate'):
                 # Explicit null disables inheritance; replay then refuses the
                 # missing contract. Lists replace, resource/destination merge
                 # one level, and every step gets an independent copy.
@@ -2065,7 +2066,7 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
 
 def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                    res: "ReplayResult", *, narrate, escalate, budget, decide, walk,
-                   prepare_commit, after_commit, confirm=None, visual_scopes=None,
+                   prepare_commit, after_commit, confirm=None, visual_scopes=None, credential_store=None,
                    sensitive_names=frozenset()) -> "ReplayResult":
     """Run the steps for the answer given — or walk them, if there are none yet."""
     into = step.params["into"]
@@ -2081,7 +2082,7 @@ def _follow_branch(driver, flow: "Flow", step: "Step", i: int, captures: dict,
                                   tables=flow.tables),
                      narrate=narrate, escalate=escalate, budget=budget, decide=decide,
                      walk=walk, prepare_commit=prepare_commit, after_commit=after_commit,
-                     confirm=confirm, visual_scopes=visual_scopes, _seed=captures,
+                     confirm=confirm, visual_scopes=visual_scopes, credential_store=credential_store, _seed=captures,
                      _seed_secrets=tuple(res._secrets), _seed_sensitive_names=frozenset(sensitive_names),
                      _outer=outer)
         for secret in sub._secrets:
@@ -2229,7 +2230,7 @@ def _replay_observation(method, *args, **kwargs):
 def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
            narrate=None, escalate=None, budget: int = 0, *, prepare_commit=None,
            after_commit=None, commit_expected: dict | None = None,
-           decide=None, walk=None, confirm=None, visual_scopes=None,
+           decide=None, walk=None, confirm=None, visual_scopes=None, credential_store=None,
            _seed: dict | None = None, _seed_secrets: tuple = (), _seed_sensitive_names: frozenset = frozenset(), _retain_continuation: bool = False, _outer: tuple = (frozenset(), frozenset())) -> ReplayResult:
     """Run a flow deterministically. Zero model tokens — unless asked otherwise.
 
@@ -2333,6 +2334,17 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             ask_then[i] = names
 
     for i, step in enumerate(flow.steps):
+        if step.action == 'authenticate':
+            from .credential_flow import preflight
+            from .credential_grants import CredentialStore
+            from .credential_vault import CredentialError
+            try:
+                if credential_store is None:credential_store=CredentialStore()
+                preflight(step,flow.target,driver,credential_store)
+            except CredentialError as exc:
+                res.record(status='error',step=i,stage='authenticate_preflight',error=exc.code,effect='not_started')
+                return res
+            continue
         if step.action == 'visual':
             from .visual_replay import scope_problem
             problem = scope_problem(step, visual_scopes, driver)
@@ -2438,7 +2450,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     # A decide step acts on nothing, so it has nothing to contract for; what
     # its answer may reach is checked above.
     missing = [i for i, st in enumerate(flow.steps)
-               if st.safety is None and st.action not in FLOW_ACTIONS]
+               if st.safety is None and st.action not in (*FLOW_ACTIONS, 'authenticate')]
     if missing:
         res.record(status="error", error="contract_required",
                    detail=f"steps {missing} require a safety contract")
@@ -2534,8 +2546,21 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return _follow_branch(driver, flow, step, i, captures, res, narrate=narrate,
                                       escalate=escalate, budget=spend.left, decide=decide,
                                       walk=walk, prepare_commit=prepare_commit,
-                                      after_commit=after_commit, confirm=confirm, visual_scopes=visual_scopes,
+                                      after_commit=after_commit, confirm=confirm, visual_scopes=visual_scopes, credential_store=credential_store,
                                       sensitive_names=sensitive_names)
+            continue
+        if step.action == 'authenticate':
+            from .credential_flow import run_step
+            from .credential_vault import CredentialError
+            try:
+                if not run_step(step,flow.target,driver,credential_store,res,i):return res
+            except CredentialError as exc:
+                res.record(status='error',step=i,stage='authenticate',error=exc.code,effect='not_started')
+                return res
+            obs=_replay_observation(driver.observe,flow.target,'tree_full')
+            if obs.get('type')!='observation':
+                res.record(status='error',step=i,stage='authenticate',error='credential_observation_unavailable')
+                return res
             continue
         if step.action == 'visual':
             from .visual_replay import run_step

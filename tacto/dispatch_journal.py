@@ -56,7 +56,25 @@ class DurableDispatchDriver:
         with self._journal_lock:
             return self._act(obs_id,target,action,**kwargs)
 
-    def _act(self, obs_id, target, action, **kwargs):
+    def credential_input(self,obs_id,target,index,value,**kwargs):
+        with self._journal_lock:
+            if self._blocked:
+                return {'type':'error','error':'dispatch_journal_requires_reconciliation','effect':'not_started'}
+            if kwargs.get('check_only'):
+                return self.driver.credential_input(obs_id,target,index,value,**kwargs)
+            # Reserve the write just like any other input, but never hash or
+            # persist a credential value (even a low-entropy password).
+            return self._act(obs_id,target,{'name':'credential_input','element_index':index},
+                expect={'credential_origin':kwargs.get('expected_origin') or '', 'credential_element':index},
+                _dispatch=lambda:self.driver.credential_input(obs_id,target,index,value,**kwargs))
+
+    def credential_submit(self,obs_id,target,index,**kwargs):
+        with self._journal_lock:
+            return self._act(obs_id,target,{'name':'credential_submit','element_index':index},
+                expect={'credential_origin':kwargs.get('expected_origin') or '', 'credential_element':index},
+                _dispatch=lambda:self.driver.credential_submit(obs_id,target,index,**kwargs))
+
+    def _act(self, obs_id, target, action, _dispatch=None, **kwargs):
         if type(action) is dict and action.get('name')=='read':
             return self.driver.act(obs_id,target,action,**kwargs)
         if self._reconciled_prefix is not None:
@@ -92,7 +110,7 @@ class DurableDispatchDriver:
         try:
             # Any exception/crash leaves the reservation durable. The caller
             # retains its normal unknown-effect and causal receipt handling.
-            try:reply=self.driver.act(obs_id,target,action,**kwargs)
+            try:reply=_dispatch() if _dispatch is not None else self.driver.act(obs_id,target,action,**kwargs)
             except BaseException:
                 self._blocked=True
                 raise

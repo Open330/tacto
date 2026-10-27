@@ -84,3 +84,41 @@ separate from this Vault-backed execution route.
   all five native selection-parameter tests then passed. The credential suite
   was rerun after that correction and the default non-expiring grant change.
   The entire eight-minute discovery was not repeated for that source relocation.
+
+## 2026-10-27 개발 후속: Flow 연결과 앱 설정
+
+아래는 rc.10 이후 개발 소스의 변경이다. 이미 공개된 rc.10 앱·DMG를 이
+변경이 포함된 파일로 바꾸거나 소급 표기하지 않았다.
+
+- Flow의 `authenticate` 단계가 등록된 위임 이름을 사용하고, 로그인 결과를
+  확인한 뒤 새 관찰에서 다음 작업을 실행한다. 누락·만료·다른 앱·입력 전용
+  위임은 앞선 Flow 입력이 시작되기 전에 확인한다. Flow에는 비밀값이나 별도의
+  임의 인증 권한이 들어가지 않는다.
+- 사용자명 → 비밀번호처럼 명시적으로 선언한 여러 화면을 순서대로 실행한다.
+  성공 화면이 이미 보이는 앞 단계는 재제출하지 않는다. 임의 SSO/MFA를
+  추론해서 처리하는 기능은 아니다.
+- 선택한 Vault 필드와 현재 화면의 계정 표시를 내부에서 비교하는 `account`
+  검사를 추가했다. Vault 조회가 끝난 뒤 화면을 다시 읽어 확인한다. 설정하지
+  않은 경우 `account_verified: false`로 반환하며 특정 계정을 확인했다고 주장하지 않는다.
+- 실패 결과의 `repair`에는 실패 필드 별칭·단계·완료한 단계 수와 짧은 안내만
+  포함한다. 관찰 트리·비밀값·Vault 응답은 반환하지 않는다. 제출 효과가
+  미확정인 경우 자동 재제출하지 않는다.
+- 앱 설정에 Vault 연결 등록·수정, 위임 파일 선택/끌어놓기·검토·입력 전용으로
+  축소·저장·취소, 로컬 Keychain의 보안 입력 필드를 추가했다. 사용자는 JSON을
+  직접 작성하지 않고 에이전트가 만든 파일을 검토한다. 검토한 파일의 digest를
+  저장 때 대조해, 중간에 내용이 바뀌면 다시 검토하도록 한다. 비밀값은 프로세스
+  인자 대신 stdin으로만 전달한다. 설정 화면은 필요할 때만 생성한다.
+- durable journal은 인증 필드 입력과 제출을 모두 예약한다. 비밀값 자체나
+  비밀값의 해시를 저장하지 않고 작업 종류·대상 메타데이터만 지문으로 남긴다.
+  같은 실행 기록으로 재시작했을 때 이전 입력·제출을 무조건 반복하지 않는다.
+
+검증은 소유한 HTTP 두 화면에서 실제 사용자명/비밀번호 수신 → 로그인 → 후속
+보고서 작업, 로그인 재사용과 다른 계정 표시 감지를 확인했다. 실제 Safari와
+서명된 소스 launcher/helper에서도 로그인 포함 Flow를 두 번 실행해 두 번 모두
+후속 읽기를 완료했고, 서버에는 로그인 POST가 한 번만 도착했다. 실제 서비스
+계정으로 로그인한 시험은 아니다. 임시 Keychain 항목과 위임은 제거했다.
+
+네이티브 GUI fixture는 세 화면의 제어·뷰포트 배치, stdin 전용 비밀값 전달,
+위임 검토/수준 축소/취소 연결을 확인하고 렌더링을 검토했다. GUI의 실제 외부
+Vault 연결이나 운영 계정 등록을 자동으로 수행한 시험과는 구분한다. 회귀 결과와
+원본 증빙은 별도 개발 검증 기록으로 보존한다.

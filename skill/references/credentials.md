@@ -1,5 +1,9 @@
 # Vault-backed login
 
+Development after rc.10: Flow `authenticate`, multi-screen grants, account
+checks and the app's Vault settings below require the updated runtime. The
+published rc.10 supports the original single-screen CLI route.
+
 Read this only for credential entry or login. Credentials stay outside model
 context, Flow JSON, command arguments, traces and Tacto access logs. The runtime
 reads the selected Vault field and sends it directly over the signed helper
@@ -15,6 +19,22 @@ approval or model call is needed. Open the requested login page before running.
 `login_verified` means the configured success condition and destination were
 observed. `already_authenticated` means that condition was already present;
 it does not independently establish which account owns the existing session.
+
+For a saved Flow, add `{"action":"authenticate","params":{"grant":"NAME"}}`
+at a protected-work boundary. The runtime checks the registered scope, logs in
+only when its success condition is absent, then continues the next Flow step on
+a fresh observation. No selector/safety contract or secret belongs on this
+host step. A missing/expired grant is caught before earlier Flow inputs run.
+
+## App setup
+
+In the updated app, open **설정 → Vault·로그인 위임 관리**. Register a Vault,
+choose an existing connection to edit it, or store a local item using the
+secure Keychain field. An agent authors the selector/reference plan below;
+the user can drop that JSON file on **로그인 위임**, review its app/site and
+level, save it, or revoke an existing grant. The user does not write JSON.
+The preview is bound to the file's digest; changing it requires another review.
+Choosing fill-only narrows the imported plan and cannot grant submission.
 
 ## Register once
 
@@ -64,6 +84,9 @@ An explicit `success_origin` supports an authorized post-login redirect.
 `tacto auth revoke work-login` revokes the delegation. Replacing a provider
 configuration invalidates existing grants using that provider.
 
+For username → password screens or checking the logged-in account, read
+[stages and account checks](credential-stages.md) only when needed.
+
 ## Resolve a failed run
 
 - `credential_driver_upgrade_required`: update both launcher and helper; do not
@@ -73,6 +96,12 @@ configuration invalidates existing grants using that provider.
 - `credential_scope_mismatch` / `credential_target_missing`: observe the actual
   login screen, then repair its destination/selectors. No secret was returned
   to the agent. Frame origins are checked again immediately before input.
+- The `repair` summary names only the failed field alias and stage, completed
+  stages and a short hint. Repair that selector; keep the remaining scope and
+  Vault references. Previously verified stages are skipped when their success
+  screen is still present. An uncertain submit is never automatically retried.
+- `credential_account_mismatch`: use the authorized account-switch path; the
+  runtime did not silently accept the currently signed-in different account.
 - `credential_login_unverified`: inspect the resulting session before another
   submission. Tacto does not retry an uncertain submit automatically.
 
