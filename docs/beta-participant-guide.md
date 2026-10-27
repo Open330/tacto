@@ -8,8 +8,8 @@
 ## 시작 전
 
 담당자가 제공한 RC의 태그·DMG SHA256을 확인하고 기록합니다.
-현재 후보는 `v1.0.0-rc.10`(DMG SHA256 `fb47ad979669f3cbdc4ce4296d19ede630c6912bfc182185439c667228624a05`)이며 정식 안정 버전이 아닙니다. Vault 위임 로그인은 CLI로 설정합니다. 앱·DMG 공증과 세 Mac 설치, 전체 회귀 3,013건 실패·오류0, 실제 Safari·Keychain 로그인/재사용과 TextEdit 첫 작업을 확인했습니다. 외부 계정 로그인·MFA·새 사용자 설치·제한 베타를 대신하는 검증은 아닙니다.
-[rc.10 검증 결과](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.10)의 VALIDATION.json을 확인하고 실제 사용 결과를 기록하세요.
+현재 후보는 `v1.0.0-rc.11`(DMG SHA256 `5c20cd3be5e5237086cf596cc89f2988627e7ccba04de1287a38d958c9cb5b05`)이며 정식 안정 버전이 아닙니다. 앱 설정에서 Vault 연결과 위임을 관리하며 Flow 로그인·선언한 여러 화면·선택형 계정 확인을 제공합니다. 앱·DMG 공증과 세 Mac 설치, 전체 회귀 3,027건 실패·오류0, 설치된 Safari 로그인 Flow/후속 읽기/재사용, 실제 Vault 관리 창과 TextEdit 첫 작업을 확인했습니다. 외부 계정 로그인·MFA·새 사용자 설치·제한 베타를 대신하는 검증은 아닙니다.
+[rc.11 검증 결과](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.11)의 VALIDATION.json을 확인하고 실제 사용 결과를 기록하세요.
 
 ### 이전 rc.9의 검증 기록
 

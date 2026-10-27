@@ -87,6 +87,8 @@ separate from this Vault-backed execution route.
 
 ## 2026-10-27 개발 후속: Flow 연결과 앱 설정
 
+이 후속 변경은 [rc.11](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.11)에 포함해 신규 공증·설치 검증을 마쳤습니다. 설치된 배포본의 실제 Safari Flow와 Vault 관리 창도 확인했습니다. 최종 범위는 릴리즈의 VALIDATION.json과 [출시 기준](release-readiness.md)을 따릅니다.
+
 아래는 rc.10 이후 개발 소스의 변경이다. 이미 공개된 rc.10 앱·DMG를 이
 변경이 포함된 파일로 바꾸거나 소급 표기하지 않았다.
 
