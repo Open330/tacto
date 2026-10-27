@@ -2013,7 +2013,13 @@ def _decide(decide, step: "Step", i: int, captures: dict, flow: "Flow",
     # password read off the screen is not something to hand a model.
     sensitive = set(sensitive_names) | {c.name for st in every_step(flow.steps)
                                        for c in st.captures if c.sensitive}
-    if res._redact(q) != q or res._redact(choices) != choices:
+    # Static choices were already in the authored Flow. A short sensitive
+    # capture (for example "2") may coincide with one without supplying it.
+    # Reject values newly interpolated from protected runtime captures.
+    authored_choices = flow.steps[i].params.get("choices") or []
+    protected_choice = any(choice != authored and res._redact(choice) != choice
+                           for choice, authored in zip(choices or [], authored_choices))
+    if res._redact(q) != q or protected_choice:
         res.record(status="error", step=i, action="decide", error="decision_invalid",
                    detail="the decision request contains a protected captured value")
         return False
