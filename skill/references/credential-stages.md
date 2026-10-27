@@ -1,6 +1,6 @@
 # Multi-screen login and account checks
 
-Development after rc.10. Read the base credential guide first; do not reload
+Requires rc.11 or later. Read the base credential guide first; do not reload
 the general authoring guides. These are deterministic, declared screens, not
 automatic support for arbitrary SSO, MFA, passkeys or challenges.
 

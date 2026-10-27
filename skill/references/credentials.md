@@ -1,8 +1,7 @@
 # Vault-backed login
 
-Development after rc.10: Flow `authenticate`, multi-screen grants, account
-checks and the app's Vault settings below require the updated runtime. The
-published rc.10 supports the original single-screen CLI route.
+Flow `authenticate`, multi-screen grants, account checks and app Vault settings
+require rc.11 or later. rc.10 supports the original single-screen CLI route.
 
 Read this only for credential entry or login. Credentials stay outside model
 context, Flow JSON, command arguments, traces and Tacto access logs. The runtime
