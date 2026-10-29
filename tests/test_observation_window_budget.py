@@ -170,6 +170,7 @@ func attr(_ node: Int, _ key: String) -> Any? {
 }
 func secondaryActionsOf(_ node: Int) -> [String] { [] }
 var readSecondaryActions = true
+var walkSeen: Set<Int>? = nil
 func documentURLSyntaxPath(_ text: String) -> String? { nil }
 func quotedLabelValue(_ text: String) -> String? { nil }
 ''' + walker + '''
@@ -186,6 +187,9 @@ childCount = 6
 rows.append(observation([0, 400, 500]))
 childGraph = [0:[1,6], 1:[2,3,4,5], 6:[7,8]]
 rows.append(observation([0, 400, 500]))
+// One cell listed under its row (1) and again under its column (6).
+childGraph = [0:[1,6], 1:[2,3], 6:[3,7]]
+rows.append(observation([0]))
 print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf8)!)
 '''
         with tempfile.TemporaryDirectory(prefix='tacto-window-budget-') as directory:
@@ -193,7 +197,8 @@ print(String(data:try! JSONSerialization.data(withJSONObject:rows),encoding:.utf
             path.write_text(script)
             run = subprocess.run(['swift', str(path)], capture_output=True, text=True, timeout=60)
         self.assertEqual(0, run.returncode, run.stderr)
-        multiple, single, too_many, empty, reclaimed, nested = json.loads(run.stdout)
+        multiple, single, too_many, empty, reclaimed, nested, shared = json.loads(run.stdout)
+        self.assertEqual([0, 1, 2, 3, 6, 7], shared['elements'])
         self.assertEqual([0, 1, 2, 3, 200, 201, 202, 203, 300, 301, 302, 4], multiple['elements'])
         self.assertEqual([0, *range(1, 12)], single['elements'])
         self.assertEqual(list(range(200, 212)), too_many['elements'])

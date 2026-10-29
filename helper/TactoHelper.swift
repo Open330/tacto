@@ -159,6 +159,9 @@ let secondaryActions = ["AXShowMenu", "AXIncrement", "AXDecrement",
 /// checks the element's actions itself when it runs.
 var readSecondaryActions = true
 
+/// Elements already written into the current observation (see `walk`).
+var walkSeen: Set<AXUIElement>? = nil
+
 func secondaryActionsOf(_ el: AXUIElement) -> [String] {
     guard readSecondaryActions else { return [] }
     var names: CFArray?
@@ -316,6 +319,12 @@ func walk(_ el: AXUIElement, depth: Int, out: inout [String],
         if let deferred { deferred(el, depth) } else { truncated = true }
         return
     }
+    // A table can list the same cell under its row and again under its
+    // column (react-day-picker in Safari, 2026-10-29): one element, two tree
+    // lines, and a unique selector became target_ambiguous. Each element is
+    // shown once, where it is first reached.
+    if walkSeen?.contains(el) == true { return }
+    walkSeen?.insert(el)
     visited += 1
     metrics?.packetAttempts += 1
     let packetStart = DispatchTime.now().uptimeNanoseconds
@@ -1146,6 +1155,8 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     var lines: [String] = []
     var elements: [AXUIElement] = []
     var visited = 0
+    walkSeen = []
+    defer { walkSeen = nil }
     let metrics = ObservationReadMetrics()
     let revealScan = reveal.map { ObservationRevealScan($0) }
     var truncated = windows.count > maxTreeNodes
@@ -3179,6 +3190,19 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         guard let el = element(), let v = action["value"] as? String else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started", "detail": "bad set_value"]
+        }
+        // A popup (a web page's <select> in Safari, 2026-10-29) accepts an
+        // AXValue write and keeps its old choice. Choosing an option is what
+        // select_option does — open, press the matching item, read it back —
+        // so a set_value on one takes that path.
+        if credentialOrigin == nil, str(el, kAXRoleAttribute as String) == "AXPopUpButton",
+           let index = action["element_index"] {
+            var picked = act(obsID, target, ["name": "select_option", "element_index": index, "option_label": v],
+                             expect: expect, clickDeadline: clickDeadline, coordinateAuthorized: coordinateAuthorized,
+                             savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized,
+                             submitAuthorized: submitAuthorized)
+            picked["routed_from"] = "set_value"
+            return picked
         }
         if let origin=credentialOrigin {
             // WebKit can acknowledge AXValue on an unfocused input without
