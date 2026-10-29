@@ -10,7 +10,7 @@ not a guarantee of AX-only dispatch. Element focus for text input does not by
 itself require moving the app to the foreground.
 
 Background operation avoids routine global cursor/focus contention, but does
-not make shared app focus or menus independent. Development source has four
+not make shared app focus or menus independent. rc.12 and later have four
 isolated warm workers; rc.11 has one. Different apps can run concurrently.
 A connection owns each app it observes until disconnect (`target_busy` for a
 competitor). Pointer/menu/key dispatch also uses a cross-process input lease

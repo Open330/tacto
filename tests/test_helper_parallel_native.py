@@ -6,6 +6,7 @@ TACTO_RUN_NATIVE_PARALLEL_TESTS=1; ordinary discovery does not touch the UI.
 from pathlib import Path
 import os,sys,shutil,plistlib,subprocess,tempfile,unittest,json,time,threading,queue,concurrent.futures
 ROOT=Path(__file__).resolve().parents[1]
+LAUNCHER=ROOT/'launcher/tacto'
 
 @unittest.skipUnless(sys.platform=='darwin' and os.environ.get('TACTO_RUN_NATIVE_PARALLEL_TESTS')=='1',
                      'opt-in signed native parallel helper receiving test')
@@ -21,7 +22,7 @@ class ParallelHelperNative(unittest.TestCase):
                 (app/'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':f'ai.callabo.tacto.parallelfixture{i}','CFBundleName':f'Tacto Parallel {i}','CFBundleExecutable':'Fixture','CFBundlePackageType':'APPL','LSUIElement':True}))
                 signed=subprocess.run(['codesign','--force','--sign','-','--identifier',f'ai.callabo.tacto.parallelfixture{i}',str(app)],capture_output=True,text=True,timeout=20)
                 self.assertEqual(0,signed.returncode,signed.stderr)
-            cli=root/'launcher/tacto';env=dict(os.environ,TACTO_HELPER_MODE='warm',TACTO_HELPER_WAIT_SECONDS='0',TACTO_HELPER_IDLE_SECONDS='30')
+            cli=LAUNCHER;env=dict(os.environ,TACTO_HELPER_MODE='warm',TACTO_HELPER_WAIT_SECONDS='0',TACTO_HELPER_IDLE_SECONDS='30')
             fixtures=[];sessions=[]
             def fixture(i):
              out=b/f'state-{i}.json';out.unlink(missing_ok=True)

@@ -40,7 +40,7 @@ Inspect the verified/unverified result before requesting another compile.
 
 ### When a menu needs the app in front
 
-Development parallel helpers: `target_busy` means another connection owns the
+rc.12 parallel helpers: `target_busy` means another connection owns the
 same app; `input_busy` means another pointer/menu/key dispatch is in progress.
 Both return `effect: not_started`. End the owning task (do not interrupt another
 agent's task), then start with a fresh observation. Do not replay an earlier

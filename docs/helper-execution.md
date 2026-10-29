@@ -16,9 +16,9 @@ TACTO_HELPER_MODE=warm tacto apps --helper
 TACTO_HELPER_MODE=per_command tacto observe com.apple.Safari --helper --json
 ```
 
-## Parallel workers (development source after rc.11)
+## Parallel workers (rc.12 and later)
 
-The published rc.11 keeps its single warm connection. Development source uses
+rc.11 keeps its single warm connection. rc.12 and later use
 up to **four separate signed helper processes**, launched lazily. Each worker
 owns one connection and its own observations, document tokens, capture callbacks
 and abort state. Different apps can execute AX operations concurrently without
@@ -67,7 +67,7 @@ this option.
 
 ## Parallel receiving verification (2026-10-29)
 
-The signed development launcher/helper held four owned background AppKit sessions
+The signed source launcher/helper held four owned background AppKit sessions
 ready simultaneously. Three workers then performed AXPress callbacks whose
 0.8-second handler intervals overlapped; each app reported its own requested
 result, the fourth app stayed unchanged, and the sampled foreground app stayed
