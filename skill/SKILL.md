@@ -26,7 +26,7 @@ button when needed, and continues in a newly verified document. On failure use
 the actual stage/error and `recovery_steps` to diagnose; do not ask for login or
 permissions without an error that identifies that problem.
 
-Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto Settings or use `TACTO_HELPER_MODE=warm`; concurrent commands wait up to 10s, then return `helper_busy` (retry after the current task ends).
+Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto Settings or use `TACTO_HELPER_MODE=warm`. Development source uses up to four isolated workers for different apps; a full pool waits up to 10s, then returns `helper_busy`. Same-app connections return `target_busy`; finish the owning session before retrying. Published rc.11 still has one warm worker.
 
 ## Choose the current stage
 

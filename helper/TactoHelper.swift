@@ -3108,6 +3108,11 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // left in the background — never inside a save panel, whose guard
         // speaks only AXPress.
         func pointerClick() -> [String: Any] {
+            let lease = TactoScopeLease()
+            guard lease.take("global-input") else {
+                return ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
+            }
+            defer { withExtendedLifetime(lease) {} }
             guard savePanelToken == nil else {
                 return ["type": "error", "error": "action_failed",
                         "effect": "not_started", "needs_pointer": true,
@@ -6516,6 +6521,15 @@ func readMenuState(_ msg: [String: Any]) -> [String: Any] {
 
 func handle(_ msg: [String: Any]) -> [String: Any] {
     let kind = msg["type"] as? String
+    // Semantic AX reads/edits/presses may run across apps. Pointer, menu and
+    // keyboard routes share one bounded dispatch resource across workers.
+    let inputLease = TactoScopeLease()
+    let actionName = (msg["action"] as? [String:Any])?["name"] as? String ?? ""
+    if kind == "act", !["click","set_value","type_text","read"].contains(actionName),
+       !inputLease.take("global-input") {
+        return ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
+    }
+    defer { withExtendedLifetime(inputLease) {} }
     // After the user stops this run, nothing looks at their screen either.
     // Reading is not a lesser thing than acting here: the stop is about the
     // computer no longer being driven, and an agent that can still watch has
@@ -7279,6 +7293,8 @@ let rendezvousDeadline: TimeInterval = 20
 }
 
 @Sendable func serve(connection fd: Int32) {
+    let targets = TactoScopeLease()
+    defer { withExtendedLifetime(targets) {} }
     let input = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     var buffer = Data()
     while true {
@@ -7291,7 +7307,14 @@ let rendezvousDeadline: TimeInterval = 20
             buffer = buffer[buffer.index(after: nl)...]
             guard let msg = (try? JSONSerialization.jsonObject(with: line))
                     as? [String: Any] else { continue }
-            let reply = handle(msg)
+            let reply: [String:Any]
+            if let target = msg["target"] as? String, let pid = pid(forBundle:target),
+               !targets.take("app:\(pid)") {
+                reply = ["type":"error","error":"target_busy","effect":"not_started",
+                         "retryable":true,"detail":"다른 연결이 이 앱을 사용 중입니다. 연결 종료 후 다시 관찰하세요."]
+            } else {
+                reply = handle(msg)
+            }
             if var out = try? JSONSerialization.data(withJSONObject: reply) {
                 out.append(0x0A)
                 writeAll(fd, out)
@@ -7332,14 +7355,18 @@ watchForAbort()
 if let mode = persistentMode {
     guard let binary = Bundle.main.executableURL, let build = TactoMode.buildKey(binary) else { exit(78) }
     let args = CommandLine.arguments
+    let slotPosition = args.firstIndex(of:"--mode-slot")
+    guard let slotPosition, slotPosition+1 < args.count,
+          let slot = Int(args[slotPosition+1]), (0..<TactoMode.workerCount).contains(slot) else { exit(78) }
+    let workerKey = TactoMode.workerKey(build,slot:slot)
     let position = args.firstIndex(of:"--mode-idle")
     let raw = position.flatMap { $0+1 < args.count ? Double(args[$0+1]) : nil } ?? 120
     let idle = raw.isFinite ? min(600,max(1,raw)) : 120
     ModeLease.shared.setInitialIdle(idle)
-    guard startWarmMode(build) else { exit(4) }
+    guard startWarmMode(workerKey) else { exit(4) }
     Timer.scheduledTimer(withTimeInterval:0.5,repeats:true) { _ in
         if ModeLease.shared.beginIdleExit() {
-            if mode == "warm", let directory = TactoMode.directory(build) { unlink(directory+"/helper.sock") }
+            if mode == "warm", let directory = TactoMode.directory(workerKey) { unlink(directory+"/helper.sock") }
             exit(0)
         }
     }

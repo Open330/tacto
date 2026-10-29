@@ -12,6 +12,49 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipUnless(sys.platform == 'darwin' and shutil.which('swiftc'), 'macOS Swift runtime')
 class OptionalHelperProtocolTests(unittest.TestCase):
+    def test_cross_process_scopes_release_on_exit_and_isolate_workers(self):
+        source = r'''
+import Foundation
+import Darwin
+let mode = CommandLine.arguments[1], scope = CommandLine.arguments[2]
+let lease = TactoScopeLease()
+if mode == "hold" {
+    precondition(lease.take(scope)); precondition(lease.take(scope))
+    print("ready"); fflush(stdout)
+    var byte: UInt8 = 0; _ = read(0,&byte,1)
+    withExtendedLifetime(lease) {}
+} else {
+    let keys = (0..<TactoMode.workerCount).map { TactoMode.workerKey("build",slot:$0) }
+    precondition(Set(keys).count == 4)
+    precondition(keys == (0..<4).map { TactoMode.workerKey("build",slot:$0) })
+    precondition(keys[0] != TactoMode.workerKey("other-build",slot:0))
+    print(lease.take(scope) ? "acquired" : "busy")
+    withExtendedLifetime(lease) {}
+}
+'''
+        import uuid
+        with tempfile.TemporaryDirectory() as directory:
+            main = Path(directory)/'main.swift'; main.write_text(source)
+            binary = Path(directory)/'scope'
+            build = subprocess.run(['swiftc', str(main), str(ROOT/'HelperModeProtocol.swift'),
+                                    '-o',str(binary)], capture_output=True,text=True,timeout=60)
+            self.assertEqual(0,build.returncode,build.stderr)
+            scope = 'test:'+uuid.uuid4().hex
+            holder = subprocess.Popen([str(binary),'hold',scope],stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            try:
+                self.assertEqual('ready',holder.stdout.readline().strip())
+                def attempt(key):
+                    r = subprocess.run([str(binary),'probe',key],capture_output=True,text=True,timeout=10)
+                    self.assertEqual(0,r.returncode,r.stderr); return r.stdout.strip()
+                self.assertEqual('busy',attempt(scope))
+                self.assertEqual('acquired',attempt(scope+':other-app'))
+                holder.kill(); holder.communicate(timeout=10)
+                self.assertEqual('acquired',attempt(scope))
+            finally:
+                if holder.poll() is None: holder.kill()
+                holder.communicate(timeout=10)
+
     def test_expired_callback_and_driving_lease(self):
         source = r'''
 import Foundation

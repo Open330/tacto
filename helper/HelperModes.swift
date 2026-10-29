@@ -16,8 +16,8 @@ final class ModeEpoch: @unchecked Sendable {
     }
 }
 
-// Warm helper boundary: all mutable helper state is protected by one driving
-// lease. A second connection is refused BEFORE any screen request. No replay.
+// Each pool worker is a separate process. Within a worker, mutable AX/token
+// state still belongs to exactly one connection. Other workers run in parallel.
 final class ModeLease: @unchecked Sendable {
     static let shared = ModeLease()
     private let lock = NSLock()

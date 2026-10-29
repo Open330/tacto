@@ -40,6 +40,12 @@ Inspect the verified/unverified result before requesting another compile.
 
 ### When a menu needs the app in front
 
+Development parallel helpers: `target_busy` means another connection owns the
+same app; `input_busy` means another pointer/menu/key dispatch is in progress.
+Both return `effect: not_started`. End the owning task (do not interrupt another
+agent's task), then start with a fresh observation. Do not replay an earlier
+possibly-sent action. `helper_busy` instead means all four warm workers are busy.
+
 `needs_foreground` with `effect: not_started` means the app disabled that menu
 in the background. Bring the requested app forward with
 `tacto activate <bundle-id> [--window "<title part>"] --helper` without asking

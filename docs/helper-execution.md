@@ -16,23 +16,41 @@ TACTO_HELPER_MODE=warm tacto apps --helper
 TACTO_HELPER_MODE=per_command tacto observe com.apple.Safari --helper --json
 ```
 
-One warm helper drives one signed connection at a time. Concurrent commands
-wait up to **10 seconds**, then report **`helper_busy`** (`effect=not_started`,
-`retryable=true`) with retry guidance. A closed client cancels acquisition.
-The launcher does not monitor global keys or request Input Monitoring to wait;
-the helper keeps its existing Esc interruption for active tasks. A request already dispatched is never automatically replayed.
-A session or batch keeps its lease until it ends; leave it promptly when finished.
+## Parallel workers (development source after rc.11)
 
-The warm socket lives beneath macOS's private per-user temporary directory and
-is separate for each signed helper build. Launcher and
-helper authenticate each other; a new build uses a new socket, and older helpers
-exit after their idle time. Missing/refused startup can fall back to the usual
-per-command route before any application request. A busy lease never bypasses
-its owner through fallback. This is a per-helper lease, not system-wide input
-coordination: a refused/incompatible handshake can select A, whose independent
-helper follows the existing per-command semantics. Optional mode diagnostics on stderr report the
-requested/effective route and helper PID, so a fallback must not be counted as
-a fast-mode benchmark sample.
+The published rc.11 keeps its single warm connection. Development source uses
+up to **four separate signed helper processes**, launched lazily. Each worker
+owns one connection and its own observations, document tokens, capture callbacks
+and abort state. Different apps can execute AX operations concurrently without
+sharing these mutable objects. This is process isolation, not concurrent access
+to the existing helper globals.
+
+A connection owns every target app it observes until disconnect. Ownership is
+keyed by the resolved PID across worker slots, builds and per-command helpers;
+another connection gets `target_busy` (`effect=not_started`, `retryable=true`).
+This first version deliberately serializes different windows in the same app:
+app-wide menus and AX focus are shared. A disconnected or crashed helper releases
+its OS-backed locks. Multi-app sessions acquire additional apps without waiting;
+a conflict returns before observation/input, preventing lock-order deadlocks.
+
+Pointer fallback and pointer/menu/key actions take a separate short-lived
+cross-process input lease. Contention returns `input_busy` before dispatch; AX
+reads, element edits and supported AXPress operations in different apps continue
+independently. This does not coordinate with arbitrary external automation tools
+or helpers from earlier releases. Activation outside the helper is not covered
+by this dispatch lease; agents must retain AX-first background execution.
+
+When all four workers are occupied, acquisition waits up to **10 seconds**, then
+reports `helper_busy`. No unbounded extra worker is launched for a full pool.
+A closed client cancels acquisition; active workers retain their Esc handling.
+Requests already dispatched are never automatically replayed. Close finished
+sessions promptly so both worker and app ownership become available.
+
+Worker sockets live beneath macOS's private per-user temporary directory, keyed
+by build and slot. Both peers still verify signatures. Workers exit after the
+configured idle timeout. Missing/refused startup may fall back to the ordinary
+per-command route before any application request; that route uses the same app
+and input locks. Diagnostics report the effective route and helper PID.
 
 The mode is opt-in. In a one-Mac development comparison (20-command medians,
 same signed launcher), per-command apps/observe took 488/503 ms and warm took
@@ -46,3 +64,26 @@ idle timeout and `TACTO_HELPER_WAIT_SECONDS=0..30` changes lease waiting. The GU
 keeps its simpler minute range. Resident XPC/SMAppService remains an unshipped
 [experiment](../spike/helper-modes/README.md); no resident agent is registered by
 this option.
+
+## Parallel receiving verification (2026-10-29)
+
+The signed development launcher/helper held four owned background AppKit sessions
+ready simultaneously. Three workers then performed AXPress callbacks whose
+0.8-second handler intervals overlapped; each app reported its own requested
+result, the fourth app stayed unchanged, and the sampled foreground app stayed
+the same. This demonstrates overlapping native execution, not just overlapping
+connection lifetimes. It is not a token or end-to-end speed benchmark.
+
+The same check confirmed pool exhaustion, same-app contention, contention from
+the per-command route, and a fresh observation after the owning session ended.
+A separate cross-process lease test confirms that terminating the holder
+releases ownership. Tests use owned fixtures rather than user documents.
+
+To reproduce after building the signed source launcher and helper:
+
+```sh
+TACTO_RUN_NATIVE_PARALLEL_TESTS=1 .venv/bin/python -m unittest discover -s tests -p 'test_helper_parallel_native.py' -v
+```
+
+Ordinary discovery skips this UI test. These results do not qualify rc.11 or
+claim concurrent windows within one app.

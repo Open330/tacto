@@ -112,7 +112,7 @@ print("SAVE_PANEL_DISPATCH_PASS")
 '''
         with tempfile.TemporaryDirectory(prefix='tacto-save-dispatch-') as directory:
             script = Path(directory) / 'main.swift'
-            script.write_text(prelude + guard + checked)
+            script.write_text((ROOT / 'HelperModeProtocol.swift').read_text() + prelude + guard + checked)
             result = subprocess.run(['swift', str(script)], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), 'SAVE_PANEL_DISPATCH_PASS')

@@ -10,10 +10,12 @@ not a guarantee of AX-only dispatch. Element focus for text input does not by
 itself require moving the app to the foreground.
 
 Background operation avoids routine global cursor/focus contention, but does
-not guarantee parallel execution. The warm helper currently grants one active
-connection at a time; other callers wait and may receive `helper_busy`. Keep
-sessions bounded. Different agents must also use distinct document/window
-identities; do not concurrently mutate one shared window or app-wide menu.
+not make shared app focus or menus independent. Development source has four
+isolated warm workers; rc.11 has one. Different apps can run concurrently.
+A connection owns each app it observes until disconnect (`target_busy` for a
+competitor). Pointer/menu/key dispatch also uses a cross-process input lease
+(`input_busy` before dispatch). Keep sessions bounded and close them promptly.
+Concurrent windows of the same app are not yet supported.
 
 **Background pointer clicks can be ignored.** An app-focused window need not
 be an AppKit key window. In the owned signed fixture, controls that declined

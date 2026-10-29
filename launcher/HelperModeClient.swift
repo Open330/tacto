@@ -28,7 +28,8 @@ func tryWarmConnection(_ key: String, path: String, idleSeconds: Int) -> ModeCon
     return .ready(fd,"warm")
 }
 
-func warmConnection(_ key: String, idleSeconds: Int) -> ModeConnection {
+func warmConnection(_ build: String, slot: Int, idleSeconds: Int) -> ModeConnection {
+    let key = TactoMode.workerKey(build,slot:slot)
     guard let directory = TactoMode.directory(key) else { return .unavailable("private_directory") }
     let path = directory+"/helper.sock"
     switch tryWarmConnection(key,path:path,idleSeconds:idleSeconds) {
@@ -65,7 +66,7 @@ func warmConnection(_ key: String, idleSeconds: Int) -> ModeConnection {
     let config = NSWorkspace.OpenConfiguration()
     config.activates = false; config.addsToRecentItems = false
     config.createsNewApplicationInstance = true; config.allowsRunningApplicationSubstitution = false
-    config.arguments = ["--warm-server","--mode-idle",String(idleSeconds)]
+    config.arguments = ["--warm-server","--mode-slot",String(slot),"--mode-idle",String(idleSeconds)]
     config.environment = env
     let done = DispatchSemaphore(value:0)
     var started: NSRunningApplication?
@@ -81,12 +82,21 @@ func warmConnection(_ key: String, idleSeconds: Int) -> ModeConnection {
     return .unavailable("startup_timeout")
 }
 
-// Waiting never opens an independent A helper to bypass a busy lease.
+// Workers isolate observation/token/abort state in separate signed processes.
+// Exhausting the bounded pool waits; it never starts an unbounded fallback.
 func acquireModeConnection(_ key: String, idleSeconds: Int, cancelled: () -> Bool) -> ModeConnection {
     let raw = Double(ProcessInfo.processInfo.environment["TACTO_HELPER_WAIT_SECONDS"] ?? "10") ?? 10
     let seconds = raw.isFinite ? min(30,max(0,raw)) : 10
     return TactoMode.waitForLease(seconds:seconds,
-        attempt:{ warmConnection(key,idleSeconds:idleSeconds) },
+        attempt:{
+            for slot in 0..<TactoMode.workerCount {
+                if cancelled() { return .cancelled }
+                let result = warmConnection(key,slot:slot,idleSeconds:idleSeconds)
+                if case .busy = result { continue }
+                return result
+            }
+            return .busy
+        },
         busy:{ if case .busy = $0 { return true }; return false },
         cancelled:cancelled) ?? .cancelled
 }

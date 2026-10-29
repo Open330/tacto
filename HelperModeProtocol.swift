@@ -5,6 +5,11 @@ import CryptoKit
 
 enum TactoMode {
     static let limit = 8 * 1024 * 1024
+    static let workerCount = 4
+    static func workerKey(_ build: String, slot: Int) -> String {
+        SHA256.hash(data: Data("\(build):worker:\(slot)".utf8))
+            .map { String(format:"%02x", $0) }.joined()
+    }
     // Retry acquisition only. No application frame exists until this returns.
     static func waitForLease<T>(seconds: Double, attempt: () -> T,
                                 busy: (T) -> Bool, cancelled: () -> Bool) -> T? {
@@ -87,5 +92,27 @@ enum TactoMode {
             bytes.append(byte)
         }
         return nil
+    }
+}
+
+// Cross-process ownership also covers per-command helpers and different builds.
+// Never unlink lock files: existing waiters must keep the same inode.
+final class TactoScopeLease {
+    private var descriptors: [String:Int32] = [:]
+    func take(_ scope: String) -> Bool {
+        if descriptors[scope] != nil { return true }
+        let namespace = TactoMode.workerKey("tacto-resource-leases-v1", slot:0)
+        guard let directory = TactoMode.directory(namespace) else { return false }
+        let key = SHA256.hash(data:Data(scope.utf8)).map { String(format:"%02x",$0) }.joined()
+        let fd = open(directory+"/"+key+".lock",O_CREAT|O_RDWR|O_NOFOLLOW|O_CLOEXEC,0o600)
+        guard fd >= 0 else { return false }
+        var info = stat()
+        guard fstat(fd,&info) == 0, info.st_uid == getuid(),
+              info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o777 == 0o600,
+              flock(fd,LOCK_EX|LOCK_NB) == 0 else { close(fd); return false }
+        descriptors[scope] = fd; return true
+    }
+    deinit {
+        for fd in descriptors.values { _ = flock(fd,LOCK_UN); close(fd) }
     }
 }
