@@ -26,7 +26,7 @@ button when needed, and continues in a newly verified document. On failure use
 the actual stage/error and `recovery_steps` to diagnose; do not ask for login or
 permissions without an error that identifies that problem.
 
-Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto Settings or use `TACTO_HELPER_MODE=warm`. rc.12 and later use up to four isolated workers for different apps; a full pool waits up to 10s, then returns `helper_busy`. Same-app connections return `target_busy`; finish the owning session before retrying. Published rc.11 still has one warm worker.
+Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto Settings or use `TACTO_HELPER_MODE=warm`. rc.12 and later use up to four isolated workers for different apps; a full pool waits up to 10s, then returns `helper_busy`. After rc.12, resource conflicts wait inside the helper for up to 10s within existing input deadlines; only an undispatched operation can resume. A final `target_busy` requires ending the owning session before a fresh observation. Published rc.11 still has one warm worker.
 
 ## Choose the current stage
 
@@ -43,6 +43,11 @@ Optional macOS fast startup: enable “빠른 실행(helper 유지)” in Tacto 
   of repeated `replay`; each command opens a new signed connection, and one
   batch connection made five runs about 2.5x faster. Read
   [batch](references/batch.md) for parameter-only jobs and automatic repair.
+- **Several agents in different windows of one app (after rc.12):** get short
+  metadata with `tacto windows <bundle-id> --helper`, then use
+  `tacto session <bundle-id> --window-id <current ID> --helper --guide`.
+  This keeps AX reads/edits/supported AXPress in that window. App-wide menus,
+  keys and pointer routes use a separate ordinary session. Do not save live IDs.
 - **New deterministic task:** start `tacto session <bundle-id> --helper --guide`
   with `exec_command`, `tty: true`, `yield_time_ms: 1000`. This returns the
   minimal schema guide and observation together. Read no authoring files or

@@ -42,7 +42,7 @@ Inspect the verified/unverified result before requesting another compile.
 
 rc.12 parallel helpers: `target_busy` means another connection owns the
 same app; `input_busy` means another pointer/menu/key dispatch is in progress.
-Both return `effect: not_started`. End the owning task (do not interrupt another
+After rc.12 the helper first waits, without a model call or input retransmission, for up to 10s within the current deadline. Both final refusals return `effect: not_started`. End the owning task (do not interrupt another
 agent's task), then start with a fresh observation. Do not replay an earlier
 possibly-sent action. `helper_busy` instead means all four warm workers are busy.
 
@@ -148,3 +148,11 @@ enumerated empty AX window list plus a fresh windowless observation. Missing
 permissions, a locked session, a failed window-list read, or an app that exited
 remain errors. Text `absent` alone cannot authorize this exception. Older helpers
 without the structured evidence keep their refusal. Do not resend the close click.
+
+
+`window_scope_requires_app` / `window_scope_requires_ax`: this window session
+cannot perform app-wide menus, focus changes, popups, keys or pointer fallback.
+Finish this session and start an ordinary app-wide session for that operation.
+`window_scope_lost` / `window_scope_changed`: the pinned live window no longer
+matches; list windows again and start a new session. Never adopt another window
+by title alone. The runtime pins process start, window ID and AX window object.

@@ -101,6 +101,10 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
     helper = [] if windows else ['--helper']
     usage = ('usage: session <app.exe | pid:N> [--guide] [--timings] [--idle-timeout 1..600]' if windows
              else 'usage: session <bundle-id> --helper [--document /absolute/path] [--guide] [--timings] [--idle-timeout 1..600]')
+    from .window_scope import take_window_arg, bind_window
+    try:args,window_id=take_window_arg(args)
+    except ValueError as error:emit(str(error));return 2
+    if windows and window_id is not None:emit('window_scope_unavailable');return 2
     timeout = 90
     save_path = None
     document = None
@@ -141,6 +145,9 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
     timing = {}
     try:
         driver = make_driver(list(helper))
+        if window_id is not None:
+            problem=bind_window(driver,target,window_id)
+            if problem is not None:emit(json.dumps(problem));return 1
         if document is not None:
             from .document_scope import DocumentScopedDriver, DocumentScopeUnavailable
             try:
@@ -162,6 +169,8 @@ def run_session(args, *, make_driver, run_flow, stdin, emit):
                 if '--guide' in args or '--reuse-guide' in args:
                     from .command_help import session_guide
                     emit(session_guide(target, reusable='--reuse-guide' in args, document=document))
+                if window_id is not None:
+                    emit(f'TACTO_WINDOW_SCOPE {window_id}: read/set_value/type_text and supported AXPress only; menus/keys/pointer require a separate app-wide session. Do not save the live window ID in the Flow.')
                 emit(json.dumps(observation, ensure_ascii=False))
                 emit('TACTO_SESSION_READY send one compact Flow JSON line, then newline; target=' + target)
                 timing['input_ready_seconds'] = time.monotonic() - started

@@ -38,7 +38,7 @@ def front_page(tree):
     return _page_url(focused[0]) if len(focused) == 1 else None
 
 
-def open_url(url, *, browser=DEFAULT_BROWSER, driver=None, backend=None,
+def _open_url(url, *, browser=DEFAULT_BROWSER, driver=None, backend=None,
              timeout=10, clock=time.monotonic, sleep=time.sleep):
     def error(code, effect='not_started', **extra):
         return {'type': 'error', 'error': code, 'url': url, 'browser': browser, 'effect': effect, **extra}
@@ -87,3 +87,11 @@ def open_url(url, *, browser=DEFAULT_BROWSER, driver=None, backend=None,
             return dict(result, type='error', error='page_not_shown', effect='unknown', loaded_verified=False)
         backend.pump(min(.25, max(0, deadline - clock())))
         sleep(0)
+
+
+def open_url(url,*,browser=DEFAULT_BROWSER,driver=None,backend=None,timeout=10,clock=time.monotonic,sleep=time.sleep):
+    from .foreground_scope import foreground_scope,native_driver
+    driver=native_driver(driver,backend)
+    with foreground_scope(driver,browser) as problem:
+        if problem is not None:return problem
+        return _open_url(url,browser=browser,driver=driver,backend=backend,timeout=timeout,clock=clock,sleep=sleep)

@@ -265,7 +265,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
     presentation = {'foreground_verified': False, 'error': 'result_document_not_focused'}
     if verified_window['focused']:
         try:
-            presentation = (present or present_app)(TARGET, owner[0])
+            presentation = present(TARGET,owner[0]) if present is not None else present_app(TARGET,owner[0],driver=driver)
         except Exception:
             presentation = {'foreground_verified': False, 'error': 'presentation_unavailable'}
     if not isinstance(presentation, dict):

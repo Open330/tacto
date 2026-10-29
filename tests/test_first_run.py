@@ -30,7 +30,7 @@ class FirstRunTests(unittest.TestCase):
         self.presenter.return_value = dict(foreground_verified=True)
         r, driver, execute = self.run_case()
         self.assertTrue(r['foreground_verified'])
-        self.presenter.assert_called_once_with('com.apple.TextEdit', 123)
+        self.presenter.assert_called_once_with('com.apple.TextEdit',123,driver=driver)
         self.assertEqual(2, execute.call_count)
         self.assertEqual(4, driver.observe.call_count)
 
@@ -39,12 +39,12 @@ class FirstRunTests(unittest.TestCase):
         token = current.set(SimpleNamespace(preferences={"present_first_result":False}))
         try:
             self.presenter.return_value = dict(foreground_verified=True)
-            r, _, execute = self.run_case()
+            r, driver, execute = self.run_case()
         finally:
             current.reset(token)
         self.assertTrue(r['foreground_verified'])
         self.assertNotIn('presentation_skipped', r)
-        self.presenter.assert_called_once_with('com.apple.TextEdit',123)
+        self.presenter.assert_called_once_with('com.apple.TextEdit',123,driver=driver)
         self.assertEqual(2,execute.call_count)
 
     def test_failure_does_not_present_and_presentation_failure_does_not_repeat_input(self):

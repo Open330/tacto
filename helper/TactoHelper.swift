@@ -1105,7 +1105,7 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
     // _NS:8` — this helper's own way of saying "Tacto is working here" walked
     // into the tree it was working on, and shifted every element index behind
     // it.
-    let windows: [AXUIElement]
+    var windows: [AXUIElement]
     var windowListing = WindowListingDiagnostic()
     func milliseconds(since start: UInt64) -> Int {
         Int((DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000)
@@ -1133,6 +1133,13 @@ func observe(_ target: String, requireWindow: Bool = true, documentToken: String
             reply["hint"] = "화면에는 이 앱의 창이 \(onScreen)개 있지만 앱이 손쉬운 사용에 창 목록을 내주지 않습니다. 저장하지 않은 작업이 없는지 사용자에게 확인한 뒤 앱을 다시 시작하면 대개 해결됩니다."
         }
         return reply
+    }
+    if let scope = ParallelWindowState.shared.current {
+        guard scope.pid == p, scope.start == processStart else {
+            return parallelRefusal("window_scope_changed")
+        }
+        windows = windows.filter { nativeWindowID($0) == scope.id && CFEqual($0,scope.window) }
+        guard windows.count == 1 else { return parallelRefusal("window_scope_lost") }
     }
     if windows.isEmpty && requireWindow {
         return ["type": "error", "error": "no_window_content", "target": target,
@@ -3119,8 +3126,9 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // left in the background — never inside a save panel, whose guard
         // speaks only AXPress.
         func pointerClick() -> [String: Any] {
+            if let refusal = windowScopePointerRefusal() { return refusal }
             let lease = TactoScopeLease()
-            guard lease.take("global-input") else {
+            guard waitForResource(lease,"global-input",deadline:deadline) else {
                 return ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
             }
             defer { withExtendedLifetime(lease) {} }
@@ -3197,6 +3205,12 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         // so a set_value on one takes that path.
         if credentialOrigin == nil, str(el, kAXRoleAttribute as String) == "AXPopUpButton",
            let index = action["element_index"] {
+            let popupLease=TactoScopeLease()
+            guard waitForResource(popupLease,"global-input",deadline:deadline) else {
+                return parallelRefusal("input_busy")
+            }
+            defer { withExtendedLifetime(popupLease) {} }
+
             var picked = act(obsID, target, ["name": "select_option", "element_index": index, "option_label": v],
                              expect: expect, clickDeadline: clickDeadline, coordinateAuthorized: coordinateAuthorized,
                              savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized,
@@ -4530,6 +4544,7 @@ let controlSink = DiscardingSink()
 
 /// The window this run is acting on, as ScreenCaptureKit knows it.
 func controlWindowID(forPID pid: pid_t) -> CGWindowID? {
+    if let scope = ParallelWindowState.shared.current, scope.pid == pid { return scope.id }
     let app = AXUIElementCreateApplication(pid)
     guard let windows = attr(app, kAXWindowsAttribute as String) as? [AXUIElement]
     else { return nil }
@@ -5278,7 +5293,7 @@ let helperCapabilities: [String] = [
     // Reading only, and deliberately NOT document_snapshot: this witnesses what
     // a document contains and where it lives, never its source format or where
     // a save panel would put it.
-    "diagnostic.readiness_read_cost", "diagnostic.readiness_preflight", "observe.window_identity",
+    "diagnostic.readiness_read_cost", "diagnostic.readiness_preflight", "observe.window_identity", "session.window_scope", "session.foreground_lease", "observe.window_list",
     "evidence.document_window_status", "evidence.document_text", "evidence.document_text.path_selector", "observe.document_token", "evidence.save_panel",
     "action.click.save_panel_guard", "evidence.document_rtf_export", "evidence.document_attachment_metadata",
 ] + experimentalForegroundCapabilities
@@ -6550,7 +6565,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     let inputLease = TactoScopeLease()
     let actionName = (msg["action"] as? [String:Any])?["name"] as? String ?? ""
     if kind == "act", !["click","set_value","type_text","read"].contains(actionName),
-       !inputLease.take("global-input") {
+       !waitForResource(inputLease,"global-input",deadline:msg["click_deadline_uptime"] as? Double) {
         return ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
     }
     defer { withExtendedLifetime(inputLease) {} }
@@ -6607,6 +6622,8 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
             reply["helper_process"] = ["pid": Int(getpid()), "start_time": start]
         }
         return reply
+    case "window_list":
+        return parallelWindowList(msg["target"] as? String ?? "")
     case "list_targets":
         let apps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
@@ -7317,8 +7334,8 @@ let rendezvousDeadline: TimeInterval = 20
 }
 
 @Sendable func serve(connection fd: Int32) {
-    let targets = TactoScopeLease()
-    defer { withExtendedLifetime(targets) {} }
+    let session = ParallelSession()
+    defer { ParallelWindowState.shared.foregroundOwned = false; ParallelWindowState.shared.current = nil; withExtendedLifetime(session) {} }
     let input = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
     var buffer = Data()
     while true {
@@ -7331,14 +7348,7 @@ let rendezvousDeadline: TimeInterval = 20
             buffer = buffer[buffer.index(after: nl)...]
             guard let msg = (try? JSONSerialization.jsonObject(with: line))
                     as? [String: Any] else { continue }
-            let reply: [String:Any]
-            if let target = msg["target"] as? String, let pid = pid(forBundle:target),
-               !targets.take("app:\(pid)") {
-                reply = ["type":"error","error":"target_busy","effect":"not_started",
-                         "retryable":true,"detail":"다른 연결이 이 앱을 사용 중입니다. 연결 종료 후 다시 관찰하세요."]
-            } else {
-                reply = handle(msg)
-            }
+            let reply = session.respond(msg,connection:fd)
             if var out = try? JSONSerialization.data(withJSONObject: reply) {
                 out.append(0x0A)
                 writeAll(fd, out)

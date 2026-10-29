@@ -324,3 +324,9 @@ Release candidate · [MIT License](LICENSE)
 </details>
 
 [Preview 3 runtime update](docs/runtime-update-2026-10-19.md)
+
+
+Development after rc.12 supports `tacto windows <bundle-id> --helper` for compact
+window IDs, then `tacto session <bundle-id> --window-id ID --helper --guide` for
+independent AX work in different windows of the same app. App-wide operations
+stay exclusive. See [helper execution](docs/helper-execution.md).

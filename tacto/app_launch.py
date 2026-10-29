@@ -118,7 +118,7 @@ def _session_error(problem):
     return {'error': problem, **({'hint': SCREEN_LOCKED_HINT} if problem == 'screen_locked' else {})}
 
 
-def present_app(target, pid, *, backend=None, clock=time.monotonic):
+def _present_app(target, pid, *, backend=None, clock=time.monotonic):
     """Bring an already verified result forward; never launch or write text."""
     failed = {'foreground_verified': False}
     if type(pid) is not int or pid <= 0:
@@ -274,7 +274,7 @@ def _windows_in(tree):
     return out
 
 
-def activate_app(target, *, window=None, driver=None, backend=None,
+def _activate_app(target, *, window=None, driver=None, backend=None,
                  clock=time.monotonic, sleep=time.sleep):
     """Bring a running app, and optionally one of its windows, to the front.
 
@@ -371,3 +371,19 @@ def activate_app(target, *, window=None, driver=None, backend=None,
         return dict(result, type='error', error='foreground_changed', effect='unknown',
                     foreground_verified=False, window=title, window_verified=False)
     return dict(result, window=title, window_verified=bool(focused))
+
+
+def present_app(target,pid,*,backend=None,clock=time.monotonic,driver=None):
+    from .foreground_scope import foreground_scope,native_driver
+    driver=native_driver(driver,backend)
+    with foreground_scope(driver,target) as problem:
+        if problem is not None:return dict(problem,foreground_verified=False)
+        return _present_app(target,pid,backend=backend,clock=clock)
+
+
+def activate_app(target,*,window=None,driver=None,backend=None,clock=time.monotonic,sleep=time.sleep):
+    from .foreground_scope import foreground_scope,native_driver
+    driver=native_driver(driver,backend)
+    with foreground_scope(driver,target) as problem:
+        if problem is not None:return problem
+        return _activate_app(target,window=window,driver=driver,backend=backend,clock=clock,sleep=sleep)

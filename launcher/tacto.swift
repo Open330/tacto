@@ -61,7 +61,7 @@ guard FileManager.default.isExecutableFile(atPath: python.path) else {
 // and hand back the text. That is the whole reason the child's PATH is fixed —
 // it holds screen content, which is exactly what must not be able to choose
 // what runs. Asking needs neither the helper channel nor a program name.
-let allowedTypes: Set<String> = ["ping", "list_targets", "observe", "act",
+let allowedTypes: Set<String> = ["foreground_begin","foreground_end","window_list","ping", "list_targets", "observe", "act",
                                  "probe", "selection", "ask", "document_text", "document_window_status", "document_rtf_export", "document_attachment_metadata", "save_panel", "menu_state",
                                  "menu_items", "capture", "readiness_read_cost", "readiness_preflight"]
 // The largest complete document this channel will carry, in UTF-16 units. The
@@ -174,7 +174,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["credential_origin", "save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
+let topLevelKeys: Set<String> = ["window_scope_id","credential_origin", "save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
                                  "require_window", "window_identity", "reveal", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
                                  "document_token", "document_path", "max_utf16_units", "timeout_seconds",
@@ -233,6 +233,17 @@ func vetted(_ msg: [String: Any]) -> String? {
                   $0.rangeOfCharacter(from: .controlCharacters.union(.newlines)) == nil }) else {
             return "invalid observe reveal labels"
         }
+    }
+    if ["foreground_begin","foreground_end"].contains(type), Set(msg.keys) != Set(["type","target"]) {
+        return "invalid foreground lease fields"
+    }
+    if type == "window_list", !Set(msg.keys).isSubset(of:["type","target"]) {
+        return "invalid window_list fields"
+    }
+    if let raw = msg["window_scope_id"] {
+        guard ["observe","act","probe"].contains(type), let n = raw as? NSNumber,
+              CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite, n.doubleValue == Double(n.uint32Value),
+              n.uint32Value > 0 else { return "invalid window_scope_id" }
     }
     if let value = msg["window_identity"] {
         guard type == "observe", CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID() else {

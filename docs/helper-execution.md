@@ -93,3 +93,39 @@ launcher/helper. Exact-bundle installation/audit also passed on all three Macs.
 See [rc.12 validation](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.12)
 for the installed receiving result and scope. Earlier startup medians above
 remain historical measurements and are not relabeled as rc.12 performance.
+
+
+## Window-scoped coordination (development after rc.12)
+
+Use `tacto windows APP --helper` to discover live IDs without a document tree.
+It remains available while other connections own windows in that app. Start
+`session APP --window-id ID --helper --guide`, or pass `--window-id ID` to
+`run`/`replay`/`observe`. IDs belong to the current OS windows and are never saved
+inside a Flow. `--document` remains a separate app-wide TextEdit route.
+
+A window session takes shared app ownership and exclusive ownership of one
+process-start/window-ID/AX-window-object identity. Different windows may have
+independent connections. Scoped observations contain only the selected window.
+Direct AX reads, text values/selected-text edits and supported AXPress are
+available; menus, popup selection, credentials that need app focus, keys and
+pointer fallback require an ordinary exclusive app session. The helper never
+silently broadens a window session. The app may still serialize AX callbacks
+on its own main thread; concurrent sessions are not a promise of parallel UI
+threads inside every app.
+
+Conflicts wait inside the helper for up to ten seconds, bounded by an existing
+input deadline and cancelled by connection loss or user interruption. Waiting
+occurs before dispatch; no input or uncertain effect is retransmitted. Old
+rc.12 helpers do not provide this automatic resource waiting.
+
+Signed native activation, first-result presentation and URL opening now reserve
+app/global input ownership through the helper around presentation. Unrelated
+external automation does not join these locks. Scope loss or unsupported window
+actions return bounded errors rather than selecting a different window.
+
+The reproducible native check is `TACTO_RUN_NATIVE_PARALLEL_TESTS=1` with
+`tests/test_window_parallel_native.py`. The runtime-only benchmark lives in
+`examples/benchmark_parallel_windows.py`; it runs four fixed jobs at concurrency
+1/2/4, with a sequential installed baseline, repeated rounds and sampled worker
+RSS/CPU. It does not measure agent input/output tokens or compare provider
+models, and must not be advertised as an agent token reduction result.

@@ -234,3 +234,25 @@ print(String(data:try! JSONSerialization.data(withJSONObject:requests.map {vette
             result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertEqual(json.loads(result.stdout),[True,True,False,False,False])
+
+    def test_parallel_window_scope_and_foreground_frames_are_exact(self):
+        source=(ROOT/'launcher/tacto.swift').read_text()
+        schema=source[source.index('let allowedTypes:'):source.index('// MARK: - Socket plumbing')]
+        checks=r'''
+var requests:[[String:Any]]=[]
+for id:Any in [1,4294967295,0,-1,true,1.5,"1",Double.infinity] {
+ requests.append(["type":"observe","target":"com.apple.TextEdit","window_scope_id":id])
+}
+requests.append(["type":"foreground_begin","target":"com.apple.TextEdit"])
+requests.append(["type":"foreground_end","target":"com.apple.TextEdit"])
+requests.append(["type":"foreground_begin","target":"com.apple.TextEdit","window_scope_id":1])
+requests.append(["type":"window_list","target":"com.apple.TextEdit"])
+requests.append(["type":"window_list","target":"com.apple.TextEdit","obs_id":"other"])
+print(String(data:try! JSONSerialization.data(withJSONObject:requests.map {vetted($0)==nil}),encoding:.utf8)!)
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'main.swift'
+            path.write_text('import Foundation\nimport CoreFoundation\nfunc modelTimeout(_ raw:Any?)->Double? {1}\n'+schema+checks)
+            result=subprocess.run(['swift',str(path)],capture_output=True,text=True,timeout=30)
+        self.assertEqual(0,result.returncode,result.stderr)
+        self.assertEqual([True,True,False,False,False,False,False,False,True,True,False,True,False],json.loads(result.stdout))

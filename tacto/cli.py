@@ -440,6 +440,9 @@ def _run_flow(flow, argv, walked: bool = False, *, _driver=None, _confirm=None, 
         k = argv.index("--think")
         nxt = argv[k + 1] if k + 1 < len(argv) else ""
         think = int(nxt) if nxt.isdigit() else 1
+    from .window_scope import take_window_arg, bind_window
+    try:argv,window_id=take_window_arg(argv)
+    except ValueError as error:print(str(error));return 2
     document = None
     if "--document" in argv:
         k=argv.index("--document")
@@ -458,6 +461,9 @@ def _run_flow(flow, argv, walked: bool = False, *, _driver=None, _confirm=None, 
             print('repair_packet: use one absolute new output path');return 2
         repair_path=argv[k+1]
     driver = _driver if _driver is not None else _make_driver(argv)
+    if window_id is not None:
+        problem=bind_window(driver,flow.target,window_id)
+        if problem is not None:print(json.dumps(problem));return 1
     timed_driver = None
     if document is not None:
         from .document_scope import DocumentScopedDriver, DocumentScopeUnavailable
@@ -629,9 +635,9 @@ def _main(argv=None):
     # Everything that touches the screen, stopped before it can misreport a
     # sandbox as a missing permission. Reading and writing recipes, and
     # learning one, still work in a sandbox.
-    if cmd in ("doctor", "apps", "launch", "activate", "open-url", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "hover", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
+    if cmd in ("windows", "doctor", "apps", "launch", "activate", "open-url", "first-run", "observe", "session", "batch", "document-attachments", "capture", "drag", "hover", "vroid-drag", "vroid-focus", "run", "replay", "do", "eval"):
         if sys.platform == "win32":
-            if cmd in ("doctor", "launch", "activate", "open-url", "first-run", "document-attachments", "capture", "drag",
+            if cmd in ("windows", "doctor", "launch", "activate", "open-url", "first-run", "document-attachments", "capture", "drag",
                        "hover", "vroid-drag", "vroid-focus"):
                 print(f"{cmd} is macOS-only; see docs/windows.md")
                 return 2
@@ -913,6 +919,16 @@ def _dispatch_command(cmd, rest):
             sys.argv = argv
         return 0
 
+    if cmd == "windows":
+        args=[x for x in rest if x!='--helper']
+        if len(args)!=1 or args[0].startswith('-'):
+            print('usage: windows <bundle-id> --helper');return 2
+        driver=_make_driver(rest)
+        if 'observe.window_list' not in getattr(driver,'capabilities',()):
+            print('{"type":"error","error":"window_list_unavailable"}');return 1
+        reply=driver.windows(args[0]);print(json.dumps(reply,ensure_ascii=False))
+        return 0 if reply.get('type')=='windows' else 1
+
     if cmd == "apps":
         r = _make_driver(rest).list_targets()
         if r.get("type") == "error":
@@ -931,6 +947,11 @@ def _dispatch_command(cmd, rest):
         usage = (f"usage: observe {app} [--helper] [--json] [--all-windows | --document <absolute path>]"
                  " [--reveal <exact label>]...")
         structured = "--json" in rest
+        from .window_scope import take_window_arg, bind_window
+        try:rest,window_id=take_window_arg(rest)
+        except ValueError as error:print(str(error));return 2
+        identities='--window-identity' in rest
+        rest=[arg for arg in rest if arg!='--window-identity']
         reveal = []
         while "--reveal" in rest:
             # Each one an exact name to look for past the per-container cap.
@@ -965,9 +986,15 @@ def _dispatch_command(cmd, rest):
         if document is not None and targets[0]!='com.apple.TextEdit':
             print('document_scope_unavailable: --document requires com.apple.TextEdit')
             return 2
+        if identities and document is not None:
+            print('window identity discovery cannot be combined with --document');return 2
         driver=_make_driver(rest)
+        if window_id is not None:
+            problem=bind_window(driver,targets[0],window_id)
+            if problem is not None:print(json.dumps(problem));return 1
         o = (_document_observation(driver,targets[0],document) if document is not None
-             else driver.observe(targets[0], "tree_full", reveal=reveal) if reveal
+             else driver.observe(targets[0], "tree_full", reveal=reveal, **({"window_identity":True} if identities else {})) if reveal
+             else driver.observe(targets[0], "tree_full", window_identity=True) if identities
              else driver.observe(targets[0], "tree_full"))
         if structured:
             try:

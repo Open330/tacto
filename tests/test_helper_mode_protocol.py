@@ -18,8 +18,8 @@ import Foundation
 import Darwin
 let mode = CommandLine.arguments[1], scope = CommandLine.arguments[2]
 let lease = TactoScopeLease()
-if mode == "hold" {
-    precondition(lease.take(scope)); precondition(lease.take(scope))
+if mode.hasPrefix("hold") {
+    precondition(lease.take(scope,shared:mode == "hold-shared")); precondition(lease.take(scope,shared:mode == "hold-shared"))
     print("ready"); fflush(stdout)
     var byte: UInt8 = 0; _ = read(0,&byte,1)
     withExtendedLifetime(lease) {}
@@ -51,6 +51,22 @@ if mode == "hold" {
                 self.assertEqual('acquired',attempt(scope+':other-app'))
                 holder.kill(); holder.communicate(timeout=10)
                 self.assertEqual('acquired',attempt(scope))
+                readers=[]
+                try:
+                    for _ in range(2):
+                        reader=subprocess.Popen([str(binary),'hold-shared',scope],stdin=subprocess.PIPE,
+                                                stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                        readers.append(reader)
+                        self.assertEqual('ready',reader.stdout.readline().strip())
+                    self.assertEqual('busy',attempt(scope))
+                    readers[0].kill();readers[0].communicate(timeout=10)
+                    self.assertEqual('busy',attempt(scope))
+                    readers[1].kill();readers[1].communicate(timeout=10)
+                    self.assertEqual('acquired',attempt(scope))
+                finally:
+                    for reader in readers:
+                        if reader.poll() is None:reader.kill()
+                        reader.communicate(timeout=10)
             finally:
                 if holder.poll() is None: holder.kill()
                 holder.communicate(timeout=10)

@@ -98,9 +98,9 @@ enum TactoMode {
 // Cross-process ownership also covers per-command helpers and different builds.
 // Never unlink lock files: existing waiters must keep the same inode.
 final class TactoScopeLease {
-    private var descriptors: [String:Int32] = [:]
-    func take(_ scope: String) -> Bool {
-        if descriptors[scope] != nil { return true }
+    private var descriptors: [String:(fd:Int32,shared:Bool)] = [:]
+    func take(_ scope: String, shared: Bool = false) -> Bool {
+        if let held = descriptors[scope] { return !held.shared || shared }
         let namespace = TactoMode.workerKey("tacto-resource-leases-v1", slot:0)
         guard let directory = TactoMode.directory(namespace) else { return false }
         let key = SHA256.hash(data:Data(scope.utf8)).map { String(format:"%02x",$0) }.joined()
@@ -109,10 +109,10 @@ final class TactoScopeLease {
         var info = stat()
         guard fstat(fd,&info) == 0, info.st_uid == getuid(),
               info.st_mode & S_IFMT == S_IFREG, info.st_mode & 0o777 == 0o600,
-              flock(fd,LOCK_EX|LOCK_NB) == 0 else { close(fd); return false }
-        descriptors[scope] = fd; return true
+              flock(fd,(shared ? LOCK_SH : LOCK_EX)|LOCK_NB) == 0 else { close(fd); return false }
+        descriptors[scope] = (fd,shared); return true
     }
     deinit {
-        for fd in descriptors.values { _ = flock(fd,LOCK_UN); close(fd) }
+        for entry in descriptors.values { _ = flock(entry.fd,LOCK_UN); close(entry.fd) }
     }
 }

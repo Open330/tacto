@@ -375,6 +375,11 @@ class InheritedHelperDriver:
             pass
 
     def _send(self, msg: dict) -> dict:
+        scope = getattr(self, '_window_scope', None)
+        if scope is not None and msg.get('target'):
+            if msg['target'] != scope[0]:
+                return {'type':'error','error':'window_scope_changed','effect':'not_started'}
+            msg = dict(msg, window_scope_id=scope[1])
         if getattr(self, "_poisoned", False):
             raise HelperUnavailable("권한 채널이 영구적으로 종료되었습니다")
         # A caller's serialization error happens before sending anything and
@@ -501,6 +506,29 @@ class HelperDriver:
         return json.loads(line)
 
     # ---------------------------------------------------------- L2 surface
+
+    def foreground_begin(self, target):
+        if getattr(self,'_window_scope',None) is not None:
+            return {'type':'error','error':'window_scope_requires_app','effect':'not_started'}
+        return self._send({'type':'foreground_begin','target':target})
+
+    def foreground_end(self, target):
+        return self._send({'type':'foreground_end','target':target})
+
+    def windows(self, target):
+        return self._send({'type':'window_list','target':target})
+
+    def scope_window(self, target, window_id):
+        if (not isinstance(target,str) or not target or type(window_id) is not int
+                or not 0 < window_id <= 0xffffffff):
+            return {'type':'error','error':'invalid_window_scope','effect':'not_started'}
+        if 'session.window_scope' not in getattr(self,'capabilities',()):
+            return {'type':'error','error':'window_scope_unavailable','effect':'not_started'}
+        existing = getattr(self,'_window_scope',None)
+        if existing is not None and existing != (target,window_id):
+            return {'type':'error','error':'window_scope_changed','effect':'not_started'}
+        self._window_scope = (target,window_id)
+        return {'type':'window_scope','window_id':window_id}
 
     def identity(self, target: str) -> str:
         return target
@@ -954,7 +982,7 @@ class HelperDriver:
 # The L2 surface is transport-independent: observe/act/wait_until only need a
 # `_send`, so the inherited-socket driver borrows the spawn driver's
 # implementations rather than keeping a second copy in step with the first.
-for _name in ("identity", "list_targets", "observe", "act", "credential_input", "credential_submit", "probe",
+for _name in ("foreground_begin", "foreground_end", "windows", "scope_window", "identity", "list_targets", "observe", "act", "credential_input", "credential_submit", "probe",
               "selection", "menu_state", "menu_items", "document_text", "document_window_status", "document_rtf_export", "document_attachment_metadata", "save_panel", "capture",
               "wait_until"):
     impl = getattr(HelperDriver, _name)
