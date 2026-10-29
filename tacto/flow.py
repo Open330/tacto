@@ -2296,6 +2296,15 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             res.protect(_seed[name])
             if hasattr(driver, 'protect_value'):
                 driver.protect_value(_seed[name])
+    for protected_step in every_step(flow.steps):
+        declared=protected_step.safety is not None and 'credential' in (set(protected_step.safety.effects)|set(protected_step.safety.data_classes))
+        selected=str(protected_step.selector) if protected_step.selector is not None else ''
+        if declared or protected_step.into_sensitive_field or safety._SENSITIVE_FIELD.search(selected.lower()):
+            for key in ('value','text','option_label'):
+                value=protected_step.params.get(key)
+                if isinstance(value,str):
+                    res.protect(value)
+                    if hasattr(driver,'protect_value'):driver.protect_value(value)
     last_checkpoint_index = None
     last_checkpoint = None
     if type(flow.schema) is not int or flow.schema not in (2, 3, 4):
@@ -2811,6 +2820,18 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             observed_consequential = (observed_effects - {"read", "write_ephemeral"}
                                       if idx is not None else safety.document_edit_effects(
                                           payload, line, target=flow.target))
+            credential_entry = (payload.get('name') in ('set_value','type_text','select_option','select_custom_option')
+                                and ('credential' in observed_effects or 'credential' in effects or step.into_sensitive_field))
+            # A requested form edit is still an edit when its live field is a
+            # password. Promote approval and redact it instead of forcing a
+            # different Vault registration workflow after task approval.
+            if credential_entry:
+                effects.add('credential')
+                for key in ('value','text','option_label'):
+                    value=payload.get(key)
+                    if isinstance(value,str):
+                        res.protect(value)
+                        if hasattr(driver,'protect_value'):driver.protect_value(value)
             if observed_consequential - effects:
                 return {"type": "error", "error": "contract_effect_mismatch",
                         "effect": "not_started", "detail": sorted(observed_consequential - effects)}
@@ -2822,7 +2843,9 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 and step.safety.reversibility == "reversible"
                 and observed_effects == {"write_ephemeral"}
                 and observed_reason == "입력 지우기")
-            consequential = bool(effects - {"read", "write_ephemeral"}) and not calculator_clear
+            credential_edit = ('credential' in effects and effects <= {'credential','read','write_ephemeral'}
+                               and not step.is_submit)
+            consequential = bool(effects - {"read", "write_ephemeral"}) and not calculator_clear and not credential_edit
             expected = {}
             if consequential and "write_persistent" in effects and step.binding is not None:
                 if step.binding.resource_identity:
@@ -2851,7 +2874,8 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
             # Explicit host expectations may resolve a logical folder label
             # (e.g. Downloads) to the canonical path before execution.
             expected.update(host_expected)
-            event = make_event(payload, effects, flow.target, obs_id=current['obs_id'])
+            event_payload=res._redact(payload) if credential_edit else payload
+            event = make_event(event_payload, effects, flow.target, obs_id=current['obs_id'])
             context = None
             if consequential and step_prepare is not None:
                 try:
@@ -2904,6 +2928,13 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 intent = (f"{gate_desc} — {confirmation}"
                           if isinstance(confirmation, str) and confirmation else gate_desc)
                 input_risk = risk
+                if credential_edit:
+                    input_risk='confirm'
+                    if not dispatch_approved and confirm is not None:
+                        dispatch_approved=bool(confirm('요청한 입력란에 자격 증명을 입력합니다'))
+                    if ('action.approved_credential_input' in caps_now and credential_entry
+                            and payload.get('name') in ('set_value','type_text') and dispatch_approved):
+                        dispatch_parameters={**dispatch_parameters,'sensitive_input':True}
                 if step.action == 'drag' and risk == 'none' and effects <= {'read','write_ephemeral'}:
                     # The existing task contract already authorizes this local
                     # gesture. Coordinate transport needs the host flag, not a

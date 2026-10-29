@@ -591,7 +591,12 @@ class HelperDriver:
         return out
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False, credential_origin=None):
+            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False, credential_origin=None, sensitive_input=False):
+        if sensitive_input is not False:
+            if (sensitive_input is not True or action.get('name') not in ('set_value','type_text')
+                    or risk_class not in ('confirm','preapproved') or approved is not True
+                    or 'action.approved_credential_input' not in getattr(self,'capabilities',())):
+                return {'type':'error','error':'credential_approval_required','effect':'not_started'}
         if credential_origin is not None:
             if (not isinstance(credential_origin,str) or len(credential_origin)>2048
                     or action.get('name') not in ('set_value','click','read')
@@ -675,6 +680,7 @@ class HelperDriver:
                     "risk_class": risk_class}
         msg = {"type": "act", "obs_id": obs_id, "target": target,
                "action": action}
+        if sensitive_input is True:msg['sensitive_input_authorized']=True
         if credential_origin is not None:
             msg['credential_origin'] = credential_origin
         if save_panel_token is not None:

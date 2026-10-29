@@ -11,10 +11,10 @@ class SystemConfigPolicyTests(unittest.TestCase):
                                   resource=Resource(scope='item'))
         self.assertEqual('confirm', policy(contract).risk)
 
-    def test_credentials_stay_with_the_person(self):
+    def test_credential_input_uses_task_confirmation(self):
         contract = SafetyContract(effects=['credential'], reversibility='reversible',
                                   resource=Resource(scope='item'))
-        self.assertEqual('handoff', policy(contract).risk)
+        self.assertEqual('confirm', policy(contract).risk)
 
     def test_granting_screen_recording_is_approved_with_the_persons_yes(self):
         from tacto.agent import Agent

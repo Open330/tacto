@@ -213,9 +213,11 @@ class TracingDriver:
                                        "require_window": require_window, **extra}, result)
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
-            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False):
+            intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False, sensitive_input=False):
         request = dict(obs_id=obs_id, target=target, action=action, expect=expect,
                        risk_class=risk_class, intent_text=intent_text, approved=approved)
+        if sensitive_input is not False:
+            request["sensitive_input"] = sensitive_input
         if submit_authorized is not False:
             request["submit_authorized"] = submit_authorized
         if save_panel_token is not None:
@@ -226,6 +228,23 @@ class TracingDriver:
         except Exception as exc:
             result = {"type": "error", "error": "driver_exception",
                       "effect": "unknown", "detail": str(exc)}
+        if sensitive_input is True:
+            # Credential writes are never retained as replayable plaintext,
+            # including in the in-memory trace before save(redact=True).
+            request=copy.deepcopy(request)
+            for key in ('value','text'):
+                value=request['action'].get(key)
+                if isinstance(value,str):
+                    self.protect_value(value)
+                    request['action'][key]='[redacted]'
+            def scrub(value):
+                if isinstance(value,str):
+                    for secret in self.trace.sensitive_values:
+                        if secret:value=value.replace(secret,'[redacted]')
+                elif isinstance(value,dict):value={k:scrub(v) for k,v in value.items()}
+                elif isinstance(value,list):value=[scrub(v) for v in value]
+                return value
+            return self._record("act",scrub(request),scrub(result))
         return self._record("act", request, result)
 
     def save_panel(self, obs_id, target, window_element_index, *, panel_token=None,
@@ -272,7 +291,7 @@ class TraceDriver:
         if trace.schema != 2:
             raise ValueError("legacy trace lacks request records; record a schema 2 trace")
         self.trace = trace
-        self.capabilities = frozenset(trace.capabilities) - {"action.credential_input",
+        self.capabilities = frozenset(trace.capabilities) - {"action.approved_credential_input", "action.credential_input",
             "evidence.document_snapshot", "evidence.document_text",
             "evidence.document_text.path_selector", "observe.document_token", "evidence.document_window_status",
             "evidence.save_panel", "action.click.save_panel_guard", "evidence.document_rtf_export", "evidence.document_attachment_metadata",

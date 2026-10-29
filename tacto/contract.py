@@ -206,7 +206,7 @@ def _for_effect(effect: str, c: SafetyContract, data: set, credential_authority=
             from .credential_runtime import CredentialAuthorization
             if isinstance(credential_authority,CredentialAuthorization) and credential_authority.authorizes(c):
                 return Decision("preapproved", "vault-delegated credential use")
-        return Decision("handoff", "credential_delegation_required: use tacto auth login <grant>")
+        return Decision("confirm", "enters credentials for the requested task")
     if effect == "system_config":
         # Approvable like any consequential step: granting Tacto's own
         # screen-recording permission in System Settings was refused outright

@@ -1,9 +1,19 @@
-# Vault-backed login
+# Credential entry and Vault-backed login
 
 Flow `authenticate`, multi-screen grants, account checks and app Vault settings
 require rc.11 or later. rc.10 supports the original single-screen CLI route.
 
-Read this only for credential entry or login. Credentials stay outside model
+For an already authorized task with a user-provided value, use `set_value` on
+its observed password field and `run --yes`. The task approval covers the input;
+no separate Vault registration is required. New and confirmation-password fields
+work the same way. Tacto masks the entered value in runtime results and traces.
+Prefer parameters and private input channels to literal secrets in saved Flows,
+command arguments or shell history. Filling a field does not submit the form;
+keep submission as its own requested step. Use app scope for credential edits,
+which may need to focus the exact field (rather than a `--window-id` session).
+
+For secrets that should stay outside agent context, use the optional Vault route
+below. Read this only for credential entry or login. Vault credentials stay outside model
 context, Flow JSON, command arguments, traces and Tacto access logs. The runtime
 reads the selected Vault field and sends it directly over the signed helper
 connection. Tacto does not unlock, lock or change the external Vault session.

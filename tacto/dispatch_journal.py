@@ -54,6 +54,11 @@ class DurableDispatchDriver:
 
     def act(self, obs_id, target, action, **kwargs):
         with self._journal_lock:
+            if kwargs.get('sensitive_input') is True:
+                metadata={'name':'credential_input','element_index':action.get('element_index')}
+                return self._act(obs_id,target,metadata,
+                    expect={'credential_element':action.get('element_index')},
+                    _dispatch=lambda:self.driver.act(obs_id,target,action,**kwargs))
             return self._act(obs_id,target,action,**kwargs)
 
     def credential_input(self,obs_id,target,index,value,**kwargs):

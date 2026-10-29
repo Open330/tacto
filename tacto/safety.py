@@ -9,7 +9,7 @@ risk_class levels (rising):
   none        — observation / non-mutating, always allowed
   preapproved — allowed only if the original request named it (login, upload…)
   confirm     — blocking confirm right before the action, even if pre-approved
-  handoff     — the user must do it themselves (password submit, safety bypass)
+  handoff     — explicit security-warning bypasses need human handling
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ import re
 # Signals matched against the target's tree line (label/identifier/description),
 # lowercased. Word-ish boundaries keep "clear" from firing on "nuclear".
 _HANDOFF = [
-    r"\bchange password\b", r"\bnew password\b", r"\bconfirm password\b",
     r"\bnot secure\b", r"\bproceed anyway\b", r"\bbypass\b",
 ]
 _CONFIRM = [
+    r"\bchange password\b", r"\bnew password\b", r"\bconfirm password\b",
     r"\bdelete\b", r"\bremove\b", r"\btrash\b", r"\bempty trash\b",
     r"\bpay\b", r"\bpurchase\b", r"\bbuy now\b", r"\bplace order\b",
     r"\bcheckout\b", r"\btransfer\b", r"\bsend\b", r"\bpost\b", r"\bpublish\b",
@@ -42,11 +42,11 @@ _P = [re.compile(p) for p in _PREAPPROVED]
 # Korean signals. \b word boundaries don't work across Hangul, so these are
 # plain substrings (the product is Korean-first — English-only regexes would
 # silently pass 결제/삭제/전송 as risk-free, a critical false negative).
-_HANDOFF_KO = ["비밀번호 변경", "비밀번호 재설정", "보안 우회", "안전하지 않"]
+_HANDOFF_KO = ["보안 우회", "안전하지 않"]
 # NOTE: bare "확인"(OK) and "취소"(Cancel) are deliberately EXCLUDED — "취소"
 # usually *stops* a risky action and a plain "확인" on an info dialog is harmless
 # (review finding: they were too broad). Keep specific destructive/transmit verbs.
-_CONFIRM_KO = ["삭제", "휴지통", "결제", "구매", "주문", "결제하기",
+_CONFIRM_KO = ["비밀번호 변경", "비밀번호 재설정","삭제", "휴지통", "결제", "구매", "주문", "결제하기",
                "전송", "보내기", "전송하기", "게시", "제출", "구독",
                "구독 취소", "결제 취소", "예약 취소", "주문 취소", "로그아웃",
                "계정 만들기", "계정 생성", "이체", "송금", "예약",
@@ -56,7 +56,7 @@ _PREAPPROVED_KO = ["로그인", "로그인하기", "업로드", "파일 선택",
 
 # Field kinds that count as sensitive-data entry -> transmission on submit.
 _SENSITIVE_FIELD = re.compile(
-    r"password|passcode|otp|one[- ]time|card number|cvv|ssn|social security|"
+    r"password|securetextfield|secure text field|passcode|otp|one[- ]time|card number|cvv|ssn|social security|"
     r"account number|routing")
 _SENSITIVE_FIELD_KO = ["비밀번호", "비번", "카드 번호", "카드번호", "카드 정보",
                        "cvc", "주민등록번호", "주민번호", "인증번호", "일회용 비밀번호"]
@@ -153,11 +153,11 @@ def classify(action: dict, target_line: str = "", *, into_sensitive_field=False,
 
     # Generic plaintext flows direct credential entry to the Vault-backed route.
     if name in ("type_text", "set_value", "select_option", "select_custom_option") and into_sensitive_field:
-        return "handoff", "credential_delegation_required: use tacto auth login <grant>"
+        return "confirm", "credential entry uses the existing task approval"
     if name in ("type_text", "set_value", "select_option", "select_custom_option") and (
             _SENSITIVE_FIELD.search(low)
             or any(k in raw for k in _SENSITIVE_FIELD_KO)):
-        return "handoff", "credential_delegation_required: use tacto auth login <grant>"
+        return "confirm", "credential entry uses the existing task approval"
 
     for rx in _H:
         if rx.search(low):

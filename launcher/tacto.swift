@@ -174,7 +174,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
 // escape hatch unless enumerated.
 let allowedAXActions: Set<String> = ["AXPress", "AXShowMenu", "AXIncrement",
                                      "AXDecrement", "AXConfirm", "AXCancel"]
-let topLevelKeys: Set<String> = ["window_scope_id","credential_origin", "save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
+let topLevelKeys: Set<String> = ["sensitive_input_authorized", "window_scope_id","credential_origin", "save_panel_token", "window_input_authorized", "coordinate_authorized", "submit_authorized", "click_deadline_uptime", "type", "obs_id", "target", "action", "mode",
                                  "require_window", "window_identity", "reveal", "prompt", "image", "model", "json", "path",
                                  "expect", "element_index", "provider",
                                  "document_token", "document_path", "max_utf16_units", "timeout_seconds",
@@ -303,6 +303,16 @@ func vetted(_ msg: [String: Any]) -> String? {
                   !model.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else {
                 return "invalid image model"
             }
+        }
+    }
+    if let raw=msg["sensitive_input_authorized"] {
+        guard type=="act", let value=raw as? NSNumber,
+              CFGetTypeID(value)==CFBooleanGetTypeID(), value.boolValue,
+              let action=msg["action"] as? [String:Any],
+              ["set_value","type_text"].contains(action["name"] as? String ?? ""),
+              let index=action["element_index"] as? NSNumber,
+              CFGetTypeID(index) != CFBooleanGetTypeID(), index.doubleValue==Double(index.intValue),index.intValue>=0 else {
+            return "credential approval required"
         }
     }
     if let raw = msg["credential_origin"] {

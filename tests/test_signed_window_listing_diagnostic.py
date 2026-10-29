@@ -57,6 +57,11 @@ class WindowDiagnosticContractTests(unittest.TestCase):
         gate_begin=source.index('    if documentToken == nil && !["ok", "no_value"]')
         gate_end=source.index('    // Reading another app',gate_begin)
         gate=source[gate_begin:gate_end]
+        # This pure listing diagnostic has no live session/window identity.
+        # Scoped filtering is exercised by test_window_parallel_native.
+        scope_begin=gate.index('    if let scope = ParallelWindowState.shared.current {')
+        scope_end=gate.index('    if windows.isEmpty && requireWindow {',scope_begin)
+        gate=gate[:scope_begin]+gate[scope_end:]
         actual+='\nfunc observationGate(_ windows:[AXUIElement],_ windowListing:WindowListingDiagnostic,_ requireWindow:Bool)->[String:Any] {\nlet documentToken:String?=nil;let target="owned";let p:pid_t=1\n'+gate+'return ["type":"observation"]\n}\n'
         support=r'''
 import Foundation

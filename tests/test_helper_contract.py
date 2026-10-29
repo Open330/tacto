@@ -992,6 +992,7 @@ WIRE_ONLY = frozenset({
 
 # These features are implemented by the signed helper, not by Driver.
 SIGNED_HELPER_ONLY = frozenset({
+    "action.approved_credential_input", "observe.window_list", "session.foreground_lease", "session.window_scope",
     "action.drag", "drag.window_bound",
     "action.hover", "hover.pointer_restored",
     "action.click.save_panel_guard",

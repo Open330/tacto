@@ -49,7 +49,7 @@ func windowScopeActionProblem(_ msg:[String:Any], _ scope:ParallelWindowScope) -
     guard ["observe","act","probe"].contains(msg["type"] as? String ?? ""),
           msg["document_token"] == nil else { return "window_scope_requires_app" }
     guard msg["type"] as? String == "act" else { return nil }
-    guard msg["credential_origin"] == nil, msg["save_panel_token"] == nil,
+    guard msg["credential_origin"] == nil, msg["sensitive_input_authorized"] == nil, msg["save_panel_token"] == nil,
           let action=msg["action"] as? [String:Any],
           let name=action["name"] as? String,
           ["read","click","set_value","type_text"].contains(name), action["point"] == nil,

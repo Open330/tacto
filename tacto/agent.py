@@ -688,9 +688,7 @@ class Agent:
                 continue
             what = describe(st.safety, decision)
             if decision.risk == "handoff":
-                blocked.append("credential_delegation_required: 인증된 Vault 위임을 연결한 뒤 tacto auth login <grant>로 자동 로그인할 수 있습니다"
-                               if "credential" in st.safety.effects or "credential" in st.safety.data_classes
-                               else f"{what} — 이 단계는 직접 해주셔야 해요")
+                blocked.append(f"{what} — 이 단계는 직접 해주셔야 해요")
                 continue
             if decision.risk == "blocked":
                 blocked.append(f"{what} — 무슨 일이 일어날지 확정할 수 없어 실행하지 않습니다")

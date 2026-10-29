@@ -84,7 +84,7 @@ class Delegation(unittest.TestCase):
     def test_no_blanket_allow_from_untrusted_json(self):
         from tacto.contract import policy,SafetyContract,Resource,Destination
         c=SafetyContract(effects=['credential'],data_classes=['credential'],reversibility='reversible',resource=Resource(object_identity='password',scope='entry'),destination=Destination(kind='same_origin',identity='https://login.example.test'))
-        self.assertEqual('handoff',policy(c,credential_authority={'level':'login'}).risk)
+        self.assertEqual('confirm',policy(c,credential_authority={'level':'login'}).risk)
         self.assertEqual('preapproved',policy(c,credential_authority=CredentialAuthorization(plan(),'password')).risk)
         c.effects.append('financial');self.assertNotEqual('preapproved',policy(c,credential_authority=CredentialAuthorization(plan(),'password')).risk)
     def test_backend_exceptions_and_responses_never_echo_secret(self):

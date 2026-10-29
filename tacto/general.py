@@ -1060,7 +1060,13 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                            f"{what} — {decision.reason}")
                 res.visits.append(visit)
                 return res
-            consequential = not effects <= {"read", "write_ephemeral"}
+            credential_edit = ('credential' in effects and effects <= {'credential','read','write_ephemeral'}
+                               and action.get('name') in ('set_value','type_text'))
+            if credential_edit:
+                for key in ('value','text'):
+                    value=action.get(key)
+                    if isinstance(value,str) and hasattr(driver,'protect_value'):driver.protect_value(value)
+            consequential = not effects <= {"read", "write_ephemeral"} and not credential_edit
             if consequential and any(prior.get("do") != "read" for prior in visit.actions):
                 # Input earlier in this batch may deliberately change focus or
                 # selection. Commit against a newly observed plan, rather than
@@ -1170,7 +1176,12 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
             say(f"  {c['label']}")
             if stopped(visit):
                 return res
-            event = make_event(action, effects, target, obs_id=obs['obs_id'])
+            recorded_action = ({k:('[redacted]' if k in ('value','text') else v) for k,v in action.items()}
+                               if credential_edit else action)
+            if credential_edit:
+                for key in ('value','text'):
+                    if key in a:a[key]='[redacted]'
+            event = make_event(recorded_action, effects, target, obs_id=obs['obs_id'])
             commit_context = None
             if consequential and prepare_commit is not None:
                 try:
@@ -1186,6 +1197,8 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                 dispatch_parameters = save_panel_dispatch_parameters(event, commit_context, capabilities)
                 if dispatch_parameters and (risk not in ('confirm', 'preapproved') or approved is not True):
                     raise ValueError('save-panel dispatch requires explicit approval')
+                if credential_edit and approved and 'action.approved_credential_input' in capabilities:
+                    dispatch_parameters={**dispatch_parameters,'sensitive_input':True}
                 if a["do"] == "submit":
                     # Not an approval: the loop checked the submit contract.
                     # A consequential submit was still gated by `risk` above.
@@ -1339,7 +1352,7 @@ def run(driver, target: str, goal: str, ask_here, *, max_screens: int = 8,
                                       for x in cands if "read" in x.get("can", ())
                                       and ("click" not in x.get("can", ())
                                            or "set_value" in x.get("can", ()))][:12],
-                                  **{k: action[k] for k in ("value", "direction", "pages", "key", "option_label", "scope", "attachment_digest") if k in action},
+                                  **{k: recorded_action[k] for k in ("value", "direction", "pages", "key", "option_label", "scope", "attachment_digest") if k in recorded_action},
                                   **({'window_key_bound': True} if window_key_reobservation(action, r, capabilities) else {})})
             if a["do"] == "menu":
                 # Recorded so the recipe made from this run can check the

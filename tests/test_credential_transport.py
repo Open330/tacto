@@ -47,6 +47,15 @@ print(String(data:try! JSONSerialization.data(withJSONObject:[credentialPathAllo
             p=Path(tmp)/'main.swift';p.write_text('import Foundation\n'+code+harness)
             r=subprocess.run(['swift',str(p)],capture_output=True,text=True,timeout=30)
         self.assertEqual(0,r.returncode,r.stderr);self.assertEqual([True,True,False,False,False,False,True,True,True],json.loads(r.stdout))
+    def test_approved_input_transport_requires_existing_task_approval(self):
+        d=object.__new__(HelperDriver);d.capabilities={'action.approved_credential_input'};d.requests=[]
+        d._send=lambda request:d.requests.append(request) or {'type':'acted'}
+        action={'name':'set_value','element_index':1,'value':SECRET}
+        refused=d.act('own','owned.app',action,sensitive_input=True)
+        self.assertEqual('credential_approval_required',refused['error']);self.assertFalse(d.requests)
+        result=d.act('own','owned.app',action,sensitive_input=True,risk_class='confirm',approved=True)
+        self.assertEqual('acted',result['type']);self.assertTrue(d.requests[0]['sensitive_input_authorized'])
+
     def test_actual_launcher_rejects_scope_on_unrelated_operations(self):
         s=(ROOT/'launcher/tacto.swift').read_text();schema=s[s.index('let allowedTypes:'):s.index('// MARK: - Socket plumbing')]
         harness='''

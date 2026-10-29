@@ -2,6 +2,11 @@
 
 Subsequent release: [v1.0.0-rc.10](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.10) includes this feature and its own notarization, installed-app tests and fleet verification. The record below describes the earlier source-development stage.
 
+Update, 2026-10-29: approved ordinary credential field edits now use task
+approval (`run --yes`) without requiring a Vault grant. Vault delegation remains
+available for secrets kept outside agent context. The dated record below describes
+the original Vault route, not a requirement to register every supplied password.
+
 Date: 2026-10-26. This feature is a development source change. The published
 v1.0.0-rc.9 app/DMG and installations have not been replaced by this work.
 

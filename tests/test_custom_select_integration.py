@@ -61,7 +61,7 @@ class CustomSelectSchemaTests(unittest.TestCase):
                     self.assertEqual(expected, effects_of(action, 'combobox Title: ' + parent)[0])
             self.assertEqual('confirm', classify({'name': operation, 'option_label': 'Delete'}, 'combobox Title: Actions')[0])
             self.assertEqual('confirm', classify({'name': operation, 'option_label': 'Normal'}, 'combobox Title: Send')[0])
-            self.assertEqual('handoff', classify({'name': operation, 'option_label': 'Password'}, 'combobox Title: Actions')[0])
+            self.assertEqual('confirm', classify({'name': operation, 'option_label': 'Password'}, 'combobox Title: Actions')[0])
 
     def test_custom_selection_retains_credential_effect(self):
         self.assertEqual({'credential'}, effects_of({'name': 'select_custom_option', 'option_label': 'Beta'}, 'combobox Title: password')[0])

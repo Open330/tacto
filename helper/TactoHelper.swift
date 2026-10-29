@@ -2785,7 +2785,7 @@ func nativeSelectionParametersProblem(_ action: [String: Any]) -> String? {
 func act(_ obsID: String, _ target: String, _ action: [String: Any],
          expect: [String: Any]? = nil, clickDeadline: Double? = nil, coordinateAuthorized: Bool = false,
          savePanelToken: String? = nil, windowInputAuthorized: Bool = false,
-         submitAuthorized: Bool = false, credentialOrigin:String? = nil) -> [String: Any] {
+         submitAuthorized: Bool = false, credentialOrigin:String? = nil, sensitiveInputAuthorized:Bool = false) -> [String: Any] {
     if action["name"] as? String == "open_select",let problem=nativeOpeningParametersProblem(action) {
         return ["type":"error","error":"invalid_selection_parameters","effect":"not_started","detail":problem]
     }
@@ -3129,7 +3129,7 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             if let refusal = windowScopePointerRefusal() { return refusal }
             let lease = TactoScopeLease()
             guard waitForResource(lease,"global-input",deadline:deadline) else {
-                return ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
+                return abortState.isStopped ? ["type":"error","error":"aborted_by_user","effect":"not_started"] : ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
             }
             defer { withExtendedLifetime(lease) {} }
             guard savePanelToken == nil else {
@@ -3218,12 +3218,12 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
             picked["routed_from"] = "set_value"
             return picked
         }
-        if let origin=credentialOrigin {
+        if credentialOrigin != nil || sensitiveInputAuthorized {
             // WebKit can acknowledge AXValue on an unfocused input without
             // retaining it when the next field gains focus. Focus this exact
             // AX element first; no keystrokes or clipboard are involved.
             _ = AXUIElementSetAttributeValue(el,kAXFocusedAttribute as CFString,kCFBooleanTrue)
-            guard credentialElementAllowed(el,pid:p,origin:origin,write:true) else {
+            guard credentialOrigin == nil || credentialElementAllowed(el,pid:p,origin:credentialOrigin!,write:true) else {
                 return ["type":"error","error":"credential_origin_mismatch","effect":"not_started"]
             }
         }
@@ -3276,8 +3276,8 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
               settable.boolValue else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started",
-                    "detail": "이 요소는 텍스트 삽입을 지원하지 않습니다 — "
-                              + "AXSelectedText 를 쓸 수 없습니다"]
+                    "detail": "이 요소는 AXSelectedText 삽입을 지원하지 않습니다. "
+                              + "전체 값을 set_value로 입력하세요"]
         }
         if abortState.isStopped {
             return ["type": "error", "error": "aborted_by_user",
@@ -5235,7 +5235,7 @@ let helperCapabilities: [String] = [
     "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "expect.attribute.url", "observe.subrole", "expect.enabled",
     "expect.no_modal", "expect.selection",
     "effect",                       // errors say whether an effect is possible
-    "action.credential_input", "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
+    "action.approved_credential_input", "action.credential_input", "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
     "press_key.safari_address_confirm",
     "action.menu", "action.scroll", "action.secondary_action",
     // Finder only: show an existing folder without activating Finder.
@@ -6564,9 +6564,9 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
     // keyboard routes share one bounded dispatch resource across workers.
     let inputLease = TactoScopeLease()
     let actionName = (msg["action"] as? [String:Any])?["name"] as? String ?? ""
-    if kind == "act", !["click","set_value","type_text","read"].contains(actionName),
+    if kind == "act", (msg["sensitive_input_authorized"] != nil || msg["credential_origin"] != nil || !["click","set_value","type_text","read"].contains(actionName)),
        !waitForResource(inputLease,"global-input",deadline:msg["click_deadline_uptime"] as? Double) {
-        return ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
+        return abortState.isStopped ? ["type":"error","error":"aborted_by_user","effect":"not_started"] : ["type":"error","error":"input_busy","effect":"not_started","retryable":true]
     }
     defer { withExtendedLifetime(inputLease) {} }
     // After the user stops this run, nothing looks at their screen either.
@@ -6677,6 +6677,16 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                        windowIdentity: msg["window_identity"] as? Bool ?? false,
                        reveal: msg["reveal"] as? [String])
     case "act":
+        var sensitiveInputAuthorized=false
+        if let raw=msg["sensitive_input_authorized"] {
+            guard let value=raw as? NSNumber, CFGetTypeID(value)==CFBooleanGetTypeID(), value.boolValue,
+                  let action=msg["action"] as? [String:Any],
+                  ["set_value","type_text"].contains(action["name"] as? String ?? ""),
+                  let index=documentIsWholeNumber(action["element_index"] as Any), index.intValue>=0 else {
+                return parallelRefusal("credential_approval_required")
+            }
+            sensitiveInputAuthorized=true
+        }
         if let raw=msg["credential_origin"] {
             guard let origin=raw as? String, origin.utf8.count<=2048,
                   let action=msg["action"] as? [String:Any],
@@ -6733,7 +6743,7 @@ func handle(_ msg: [String: Any]) -> [String: Any] {
                    msg["action"] as? [String: Any] ?? [:],
                    expect: msg["expect"] as? [String: Any], clickDeadline: clickDeadline,
                    coordinateAuthorized: coordinateAuthorized, savePanelToken: savePanelToken, windowInputAuthorized: windowInputAuthorized,
-                   submitAuthorized: submitAuthorized, credentialOrigin: msg["credential_origin"] as? String)
+                   submitAuthorized: submitAuthorized, credentialOrigin: msg["credential_origin"] as? String, sensitiveInputAuthorized:sensitiveInputAuthorized)
     case "readiness_preflight":
         return readinessPreflight(msg)
     case "readiness_read_cost":
