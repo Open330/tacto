@@ -17,6 +17,12 @@ the intended target. Two TextEdit documents expose two elements with
 the identifier `First Text View`, so an unscoped selector becomes ambiguous the
 moment a second document exists.
 
+**Two controls with the same name and no scope that separates them** (two
+"Create Title" buttons in one web page): pick one with `"allow_nth"`, the
+0-based position among the matches in tree order, e.g.
+`{"role": "Button", "title": "Create Title", "allow_nth": 1}` for the second.
+Prefer an `ancestor` first; `allow_nth` is for repeats nothing else separates.
+
 **Point at things that are only labelled by their value** with `"value"`, and
 when the label and the clickable element differ — a list row identified by its
 inner text — match the label and act on the row with
