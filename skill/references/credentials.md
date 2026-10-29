@@ -18,6 +18,23 @@ context, Flow JSON, command arguments, traces and Tacto access logs. The runtime
 reads the selected Vault field and sends it directly over the signed helper
 connection. Tacto does not unlock, lock or change the external Vault session.
 
+## Web forms that ignore AX field edits
+
+If a site rejects an AX-filled password as empty, the visual value may have
+changed without its input events updating the form. Use the explicit native
+paste route: `set_value` with `params: {"value":"{{password}}","input_method":"paste"}`
+and the existing task approval. A Vault field can likewise declare
+`"input_method":"paste"` next to its selector/secret reference. This requires
+`action.credential_paste`; it is not silently downgraded on older helpers.
+
+This route brings the target forward, focuses the exact field and uses native
+Edit → Paste. It keeps all clipboard formats in memory, restores them only while
+its own clipboard change count still owns the clipboard, and never records the
+secret. An unavailable snapshot (including over 8 MiB) is reported before input.
+Use a fresh field/form-state postcondition; `unverified_ok` explicitly records
+only dispatch. A successful Paste or password dots do not prove successful login.
+Inspect the result before submitting again; uncertain paste is never retried.
+
 ## Use an existing delegation
 
 `tacto auth list` lists grant names, app/site and allowed level (no secrets or

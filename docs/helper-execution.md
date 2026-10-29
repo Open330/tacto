@@ -129,3 +129,21 @@ The reproducible native check is `TACTO_RUN_NATIVE_PARALLEL_TESTS=1` with
 1/2/4, with a sequential installed baseline, repeated rounds and sampled worker
 RSS/CPU. It does not measure agent input/output tokens or compare provider
 models, and must not be advertised as an agent token reduction result.
+
+
+Control labels containing line breaks, backslashes, quotes, comma delimiters or
+status-like text use an explicit `LabelsV1:` packet of JSON-quoted attributes
+(`observe.labels_v1`). Clients decode exact values before constructing selectors
+or native expectations. A literal backslash-n remains distinct from an actual
+line break; malformed marked packets do not fall back to legacy extraction.
+Simple controls retain their compact legacy format. Window/Link quoted identities
+retain their existing format. No native identity guard is relaxed.
+
+The optional `action.credential_paste` path supports approved `set_value` with
+`input_method: paste`, including Vault-referenced fields. It holds app/global
+input ownership, verifies exact focus/origin, selects existing input for replacement,
+and invokes native Edit/Paste. Clipboard item/type data are preserved in memory
+(up to 8 MiB), with conditional restoration under an unchanged change count.
+Clipboard restoration is best effort under external clipboard races; no atomic
+cross-application clipboard transaction is claimed. Native dispatch requires
+fresh receiving-state observation and is never automatically repeated.

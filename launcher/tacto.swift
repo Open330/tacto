@@ -105,7 +105,7 @@ let actionSchema: [String: (required: Set<String>, optional: Set<String>)] = [
     "double_click":     (["name", "element_index"], []),
     "window_input":     (["name", "element_index"], ["key", "text"]),
     "prepare_window":   (["name", "element_index"], []),
-    "set_value":        (["name", "value"], ["element_index", "point", "window_index"]),
+    "set_value":        (["name", "value"], ["element_index", "point", "window_index", "input_method"]),
     "type_text":        (["name", "text"], ["element_index", "point", "window_index"]),
     "scroll":           (["name", "direction"], ["element_index", "point", "window_index", "pages"]),
     "secondary_action": (["name", "action"], ["element_index", "point", "window_index"]),
@@ -304,6 +304,11 @@ func vetted(_ msg: [String: Any]) -> String? {
                 return "invalid image model"
             }
         }
+    }
+    if let action=msg["action"] as? [String:Any],let method=action["input_method"] {
+        guard type=="act",action["name"] as? String=="set_value",method as? String=="paste",
+              action["element_index"] != nil,action["point"]==nil,
+              msg["sensitive_input_authorized"] as? Bool==true || msg["credential_origin"] is String else {return "invalid paste input"}
     }
     if let raw=msg["sensitive_input_authorized"] {
         guard type=="act", let value=raw as? NSNumber,
@@ -679,6 +684,7 @@ func vetted(_ msg: [String: Any]) -> String? {
                       n.intValue >= 0, n.intValue <= 63 else {
                     return "window_index 형식 오류"
                 }
+            case "input_method": if name != "set_value" || v as? String != "paste" {return "invalid paste input"}
             case "value": if !(v is String) { return "value 형식 오류" }
             case "text":
                 guard let t = v as? String, isPlainText(t) else {

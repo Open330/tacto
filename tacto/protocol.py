@@ -17,7 +17,7 @@ RETURN_BOUND_CAPABILITY = "press_key.return_bound"
 # IR payloads cannot override the action name or smuggle an observation index.
 ACTION_PARAMS = {
     "click": frozenset(), "double_click": frozenset(), "read": frozenset(), "prepare_window": frozenset(),
-    "set_value": frozenset({"value"}), "type_text": frozenset({"text"}),
+    "set_value": frozenset({"value", "input_method"}), "type_text": frozenset({"text"}),
     "select_option": frozenset({"value", "option_label"}),
     "open_select": frozenset({"opening_action"}),
     "select_custom_option": frozenset({"option_label", "value"}),

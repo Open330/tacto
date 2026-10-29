@@ -291,7 +291,7 @@ class TraceDriver:
         if trace.schema != 2:
             raise ValueError("legacy trace lacks request records; record a schema 2 trace")
         self.trace = trace
-        self.capabilities = frozenset(trace.capabilities) - {"action.approved_credential_input", "action.credential_input",
+        self.capabilities = frozenset(trace.capabilities) - {"action.credential_paste", "action.approved_credential_input", "action.credential_input",
             "evidence.document_snapshot", "evidence.document_text",
             "evidence.document_text.path_selector", "observe.document_token", "evidence.document_window_status",
             "evidence.save_panel", "action.click.save_panel_guard", "evidence.document_rtf_export", "evidence.document_attachment_metadata",

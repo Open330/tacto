@@ -114,32 +114,36 @@ let labelNames = ["Title", "Description", "Value", "Help",
     return text
 }
 
+// LabelsV1 is an explicit lossless wire form for control labels that cannot
+// be represented safely in the legacy single-line attribute format.
+@Sendable func encodeLabelFields(_ fields:[(String,String)], quoteValues:Bool) -> String {
+    let special = !quoteValues && fields.contains { _,value in
+        value.contains("\\") || value.contains("\"") ||
+        value.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) || CharacterSet.newlines.contains($0) } ||
+        value.contains(", ") || ["[disabled]","[focused]","[selected]","[readonly]"].contains(where:value.contains)
+    }
+    let encoded=fields.map { name,value in
+        name + ": " + ((quoteValues || special) ? quotedLabelValue(value)! : oneLineLabel(value))
+    }.joined(separator:", ")
+    return special ? "LabelsV1: " + encoded : encoded
+}
 @Sendable func label(_ el: AXUIElement, quoteValues: Bool = false) -> String {
-    func field(_ name:String,_ value:String) -> String {
-        if quoteValues, let encoded=quotedLabelValue(value) { return "\(name): \(encoded)" }
-        return "\(name): \(oneLineLabel(value))"
-    }
-    var raw: CFArray?
-    var parts: [String] = []
-    if AXUIElementCopyMultipleAttributeValues(
-        el, labelAttrs as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &raw)
-        == .success, let values = raw as? [Any], values.count == labelAttrs.count {
-        for (i, v) in values.enumerated() {
-            if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
-            // An attribute the element lacks comes back as an AXValue holding
-            // an error, not as nil, so only real strings and numbers count.
-            if let s = v as? String, !s.isEmpty { parts.append(field(labelNames[i],s)) }
-            else if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() {
-                parts.append(field(labelNames[i],n.stringValue))
-            }
+    var raw:CFArray?
+    var fields:[(String,String)]=[]
+    if AXUIElementCopyMultipleAttributeValues(el,labelAttrs as CFArray,AXCopyMultipleAttributeOptions(rawValue:0),&raw) == .success,
+       let values=raw as? [Any],values.count==labelAttrs.count {
+        for (i,value) in values.enumerated() {
+            if labelNames[i]=="Subrole" && (!fields.isEmpty || str(el,kAXRoleAttribute as String) != "AXButton") {continue}
+            if let text=value as? String,!text.isEmpty {fields.append((labelNames[i],text))}
+            else if let number=value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID() {fields.append((labelNames[i],number.stringValue))}
         }
-        return parts.joined(separator: ", ")
+    } else {
+        for (i,key) in labelAttrs.enumerated() {
+            if labelNames[i]=="Subrole" && (!fields.isEmpty || str(el,kAXRoleAttribute as String) != "AXButton") {continue}
+            if let value=str(el,key) {fields.append((labelNames[i],value))}
+        }
     }
-    for (i, key) in labelAttrs.enumerated() {
-        if labelNames[i] == "Subrole" && (!parts.isEmpty || str(el, kAXRoleAttribute as String) != "AXButton") { continue }
-        if let v = str(el, key) { parts.append(field(labelNames[i],v)) }
-    }
-    return parts.joined(separator: ", ")
+    return encodeLabelFields(fields,quoteValues:quoteValues)
 }
 
 /// What `secondary_action` will actually carry.
@@ -209,19 +213,14 @@ struct ObservationNodeSnapshot {
         if let number = value(name) as? NSNumber { return number.stringValue }
         return nil
     }
-    func label(role: String, quoteValues: Bool) -> String {
-        var parts: [String] = []
-        for (index, key) in labelAttrs.enumerated() {
-            if labelNames[index] == "Subrole" && (!parts.isEmpty || role != "AXButton") { continue }
-            let text: String
-            if let raw = value(key) as? String, !raw.isEmpty { text = raw }
-            else if let raw = value(key) as? NSNumber, CFGetTypeID(raw) != CFBooleanGetTypeID() {
-                text = raw.stringValue
-            } else { continue }
-            parts.append(labelNames[index] + ": " +
-                (quoteValues ? quotedLabelValue(text) ?? oneLineLabel(text) : oneLineLabel(text)))
+    func label(role:String,quoteValues:Bool)->String {
+        var fields:[(String,String)]=[]
+        for (i,key) in labelAttrs.enumerated() {
+            if labelNames[i]=="Subrole" && (!fields.isEmpty || role != "AXButton") {continue}
+            if let text=value(key) as? String,!text.isEmpty {fields.append((labelNames[i],text))}
+            else if let number=value(key) as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID() {fields.append((labelNames[i],number.stringValue))}
         }
-        return parts.joined(separator: ", ")
+        return encodeLabelFields(fields,quoteValues:quoteValues)
     }
 }
 
@@ -2782,10 +2781,78 @@ func nativeSelectionParametersProblem(_ action: [String: Any]) -> String? {
 }
 
 
+// Explicit credential paste: values never enter logs or command arguments.
+// The caller holds the app and global-input leases throughout this operation.
+func pasteCredential(_ element:AXUIElement,pid:pid_t,value:String,origin:String?,obsID:String)->[String:Any] {
+    func refuse(_ code:String)->[String:Any] {["type":"error","error":code,"effect":"not_started"]}
+    guard ["AXTextField","AXTextArea","AXComboBox","AXSearchField"].contains(str(element,kAXRoleAttribute as String) ?? ""),
+          value.utf8.count<=16384 else {return refuse("invalid_paste_input")}
+    let pasteboard=NSPasteboard.general
+    let beforeCount=pasteboard.changeCount
+    var saved:[NSPasteboardItem]=[];var bytes=0
+    for item in pasteboard.pasteboardItems ?? [] {
+        let copy=NSPasteboardItem()
+        for type in item.types {
+            guard let data=item.data(forType:type) else {return refuse("clipboard_snapshot_unavailable")}
+            bytes += data.count
+            guard bytes<=8*1024*1024,copy.setData(data,forType:type) else {return refuse("clipboard_snapshot_unavailable")}
+        }
+        saved.append(copy)
+    }
+    guard pasteboard.changeCount==beforeCount else {return refuse("clipboard_changed")}
+    if !isFrontmost(pid:pid) {
+        NSRunningApplication(processIdentifier:pid)?.activate(options:[])
+        for _ in 0..<25 {if isFrontmost(pid:pid) {break};Thread.sleep(forTimeInterval:0.02)}
+    }
+    guard isFrontmost(pid:pid),!abortState.isStopped else {return refuse("paste_target_unavailable")}
+    _=AXUIElementSetAttributeValue(element,kAXFocusedAttribute as CFString,kCFBooleanTrue)
+    func exactFocus()->Bool {
+        guard let focus=attr(AXUIElementCreateApplication(pid),"AXFocusedUIElement"),CFGetTypeID(focus)==AXUIElementGetTypeID() else {return false}
+        return CFEqual(focus,element) && (origin==nil || credentialElementAllowed(element,pid:pid,origin:origin!,write:true))
+    }
+    guard exactFocus() else {return refuse("paste_target_changed")}
+    if !(str(element,kAXValueAttribute as String) ?? "").isEmpty {
+        guard let (select,_) = menuItem(pid:pid,path:[["Edit","편집"],["Select All","모두 선택","전체 선택"]]),
+              AXUIElementPerformAction(select,kAXPressAction as CFString) == .success else {return refuse("paste_selection_unavailable")}
+    }
+    guard let (paste,_) = menuItem(pid:pid,path:[["Edit","편집"],["Paste","붙여넣기"]]),
+          exactFocus(),pasteboard.changeCount==beforeCount else {return refuse("paste_target_changed")}
+    pasteboard.clearContents()
+    let clearedCount=pasteboard.changeCount
+    guard pasteboard.setString(value,forType:.string) else {
+        if pasteboard.changeCount==clearedCount {pasteboard.clearContents();if !saved.isEmpty {_=pasteboard.writeObjects(saved)}}
+        return refuse("clipboard_write_failed")
+    }
+    let ownedCount=pasteboard.changeCount
+    var restored=false
+    func restore()->Bool {
+        if restored {return true}
+        guard pasteboard.changeCount==ownedCount else {return false}
+        pasteboard.clearContents()
+        restored=saved.isEmpty || pasteboard.writeObjects(saved)
+        return restored
+    }
+    defer {_=restore()}
+    guard exactFocus(),!abortState.isStopped else {return refuse("paste_target_changed")}
+    let error=AXUIElementPerformAction(paste,kAXPressAction as CFString)
+    if error != .success {return ["type":"error","error":"paste_dispatch_unverified","effect":"unknown"]}
+    // AXPress acknowledges a menu dispatch, not the website's receiving state.
+    Thread.sleep(forTimeInterval:0.2)
+    let recovered=restore()
+    return ["type":"acted","action":"set_value","obs_id":obsID,"input_route":"native_paste",
+            "clipboard_restored":recovered,"unverified":"observe_effect"]
+}
+
 func act(_ obsID: String, _ target: String, _ action: [String: Any],
          expect: [String: Any]? = nil, clickDeadline: Double? = nil, coordinateAuthorized: Bool = false,
          savePanelToken: String? = nil, windowInputAuthorized: Bool = false,
          submitAuthorized: Bool = false, credentialOrigin:String? = nil, sensitiveInputAuthorized:Bool = false) -> [String: Any] {
+    if let method=action["input_method"] {
+        guard action["name"] as? String=="set_value",method as? String=="paste",
+              sensitiveInputAuthorized || credentialOrigin != nil,action["element_index"] != nil,action["point"]==nil else {
+            return ["type":"error","error":"invalid_paste_input","effect":"not_started"]
+        }
+    }
     if action["name"] as? String == "open_select",let problem=nativeOpeningParametersProblem(action) {
         return ["type":"error","error":"invalid_selection_parameters","effect":"not_started","detail":problem]
     }
@@ -3198,6 +3265,9 @@ func act(_ obsID: String, _ target: String, _ action: [String: Any],
         guard let el = element(), let v = action["value"] as? String else {
             return ["type": "error", "error": "action_failed",
                     "effect": "not_started", "detail": "bad set_value"]
+        }
+        if action["input_method"] as? String=="paste" {
+            return pasteCredential(el,pid:p,value:v,origin:credentialOrigin,obsID:obsID)
         }
         // A popup (a web page's <select> in Safari, 2026-10-29) accepts an
         // AXValue write and keeps its old choice. Choosing an option is what
@@ -5235,7 +5305,7 @@ let helperCapabilities: [String] = [
     "expect.role", "expect.label", "expect.attribute", "expect.attribute.subrole", "expect.attribute.url", "observe.subrole", "expect.enabled",
     "expect.no_modal", "expect.selection",
     "effect",                       // errors say whether an effect is possible
-    "action.approved_credential_input", "action.credential_input", "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
+    "action.credential_paste", "observe.labels_v1", "action.approved_credential_input", "action.credential_input", "action.click.deadline_uptime", "action.prepare_window", "action.prepare_window.background", "action.click", "action.set_value", "action.type_text", "action.read",
     "press_key.safari_address_confirm",
     "action.menu", "action.scroll", "action.secondary_action",
     // Finder only: show an existing folder without activating Finder.

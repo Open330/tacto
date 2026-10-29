@@ -54,3 +54,14 @@ class ApprovedCredentials(unittest.TestCase):
             envelope=Envelope(quote='enter supplied password',allows=frozenset({'credential','write_ephemeral','read'})),approve=lambda _:True)
         self.assertTrue(result.ok,result.why);self.assertEqual(1,len(driver.calls));self.assertTrue(driver.calls[0][1]['sensitive_input'])
         self.assertNotIn(SECRET,str(result.visits)+str(result.events))
+    def test_paste_requires_capability_before_any_input_and_never_retries_uncertain(self):
+        from tacto.flow import _may_rerun
+        f=flow();f.steps[0].params['input_method']='paste';driver=Driver()
+        result=replay(driver,f,confirm=lambda _:True)
+        self.assertFalse(result.ok);self.assertFalse(driver.calls);self.assertFalse(_may_rerun(f.steps[0]))
+        driver.capabilities=driver.capabilities|{'action.credential_paste'}
+        original=driver.act
+        def paste(*a,**kw):
+            r=original(*a,**kw);return {**r,'input_route':'native_paste','unverified':'observe_effect','clipboard_restored':True}
+        driver.act=paste;result=replay(driver,f,confirm=lambda _:True)
+        self.assertTrue(result.ok,result.log);self.assertEqual(1,len(driver.calls));self.assertNotIn(SECRET,str(result.events))

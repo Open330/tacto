@@ -74,7 +74,8 @@ def normalize_plan(value):
         if not isinstance(fields,list) or not 1<=len(fields)<=16:raise ValueError()
         seen=set()
         for f in fields:
-            if not isinstance(f,dict) or set(f)!={'name','selector','secret'} or not _NAME.fullmatch(f['name']) or f['name'] in seen:raise ValueError()
+            if not isinstance(f,dict) or (not {'name','selector','secret'} <= set(f) or set(f)-{'name','selector','secret','input_method'}) or not _NAME.fullmatch(f['name']) or f['name'] in seen:raise ValueError()
+            if 'input_method' in f and f['input_method']!='paste':raise ValueError()
             seen.add(f['name']);sel=selector(f['selector'])
             if sel.role not in ('TextField','TextArea','SearchField','ComboBox','textbox'):raise ValueError()
             ref=f['secret']

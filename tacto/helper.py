@@ -592,6 +592,13 @@ class HelperDriver:
 
     def act(self, obs_id, target, action, expect=None, risk_class="none",
             intent_text="", approved=False, *, save_panel_token=None, submit_authorized=False, credential_origin=None, sensitive_input=False):
+        if 'input_method' in action:
+            if (action.get('name')!='set_value' or action['input_method']!='paste'
+                    or 'action.credential_paste' not in getattr(self,'capabilities',())
+                    or type(action.get('element_index')) is not int or 'point' in action
+                    or risk_class not in ('confirm','preapproved') or approved is not True
+                    or not (sensitive_input is True or credential_origin is not None)):
+                return {'type':'error','error':'invalid_paste_input','effect':'not_started'}
         if sensitive_input is not False:
             if (sensitive_input is not True or action.get('name') not in ('set_value','type_text')
                     or risk_class not in ('confirm','preapproved') or approved is not True
@@ -708,9 +715,11 @@ class HelperDriver:
             self._last_action_at = time.monotonic()
         return r
 
-    def credential_input(self,obs_id,target,element_index,value,*,expected_origin=None,check_only=False):
+    def credential_input(self,obs_id,target,element_index,value,*,expected_origin=None,check_only=False,input_method=None):
         action={'name':'read' if check_only else 'set_value','element_index':element_index}
-        if not check_only:action['value']=value
+        if not check_only:
+            action['value']=value
+            if input_method is not None:action['input_method']=input_method
         r=self.act(obs_id,target,action,risk_class='preapproved',approved=True,
                    credential_origin=expected_origin or '')
         return {'type':'credential_ready'} if check_only and r.get('type')=='acted' else r

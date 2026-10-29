@@ -944,3 +944,11 @@ are not retried. A completed send returns `unverified: observe_effect` and
 `reobserve_required: true`; verify the receiving control/canvas effect before
 reporting success. It does not establish Finder file transfers, browser HTML
 DragEvent semantics, window moving/resizing, or cross-app drop support.
+
+
+`set_value` optionally accepts `input_method: "paste"` on signed helpers advertising
+`action.credential_paste`; omit it for the default AXValue route. Paste uses the
+existing credential task approval, temporarily uses the clipboard and foreground,
+and requires a receiving postcondition or explicit `unverified_ok` dispatch-only
+reporting. Vault plan fields may carry the same optional input_method beside the
+selector and secret reference. Secrets are not embedded in saved plans.

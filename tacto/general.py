@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
+from .document_label import element_flag
 from .commit_evidence import make_event, evidence_error
 import math
 import time
@@ -130,7 +131,7 @@ def candidates(tree: str, *, capabilities=()) -> list[dict]:
                        "match": via_child["match"] if via_child else ident[1],
                        "attr": ident[0], "container": container,
                        "where": where, "can": list(can),
-                       "disabled": "[disabled]" in line, "line": line,
+                       "disabled": element_flag(line,'disabled'), "line": line,
                        **({"via_child": via_child} if via_child else {})})
     return act + read
 

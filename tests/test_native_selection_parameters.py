@@ -71,7 +71,7 @@ class NativeSelectionParametersTests(unittest.TestCase):
     def test_actual_swift_guard_matches_python_for_json_types_and_unicode(self):
         source=(ROOT/'helper/TactoHelper.swift').read_text()
         start=source.index('func nativeSelectionParametersProblem(')
-        end=source.index('\nfunc act(',start)
+        end=source.index('\n}\n',start)+3
         function=source[start:end]
         rows=INVALID+VALID
         encoded=json.dumps(rows,ensure_ascii=False).encode().hex()

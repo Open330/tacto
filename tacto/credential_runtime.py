@@ -32,6 +32,7 @@ def run_login(store,name,driver,*,fill_only=False,vault_factory=vault_from,clock
         if not fill_only and root['level']!='login':raise CredentialError('credential_level_requires_login')
         if fill_only and root.get('stages'):raise CredentialError('credential_level_requires_login')
         if 'action.credential_input' not in getattr(driver,'capabilities',()):raise CredentialError('credential_driver_upgrade_required')
+        if any(f.get('input_method')=='paste' for f in root['fields']) and 'action.credential_paste' not in getattr(driver,'capabilities',()):raise CredentialError('credential_driver_upgrade_required')
         target=root['target'];vaults={key:vault_factory(config) for key,config in configs.items()}
         def still_delegated():
             current,current_configs=store.load(name)
@@ -97,7 +98,7 @@ def run_login(store,name,driver,*,fill_only=False,vault_factory=vault_from,clock
                 if policy(contract,credential_authority=CredentialAuthorization(plan,entry['name'])).risk!='preapproved':raise CredentialError('credential_delegation_required')
                 try:
                     still_delegated()
-                    answer=driver.credential_input(observation['obs_id'],target,index,value,expected_origin=plan.get('origin'))
+                    answer=driver.credential_input(observation['obs_id'],target,index,value,expected_origin=plan.get('origin'),**({'input_method':entry['input_method']} if 'input_method' in entry else {}))
                 finally:value=None
                 if answer.get('type')!='acted':raise CredentialError('credential_fill_failed',effect=answer.get('effect','unknown'))
                 dispatched+=1

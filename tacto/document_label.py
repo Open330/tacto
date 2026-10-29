@@ -69,3 +69,21 @@ def document_attribute(line):
     path=fields.get('Document')
     if not isinstance(path,str) or not path.startswith('/') or any(ord(c)<32 or ord(c)==127 or unicodedata.category(c)=='Cs' for c in path):return None
     return unicodedata.normalize('NFC',path)
+
+
+def control_label_packet(line):
+    """None for legacy lines; ({}, '') for a malformed marked packet.
+
+    Never fall back to parsing text inside a malformed quoted identity.
+    """
+    marker=re.match(r'^(\s*\d+\s+(?:AX)?(\w+)\s+)LabelsV1:\s*',line)
+    if marker is None:return None
+    legacy=marker.group(1)+line[marker.end():]
+    parsed=_parse_window(legacy,re.escape(marker.group(2)),_KEYS+'|URL')
+    return parsed if parsed is not None else ({},'')
+
+
+def element_flag(line,flag):
+    packet=control_label_packet(line)
+    if packet is not None:return f'[{flag}]' in packet[1]
+    return window_flag(line,flag)

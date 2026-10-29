@@ -98,6 +98,7 @@ def decide_problem(params: dict) -> str | None:
     elif "goal" in params:
         return "goal belongs to a branching decision"
     return None
+from .document_label import element_flag
 from .commit_evidence import make_event, evidence_error
 
 
@@ -363,7 +364,9 @@ class Selector:
         if key=='Document':
             from .document_label import document_attribute
             return document_attribute(line)
-        from .document_label import window_attributes, link_attributes
+        from .document_label import window_attributes, link_attributes, control_label_packet
+        packet=control_label_packet(line)
+        if packet is not None:return _norm(packet[0][key]) if key in packet[0] else None
         window=window_attributes(line)
         if window is None:window=link_attributes(line)
         if window is not None:return _norm(window[key]) if key in window else None
@@ -1487,7 +1490,7 @@ def _candidates(selector: "Selector", tree: str, limit: int = 12) -> list[str]:
         toks = line.strip().split()
         if len(toks) < 2 or not _same_role(toks[1], role):
             continue
-        if role == "Button" and "[disabled]" in line:
+        if role == 'Button' and element_flag(line,'disabled'):
             continue
         if selector is not None:
             try:
@@ -1931,6 +1934,8 @@ _IDEMPOTENT = ("read", "set_value")
 
 
 def _may_rerun(step: "Step") -> bool:
+    if step.params.get("input_method")=="paste":
+        return False
     if step.action not in _IDEMPOTENT:
         return False
     if step.safety is None:
@@ -2299,7 +2304,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
     for protected_step in every_step(flow.steps):
         declared=protected_step.safety is not None and 'credential' in (set(protected_step.safety.effects)|set(protected_step.safety.data_classes))
         selected=str(protected_step.selector) if protected_step.selector is not None else ''
-        if declared or protected_step.into_sensitive_field or safety._SENSITIVE_FIELD.search(selected.lower()):
+        if declared or protected_step.into_sensitive_field or protected_step.params.get('input_method')=='paste' or safety._SENSITIVE_FIELD.search(selected.lower()):
             for key in ('value','text','option_label'):
                 value=protected_step.params.get(key)
                 if isinstance(value,str):
@@ -2381,6 +2386,11 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
         if step.action not in ACTION_PARAMS or not isinstance(step.params, dict) \
                 or set(step.params) - ACTION_PARAMS.get(step.action, frozenset()):
             res.record(status="error", step=i, error="invalid_action")
+            return res
+        if 'input_method' in step.params and (
+                step.action!='set_value' or step.params['input_method']!='paste'
+                or 'action.credential_paste' not in getattr(driver,'capabilities',())):
+            res.record(status='error',step=i,error='invalid_action',detail='native credential paste is unavailable')
             return res
         if step.action=='drag':
             from .native_drag import drag_problem
@@ -2726,7 +2736,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 if len(parts)<2 or not _same_role(parts[1], "Window"):
                     res.record(status="error", step=i, error="window_preparation_target_required")
                     return res
-            if step.require_enabled and "[disabled]" in target_line:
+            if step.require_enabled and element_flag(target_line,'disabled'):
                 res.record(status="error", step=i, action=step.action,
                            error="precondition_failed",
                            detail=f"target disabled: {target_line.strip()}")
@@ -2821,7 +2831,7 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                                       if idx is not None else safety.document_edit_effects(
                                           payload, line, target=flow.target))
             credential_entry = (payload.get('name') in ('set_value','type_text','select_option','select_custom_option')
-                                and ('credential' in observed_effects or 'credential' in effects or step.into_sensitive_field))
+                                and ('credential' in observed_effects or 'credential' in effects or step.into_sensitive_field or payload.get('input_method')=='paste'))
             # A requested form edit is still an edit when its live field is a
             # password. Promote approval and redact it instead of forcing a
             # different Vault registration workflow after task approval.
@@ -2987,10 +2997,16 @@ def replay(driver: Driver, flow: Flow, approvals: dict[int, bool] | None = None,
                 return {"type":"error", "error":"action_unverified", "effect":"unknown",
                         "event_id":event["event_id"], "event_state":"unknown",
                         "detail":"window preparation response has no reobservation contract"}
-            if preparation_observation or navigation_observation:
+            credential_observation = (credential_edit and payload.get('input_method')=='paste'
+                and 'action.credential_paste' in caps and response.get('type')=='acted'
+                and response.get('input_route')=='native_paste' and response.get('unverified')=='observe_effect'
+                and (step.postcondition is not None or step.unverified_ok))
+            if credential_observation:
+                event['clipboard_restored']=response.get('clipboard_restored') is True
+            if preparation_observation or navigation_observation or credential_observation:
                 event["observation_required"] = True
             if (response.get("unverified") and not consequential
-                    and not (preparation_observation or navigation_observation)):
+                    and not (preparation_observation or navigation_observation or credential_observation)):
                 return {"type": "error", "error": "action_unverified", "effect": "unknown",
                         "event_id": event["event_id"], "event_state": "unknown",
                         "detail": response["unverified"]}
