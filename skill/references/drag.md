@@ -26,7 +26,7 @@ verify the effect before continuing. Use the normal session guide for Flow
 framing; no extra approval is needed for an already-authorized temporary edit.
 
 Requires the signed helper capabilities `action.drag` and `drag.window_bound`.
-The target must be its app's focused window and the app must be in the background.
+The target is its app's focused window; the app may be in front or in the background.
 The helper sends a continuous left-button stroke to that window; it does not
 activate apps, move the global pointer, or provide cross-app file dragging.
 To move the real cursor itself (hover effects), use [hover](hover.md).

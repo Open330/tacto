@@ -27,6 +27,11 @@ struct NativeUserInputState {
     }
 }
 
+func nativeElementPID(_ element: AXUIElement) -> pid_t {
+    var pid: pid_t = 0
+    return AXUIElementGetPid(element, &pid) == .success ? pid : -1
+}
+
 struct NativeWindowDispatchFailure: Error {
     let detail: String
     let attempted: Int
@@ -166,9 +171,11 @@ func dispatchNativeWindowPreparation(
         }
         try validated(); try ready()
         let initial = try observedInput()
-        // A single element click can address the already-frontmost window.
-        // Other preparation/key/opaque routes retain their background contract.
-        let foregroundClick = initial.foreground == binding.pid && elementClicks == 1
+        // A single element or point click can address the already-frontmost
+        // window (a point click into a front Safari page was refused,
+        // 2026-10-29). Other preparation/key/opaque routes keep their
+        // background contract.
+        let foregroundClick = initial.foreground == binding.pid && (elementClicks == 1 || pointClick)
             && finalTransition == nil && foregroundClickFocus != nil
         guard initial.foreground != binding.pid || foregroundClick else {
             throw NativeWindowInputError.refused("background window preparation requires a background process")
@@ -548,9 +555,10 @@ func dispatchNativeWindowDrag(_ binding:NativeWindowBinding,drag:NativeWindowDra
     do {
         try ready();try validate();try ready()
         let initial=try readInput(deadline)
-        guard initial.foreground != binding.pid else {
-            throw NativeWindowInputError.refused("window-bound drag requires a background app")
-        }
+        // The app may be in front (2026-10-29: a drag into a front Safari page
+        // was refused). Foreground and pointer are watched during the stroke
+        // either way; only the end check differs, below.
+        let foregroundDrag = initial.foreground == binding.pid
         let prepared=try buildNativeWindowDrag(binding,drag:drag);stroke=prepared
         guard deadline-now()>drag.duration+0.1 else {
             throw NativeWindowInputError.refused("insufficient drag deadline")
@@ -577,7 +585,15 @@ func dispatchNativeWindowDrag(_ binding:NativeWindowBinding,drag:NativeWindowDra
             }
         }
         try ready()
-        guard initial.matches(try readInput(deadline)) else {
+        let after=try readInput(deadline)
+        // A front app moves focus to what was dragged; that is the drag's
+        // own effect when it stays in the same app. A background drag keeps
+        // the person's state exactly.
+        let unchanged = foregroundDrag
+            ? after.foreground==initial.foreground && after.pointer==initial.pointer
+                && (after.focused.map(nativeElementPID) ?? binding.pid)==binding.pid
+            : initial.matches(after)
+        guard unchanged else {
             throw NativeWindowInputError.refused("user input changed during drag")
         }
         try validate();try ready()

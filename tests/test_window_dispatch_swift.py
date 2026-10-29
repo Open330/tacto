@@ -318,3 +318,32 @@ print("SWIFT_LATE_FOCUS_PASS")
             result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=10)
             self.assertEqual(0,result.returncode,result.stderr)
             self.assertEqual('SWIFT_LATE_FOCUS_PASS',result.stdout.strip())
+
+
+class ForegroundPointClickTests(unittest.TestCase):
+    def test_point_click_into_the_front_window_completes(self):
+        harness = r'''import Foundation
+import AppKit
+import ApplicationServices
+let window=AXUIElementCreateApplication(10002),focus=AXUIElementCreateApplication(10003)
+let binding=NativeWindowBinding(element:window,window:window,pid:42,processStart:10,
+ windowID:17,windowBounds:CGRect(x:100,y:200,width:300,height:200),
+ elementBounds:CGRect(x:100,y:200,width:300,height:200),point:CGPoint(x:160,y:250),
+ pointKind:.windowPoint,relativePoint:CGPoint(x:60,y:50))
+var posted=0
+let result=try dispatchNativeWindowPreparation(binding,deadline:100,stopped:{false},context:{},now:{0},
+ readInput:{_ in NativeUserInputState(foreground:42,pointer:.zero,focused:focus)},
+ validate:{_ in},post:{_,_ in posted+=1},routing:{_,_ in},pointClick:true,foregroundClickFocus:{_,_ in})
+precondition(result.posted==2 && posted==2, "\(result)")
+print("SWIFT_FOREGROUND_POINT_PASS")
+'''
+        with tempfile.TemporaryDirectory(prefix='tacto-fg-point-') as directory:
+            source,binary=Path(directory)/'main.swift',Path(directory)/'check'
+            source.write_text(harness)
+            built=subprocess.run(['xcrun','swiftc','-warnings-as-errors',str(source),
+                str(ROOT/'helper/WindowInput.swift'),str(ROOT/'helper/WindowDispatch.swift'),
+                str(ROOT/'helper/FrontmostProcess.swift'),'-o',str(binary)],capture_output=True,text=True,timeout=90)
+            self.assertEqual(0,built.returncode,built.stderr)
+            result=subprocess.run([str(binary)],capture_output=True,text=True,timeout=10)
+            self.assertEqual(0,result.returncode,result.stderr)
+            self.assertEqual('SWIFT_FOREGROUND_POINT_PASS',result.stdout.strip())
