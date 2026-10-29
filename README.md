@@ -15,7 +15,7 @@ Replay it with new inputs. Bring the agent back when judgment is needed.<br>
 [![Claude + Codex](docs/assets/badge-agents.svg)](skill/SKILL.md)
 [![Status](docs/assets/badge-status.svg)](#getting-started)
 
-[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.12) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
+[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.13) · [How it works](#how-it-works) · [Benchmarks](#benchmarks) · [Documentation](#documentation)
 
 </div>
 
@@ -120,11 +120,11 @@ A separate development test completed ten jobs with zero replay-time model calls
 
 ## Get started
 
-**1.0.0-rc.12 release candidate for Apple Silicon Macs on macOS 27.0.1.**
+**1.0.0-rc.13 release candidate for Apple Silicon Macs on macOS 27.0.1.**
 
-[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.12). Packaged releases carry **Developer ID signatures, Apple notarization tickets and Gatekeeper verification for both Tacto.app and the DMG**. Download the DMG, drag `Tacto.app` into `Applications`, and open it to follow setup instructions. You do not need your own signing certificate for this packaged app. Version 1.0.0-rc.12 adds AX-first guidance and up to four isolated parallel helper workers for different apps. Same-app sessions remain exclusive. It retains native Vault management, delegated login inside a Flow, declared multi-screen login and optional account checks. It correctly verifies the final Finder window closing and brings system settings actions into the normal execution path. It retains document-scoped sessions, crowded-window observations, pointer and focus settling, and first-task recovery. This candidate passed fresh notarization, 3,029 regression tests with zero failures/errors, installed parallel AX receiving and a three-Mac deployment. Stable qualification remains separate. Optional faster startup keeps the helper ready between commands. It is off by default; enable it in settings when needed. One persistent menu shows settings and task status, and task banners remain optional. Browse operation timelines and configure logging and retention in the app. Grant two permissions on first run: **Tacto Helper** (app control) and **Tacto** (screen recording).
+[Release candidate](https://github.com/Open330/tacto/releases/tag/v1.0.0-rc.13). Download the notarized DMG, drag `Tacto.app` into `Applications`, and follow setup. rc.13 allows task-approved credential entry without mandatory Vault registration and adds explicitly scoped same-app AX window concurrency. Contention waits before dispatch; cancelled requests do not execute later. Existing scoped Vault login, in-app activity/settings, TextEdit first task and optional warm startup remain available. Signed app/DMG notarization, artifact/security checks and identical-bundle installation on three Macs passed. Regression: 3,046 cases, 20 skips, no unresolved failures/errors; see release validation for the initial documentation failure and its recheck. Stable qualification remains separate.
 
-The rc.12 binary is pinned to source `9452120`; later changes on `main` are separate. Use the skill linked by the installed app for version-matched instructions.
+The rc.13 binary is pinned to source `f9f85c8`. Use the skill linked by the installed app for version-matched instructions.
 
 This is a **release candidate, not yet the approved stable release**. Stable qualification still needs a person-run fresh install, three permission revocation/regrant cycles and a limited beta ([guide](docs/beta-participant-guide.md)).
 
@@ -219,7 +219,7 @@ Open `http://127.0.0.1:8787`.
 
 <a id="documentation"></a>
 
-Optional macOS **fast startup** keeps the signed helper warm between commands. Enable it in Tacto Settings (off by default, idle timeout 1–10 minutes), or use `TACTO_HELPER_MODE=warm`; `per_command` overrides it off. Concurrent commands wait up to 10 seconds before `helper_busy`. [Details and measured scope](docs/helper-execution.md). rc.12 adds four isolated workers for concurrent AX tasks in different apps; same-app sessions remain exclusive.
+Optional macOS **fast startup** keeps the signed helper warm between commands. Enable it in Tacto Settings (off by default, idle timeout 1–10 minutes), or use `TACTO_HELPER_MODE=warm`; `per_command` overrides it off. Concurrent commands wait up to 10 seconds before `helper_busy`. [Details and measured scope](docs/helper-execution.md). rc.13 supports up to four isolated workers and explicitly scoped independent AX windows in one app; app-wide operations remain exclusive.
 
 ## Documentation
 
@@ -327,7 +327,7 @@ Release candidate · [MIT License](LICENSE)
 [Preview 3 runtime update](docs/runtime-update-2026-10-19.md)
 
 
-Development after rc.12 supports `tacto windows <bundle-id> --helper` for compact
+rc.13 supports `tacto windows <bundle-id> --helper` for compact
 window IDs, then `tacto session <bundle-id> --window-id ID --helper --guide` for
 independent AX work in different windows of the same app. App-wide operations
 stay exclusive. See [helper execution](docs/helper-execution.md).
