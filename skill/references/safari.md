@@ -3,7 +3,10 @@ To just open an address the person asked for, use `tacto open-url <URL>
 `page_not_shown` for a redirect, never reopened). `already_open: true` with
 `loaded_verified: false` means the page was already in front: done, not a failure;
 do not open it again. `open_unconfirmed` may still finish later; observe, never
-resend. Use the steps below only when a Flow must navigate an existing window.
+resend. The page opens in the browser's front window; when another task shares the
+browser, add `--window "<part of the intended window's title>"` and Tacto brings
+that window forward first (`window_not_found`/`window_ambiguous` list `windows`).
+Use the steps below only when a Flow must navigate an existing window.
 
 For a page already open, start with its accessibility tree and window-scoped
 selectors. Read/click/fill the page in the background; do not activate Safari

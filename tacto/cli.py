@@ -7,7 +7,7 @@ Usage:
   tacto logs [--json|--open]  # automatic access receipts (no screen/input contents)
   tacto launch <bundle-id> [--helper]  # explicitly start an installed app in background
   tacto activate <bundle-id> [--window TEXT] [--helper]  # on a person's request: bring the app (and that window) forward
-  tacto open-url <URL> [--browser <bundle-id>] [--helper]  # on a person's request: open a web page as a link click does
+  tacto open-url <URL> [--browser <bundle-id>] [--window <title part>] [--helper]  # open a web page as a link click does
   tacto keep-awake [--minutes N] | --stop  # opt-in: no idle display/system sleep during long remote work (no screen-saver or policy lock guarantee)
   tacto capture <bundle-id> --helper --output window.png [--window TITLE]
   tacto drag <bundle-id> --helper --from X Y --to X Y [--window TITLE]
@@ -761,8 +761,18 @@ def _dispatch_command(cmd, rest):
             at = args.index('--browser')
             browser = args[at + 1] if at + 1 < len(args) else None
             args = args[:at] + args[at + 2:]
-        if len(args) != 1 or rest.count('--helper') > 1 or ('--browser' in rest and browser is None):
-            print('usage: open-url <http(s) URL> [--browser <bundle-id>] [--helper]  (--helper confirms the page loaded)')
+        # The browser opens a link in its front window. With --window that
+        # window is brought forward first, so the tab lands in it rather than
+        # in whatever window another task left in front (2026-10-29).
+        window = None
+        if '--window' in args:
+            at = args.index('--window')
+            window = args[at + 1] if at + 1 < len(args) else None
+            args = args[:at] + args[at + 2:]
+        if len(args) != 1 or rest.count('--helper') > 1 or ('--browser' in rest and browser is None) \
+                or ('--window' in rest and (window is None or '--helper' not in rest)):
+            print('usage: open-url <http(s) URL> [--browser <bundle-id>] [--window <part of its title>] [--helper]'
+                  '  (--helper confirms the page loaded; --window needs --helper)')
             return 2
         from .open_url import open_url, DEFAULT_BROWSER
         driver = None
@@ -776,7 +786,16 @@ def _dispatch_command(cmd, rest):
                 print(json.dumps({'type': 'error', 'error': 'helper_unavailable', 'effect': 'not_started',
                                   'hint': 'tacto doctor --check'}))
                 return 1
-        result = open_url(args[0], browser=browser or DEFAULT_BROWSER, driver=driver)
+        result = None
+        if window is not None:
+            from .app_launch import activate_app
+            shown = activate_app(browser or DEFAULT_BROWSER, window=window, driver=driver)
+            if not (shown.get('foreground_verified') and shown.get('window_verified')):
+                result = {'type': 'error', 'error': shown.get('error') or 'window_not_verified',
+                          'effect': 'not_started', 'window': window,
+                          **({'windows': shown['windows']} if 'windows' in shown else {})}
+        if result is None:
+            result = open_url(args[0], browser=browser or DEFAULT_BROWSER, driver=driver)
         from .access_log import current
         if current.get() is not None:
             current.get().task_result({k: v for k, v in result.items() if k != 'url'})
