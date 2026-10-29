@@ -4,7 +4,7 @@ Compares a window-scoped candidate at concurrency 1/2/4 with a sequential
 installed baseline. Run alone, after building the signed source launcher/helper.
 """
 from pathlib import Path
-import argparse,concurrent.futures,json,os,plistlib,random,statistics,subprocess,time,threading
+import argparse,concurrent.futures,json,os,plistlib,random,statistics,subprocess,time,threading,hashlib
 ROOT=Path(__file__).resolve().parents[1]
 
 def main():
@@ -27,6 +27,18 @@ def main():
     state=b/'state.json';fixture=subprocess.Popen([str(binary),str(state)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     env=dict(os.environ,TACTO_HELPER_MODE='warm',TACTO_HELPER_IDLE_SECONDS='120')
     rows=[]
+    def provenance(cli):
+        helper=cli.parent.parent/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'
+        info=cli.parents[3]/'Info.plist'
+        metadata=plistlib.loads(info.read_bytes()) if info.is_file() else {}
+        result={'launcher_sha256':hashlib.sha256(cli.read_bytes()).hexdigest(),
+                'helper_sha256':hashlib.sha256(helper.read_bytes()).hexdigest()}
+        if cli==candidate:
+            result.update(source_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
+                          source_dirty=bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT).strip()))
+        else:result.update(release=metadata.get('TactoReleaseTag'),source_commit=metadata.get('TactoSourceCommit'))
+        return result
+    provenances={'candidate':provenance(candidate),'baseline':provenance(baseline)}
     def snapshot():
         result={}
         for line in subprocess.check_output(['ps','-axo','pid=,rss=,time=,comm='],text=True).splitlines():
@@ -34,7 +46,7 @@ def main():
             if len(f)!=4:continue
             if f[3] not in (str(candidate.parent.parent/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper'),str(baseline.parent.parent/'helper/Tacto Helper.app/Contents/MacOS/TactoHelper')):continue
             parts=f[2].split(':');cpu=float(parts[-1])+60*int(parts[-2])+(3600*int(parts[-3]) if len(parts)>2 else 0)
-            result[int(f[0])]={'rss_kib':int(f[1]),'cpu_seconds':cpu}
+            result[int(f[0])]={'rss_kib':int(f[1]),'cpu_seconds':cpu,'arm':'candidate' if f[3].startswith(str(ROOT)+'/') else 'baseline'}
         return result
     def trial(label,cli,concurrency,round_index,scoped,timed=True):
         before_cpu=snapshot();samples=[];done=threading.Event()
@@ -68,7 +80,9 @@ def main():
         used={pid for job in jobs for pid in job['helper_pids']}
         final=snapshot();cpu=sum(max(0,final.get(pid,{}).get('cpu_seconds',0)-before_cpu.get(pid,{}).get('cpu_seconds',0)) for pid in used)
         peak=max((sum(sample.get(pid,{}).get('rss_kib',0) for pid in used) for sample in samples),default=0)
-        row={'arm':label,'round':round_index,'concurrency':concurrency,'fixed_jobs':4,'seconds':elapsed,'passed':passed,'worker_count':len(used),'peak_used_worker_rss_kib':peak,'sampled_worker_cpu_seconds':cpu,'model_calls':0,'agent_input_tokens':None,'agent_output_tokens':None}
+        total_peak=max((sum(value['rss_kib'] for value in sample.values() if value['arm']==label) for sample in samples),default=0)
+        assert peak>0 and total_peak>=peak,'Worker RSS sampling missing; inspect process metadata'
+        row={'peak_total_pool_rss_kib':total_peak,'arm':label,'round':round_index,'concurrency':concurrency,'fixed_jobs':4,'seconds':elapsed,'passed':passed,'worker_count':len(used),'peak_used_worker_rss_kib':peak,'sampled_worker_cpu_seconds':cpu,'model_calls':0,'agent_input_tokens':None,'agent_output_tokens':None}
         if timed:rows.append(row)
         print(json.dumps(row),flush=True)
         assert passed,'Receiving mismatch or failed job; preserve logs before any retry'
@@ -85,8 +99,9 @@ def main():
         summaries=[]
         for arm,n in (('baseline',1),('candidate',1),('candidate',2),('candidate',4)):
             group=[r for r in rows if r['arm']==arm and r['concurrency']==n];times=sorted(r['seconds'] for r in group)
-            summaries.append({'arm':arm,'concurrency':n,'runs':len(group),'passed':sum(r['passed'] for r in group),'median_seconds':statistics.median(times),'p95_seconds':times[max(0,__import__('math').ceil(.95*len(times))-1)],'median_peak_used_worker_rss_mib':statistics.median(r['peak_used_worker_rss_kib']/1024 for r in group)})
-        report={'passed':all(r['passed'] for r in rows),'jobs_per_run':4,'repetitions':args.repetitions,'model_calls':0,'agent_tokens_measured':False,'scope':'native runtime only; no agent/provider was invoked; baseline serial versus candidate window-scoped 1/2/4; RSS is sampled for workers used in that run, not total app memory','summary':summaries,'runs':rows}
+            summaries.append({'arm':arm,'concurrency':n,'runs':len(group),'passed':sum(r['passed'] for r in group),'median_seconds':statistics.median(times),'p95_seconds':times[max(0,__import__('math').ceil(.95*len(times))-1)],'median_peak_used_worker_rss_mib':statistics.median(r['peak_used_worker_rss_kib']/1024 for r in group),'median_peak_total_pool_rss_mib':statistics.median(r['peak_total_pool_rss_kib']/1024 for r in group)})
+        assert provenances=={'candidate':provenance(candidate),'baseline':provenance(baseline)},'Binary/source identity changed during measurement'
+        report={'provenance':provenances,'passed':all(r['passed'] for r in rows),'jobs_per_run':4,'repetitions':args.repetitions,'model_calls':0,'agent_tokens_measured':False,'scope':'native runtime only; no agent/provider was invoked; baseline serial versus candidate window-scoped 1/2/4; RSS includes separate metrics for used workers and the whole warm pool; neither includes agent/CLI/application memory','summary':summaries,'runs':rows}
         (b/'REPORT.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({'summary':summaries}),flush=True)
     finally:fixture.terminate();fixture.wait(timeout=5)
 
