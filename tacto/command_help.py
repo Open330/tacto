@@ -100,6 +100,9 @@ def session_guide(target, *, reusable=False, document=None):
         "TACTO_FLOW_GUIDE (trusted schema instructions)\n"
         + json.dumps(template, ensure_ascii=False, separators=(',', ':')) + "\n"
         "Adapt selectors, effects/resource and result to the user task. Selectors must be unique. "
+        'AX-first, background by default: click invokes AXPress when supported; use set_value/read on observed elements. '
+        'Do not activate or use coordinates/screenshots first. Pin the observed window with ancestor (TextEdit: --document); '
+        'inspect --all-windows for missing controls. Activate only for a demonstrated foreground requirement. '
         'Compact click expands to action:click/selector.identifier; equals and skip_equals require '
         'check_defaults.field and expand to postcondition/skip_if. Put answers:true only on the result step. '
         'Full steps use action/selector/params. set_value uses params.value; its postcondition uses field:{"identifier":"same-id"}, equals:"text", attribute:"Value". Checks use equals, not value. '

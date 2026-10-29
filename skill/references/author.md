@@ -81,8 +81,11 @@ selector a name a human would recognize. Prefer `identifier`; use
 alternatives as a list. Identifiers may also carry live state after a `;`
 (`StandardInputView;value:408`) — write only the stable part.
 
-**Scope to the front window** with `"in_focused_window": true` whenever an app
-can have several windows open. Two TextEdit documents expose two elements with
+**Scope to the intended window** using its observed identifier/title as
+`"ancestor"`; for TextEdit prefer `--document /absolute/path`. This does not
+require activating the app. `"in_focused_window": true` selects the app's focused
+window, which may belong to a background app; use it only when that window is
+the intended target. Two TextEdit documents expose two elements with
 the identifier `First Text View`, so an unscoped selector becomes ambiguous the
 moment a second document exists.
 

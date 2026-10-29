@@ -4,6 +4,16 @@ Ordinary named AX button presses and text edits do not need pointer preparation
 or the implementation history linked below. Use the session's guide and current
 observation first. Read this reference when an actual pointer/background
 preparation or element-bound keyboard action is needed.
+`click` names a semantic element action: the helper tries AXPress when supported.
+It may use a window-bound pointer fallback when AXPress is unsupported; it is
+not a guarantee of AX-only dispatch. Element focus for text input does not by
+itself require moving the app to the foreground.
+
+Background operation avoids routine global cursor/focus contention, but does
+not guarantee parallel execution. The warm helper currently grants one active
+connection at a time; other callers wait and may receive `helper_busy`. Keep
+sessions bounded. Different agents must also use distinct document/window
+identities; do not concurrently mutate one shared window or app-wide menu.
 
 **Background pointer clicks can be ignored.** An app-focused window need not
 be an AppKit key window. In the owned signed fixture, controls that declined

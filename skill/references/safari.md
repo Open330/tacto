@@ -5,6 +5,10 @@ To just open an address the person asked for, use `tacto open-url <URL>
 do not open it again. `open_unconfirmed` may still finish later; observe, never
 resend. Use the steps below only when a Flow must navigate an existing window.
 
+For a page already open, start with its accessibility tree and window-scoped
+selectors. Read/click/fill the page in the background; do not activate Safari
+or edit its address bar as routine preparation for page interactions.
+
 For Safari address navigation, use File > Open Location… to start editing,
 then `set_value` on `WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD` and a bound submit
 `Return`. Setting the value and confirming without starting address editing can

@@ -18,6 +18,9 @@ If focus is absent or more than one window is marked, it prints all windows.
 When a file chooser, attachment dialog or expected control is missing, first
 read `tacto observe <app> --helper --all-windows`; indices remain unchanged.
 A condensed tree is not proof that another window does not exist.
+The app's `[focused]` window is not necessarily the desktop's foreground app.
+Reading another window does not require activation; pin its observed identity
+with `ancestor` before acting.
 
 For the backend's complete structured observation, use
 `tacto observe <app> --helper --json`. This returns the full observed tree and
