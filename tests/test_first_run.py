@@ -1,4 +1,5 @@
 import unittest
+import json
 import re
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -59,8 +60,9 @@ class FirstRunTests(unittest.TestCase):
         self.assertNotIn('PRIVATE', str(r))
         self.assertEqual(2, execute.call_count)
 
-    def run_case(self, *, after=OLD+NEW, final=OLD+DONE, write_error=None, create_ok=True, before=None):
+    def run_case(self, *, after=OLD+NEW, final=OLD+DONE, write_error=None, create_ok=True, before=None, capabilities=None):
         driver = Mock()
+        if capabilities is not None:driver.capabilities=capabilities
         def observe(*args, **kwargs):
             if execute.call_count == 0:
                 return observation(OLD) if before is None else before
@@ -74,6 +76,15 @@ class FirstRunTests(unittest.TestCase):
         with patch("tacto.first_run.time.sleep"):
             result = run_first_task(driver, launch=launch, execute=execute)
         return result, driver, execute
+
+    def test_lossless_helper_compares_actual_multiline_text_without_repeating_write(self):
+        packet='3 TextArea LabelsV1: Value: '+json.dumps(TEXT,ensure_ascii=False)+', Identifier: "First Text View"\n'
+        final=OLD+'2 Window Title: "Untitled" [focused]\n  '+packet
+        self.presenter.return_value=dict(foreground_verified=True)
+        result,driver,execute=self.run_case(final=final,capabilities={'observe.labels_v1'})
+        self.assertEqual('text_verified',result['status']);self.assertTrue(result['foreground_verified'])
+        self.assertEqual(2,execute.call_count)
+        self.assertEqual(TEXT,execute.call_args.args[1].steps[0].postcondition.equals)
 
     def test_visible_text_success_is_separate_from_unverified_persistence(self):
         r, driver, execute = self.run_case()

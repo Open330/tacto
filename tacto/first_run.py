@@ -221,9 +221,12 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
     if Selector._attr(line, 'Value') not in (None, ''):
         return result('failed', 'new_document_identity', error='new_document_not_empty')
     params = {'value': TEXT}
-    # AX tree values encode line breaks as two visible characters. Match the
-    # fixed welcome text in that representation; the AX write remains raw.
-    condition = Postcondition(field=field, attribute='Value', equals=TEXT.replace('\n', '\\n'))
+    # New helpers preserve exact control strings; legacy trees still expose
+    # display-escaped line breaks. Negotiate once rather than unescaping names.
+    capabilities=getattr(driver,'capabilities',())
+    lossless=isinstance(capabilities,(set,frozenset,list,tuple)) and 'observe.labels_v1' in capabilities
+    expected_text=TEXT if lossless else TEXT.replace('\n','\\n')
+    condition = Postcondition(field=field, attribute='Value', equals=expected_text)
     step = Step('set_value', field, params=params, postcondition=condition,
                 safety=SafetyContract(effects=['write_persistent'], reversibility='recoverable',
                     resource=Resource(object_type='new first-run document', object_identity=title, scope='item')),
@@ -253,7 +256,7 @@ def run_first_task(driver, *, launch=launch_app, execute=replay, present=None, a
         verified_window = None
         fresh_owner = None
     visible_text = Postcondition(field=Selector(role='TextArea', identifier='First Text View'),
-                                 attribute='Value', equals=TEXT.replace('\n', '\\n'))
+                                 attribute='Value', equals=expected_text)
     if (fresh.get('type') != 'observation' or fresh.get('truncated') or fresh_owner != owner
             or verified_window is None or not visible_text.check(verified_window['tree'])):
         return result('failed', 'verify', error=fresh.get('error', 'text_not_verified'), repeat_write=False,
