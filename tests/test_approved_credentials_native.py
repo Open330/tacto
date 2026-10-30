@@ -1,6 +1,7 @@
 """Opt-in actual secure-field receiving through the signed launcher/helper."""
 import json,os,plistlib,subprocess,sys,tempfile,time,unittest
 from pathlib import Path
+from uuid import uuid4
 ROOT=Path(__file__).resolve().parents[1]
 LAUNCHER=ROOT/'launcher/tacto'
 @unittest.skipUnless(sys.platform=='darwin' and os.environ.get('TACTO_RUN_NATIVE_CREDENTIAL_TESTS')=='1','opt-in signed secure-field receiving test')
@@ -44,8 +45,8 @@ class ApprovedCredentialsNative(unittest.TestCase):
                 if self.path.startswith('/proof'):
                     self.server.matched=True;self.send_response(204);self.end_headers();return
                 self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers()
-                self.wfile.write(b'''<title>Tacto owned approval credential fixture</title><input type="password" aria-label="Owned password" id="p"><input type="password" aria-label="Owned confirmation" id="c"><input aria-label="Owned ordinary field"><script>setInterval(()=>{if(p.value==='owned-Synthetic-47!'&&c.value==='owned-Synthetic-47!')fetch('/proof?both=matched')},100)</script>''')
-        server=ThreadingHTTPServer(('127.0.0.1',0),Page);server.matched=False
+                self.wfile.write(b'''<title>Tacto owned approval credential fixture</title><input type="password" aria-label="Owned password" id="p"><input type="password" aria-label="Owned confirmation" id="c"><input aria-label="Owned ordinary field"><script>setInterval(()=>{if(p.value==='owned-Synthetic-47!'&&c.value==='owned-Synthetic-47!')fetch('/proof?both=matched')},100)</script>'''.replace(b'Tacto owned approval credential fixture',self.server.fixture_title.encode()))
+        server=ThreadingHTTPServer(('127.0.0.1',0),Page);server.matched=False;server.fixture_title='Tacto owned approval credential fixture '+uuid4().hex
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         def command(*args):
             return subprocess.run([str(LAUNCHER),*args],capture_output=True,text=True,
@@ -54,7 +55,7 @@ class ApprovedCredentialsNative(unittest.TestCase):
             opened=command('open-url',f'http://127.0.0.1:{server.server_port}','--browser','com.apple.Safari','--helper')
             self.assertEqual(0,opened.returncode,opened.stdout+opened.stderr)
             safety={'effects':['write_ephemeral'],'reversibility':'reversible','resource':{'object_type':'owned input','scope':'entry'}}
-            steps=[{'action':'set_value','selector':{'role':'TextField','title':label,'ancestor':'Tacto owned approval credential fixture'},'params':{'value':value},'safety':safety,'unverified_ok':True}
+            steps=[{'action':'set_value','selector':{'role':'TextField','title':label,'ancestor':server.fixture_title},'params':{'value':value},'safety':safety,'unverified_ok':True}
                 for label,value in [('Owned password','owned-Synthetic-47!'),('Owned confirmation','owned-Synthetic-47!'),('Owned ordinary field','blur-check')]]
             with tempfile.TemporaryDirectory() as directory:
                 base=Path(directory);flow=base/'flow.json';flow.write_text(json.dumps({'name':'owned-approved-passwords','target':'com.apple.Safari','steps':steps}))

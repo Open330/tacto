@@ -1,6 +1,7 @@
 """Owned controlled form: validate receiving events, replacement and clipboard bytes."""
 import json,os,subprocess,sys,tempfile,threading,time,unittest
 from pathlib import Path
+from uuid import uuid4
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 ROOT=Path(__file__).resolve().parents[1]
 LAUNCHER=ROOT/'launcher/tacto'
@@ -17,8 +18,8 @@ class CredentialPasteNative(unittest.TestCase):
      from urllib.parse import urlparse,parse_qs
      self.server.proof=parse_qs(urlparse(self.path).query);self.send_response(204);self.end_headers();return
     self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers()
-    self.wfile.write(b'''<title>Tacto owned controlled password</title><input type="password" aria-label="Owned password" id="p"><script>let state='',inputs=0;p.addEventListener('input',()=>{state=p.value;inputs++});setInterval(()=>fetch('/proof?dom='+String(p.value==='owned-Synthetic-47!')+'&state='+String(state==='owned-Synthetic-47!')+'&inputs='+inputs),100)</script>''')
-  server=ThreadingHTTPServer(('127.0.0.1',0),Page);server.proof={};thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    self.wfile.write(b'''<title>Tacto owned controlled password</title><input type="password" aria-label="Owned password" id="p"><script>let state='',inputs=0;p.addEventListener('input',()=>{state=p.value;inputs++});setInterval(()=>fetch('/proof?dom='+String(p.value==='owned-Synthetic-47!')+'&state='+String(state==='owned-Synthetic-47!')+'&inputs='+inputs),100)</script>'''.replace(b'Tacto owned controlled password',self.server.fixture_title.encode()))
+  server=ThreadingHTTPServer(('127.0.0.1',0),Page);server.proof={};server.fixture_title='Tacto owned controlled password '+uuid4().hex;thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
   def command(*args):return subprocess.run([str(LAUNCHER),*args],capture_output=True,text=True,timeout=40,env=dict(os.environ,TACTO_HELPER_MODE='warm'))
   try:
    opened=command('open-url',f'http://127.0.0.1:{server.server_port}','--browser','com.apple.Safari','--helper')
@@ -26,7 +27,7 @@ class CredentialPasteNative(unittest.TestCase):
    before=clipboard()
    with tempfile.TemporaryDirectory() as d:
     f=Path(d)/'flow.json';trace=Path(d)/'trace.json'
-    step={'action':'set_value','selector':{'role':'TextField','title':'Owned password','ancestor':'Tacto owned controlled password'},'params':{'value':'owned-Synthetic-47!','input_method':'paste'},'safety':{'effects':['credential'],'reversibility':'reversible','resource':{'scope':'entry'}},'unverified_ok':True}
+    step={'action':'set_value','selector':{'role':'TextField','title':'Owned password','ancestor':server.fixture_title},'params':{'value':'owned-Synthetic-47!','input_method':'paste'},'safety':{'effects':['credential'],'reversibility':'reversible','resource':{'scope':'entry'}},'unverified_ok':True}
     f.write_text(json.dumps({'name':'owned native credential paste','target':'com.apple.Safari','steps':[step,step]}))
     r=command('run',str(f),'--helper','--yes','--trace',str(trace))
     self.assertEqual(0,r.returncode,r.stdout+r.stderr)
@@ -43,7 +44,7 @@ class CredentialPasteNative(unittest.TestCase):
     name='owned-paste-'+uuid.uuid4().hex;store=CredentialStore();vault=KeychainVault()
     try:
      vault.put(name,'owned-Synthetic-47!');store.add_vault(name,{'kind':'keychain'})
-     store.grant(name,{'target':'com.apple.Safari','origin':f'http://127.0.0.1:{server.server_port}','level':'fill','fields':[{'name':'password','selector':{'role':'TextField','title':'Owned password','ancestor':'Tacto owned controlled password'},'secret':{'vault':name,'item':name,'field':'password'},'input_method':'paste'}]})
+     store.grant(name,{'target':'com.apple.Safari','origin':f'http://127.0.0.1:{server.server_port}','level':'fill','fields':[{'name':'password','selector':{'role':'TextField','title':'Owned password','ancestor':server.fixture_title},'secret':{'vault':name,'item':name,'field':'password'},'input_method':'paste'}]})
      filled=command('auth','fill',name,'--helper')
      self.assertEqual(0,filled.returncode,filled.stdout+filled.stderr)
      self.assertNotIn('owned-Synthetic-47!',filled.stdout+filled.stderr)
